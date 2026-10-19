@@ -429,6 +429,18 @@ const (
 	// asked for and the cluster already has cluster.max_agents agents (default
 	// 100). The manager cap keeps its generic ErrInvalidRequest.
 	ErrClusterMaxAgents = "CLUSTER_MAX_AGENTS"
+	// ErrClusterRouteNotOnAgent is returned (HTTP 409) for a /cluster/ route
+	// whose ?node= names an agent. Cluster management runs on managers, and
+	// the manager does not run it in the agent's place.
+	ErrClusterRouteNotOnAgent = "CLUSTER_ROUTE_NOT_ON_AGENT"
+	// ErrClusterAgentAuthFailed is returned (HTTP 502) when a relay to an agent
+	// cannot be signed — replicated state holds no key for it — or the agent
+	// answers 401. Passed on as a 401, the browser would end the operator's
+	// session on this manager.
+	ErrClusterAgentAuthFailed = "CLUSTER_AGENT_AUTH_FAILED"
+	// ErrClusterAgentInsecure is returned (HTTP 502) when a relay to an agent
+	// would go over plain HTTP: its panel CA is not in replicated state.
+	ErrClusterAgentInsecure = "CLUSTER_AGENT_PANEL_INSECURE"
 )
 
 // TLS error codes

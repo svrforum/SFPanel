@@ -22,17 +22,22 @@ import (
 // the cluster's mTLS client config; passing nil falls back to system roots
 // (still hostname-verified) rather than InsecureSkipVerify.
 //
+// `sign` returns the internal-proxy header for the dial, made with the key
+// for remoteNode (Manager.SignProxyRequestFor). When it fails, the relay ends
+// without dialling: an unsigned dial would only be refused, and nothing else
+// may stand in for the header.
+//
 // `username` is the JWT/ticket-authenticated operator on the relay side; it
 // is stamped into X-SFPanel-Original-User on the outbound dial so the remote
 // handler can bind per-user state (e.g. the terminal PTY session key). The
-// HTTP gRPC proxy mirrors this header propagation — see proxy.go:451-462,
+// HTTP gRPC proxy mirrors this header propagation — see buildProxyAPIRequest,
 // where the same trust boundary is established for unary requests. Callers
 // must pass a non-empty, locally-authenticated username: the remote trusts
 // the internal-proxy headers, and most relayed WS handlers (logs, metrics,
 // docker exec) do not re-validate the operator — only the terminal handler
 // has its own non-empty guard. WrapEchoWSHandler rejects unauthenticated
 // relays with 401 before calling this.
-func RelayWebSocket(clientWS *websocket.Conn, remoteNode *Node, endpoint PanelEndpoint, originalURL *url.URL, proxySecret, username string, tlsCfg *crypto_tls.Config) error {
+func RelayWebSocket(clientWS *websocket.Conn, remoteNode *Node, endpoint PanelEndpoint, originalURL *url.URL, sign func(method, path string) (string, error), username string, tlsCfg *crypto_tls.Config) error {
 	// The ws/wss decision, and the peer's trust anchor, both come from the
 	// caller-resolved endpoint. It used to be decided here from an https://
 	// prefix on APIAddress — an escape hatch that never fired, because every
@@ -58,23 +63,24 @@ func RelayWebSocket(clientWS *websocket.Conn, remoteNode *Node, endpoint PanelEn
 	// Connect to remote node's WS endpoint with internal proxy auth.
 	// Sign the v2 (HMAC + nonce + timestamp) header only — the v1
 	// static-secret send was dropped (peers accept v2 on WS handlers since
-	// v0.11.2). Mirrors the HTTP gRPC proxy and middleware setAuthHeaders.
+	// v0.11.2). Mirrors the middleware's setAuthHeaders; the gRPC proxy signs
+	// nothing, its receiver signs its own loopback hop.
 	//
 	// The v2 MAC binds method + request-URI (path + query); the receiving
 	// IsInternalProxyRequest validates against r.URL.RequestURI(), which is
 	// path+query as it arrives at the remote — i.e. after stripNodeParam
 	// removed ?node=. We therefore sign over the same path+query we put on
 	// the wire.
-	headers := http.Header{}
-	if proxySecret != "" {
-		signPath := remotePath
-		if remoteQuery != "" {
-			signPath = remotePath + "?" + remoteQuery
-		}
-		if v2 := auth.SignProxyRequestV2(http.MethodGet, signPath); v2 != "" {
-			headers.Set(auth.InternalProxyHeaderV2, v2)
-		}
+	signPath := remotePath
+	if remoteQuery != "" {
+		signPath = remotePath + "?" + remoteQuery
 	}
+	v2, err := sign(http.MethodGet, signPath)
+	if err != nil {
+		return fmt.Errorf("sign the relay: %w", err)
+	}
+	headers := http.Header{}
+	headers.Set(auth.InternalProxyHeaderV2, v2)
 	if username != "" {
 		headers.Set("X-SFPanel-Original-User", username)
 	}
@@ -277,6 +283,19 @@ func WrapEchoWSHandler(getMgr func() *Manager, handler func(c echo.Context) erro
 			return c.JSON(http.StatusUnauthorized, map[string]string{"error": "authentication required"})
 		}
 
+		// Refuse before the upgrade what the relay would refuse after it — an
+		// agent whose panel CA is unknown (no relay in clear) or that has no
+		// key (nothing else may sign for it). Once upgraded, the browser sees
+		// only a socket that opens and closes, with no status and no reason.
+		endpoint, err := mgr.PanelEndpointChecked(node)
+		if err == nil {
+			err = mgr.CanSignFor(node)
+		}
+		if err != nil {
+			slog.Warn("WS relay to node refused", "component", "cluster", "node_id", nodeID, "error", err)
+			return c.JSON(http.StatusBadGateway, map[string]string{"error": err.Error()})
+		}
+
 		// Upgrade client connection
 		clientWS, err := WSRelayUpgrader.Upgrade(c.Response(), c.Request(), nil)
 		if err != nil {
@@ -299,7 +318,8 @@ func WrapEchoWSHandler(getMgr func() *Manager, handler func(c echo.Context) erro
 		// internal-proxy header.
 		relayURL := *c.Request().URL
 		relayURL.RawQuery = StripAuthParams(relayURL.RawQuery)
-		if err := RelayWebSocket(clientWS, node, mgr.PanelEndpointFor(node), &relayURL, mgr.ProxySecret(), username, tlsCfg); err != nil {
+		sign := func(method, path string) (string, error) { return mgr.SignProxyRequestFor(node, method, path) }
+		if err := RelayWebSocket(clientWS, node, endpoint, &relayURL, sign, username, tlsCfg); err != nil {
 			slog.Warn("WS relay to node failed", "component", "cluster", "node_id", nodeID, "error", err)
 		}
 		return nil

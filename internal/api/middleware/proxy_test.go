@@ -201,7 +201,7 @@ func TestBuildRelayURL_DropsNodeParam(t *testing.T) {
 	req := &http.Request{Method: "GET", URL: u}
 	target := &cluster.Node{APIAddress: "10.0.0.6:9443"}
 
-	got := buildRelayURL(req, target, nil)
+	got := buildRelayURL(req, (*cluster.Manager)(nil).PanelEndpointFor(target))
 	if !strings.HasPrefix(got, "http://10.0.0.6:9443/api/v1/files/download?") {
 		t.Fatalf("base URL wrong: %s", got)
 	}
@@ -218,7 +218,7 @@ func TestBuildRelayURL_NoQuery(t *testing.T) {
 	req := &http.Request{Method: "POST", URL: u}
 	target := &cluster.Node{APIAddress: "10.0.0.6:9443"}
 
-	got := buildRelayURL(req, target, nil)
+	got := buildRelayURL(req, (*cluster.Manager)(nil).PanelEndpointFor(target))
 	want := "http://10.0.0.6:9443/api/v1/system/backup"
 	if got != want {
 		t.Errorf("buildRelayURL = %q, want %q", got, want)
@@ -240,7 +240,7 @@ func TestBuildRelayURL_IgnoresSchemeStoredInAPIAddress(t *testing.T) {
 	req := &http.Request{Method: "GET", URL: u}
 	target := &cluster.Node{ID: "peer", APIAddress: "https://10.0.0.6:9443"}
 
-	got := buildRelayURL(req, target, nil)
+	got := buildRelayURL(req, (*cluster.Manager)(nil).PanelEndpointFor(target))
 	want := "http://10.0.0.6:9443/api/v1/system/backup"
 	if got != want {
 		t.Errorf("buildRelayURL = %q, want %q (scheme comes from replicated state, not the address)", got, want)
@@ -249,7 +249,7 @@ func TestBuildRelayURL_IgnoresSchemeStoredInAPIAddress(t *testing.T) {
 
 // runRelay drives executeHTTPRelay against an httptest target server.
 // Returns the recorded client-facing response.
-func runRelay(t *testing.T, method, path string, body []byte, headers http.Header, target *httptest.Server, authMutator func(*http.Request)) *httptest.ResponseRecorder {
+func runRelay(t *testing.T, method, path string, body []byte, headers http.Header, target *httptest.Server, authMutator func(*http.Request) error) *httptest.ResponseRecorder {
 	t.Helper()
 	e := echo.New()
 	var bodyReader io.Reader
@@ -269,7 +269,7 @@ func runRelay(t *testing.T, method, path string, body []byte, headers http.Heade
 	c := e.NewContext(req, rec)
 
 	client := target.Client()
-	if err := executeHTTPRelay(c, target.URL+path, client, authMutator, 30*time.Second); err != nil {
+	if err := executeHTTPRelay(c, target.URL+path, client, authMutator, 30*time.Second, false); err != nil {
 		t.Logf("executeHTTPRelay returned non-fatal error: %v", err)
 	}
 	return rec
@@ -412,8 +412,9 @@ func TestRelayAuthRewrite(t *testing.T) {
 	headers := http.Header{}
 	headers.Set("Authorization", "Bearer user-jwt-do-not-forward")
 
-	mutator := func(req *http.Request) {
+	mutator := func(req *http.Request) error {
 		req.Header.Set("X-SFPanel-Internal-Proxy", "shared-cluster-secret")
+		return nil
 	}
 	runRelay(t, "GET", "/api/v1/files/download?path=/x", nil, headers, target, mutator)
 
@@ -477,8 +478,9 @@ func TestProxyToLeader_NilManagerPassesThrough(t *testing.T) {
 
 // newTestManagerWithProxySecret builds a minimal cluster.Manager whose
 // ProxySecret() returns non-empty by dropping a stub ca.crt into a tempdir
-// (LoadCACert just reads bytes and sha256s them; no x509 parsing). Keeps
-// setAuthHeaders' real gate intact instead of stubbing it.
+// (LoadCACert just reads bytes and sha256s them; no x509 parsing). The tests
+// install that value as the signing secret, as ApplyProxySecrets does on a
+// cluster that has not rotated off the CA-derived secret yet.
 func newTestManagerWithProxySecret(t *testing.T, secretSeed string) *cluster.Manager {
 	t.Helper()
 	dir := t.TempDir()
@@ -500,10 +502,9 @@ func newTestManagerWithProxySecret(t *testing.T, secretSeed string) *cluster.Man
 //
 // Fix: sign over RequestURI() so signer and verifier agree.
 func TestSetAuthHeaders_V2SignsPathPlusQuery(t *testing.T) {
-	// SignProxyRequestV2 reads the auth-package global; the gate inside
-	// setAuthHeaders reads mgr.ProxySecret(). In production both derive from
-	// the same CA hash and are set together at startup; the test mirrors
-	// that by configuring both sides.
+	// setAuthHeaders signs for a manager with the auth-package signing secret
+	// (SignProxyRequestFor), which ApplyProxySecrets installs at startup; the
+	// test installs the CA-derived one a cluster starts with.
 	mgr := newTestManagerWithProxySecret(t, "test-ca-bytes-for-v2-sig-roundtrip")
 	auth.SetClusterProxySecret(mgr.ProxySecret())
 	t.Cleanup(func() { auth.SetClusterProxySecret("") })
@@ -518,10 +519,12 @@ func TestSetAuthHeaders_V2SignsPathPlusQuery(t *testing.T) {
 		t.Fatalf("build outbound request: %v", err)
 	}
 
-	setAuthHeaders(out, orig, mgr)
+	if err := setAuthHeaders(out, orig, mgr, &cluster.Node{ID: "peer"}); err != nil {
+		t.Fatal(err)
+	}
 
 	if v2 := out.Header.Get(auth.InternalProxyHeaderV2); v2 == "" {
-		t.Fatal("v2 header not set — mgr.ProxySecret() gate did not fire")
+		t.Fatal("v2 header not set — the installed signing secret was not used")
 	}
 	// Replay the outbound on the receiver — IsInternalProxyRequest reads
 	// r.URL.RequestURI() (path+query) for validation. If the signer used
@@ -547,7 +550,9 @@ func TestSetAuthHeaders_NoV1Outbound(t *testing.T) {
 	if err != nil {
 		t.Fatalf("build outbound request: %v", err)
 	}
-	setAuthHeaders(out, orig, mgr)
+	if err := setAuthHeaders(out, orig, mgr, &cluster.Node{ID: "peer"}); err != nil {
+		t.Fatal(err)
+	}
 
 	if v1 := out.Header.Get(auth.InternalProxyHeader); v1 != "" {
 		t.Errorf("v1 static-secret header must no longer be sent, got %q", v1)

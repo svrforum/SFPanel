@@ -149,10 +149,12 @@ func copyEndToEndHeaders(dst, src http.Header) {
 }
 
 // buildRelayURL composes the absolute URL for a remote node forwarding
-// request, with the query relayQuery leaves.
-func buildRelayURL(req *http.Request, targetNode *cluster.Node, mgr *cluster.Manager) string {
-	baseURL := mgr.PanelEndpointFor(targetNode).BaseURL
-	url := baseURL + req.URL.Path
+// request, with the query relayQuery leaves. endpoint is the one the relay's
+// client trusts (newRemoteHTTPClient): URL and trust anchor come from a single
+// resolution, so a CA that vanished in between cannot turn the URL into
+// http:// behind a check that passed.
+func buildRelayURL(req *http.Request, endpoint cluster.PanelEndpoint) string {
+	url := endpoint.BaseURL + req.URL.Path
 	if encoded := relayQuery(req.URL.Query()); encoded != "" {
 		url += "?" + encoded
 	}
@@ -176,19 +178,19 @@ func relayQuery(q url.Values) string {
 // still verifies hostnames against whatever system roots are available;
 // this is strictly safer than InsecureSkipVerify while not crashing during
 // bootstrap.
-func newRemoteHTTPClient(timeout time.Duration, mgr *cluster.Manager, targetNode *cluster.Node) *http.Client {
+func newRemoteHTTPClient(timeout time.Duration, mgr *cluster.Manager, endpoint cluster.PanelEndpoint) *http.Client {
 	tlsCfg := &tls.Config{}
 	if mgr != nil {
 		if cfg, err := mgr.GetTLS().ClientTLSConfig(); err == nil && cfg != nil {
 			tlsCfg = cfg.Clone()
 		}
-		// A peer serving its panel over TLS presents a certificate from ITS
-		// OWN local CA, not the shared cluster mTLS CA — different trust
-		// domain, so the mTLS pool above would reject it. Replace, don't merge:
-		// each peer is anchored to exactly one authority.
-		if ep := mgr.PanelEndpointFor(targetNode); ep.TLSConfig != nil {
-			tlsCfg = ep.TLSConfig.Clone()
-		}
+	}
+	// A peer serving its panel over TLS presents a certificate from ITS
+	// OWN local CA, not the shared cluster mTLS CA — different trust
+	// domain, so the mTLS pool above would reject it. Replace, don't merge:
+	// each peer is anchored to exactly one authority.
+	if endpoint.TLSConfig != nil {
+		tlsCfg = endpoint.TLSConfig.Clone()
 	}
 	return &http.Client{
 		Timeout: timeout,
@@ -198,32 +200,54 @@ func newRemoteHTTPClient(timeout time.Duration, mgr *cluster.Manager, targetNode
 	}
 }
 
-// setAuthHeaders sets internal proxy or bearer auth headers for remote requests.
-func setAuthHeaders(httpReq *http.Request, origReq *http.Request, mgr *cluster.Manager) {
-	if mgr.ProxySecret() != "" {
-		// v2-only send: the v1 static-secret header is no longer attached
-		// (receivers have accepted v2 on every route since v0.13.2 / commit
-		// a74857a; inbound v1 is still accepted this release and will be
-		// removed next release — see internal/auth/proxyauth.go).
-		//
-		// Sign the OUTBOUND request-URI (httpReq), not the inbound one. Callers
-		// build httpReq pointing at the peer with the routing ?node= stripped, so
-		// signing httpReq.URL.RequestURI() binds the MAC to exactly what the peer
-		// receives and validates. Signing origReq instead would cover the
-		// with-node URI; the peer validates the node-stripped one and v2 fails
-		// with NO v1 fallback (IsInternalProxyRequest only tries v1 when the v2
-		// header is absent), 401-ing every ?node-routed relay (e.g. a
-		// cross-node-initiated stack migration over SSE).
-		if v2 := authpkg.SignProxyRequestV2(httpReq.Method, httpReq.URL.RequestURI()); v2 != "" {
-			httpReq.Header.Set(authpkg.InternalProxyHeaderV2, v2)
-		}
-	} else if auth := origReq.Header.Get("Authorization"); auth != "" {
-		httpReq.Header.Set("Authorization", auth)
+// setAuthHeaders signs a relayed request for target and names the operator.
+//
+// The key depends on the target (SignProxyRequestFor): a header signed with the
+// managers' secret is accepted once by every manager, so it goes to managers
+// only, and an agent gets one made with its own key. When target cannot be
+// signed for, nothing is added and the error says why; the caller must not
+// send. The operator's bearer token used to go in its place, and to an agent
+// that is a login valid on every manager for a day.
+func setAuthHeaders(httpReq *http.Request, origReq *http.Request, mgr *cluster.Manager, target *cluster.Node) error {
+	// v2-only send: the v1 static-secret header is no longer attached, and
+	// no receiver has accepted it since v0.57.0 (internal/auth/proxyauth.go).
+	//
+	// Sign the OUTBOUND request-URI (httpReq), not the inbound one. Callers
+	// build httpReq pointing at the peer with the routing ?node= stripped, so
+	// signing httpReq.URL.RequestURI() binds the MAC to exactly what the peer
+	// receives and validates. Signing origReq instead would cover the
+	// with-node URI; the peer validates the node-stripped one and v2 fails,
+	// 401-ing every ?node-routed relay (e.g. a cross-node-initiated stack
+	// migration over SSE).
+	v2, err := mgr.SignProxyRequestFor(target, httpReq.Method, httpReq.URL.RequestURI())
+	if err != nil {
+		return err
 	}
+	httpReq.Header.Set(authpkg.InternalProxyHeaderV2, v2)
 	// Forward the original username so the target node knows who initiated the request
 	if user := origReq.Header.Get("X-SFPanel-Original-User"); user != "" {
 		httpReq.Header.Set("X-SFPanel-Original-User", user)
 	}
+	return nil
+}
+
+// failUnsigned answers a relay that could not be signed for its target, before
+// anything was sent to it. An agent with no key in replicated state has a code
+// of its own: the operator can act on that one.
+func failUnsigned(c echo.Context, err error) error {
+	code := response.ErrInternalError
+	if errors.Is(err, cluster.ErrNoAgentKey) {
+		code = response.ErrClusterAgentAuthFailed
+	}
+	return response.Fail(c, http.StatusBadGateway, code, "Relay not sent: "+err.Error())
+}
+
+// failAgentRefusedSignature answers an agent's 401 to a relay this manager
+// signed with that agent's key. Whatever the agent refused, it was not the
+// operator's session here — which is how the browser reads a 401, logging
+// them out.
+func failAgentRefusedSignature(c echo.Context) error {
+	return response.Fail(c, http.StatusBadGateway, response.ErrClusterAgentAuthFailed, "the agent refused the manager's signature")
 }
 
 // writeSSEEvent writes a single SSE event to the response writer and flushes.
@@ -236,23 +260,23 @@ func writeSSEEvent(w *echo.Response, phase, line string) {
 	}
 }
 
-// relaySSE opens a direct HTTP connection to the remote node's SSE endpoint
-// and relays the event stream to the client in real-time.
-// If the remote node doesn't support SSE streaming (old version), falls back
-// to the regular non-streaming endpoint and synthesizes SSE events.
 // relayHTTP forwards an HTTP request to a remote node and streams the
 // response back to the original client. Both request body and response
 // body are streamed via io.Copy so multi-GB transfers don't sit in
 // memory. Used for large binary endpoints (file download/upload, system
 // backup/restore) where the default gRPC proxy can't carry the payload.
 func relayHTTP(c echo.Context, targetNode *cluster.Node, mgr *cluster.Manager) error {
+	endpoint, err := mgr.PanelEndpointChecked(targetNode)
+	if err != nil {
+		return response.Fail(c, http.StatusBadGateway, response.ErrClusterAgentInsecure, err.Error())
+	}
 	// 30-minute window covers downloads up to a few GB on a slow LAN and
 	// matches the upper bound for the rest of the cluster relay paths.
-	client := newRemoteHTTPClient(30*time.Minute, mgr, targetNode)
-	addAuth := func(httpReq *http.Request) {
-		setAuthHeaders(httpReq, c.Request(), mgr)
+	client := newRemoteHTTPClient(30*time.Minute, mgr, endpoint)
+	addAuth := func(httpReq *http.Request) error {
+		return setAuthHeaders(httpReq, c.Request(), mgr, targetNode)
 	}
-	return executeHTTPRelay(c, buildRelayURL(c.Request(), targetNode, mgr), client, addAuth, 30*time.Minute)
+	return executeHTTPRelay(c, buildRelayURL(c.Request(), endpoint), client, addAuth, 30*time.Minute, !targetNode.IsManager())
 }
 
 // executeHTTPRelay carries the manager-free body of relayHTTP. Splitting it
@@ -264,14 +288,18 @@ func relayHTTP(c echo.Context, targetNode *cluster.Node, mgr *cluster.Manager) e
 //   - The caller has already decided routing and target URL.
 //   - Request body, response body, and connection lifetime are all bound to
 //     c.Request().Context(); a client disconnect cancels the upstream call.
+//   - An authMutator error ends the relay before anything is sent.
+//   - agentTarget says the target is an agent, whose 401 is answered as a 502
+//     (failAgentRefusedSignature) rather than handed to the browser.
 //   - Any error that surfaces *after* WriteHeader can no longer flip the
 //     status code — we log it so partial transfers don't fail silently.
 func executeHTTPRelay(
 	c echo.Context,
 	targetURL string,
 	client *http.Client,
-	authMutator func(*http.Request),
+	authMutator func(*http.Request) error,
 	timeout time.Duration,
+	agentTarget bool,
 ) error {
 	req := c.Request()
 	ctx, cancel := context.WithTimeout(req.Context(), timeout)
@@ -308,7 +336,9 @@ func executeHTTPRelay(
 	// double-gzipped body the browser can't decode.
 	httpReq.Header.Del("Accept-Encoding")
 	if authMutator != nil {
-		authMutator(httpReq)
+		if err := authMutator(httpReq); err != nil {
+			return failUnsigned(c, err)
+		}
 	}
 	if req.ContentLength > 0 {
 		httpReq.ContentLength = req.ContentLength
@@ -319,6 +349,10 @@ func executeHTTPRelay(
 		return response.Fail(c, http.StatusBadGateway, response.ErrInternalError, "Relay failed: "+err.Error())
 	}
 	defer resp.Body.Close()
+
+	if agentTarget && resp.StatusCode == http.StatusUnauthorized {
+		return failAgentRefusedSignature(c)
+	}
 
 	// Forward response headers verbatim — Content-Disposition (filename),
 	// Content-Length, Content-Type all matter to the browser. Strip
@@ -339,9 +373,17 @@ func executeHTTPRelay(
 	return copyErr
 }
 
+// relaySSE opens a direct HTTP connection to the remote node's SSE endpoint
+// and relays the event stream to the client in real-time.
+// If the remote node doesn't support SSE streaming (old version), falls back
+// to the regular non-streaming endpoint and synthesizes SSE events.
 func relaySSE(c echo.Context, targetNode *cluster.Node, mgr *cluster.Manager) error {
 	req := c.Request()
-	baseURL := mgr.PanelEndpointFor(targetNode).BaseURL
+	endpoint, err := mgr.PanelEndpointChecked(targetNode)
+	if err != nil {
+		return response.Fail(c, http.StatusBadGateway, response.ErrClusterAgentInsecure, err.Error())
+	}
+	baseURL := endpoint.BaseURL
 	queryStr := ""
 	if encoded := relayQuery(req.URL.Query()); encoded != "" {
 		queryStr = "?" + encoded
@@ -368,7 +410,7 @@ func relaySSE(c echo.Context, targetNode *cluster.Node, mgr *cluster.Manager) er
 	ctx, cancel := context.WithTimeout(req.Context(), window)
 	defer cancel()
 
-	client := newRemoteHTTPClient(window, mgr, targetNode)
+	client := newRemoteHTTPClient(window, mgr, endpoint)
 
 	// Try SSE streaming endpoint first
 	sseURL := baseURL + req.URL.Path + queryStr
@@ -379,7 +421,9 @@ func relaySSE(c echo.Context, targetNode *cluster.Node, mgr *cluster.Manager) er
 	if ct := req.Header.Get("Content-Type"); ct != "" {
 		httpReq.Header.Set("Content-Type", ct)
 	}
-	setAuthHeaders(httpReq, req, mgr)
+	if err := setAuthHeaders(httpReq, req, mgr, targetNode); err != nil {
+		return failUnsigned(c, err)
+	}
 
 	resp, err := client.Do(httpReq)
 	if err != nil {
@@ -402,6 +446,9 @@ func relaySSE(c echo.Context, targetNode *cluster.Node, mgr *cluster.Manager) er
 	defer resp.Body.Close()
 
 	if !strings.Contains(ct, "text/event-stream") {
+		if !targetNode.IsManager() && resp.StatusCode == http.StatusUnauthorized {
+			return failAgentRefusedSignature(c)
+		}
 		copyEndToEndHeaders(c.Response().Header(), resp.Header)
 		c.Response().WriteHeader(resp.StatusCode)
 		_, _ = io.Copy(c.Response().Writer, resp.Body)
@@ -425,7 +472,9 @@ func relaySSE(c echo.Context, targetNode *cluster.Node, mgr *cluster.Manager) er
 		if fct := req.Header.Get("Content-Type"); fct != "" {
 			httpReq.Header.Set("Content-Type", fct)
 		}
-		setAuthHeaders(httpReq, req, mgr)
+		if err := setAuthHeaders(httpReq, req, mgr, targetNode); err != nil {
+			return failUnsigned(c, err)
+		}
 
 		fallbackResp, err := client.Do(httpReq)
 		if err != nil {
@@ -507,6 +556,14 @@ func ClusterProxyMiddleware(getMgr func() *cluster.Manager) echo.MiddlewareFunc 
 			if local {
 				return next(c)
 			}
+			// An agent has no cluster routes; cluster management runs on
+			// managers. Running the request here instead would be no answer:
+			// it would act on this manager, and /cluster/leave would take it
+			// out of the cluster.
+			if !targetNode.IsManager() && agentRouteRefused(c.Request().URL.Path) {
+				return response.Fail(c, http.StatusConflict, response.ErrClusterRouteNotOnAgent,
+					"cluster management runs on managers; an agent has no cluster routes")
+			}
 
 			// Don't pre-refuse on heartbeat status. Even the leader's view goes
 			// stale right after a peer restart (the 2-node heartbeat is racy) and
@@ -543,6 +600,13 @@ func ClusterProxyMiddleware(getMgr func() *cluster.Manager) echo.MiddlewareFunc 
 			return proxyToNodeGRPC(c, targetNode, mgr)
 		}
 	}
+}
+
+// agentRouteRefused reports whether path is a cluster route, which a request
+// whose ?node= names an agent may not reach: the agent does not serve it, and
+// this manager must not run it in the agent's place.
+func agentRouteRefused(path string) bool {
+	return strings.HasPrefix(path, "/api/v1/cluster/")
 }
 
 // errProxyNodeNotFound is proxyTargetFor's answer for a ?node= that names no
@@ -698,6 +762,15 @@ func proxyToNodeGRPC(c echo.Context, targetNode *cluster.Node, mgr *cluster.Mana
 			pool.Remove(targetNode.GRPCAddress)
 			return response.Fail(c, http.StatusGatewayTimeout, response.ErrInternalError, "Proxy request failed: "+err.Error())
 		}
+	}
+
+	// An agent's 401 is the agent refusing the request, not the operator's
+	// session here ending — which is how the browser reads a 401, logging
+	// them out. Unlike the HTTP relays, this path carries no signature of
+	// this manager's (the agent signs its own loopback hop), so the answer
+	// does not blame one.
+	if !targetNode.IsManager() && resp.StatusCode == http.StatusUnauthorized {
+		return response.Fail(c, http.StatusBadGateway, response.ErrClusterAgentAuthFailed, "the agent refused the request as unauthenticated")
 	}
 
 	for k, v := range resp.Headers {

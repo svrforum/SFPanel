@@ -58,7 +58,7 @@ func TestHTTPRelayCarriesNoCredentials(t *testing.T) {
 	req.Header.Set("X-SFPanel-Original-Node", "spoofed")
 	c := echo.New().NewContext(req, httptest.NewRecorder())
 	url := target.URL + req.URL.Path + "?" + relayQuery(req.URL.Query())
-	if err := executeHTTPRelay(c, url, target.Client(), nil, time.Minute); err != nil {
+	if err := executeHTTPRelay(c, url, target.Client(), nil, time.Minute, false); err != nil {
 		t.Fatal(err)
 	}
 	if seen == nil {

@@ -74,6 +74,22 @@ func (m *Manager) PanelEndpointFor(node *Node) PanelEndpoint {
 	}
 }
 
+// PanelEndpointChecked is PanelEndpointFor for callers about to send a
+// request: an agent must be reached over HTTPS, so one whose panel CA is not
+// in replicated state is refused rather than spoken to in clear. A manager
+// without one is still reached over http, as before agents existed.
+//
+// The caller builds both the URL and the client's trust anchor from the
+// endpoint this returns. Resolving a second time could see the CA gone and
+// hand back http:// after the check passed.
+func (m *Manager) PanelEndpointChecked(node *Node) (PanelEndpoint, error) {
+	ep := m.PanelEndpointFor(node)
+	if node != nil && !node.IsManager() && ep.TLSConfig == nil {
+		return PanelEndpoint{}, ErrAgentPanelInsecure
+	}
+	return ep, nil
+}
+
 // normalisePanelAuthority strips any scheme an older record may carry and
 // appends the default port when none is present.
 func normalisePanelAuthority(apiAddr string, port int) string {

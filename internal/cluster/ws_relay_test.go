@@ -3,6 +3,8 @@ package cluster
 import (
 	"net/http"
 	"net/http/httptest"
+	"strings"
+	"sync/atomic"
 	"testing"
 
 	"github.com/labstack/echo/v4"
@@ -87,5 +89,49 @@ func TestResolveRelayUsername_Unauthenticated(t *testing.T) {
 	c := newRelayContext(t, "/ws/docker/containers/abc/exec?node=remote-uuid")
 	if got := resolveRelayUsername(c, "some-jwt-secret"); got != "" {
 		t.Fatalf("resolveRelayUsername = %q, want empty for unauthenticated request", got)
+	}
+}
+
+// A relay to an agent that cannot be reached over HTTPS, or signed for, is
+// refused before the browser's connection is upgraded — after it, the refusal
+// is a socket that opens and drops. The requests here carry no WebSocket
+// headers, so getting past the checks shows as the upgrader's own 400.
+func TestWSRelayRefusesAnAgentBeforeTheUpgrade(t *testing.T) {
+	setProxySecret(t, "managers-secret")
+	var dialled atomic.Int32
+	panel := httptest.NewServer(http.HandlerFunc(func(http.ResponseWriter, *http.Request) { dialled.Add(1) }))
+	defer panel.Close()
+	addr := panel.Listener.Addr().String()
+	fsm := fsmWithConfig(t, map[string]string{panelCAKey("a-tls"): makeCert(t, "agent panel CA", true)})
+	addTestNode(t, fsm, Node{ID: "a-plain", Kind: KindAgent, APIAddress: addr})
+	addTestNode(t, fsm, Node{ID: "a-tls", Kind: KindAgent, APIAddress: addr})
+	addTestNode(t, fsm, Node{ID: "m2", Kind: KindManager, APIAddress: addr})
+	mgr := &Manager{raft: &RaftNode{fsm: fsm}, heartbeat: NewHeartbeatManager(DefaultHeartbeatInterval, DefaultHeartbeatTimeout)}
+	ranLocally := false
+	h := WrapEchoWSHandler(func() *Manager { return mgr }, func(echo.Context) error { ranLocally = true; return nil })
+	relay := func(node string) *httptest.ResponseRecorder {
+		rec := httptest.NewRecorder()
+		c := echo.New().NewContext(httptest.NewRequest(http.MethodGet, "/ws/terminal?node="+node, nil), rec)
+		c.Set("username", "alice")
+		if err := h(c); err != nil {
+			t.Fatal(err)
+		}
+		return rec
+	}
+
+	for node, reason := range map[string]error{"a-plain": ErrAgentPanelInsecure, "a-tls": ErrNoAgentKey} {
+		rec := relay(node)
+		if rec.Code != http.StatusBadGateway || !strings.Contains(rec.Body.String(), reason.Error()) {
+			t.Fatalf("%s: %d %s, want 502 %q", node, rec.Code, rec.Body.String(), reason)
+		}
+	}
+	applyCmd(t, fsm, Command{Type: CmdSetConfig, Key: AgentKeyConfigKey("a-tls"), Value: mustJSON("agent-key")})
+	for _, node := range []string{"a-tls", "m2"} {
+		if rec := relay(node); rec.Code != http.StatusBadRequest {
+			t.Fatalf("%s: %d %s, want the upgrader's 400", node, rec.Code, rec.Body.String())
+		}
+	}
+	if ranLocally || dialled.Load() != 0 {
+		t.Fatalf("ran locally %v, dialled %d", ranLocally, dialled.Load())
 	}
 }

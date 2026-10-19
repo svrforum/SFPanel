@@ -247,7 +247,8 @@ func (t *throttledReader) Read(b []byte) (int, error) {
 
 // pushBundle streams body (length contentLength) to the target node's
 // migrate-import endpoint with internal-proxy auth + the SHA header, returning
-// the target's HTTP status + body. mTLS via the cluster client TLS config. No
+// the target's HTTP status + body. HTTPS verified against the target's panel
+// CA when replicated state holds one (an agent must), plain HTTP otherwise. No
 // fixed client Timeout — a multi-GB transfer can outlast any deadline; the
 // caller's opCtx bounds (and cancels) the whole migration instead. onProgress
 // (optional) is called with cumulative/total bytes as the body streams out.
@@ -265,8 +266,12 @@ func (h *Handler) pushBundle(ctx context.Context, targetNodeID, username string,
 	// Scheme and trust anchor both come from the shared resolver. This file
 	// used to carry its own byte-identical copy of the scheme decision, with a
 	// comment admitting the duplication — and a copy that drifts here fails
-	// mid-transfer on a multi-gigabyte stack push.
-	endpoint := mgr.PanelEndpointFor(node)
+	// mid-transfer on a multi-gigabyte stack push. The checked form refuses
+	// an agent that would be pushed to over plain HTTP.
+	endpoint, err := mgr.PanelEndpointChecked(node)
+	if err != nil {
+		return 0, nil, err
+	}
 	target := endpoint.BaseURL + importPath
 
 	tlsCfg := &tls.Config{}
@@ -298,11 +303,13 @@ func (h *Handler) pushBundle(ctx context.Context, targetNodeID, username string,
 	req.Header.Set("Content-Type", "application/octet-stream")
 	req.Header.Set(migrationShaHeader, sha)
 	req.ContentLength = contentLength
-	if mgr.ProxySecret() != "" {
-		if v2 := auth.SignProxyRequestV2(http.MethodPost, importPath); v2 != "" {
-			req.Header.Set(auth.InternalProxyHeaderV2, v2)
-		}
+	// Signed with the key for the target: an agent's own, never the managers'
+	// secret, which every manager would accept. Nothing goes out unsigned.
+	sig, err := mgr.SignProxyRequestFor(node, http.MethodPost, importPath)
+	if err != nil {
+		return 0, nil, err
 	}
+	req.Header.Set(auth.InternalProxyHeaderV2, sig)
 	if username != "" {
 		req.Header.Set("X-SFPanel-Original-User", username)
 	}
