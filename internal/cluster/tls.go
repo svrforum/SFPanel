@@ -172,6 +172,36 @@ func (t *TLSManager) ReissueNodeCert(nodeID string, addresses []string, role str
 	return os.Rename(tmp.Name(), filepath.Join(t.certDir, "node.crt"))
 }
 
+// SignNodeCSR signs a node certificate for the key in a certificate request.
+// Only the key comes from the request: the leader sets CN, role and SANs, so
+// a joining node cannot ask for a manager's name or another node's address.
+func (t *TLSManager) SignNodeCSR(nodeID string, addresses []string, role string, csrDER []byte) ([]byte, error) {
+	pub, err := csrPublicKey(csrDER)
+	if err != nil {
+		return nil, err
+	}
+	return t.signNodeCert(nodeID, addresses, role, pub)
+}
+
+// csrPublicKey returns the key a certificate request asks a certificate for,
+// or ErrBadCSR. The request must be signed by that key — the requester holds
+// it — and the key must be ECDSA P-256, what every other node certificate in
+// the cluster carries (IssueNodeCert).
+func csrPublicKey(csrDER []byte) (*ecdsa.PublicKey, error) {
+	csr, err := x509.ParseCertificateRequest(csrDER)
+	if err != nil {
+		return nil, ErrBadCSR
+	}
+	if err := csr.CheckSignature(); err != nil {
+		return nil, ErrBadCSR
+	}
+	pub, ok := csr.PublicKey.(*ecdsa.PublicKey)
+	if !ok || pub.Curve != elliptic.P256() {
+		return nil, ErrBadCSR
+	}
+	return pub, nil
+}
+
 // signNodeCert signs a node certificate for pub with the cluster CA.
 func (t *TLSManager) signNodeCert(nodeID string, addresses []string, role string, pub *ecdsa.PublicKey) ([]byte, error) {
 	if role != CertRoleManager && role != CertRoleAgent {

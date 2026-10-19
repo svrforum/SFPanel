@@ -23,4 +23,10 @@ var (
 	// in replicated FSM state. Surfaced to the joining operator via
 	// "join rejected: …" so the message must stay actionable.
 	ErrCAKeyUnavailable = errors.New("cluster CA private key unavailable on the leader — the leader cannot sign new node certificates; restore ca.key on the leader or re-initialize the cluster")
+	// RegisterAgent's refusals reach the operator through the agent's join
+	// command, so each says what is wrong in terms the operator can act on.
+	ErrProxyRotationPending = errors.New("the cluster is still switching its internal proxy secret; agents can register about five minutes after every manager runs this version")
+	ErrAgentPanelCARequired = errors.New("the agent's panel must serve HTTPS, and the registration carried no panel CA")
+	ErrNodeIdentityTaken    = errors.New("another node already uses this name or address")
+	ErrBadCSR               = errors.New("the certificate request is not a valid ECDSA P-256 request")
 )

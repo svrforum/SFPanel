@@ -53,6 +53,11 @@ type Manager struct {
 	promoteMu       sync.Mutex
 	promoteAttempts map[string]time.Time
 
+	// registerAgentMu runs agent registrations one at a time: the agent cap
+	// and the name and address checks hold only if no other registration
+	// commits between them and the write (HandleRegisterAgent).
+	registerAgentMu sync.Mutex
+
 	// proxySecretCache caches the sha256(CA cert) derivation. Invalidated
 	// implicitly on cert-rotate via the TLSManager's stat-based reload —
 	// callers refresh on TLS error responses; nothing else mutates the CA.

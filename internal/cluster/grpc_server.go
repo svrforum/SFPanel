@@ -353,6 +353,19 @@ func (s *GRPCServer) Join(ctx context.Context, req *pb.JoinRequest) (*pb.JoinRes
 	}, nil
 }
 
+// RegisterAgent registers an agent (leader only). A follower answers with the
+// leader's address so the agent can re-dial it with the same CA pin.
+func (s *GRPCServer) RegisterAgent(ctx context.Context, req *pb.RegisterAgentRequest) (*pb.RegisterAgentResponse, error) {
+	if !s.manager.IsLeader() {
+		return &pb.RegisterAgentResponse{Error: ErrNotLeader.Error(), LeaderGrpcAddress: s.manager.GetRaft().LeaderGRPCAddress()}, nil
+	}
+	res, err := s.manager.HandleRegisterAgent(RegisterAgentInput{Token: req.Token, CSR: req.Csr, NodeName: req.NodeName, APIAddress: req.ApiAddress, GRPCAddress: req.GrpcAddress, PanelCA: req.PanelCaCert, Version: req.Version})
+	if err != nil {
+		return &pb.RegisterAgentResponse{Error: err.Error()}, nil
+	}
+	return &pb.RegisterAgentResponse{Success: true, NodeId: res.NodeID, NodeCert: res.NodeCert, CaCert: res.CACert, AgentKey: res.AgentKey, Managers: res.Managers, ClusterName: res.ClusterName}, nil
+}
+
 // PreFlight validates a join token without consuming it.
 //
 // The CA key goes back whatever the token says. A joiner asks with no token
