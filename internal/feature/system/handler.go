@@ -772,19 +772,11 @@ func (h *Handler) clusterUpdateQuorumGuard(c echo.Context) error {
 	}
 	local := h.ClusterMgr.LocalNodeID()
 	health := hb.CheckHealth()
-	// Total voters = this node + every other online voter. A node whose
-	// heartbeat says "offline" or "suspect" is treated as already down,
-	// so taking another voter offline must still leave a quorum among
+	// Total voters = this node + every other online manager voter. A node
+	// whose heartbeat says "offline" or "suspect" is treated as already
+	// down, so taking another voter offline must still leave a quorum among
 	// the survivors that Raft can see.
-	onlineVoters := 1 // ourselves
-	for id, status := range health {
-		if id == local {
-			continue
-		}
-		if status == cluster.StatusOnline {
-			onlineVoters++
-		}
-	}
+	onlineVoters := countOnlineManagerVoters(local, health, h.ClusterMgr.GetNode)
 	refuse, survivors, quorum := computeUpdateQuorum(onlineVoters)
 	if !refuse {
 		return nil
@@ -798,6 +790,22 @@ func (h *Handler) clusterUpdateQuorumGuard(c echo.Context) error {
 		"remote_ip", c.RealIP())
 	return response.Fail(c, http.StatusConflict, response.ErrUpdateInProgress,
 		fmt.Sprintf("Refusing update: %d/%d voters would remain online (quorum=%d). Use /cluster/update for a coordinated rolling update, or pass ?force=true to override.", survivors, onlineVoters, quorum))
+}
+
+// countOnlineManagerVoters counts this node plus every other online manager
+// voter. Agents and joining managers do not vote, so taking one down leaves
+// the quorum as it was.
+func countOnlineManagerVoters(local string, health map[string]cluster.NodeStatus, nodeOf func(string) *cluster.Node) int {
+	count := 1 // ourselves
+	for id, status := range health {
+		if id == local || status != cluster.StatusOnline {
+			continue
+		}
+		if n := nodeOf(id); n != nil && n.IsManager() && n.Role == cluster.RoleVoter {
+			count++
+		}
+	}
+	return count
 }
 
 // computeUpdateQuorum returns whether taking one more voter offline would

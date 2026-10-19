@@ -1369,6 +1369,12 @@ func backOnNewVersion(health map[string]cluster.NodeStatus, metrics []*cluster.N
 // runClusterUpdate is the orchestration behind ClusterUpdate. It runs on its
 // own goroutine and reports through emit, which never blocks it: whether
 // anyone is still watching has no bearing on whether the update finishes.
+// isTransferTarget reports whether a node may take leadership: an online
+// manager voter. Raft refuses a non-voter, and an agent is never a member.
+func isTransferTarget(voter, manager bool, status cluster.NodeStatus) bool {
+	return voter && manager && status == cluster.StatusOnline
+}
+
 func (h *Handler) runClusterUpdate(mgr *cluster.Manager, mode string, emit func(map[string]interface{})) {
 	state := mgr.GetRaft().GetFSM().GetState()
 	health := mgr.GetHeartbeat().CheckHealth()
@@ -1384,6 +1390,8 @@ func (h *Handler) runClusterUpdate(mgr *cluster.Manager, mode string, emit func(
 		Name    string
 		Version string
 		IsLocal bool
+		Voter   bool
+		Manager bool
 	}
 
 	var followers []nodeInfo
@@ -1397,7 +1405,8 @@ func (h *Handler) runClusterUpdate(mgr *cluster.Manager, mode string, emit func(
 		if m, ok := metricsMap[id]; ok {
 			ver = m.Version
 		}
-		ni := nodeInfo{ID: id, Name: node.Name, Version: ver, IsLocal: id == localID}
+		ni := nodeInfo{ID: id, Name: node.Name, Version: ver, IsLocal: id == localID,
+			Voter: node.Role == cluster.RoleVoter, Manager: node.IsManager()}
 		if id == localID {
 			leader = ni
 		} else {
@@ -1576,14 +1585,23 @@ func (h *Handler) runClusterUpdate(mgr *cluster.Manager, mode string, emit func(
 
 	if updateLeader {
 		emit(map[string]interface{}{"node_id": leader.ID, "node_name": leader.Name, "step": "updating", "message": "Updating leader (this node)..."})
+		transferred := false
 		for _, f := range followers {
-			h2 := mgr.GetHeartbeat().CheckHealth()
-			if s, ok := h2[f.ID]; ok && s == cluster.StatusOnline {
-				emit(map[string]interface{}{"node_id": leader.ID, "node_name": leader.Name, "step": "transfer", "message": "Transferring leadership to " + f.Name})
-				_ = mgr.GetRaft().TransferLeadership(f.ID)
-				time.Sleep(2 * time.Second)
-				break
+			if !isTransferTarget(f.Voter, f.Manager, mgr.GetHeartbeat().CheckHealth()[f.ID]) {
+				continue
 			}
+			emit(map[string]interface{}{"node_id": leader.ID, "node_name": leader.Name, "step": "transfer", "message": "Transferring leadership to " + f.Name})
+			if err := mgr.GetRaft().TransferLeadership(f.ID); err != nil {
+				slog.Warn("cluster update: leadership transfer failed", "component", "cluster", "target", f.ID, "error", err)
+				emit(map[string]interface{}{"node_id": leader.ID, "node_name": leader.Name, "step": "warning", "message": "Leadership transfer to " + f.Name + " failed: " + err.Error()})
+				continue
+			}
+			transferred = true
+			time.Sleep(2 * time.Second)
+			break
+		}
+		if !transferred {
+			emit(map[string]interface{}{"node_id": leader.ID, "node_name": leader.Name, "step": "warning", "message": "No manager took over leadership; the managers elect a new leader when this one stops"})
 		}
 		updated++
 	}
