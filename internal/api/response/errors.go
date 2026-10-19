@@ -185,8 +185,11 @@ const (
 	ErrUFWDeleteError  = "UFW_DELETE_ERROR"
 
 	// ErrUFWLockout is returned (HTTP 409) when enabling UFW, adding a rule or
-	// deleting one would cut off SSH (22) and the panel port; ?force=true
-	// proceeds anyway. Its own code so the page can say so in its language.
+	// deleting one would cut off SSH (22) and the panel port, the Proxmox web
+	// UI (8006) on a Proxmox VE host, or a port the rest of the cluster
+	// reaches the node on; ?force=true proceeds anyway. Its own code so the
+	// page can say so in its language; the last two name their ports in the
+	// details ("port", "cluster_ports").
 	ErrUFWLockout         = "UFW_LOCKOUT"
 	ErrIPTablesError      = "IPTABLES_ERROR"
 	ErrFail2banError      = "FAIL2BAN_ERROR"

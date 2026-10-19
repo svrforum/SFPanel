@@ -126,6 +126,37 @@ func wouldLockOutOnAdd(req AddRuleRequest, panelPort int) bool {
 	return portSpecCovers(port, SSHPort) || portSpecCovers(port, panelPort)
 }
 
+// clusterPortsMissing returns the ports, in the order given, that no rule
+// allows. Unlike SSH and the panel's port, which are two ways in where either
+// will do, the rest of the cluster needs every one of a node's cluster ports.
+func clusterPortsMissing(rules []UFWRule, ports []int) []int {
+	var missing []int
+	for _, p := range ports {
+		if !anyRuleAllowsPort(rules, p) {
+			missing = append(missing, p)
+		}
+	}
+	return missing
+}
+
+// wouldCloseClusterPort is wouldLockOutOnAdd for the ports the rest of the
+// cluster reaches this node on: it returns the first of ports the proposed
+// deny, reject or limit covers.
+func wouldCloseClusterPort(req AddRuleRequest, ports []int) (int, bool) {
+	switch strings.ToLower(strings.TrimSpace(req.Action)) {
+	case "deny", "reject", "limit":
+	default:
+		return 0, false
+	}
+	spec, _, _ := strings.Cut(strings.TrimSpace(req.Port), "/")
+	for _, p := range ports {
+		if portSpecCovers(spec, p) {
+			return p, true
+		}
+	}
+	return 0, false
+}
+
 // loadUFWRulesForLockoutCheck returns the rule set that would apply if UFW
 // were enabled. `ufw status numbered` only lists the live ruleset; when UFW
 // is inactive that output is empty even if the operator has pre-staged

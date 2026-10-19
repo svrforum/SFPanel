@@ -21,12 +21,27 @@ type Handler struct {
 	// port — or enabling UFW with no allow rule for either SSH or this
 	// port — requires explicit force=true confirmation.
 	PanelPort int
+	// ClusterPorts answers which ports the rest of the cluster reaches this
+	// node on — an agent's managers: its gRPC port and the panel's; managers:
+	// each other's gRPC and Raft ports. The lockout guard keeps every one of
+	// them open as it keeps SSH and the panel's port. Nil, or no ports, on a
+	// standalone panel. A function, because a standalone panel becomes a
+	// manager at runtime (cluster init or join) without a restart.
+	ClusterPorts func() []int
 	// dockerRuleMu serializes DOCKER-USER chain mutations. iptables rules are
 	// addressed by line number, so a concurrent add/delete that renumbers the
 	// chain mid-operation can delete the wrong rule (the companion-LOG cleanup
 	// in DeleteDockerUserRule adjusts indices by hand). Serializing add/delete
 	// keeps the numbering stable for the duration of each operation.
 	dockerRuleMu sync.Mutex
+}
+
+// clusterPorts is ClusterPorts' answer, none when it is unset.
+func (h *Handler) clusterPorts() []int {
+	if h.ClusterPorts == nil {
+		return nil
+	}
+	return h.ClusterPorts()
 }
 
 // requireTool returns a structured "not installed" response when the named

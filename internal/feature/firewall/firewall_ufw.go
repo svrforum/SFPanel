@@ -109,6 +109,23 @@ func pveUILockout(c echo.Context, message string) error {
 		map[string]string{"port": strconv.Itoa(PVEUIPort)})
 }
 
+// clusterPortLockout is the lockout refusal for ports the rest of the cluster
+// reaches this node on. Its details name them, so a client can tell it from
+// the SSH and panel refusal, which has the same code.
+func clusterPortLockout(c echo.Context, message string, ports []int) error {
+	return response.FailWith(c, http.StatusConflict, response.ErrUFWLockout, message,
+		map[string]string{"cluster_ports": portList(ports)})
+}
+
+// portList writes ports as the cluster refusals name them: "3629, 3630".
+func portList(ports []int) string {
+	s := make([]string, len(ports))
+	for i, p := range ports {
+		s[i] = strconv.Itoa(p)
+	}
+	return strings.Join(s, ", ")
+}
+
 // parseUFWStatus parses the output of `ufw status verbose`.
 // Example output:
 //
@@ -153,7 +170,8 @@ func parseUFWStatus(output string) UFWStatus {
 // for SSH or the panel port, because UFW's default-incoming-deny flip will
 // then immediately disconnect the operator (and the panel itself).
 // Pass ?force=true to override. On Proxmox VE the rules must also allow
-// the web UI's port, and the enable is refused unless ufw already runs.
+// the web UI's port, and the enable is refused unless ufw already runs. On a
+// cluster node they must also allow every one of its ClusterPorts.
 func (h *Handler) EnableUFW(c echo.Context) error {
 	if refused, err := h.refuseOnPVE(c); refused {
 		return err
@@ -177,6 +195,10 @@ func (h *Handler) EnableUFW(c echo.Context) error {
 			if platform.Get().PVE && !anyRuleAllowsPort(rules, PVEUIPort) {
 				return pveUILockout(c, "Enabling UFW with no ALLOW rule for the Proxmox web UI (port 8006) would cut this node's management. "+
 					"Add an allow rule first, or pass ?force=true to confirm.")
+			}
+			if missing := clusterPortsMissing(rules, h.clusterPorts()); len(missing) > 0 {
+				return clusterPortLockout(c, "Enabling UFW with no ALLOW rule for cluster port(s) "+portList(missing)+
+					" would cut this node off from the rest of its cluster. Add an allow rule first, or pass ?force=true to confirm.", missing)
 			}
 		}
 	}
@@ -390,11 +412,11 @@ func (h *Handler) AddRule(c echo.Context) error {
 		return err
 	}
 
-	// Lockout preflight: a deny/reject/limit on SSH or the panel port
-	// inserted ahead of any existing allow rule would self-lock the
-	// operator (UFW's `iptables -I` puts new rules at the top of the
-	// chain). EnableUFW and DeleteRule already enforce the inverse —
-	// keep AddRule consistent.
+	// Lockout preflight: a deny/reject/limit on SSH or the panel port can
+	// self-lock the operator — ufw appends a new rule after the existing
+	// ones, but puts one that differs from an existing allow only in its
+	// action in that allow's place. EnableUFW and DeleteRule already
+	// enforce the inverse — keep AddRule consistent.
 	if c.QueryParam("force") != "true" && wouldLockOutOnAdd(req, h.PanelPort) {
 		return response.Fail(c, http.StatusConflict, response.ErrUFWLockout,
 			fmt.Sprintf("Refusing to %s port %s — this would block remote admin access (SSH 22 or panel %d). Pass ?force=true to confirm.", req.Action, req.Port, h.PanelPort))
@@ -402,6 +424,10 @@ func (h *Handler) AddRule(c echo.Context) error {
 	// SSH was checked just above; on Proxmox VE the web UI is kept as well.
 	if c.QueryParam("force") != "true" && platform.Get().PVE && wouldLockOutOnAdd(req, PVEUIPort) {
 		return pveUILockout(c, fmt.Sprintf("Refusing to %s port %s — this would block the Proxmox web UI (8006). Pass ?force=true to confirm.", req.Action, req.Port))
+	}
+	// And the ports the rest of the cluster reaches this node on.
+	if port, closes := wouldCloseClusterPort(req, h.clusterPorts()); c.QueryParam("force") != "true" && closes {
+		return clusterPortLockout(c, fmt.Sprintf("Refusing to %s port %s — this would close cluster port %d, which the rest of the cluster reaches this node on. Pass ?force=true to confirm.", req.Action, req.Port, port), []int{port})
 	}
 
 	// Build the UFW command
@@ -469,8 +495,8 @@ func buildUFWAddArgs(req AddRuleRequest) []string {
 // DeleteRule deletes a UFW rule by its number.
 // DELETE /firewall/rules/:number
 // Lockout guard: refuses to delete an ALLOW rule for SSH (22) or the panel
-// port if removing it would leave no other access rule. Pass ?force=true
-// to override.
+// port if removing it would leave no other access rule, or the last ALLOW
+// for one of the node's ClusterPorts. Pass ?force=true to override.
 func (h *Handler) DeleteRule(c echo.Context) error {
 	numberStr := c.Param("number")
 	number, err := strconv.Atoi(numberStr)
@@ -512,6 +538,20 @@ func (h *Handler) DeleteRule(c echo.Context) error {
 				ruleAllowsPort(*target, PVEUIPort) && !anyRuleAllowsPort(remaining, PVEUIPort) {
 				return pveUILockout(c, "Deleting this rule would leave no ALLOW for the Proxmox web UI (port 8006). "+
 					"Pass ?force=true to confirm.")
+			}
+			if target != nil {
+				// Only what this delete closes: a cluster port no rule
+				// allowed before is not this rule's to keep.
+				var cut []int
+				for _, p := range clusterPortsMissing(remaining, h.clusterPorts()) {
+					if ruleAllowsPort(*target, p) {
+						cut = append(cut, p)
+					}
+				}
+				if len(cut) > 0 {
+					return clusterPortLockout(c, "Deleting this rule would leave no ALLOW for cluster port(s) "+portList(cut)+
+						", which the rest of the cluster reaches this node on. Pass ?force=true to confirm.", cut)
+				}
 			}
 		}
 	}

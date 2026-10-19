@@ -584,7 +584,8 @@ func NewRouter(database *sql.DB, auditWriter *sfdb.AsyncWriter, alertManager *fe
 	swap.PUT("/resize", diskHandler.ResizeSwap)
 
 	// Firewall management (UFW)
-	firewallHandler := &featureFirewall.Handler{Cmd: cmd, PanelPort: cfg.Server.Port}
+	firewallHandler := &featureFirewall.Handler{Cmd: cmd, PanelPort: cfg.Server.Port,
+		ClusterPorts: firewallClusterPorts(cfg, func() bool { return getMgr() != nil })}
 	fw := authorized.Group("/firewall")
 	fw.GET("/status", firewallHandler.GetUFWStatus)
 	fw.POST("/enable", firewallHandler.EnableUFW)
@@ -781,6 +782,29 @@ func NewRouter(database *sql.DB, auditWriter *sfdb.AsyncWriter, alertManager *fe
 	}
 
 	return e, noopCleanup
+}
+
+// firewallClusterPorts answers which ports the rest of the cluster reaches
+// this node on, for the firewall's lockout guard: an agent's managers come in
+// on its gRPC port and its panel's, and managers reach each other on gRPC and
+// Raft (gRPC+1). It is asked on every check because a standalone panel becomes
+// a manager at runtime (a cluster init or join from the UI) without a
+// restart; cluster.enabled also counts a manager whose start failed, which
+// needs the same ports to rejoin on its next start. Everything from cfg is
+// read here, once, not on each check: a runtime init or join rewrites the
+// config while requests are being served.
+func firewallClusterPorts(cfg *config.Config, liveManager func() bool) func() []int {
+	grpcPort, panelPort := cfg.Cluster.GRPCPort, cfg.Server.Port
+	agent, member := cfg.Cluster.IsAgent(), cfg.Cluster.Enabled
+	return func() []int {
+		switch {
+		case agent:
+			return []int{grpcPort, panelPort}
+		case member || liveManager():
+			return []int{grpcPort, grpcPort + 1}
+		}
+		return nil
+	}
 }
 
 // noopCleanup is returned by NewRouter as its cleanup func. It currently does
