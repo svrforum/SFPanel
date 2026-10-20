@@ -34,6 +34,21 @@ func (m *Manager) SignProxyRequestFor(node *Node, method, path string) (string, 
 	return "", errSignFailed
 }
 
+// StepUpProofFor is a manager's word to an agent that it checked the
+// operator's password for the request signed with proxyHeader, carrying body
+// (auth.StepUpHeader). It is made with that agent's key; a manager checks a
+// password itself and is never sent one.
+func (m *Manager) StepUpProofFor(node *Node, proxyHeader string, body []byte) (string, error) {
+	if node == nil || node.IsManager() {
+		return "", errors.New("a step-up proof is for an agent only")
+	}
+	key, err := m.proxyKeyFor(node)
+	if err != nil {
+		return "", err
+	}
+	return auth.StepUpProofWith(key, proxyHeader, body), nil
+}
+
 // CanSignFor reports what SignProxyRequestFor would refuse for node, without
 // signing anything. The WebSocket relay must know before it upgrades the
 // browser's connection, and the path it signs is settled only after.

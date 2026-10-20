@@ -8,6 +8,7 @@ import (
 	"database/sql"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"log/slog"
@@ -166,6 +167,12 @@ type Handler struct {
 	DB          *sql.DB
 	ComposePath string
 	Cmd         exec.Commander
+	// StepUp checks the operator's password before an advanced install (the
+	// auth handler's VerifyStepUp); nil refuses every advanced install.
+	StepUp func(echo.Context, string) error
+	// AgentMode says this node is an agent: its managers check the password
+	// and send their word instead (auth.StepUpHeader).
+	AgentMode bool
 
 	mu         sync.RWMutex
 	categories []AppStoreCategory
@@ -443,48 +450,39 @@ func sendSSE(w io.Writer, flusher http.Flusher, event sseEvent) {
 	}
 }
 
-// verifyAdvancedReAuth requires the caller to re-prove their password
-// before InstallApp will accept arbitrary compose YAML. A stolen JWT
-// (XSS, leaked from a non-loopback ?token= URL, exfiltrated cookie) alone
-// must not be sufficient to escalate to host root via a compose file with
-// privileged: true / pid: host / hostfs binds — the bcrypt verify here is
-// the second factor for that escalation path.
+// verifyAdvancedReAuth is the second factor for an advanced install, which
+// lets the operator submit compose YAML that is a host-root primitive: it
+// blocks the case where an attacker has merely stolen the session (XSS,
+// cookie exfil) without the credential itself. A manager or standalone panel
+// checks the password through StepUp; an agent, which has no accounts, takes
+// its manager's word for it, bound to this request and this body.
 //
-// Username comes from c.Get("username") which the JWT middleware sets;
-// the password hash comes from the local admin row (replicated from the
-// FSM in cluster mode). The bcrypt compare is intentionally slow and
-// sits behind the global IP-based login rate limiter applied at the
-// middleware layer, so unlimited password guessing against this endpoint
-// is no faster than against /auth/login.
+// refused says the answer is written and the install stops there. An error
+// alone never stopped it: response.Fail returns nil once it has written, so a
+// refused install answered 403 and went on to install.
 //
 // A failure is 403, not 401: a 401 says the session ended. A manager
 // relaying from an agent reports one as the agent refusing the manager's
 // signature, and the browser's request path logs the operator out on one.
-func (h *Handler) verifyAdvancedReAuth(c echo.Context, password string) error {
-	username, _ := c.Get("username").(string)
-	if username == "" {
-		slog.Warn("advanced install missing authenticated username", "component", "appstore")
-		return response.Fail(c, http.StatusForbidden, response.ErrInvalidCredentials, "Re-authentication required for advanced install")
+func (h *Handler) verifyAdvancedReAuth(c echo.Context, raw []byte, password string) (refused bool, err error) {
+	if h.AgentMode {
+		if auth.VerifyStepUpProof(c.Request().Header.Get(auth.InternalProxyHeaderV2), raw, c.Request().Header.Get(auth.StepUpHeader)) {
+			return false, nil
+		}
+		return true, response.Fail(c, http.StatusForbidden, response.ErrInvalidCredentials,
+			"No manager confirmed the operator's password for this install: an advanced install on an agent goes through a manager on this version or later")
 	}
-	if password == "" {
-		return response.Fail(c, http.StatusBadRequest, response.ErrMissingFields,
-			"Password is required for advanced install")
+	if h.StepUp == nil {
+		return true, response.Fail(c, http.StatusForbidden, response.ErrInvalidCredentials, "Re-authentication is not available on this node")
 	}
-	var hash string
-	err := h.DB.QueryRow("SELECT password FROM admin WHERE username = ?", username).Scan(&hash)
-	if err != nil {
-		slog.Warn("advanced install: failed to load admin row",
-			"component", "appstore", "username", username, "error", err)
-		return response.Fail(c, http.StatusForbidden, response.ErrInvalidCredentials,
-			"Re-authentication required for advanced install")
+	if err := h.StepUp(c, password); err != nil {
+		var se *auth.StepUpError
+		if errors.As(err, &se) {
+			return true, response.Fail(c, se.Status, se.Code, se.Message)
+		}
+		return true, response.Fail(c, http.StatusForbidden, response.ErrInvalidCredentials, "Re-authentication required for advanced install")
 	}
-	if !auth.CheckPassword(password, hash) {
-		slog.Warn("advanced install: bad password",
-			"component", "appstore", "username", username, "remote_ip", c.RealIP())
-		return response.Fail(c, http.StatusForbidden, response.ErrInvalidPassword,
-			"Incorrect password")
-	}
-	return nil
+	return false, nil
 }
 
 // ---------------------------------------------------------------------------
@@ -725,15 +723,24 @@ func (h *Handler) InstallApp(c echo.Context) error {
 		// arbitrary compose YAML — a host-root primitive that the
 		// compose analyser gates structurally, but step-up re-auth
 		// blocks the case where an attacker has merely stolen the JWT
-		// (XSS, cookie exfil) without the credential itself.
+		// (XSS, cookie exfil) without the credential itself. An agent
+		// never gets one: its manager checks it and sends its word.
 		Password string `json:"password,omitempty"`
 	}
-	if err := c.Bind(&req); err != nil {
+	// The bytes as they came, not Bind: on an agent the manager's word is
+	// bound to exactly this body.
+	raw, err := io.ReadAll(c.Request().Body)
+	if err != nil {
 		return response.Fail(c, http.StatusBadRequest, response.ErrInvalidBody, "Invalid request body")
+	}
+	if len(bytes.TrimSpace(raw)) > 0 {
+		if err := json.Unmarshal(raw, &req); err != nil {
+			return response.Fail(c, http.StatusBadRequest, response.ErrInvalidBody, "Invalid request body")
+		}
 	}
 
 	if req.Advanced {
-		if err := h.verifyAdvancedReAuth(c, req.Password); err != nil {
+		if refused, err := h.verifyAdvancedReAuth(c, raw, req.Password); refused {
 			return err
 		}
 	}

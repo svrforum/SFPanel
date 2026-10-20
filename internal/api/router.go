@@ -278,7 +278,7 @@ func NewRouter(database *sql.DB, auditWriter *sfdb.AsyncWriter, alertManager *fe
 		// authoritative live pointer; we route all middleware reads through it.
 		authorized.Use(mw.ClusterProxyMiddleware(func() *cluster.Manager {
 			return clusterHandler.GetManager()
-		}))
+		}, authHandler.VerifyStepUp))
 		// Resolve the local node ID lazily so a node that joined a cluster mid-
 		// process (after the middleware chain was built) starts stamping
 		// audit rows correctly without a restart. Mirrors the same dynamic-
@@ -319,11 +319,16 @@ func NewRouter(database *sql.DB, auditWriter *sfdb.AsyncWriter, alertManager *fe
 	authorized.POST("/system/tuning/confirm", tuningHandler.ConfirmTuning)
 	authorized.POST("/system/tuning/reset", tuningHandler.ResetTuning)
 
-	// App Store
+	// App Store. An agent has no accounts to check an advanced install's
+	// password against: its manager checks it and sends its word.
 	appStoreHandler := &featureAppstore.Handler{
 		DB:          database,
 		ComposePath: cfg.Server.StacksPath,
 		Cmd:         cmd,
+		AgentMode:   agent,
+	}
+	if !agent {
+		appStoreHandler.StepUp = authHandler.VerifyStepUp
 	}
 	appStore := authorized.Group("/appstore")
 	appStore.GET("/categories", appStoreHandler.GetCategories)

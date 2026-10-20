@@ -677,6 +677,39 @@ func (h *Handler) ChangePassword(c echo.Context) error {
 	return response.OK(c, map[string]string{"message": "Password changed successfully"})
 }
 
+// VerifyStepUp checks the operator's password again before an action that
+// gives host root — an advanced app install, here or, through this manager,
+// on an agent. The account is read as a login reads it, the cluster's first:
+// a password change updates that one, and the local row keeps what the node
+// held when it joined. Each attempt counts against the login limit of the
+// caller's address, and a success clears it as a login's does: an operator
+// re-enters the password on every retry of a refused compose file, and five
+// of those within a minute shut their next login out for five minutes.
+func (h *Handler) VerifyStepUp(c echo.Context, password string) error {
+	username, _ := c.Get("username").(string)
+	if username == "" {
+		return &auth.StepUpError{Status: http.StatusForbidden, Code: response.ErrInvalidCredentials, Message: "Re-authentication required for advanced install"}
+	}
+	if password == "" {
+		return &auth.StepUpError{Status: http.StatusBadRequest, Code: response.ErrMissingFields, Message: "Password is required for advanced install"}
+	}
+	ip := c.RealIP()
+	if preRecordLoginAttempt(ip) {
+		return &auth.StepUpError{Status: http.StatusTooManyRequests, Code: response.ErrRateLimited, Message: "Too many attempts, try again later"}
+	}
+	hash, _, _, err := h.loadAdminAccount(username)
+	if err != nil {
+		slog.Warn("step-up: no account", "component", "auth", "username", username, "error", err)
+		return &auth.StepUpError{Status: http.StatusForbidden, Code: response.ErrInvalidCredentials, Message: "Re-authentication required for advanced install"}
+	}
+	if !auth.CheckPassword(password, hash) {
+		slog.Warn("step-up: bad password", "component", "auth", "username", username, "remote_ip", ip)
+		return &auth.StepUpError{Status: http.StatusForbidden, Code: response.ErrInvalidPassword, Message: "Incorrect password"}
+	}
+	loginAttempts.Delete(ip)
+	return nil
+}
+
 // isLoopbackOrPrivate reports whether ipStr is a loopback or RFC1918/ULA/
 // link-local address. First-run admin setup is restricted to such sources so a
 // fresh install bound to 0.0.0.0 on a public host cannot be claimed by a remote

@@ -207,7 +207,25 @@ func newAdvancedHandler(t *testing.T, password string) *Handler {
 	}
 	h.apps = []AppStoreMeta{{ID: "demo", Name: "Demo", Version: "1.0.0"}}
 	h.cachedAt = time.Now()
+	h.StepUp = localStepUp(h)
 	return h
+}
+
+// localStepUp is the re-auth a standalone panel's auth handler does, against
+// the local admin row: INVALID_CREDENTIALS without one, INVALID_PASSWORD for a
+// wrong password.
+func localStepUp(h *Handler) func(echo.Context, string) error {
+	return func(c echo.Context, password string) error {
+		username, _ := c.Get("username").(string)
+		var hash string
+		if err := h.DB.QueryRow("SELECT password FROM admin WHERE username = ?", username).Scan(&hash); err != nil {
+			return &auth.StepUpError{Status: http.StatusForbidden, Code: response.ErrInvalidCredentials, Message: "Re-authentication required for advanced install"}
+		}
+		if !auth.CheckPassword(password, hash) {
+			return &auth.StepUpError{Status: http.StatusForbidden, Code: response.ErrInvalidPassword, Message: "Incorrect password"}
+		}
+		return nil
+	}
 }
 
 // installAdvanced runs one advanced install and returns the SSE body.
@@ -235,7 +253,9 @@ func installAdvancedCtx(t *testing.T, h *Handler, body string, ctx context.Conte
 
 // A failed re-auth is not a dead session, which is what a 401 says: through a
 // manager, an agent's 401 is reported as the agent refusing the manager's
-// signature, which it did not.
+// signature, which it did not. The compose is one the gate refuses, so a
+// regression stops there rather than on the test machine's Docker: it once
+// wrote the refusal and installed nginx behind it.
 func TestInstallApp_AdvancedReAuthFailureIsNotASessionFailure(t *testing.T) {
 	for _, tc := range []struct {
 		name, code string
@@ -246,10 +266,11 @@ func TestInstallApp_AdvancedReAuthFailureIsNotASessionFailure(t *testing.T) {
 			h := newHandler(t)
 			h.apps = []AppStoreMeta{{ID: "demo", Name: "Demo", Version: "1.0.0"}}
 			h.cachedAt = time.Now()
+			h.StepUp = localStepUp(h)
 			return h
 		}()},
 	} {
-		req := httptest.NewRequest(http.MethodPost, "/api/v1/appstore/apps/demo/install", strings.NewReader(`{"advanced":true,"password":"wrong","compose":"services:\n  web:\n    image: nginx\n"}`))
+		req := httptest.NewRequest(http.MethodPost, "/api/v1/appstore/apps/demo/install", strings.NewReader(`{"advanced":true,"password":"wrong",`+forbiddenAdvanced+`}`))
 		req.Header.Set("Content-Type", "application/json")
 		rec := httptest.NewRecorder()
 		c := echo.New().NewContext(req, rec)
@@ -259,7 +280,7 @@ func TestInstallApp_AdvancedReAuthFailureIsNotASessionFailure(t *testing.T) {
 		if err := tc.h.InstallApp(c); err != nil {
 			t.Fatalf("%s: InstallApp returned err: %v", tc.name, err)
 		}
-		if rec.Code != http.StatusForbidden || !strings.Contains(rec.Body.String(), `"code":"`+tc.code+`"`) {
+		if !refusedAtReAuth(rec, tc.code) {
 			t.Errorf("%s: %d %s", tc.name, rec.Code, rec.Body)
 		}
 	}

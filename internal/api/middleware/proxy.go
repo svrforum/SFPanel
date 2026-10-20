@@ -433,6 +433,15 @@ func relaySSE(c echo.Context, targetNode *cluster.Node, mgr *cluster.Manager) er
 	if err := setAuthHeaders(httpReq, req, mgr, targetNode); err != nil {
 		return failUnsigned(c, err)
 	}
+	// Bound to the signature just made and to the body as sent. Only this
+	// request carries it: the fallback below is no install route.
+	if verified, _ := c.Get(stepUpVerifiedKey).(bool); verified {
+		proof, err := mgr.StepUpProofFor(targetNode, httpReq.Header.Get(authpkg.InternalProxyHeaderV2), bodyBytes)
+		if err != nil {
+			return failUnsigned(c, err)
+		}
+		httpReq.Header.Set(authpkg.StepUpHeader, proof)
+	}
 
 	resp, err := client.Do(httpReq)
 	if err != nil {
@@ -540,7 +549,10 @@ func relaySSE(c echo.Context, targetNode *cluster.Node, mgr *cluster.Manager) er
 // or joined a cluster) takes effect without a restart — the middleware
 // chain is built once at boot, so capturing a nil *Manager as a closure
 // would permanently disable proxy routing for cluster-init-at-runtime.
-func ClusterProxyMiddleware(getMgr func() *cluster.Manager) echo.MiddlewareFunc {
+//
+// stepUp checks the operator's password for an advanced install sent to an
+// agent (checkStepUpForAgent); nil refuses every one.
+func ClusterProxyMiddleware(getMgr func() *cluster.Manager, stepUp func(echo.Context, string) error) echo.MiddlewareFunc {
 	return func(next echo.HandlerFunc) echo.HandlerFunc {
 		return func(c echo.Context) error {
 			mgr := getMgr()
@@ -595,6 +607,12 @@ func ClusterProxyMiddleware(getMgr func() *cluster.Manager) echo.MiddlewareFunc 
 				c.Request().Header.Del("X-SFPanel-Original-User")
 			}
 
+			if !targetNode.IsManager() && isAppInstall(c.Request()) {
+				if handled, err := checkStepUpForAgent(c, stepUp); handled {
+					return err
+				}
+			}
+
 			// SSE streaming endpoints: relay via direct HTTP for real-time output
 			if isStreamingEndpoint(c.Request().URL.Path) {
 				return relaySSE(c, targetNode, mgr)
@@ -616,6 +634,73 @@ func ClusterProxyMiddleware(getMgr func() *cluster.Manager) echo.MiddlewareFunc 
 // this manager must not run it in the agent's place.
 func agentRouteRefused(path string) bool {
 	return strings.HasPrefix(path, "/api/v1/cluster/")
+}
+
+// maxInstallBody matches the app store's own cap on an install request.
+const maxInstallBody = 1 << 20
+
+// stepUpVerifiedKey marks, on the request's context, that checkStepUpForAgent
+// checked the operator's password; relaySSE then sends the agent its word.
+const stepUpVerifiedKey = "sfpanel.stepUpVerified"
+
+// isAppInstall reports whether r is an app store install.
+func isAppInstall(r *http.Request) bool {
+	rest, ok := strings.CutPrefix(r.URL.Path, "/api/v1/appstore/apps/")
+	return ok && r.Method == http.MethodPost && strings.HasSuffix(rest, "/install") && strings.Count(rest, "/") == 1
+}
+
+// checkStepUpForAgent runs an install's password check here, on the manager,
+// before it is relayed to an agent: an agent has no accounts, and a password
+// is never sent on to one. Every "password" key goes — in any case, because
+// encoding/json matches keys case-insensitively — and for an advanced install
+// the check must pass first; relaySSE then adds the word that it did
+// (auth.StepUpHeader). An install that names itself advanced in two ways the
+// agent reads differently is not a way around it: the agent refuses an
+// advanced install that carries no word.
+func checkStepUpForAgent(c echo.Context, stepUp func(echo.Context, string) error) (handled bool, err error) {
+	raw, err := io.ReadAll(io.LimitReader(c.Request().Body, maxInstallBody+1))
+	if err != nil || len(raw) > maxInstallBody {
+		return true, response.Fail(c, http.StatusBadRequest, response.ErrInvalidBody, "Invalid request body")
+	}
+	fields := map[string]json.RawMessage{}
+	if len(bytes.TrimSpace(raw)) > 0 {
+		if err := json.Unmarshal(raw, &fields); err != nil {
+			return true, response.Fail(c, http.StatusBadRequest, response.ErrInvalidBody, "Invalid request body")
+		}
+	}
+	advanced, password := false, ""
+	for k, v := range fields {
+		switch {
+		case strings.EqualFold(k, "advanced"):
+			var b bool
+			if json.Unmarshal(v, &b) == nil && b {
+				advanced = true
+			}
+		case strings.EqualFold(k, "password"):
+			_ = json.Unmarshal(v, &password)
+			delete(fields, k)
+		}
+	}
+	if advanced {
+		if stepUp == nil {
+			return true, response.Fail(c, http.StatusForbidden, response.ErrInvalidCredentials, "Re-authentication is not available on this node")
+		}
+		if err := stepUp(c, password); err != nil {
+			var se *authpkg.StepUpError
+			if errors.As(err, &se) {
+				return true, response.Fail(c, se.Status, se.Code, se.Message)
+			}
+			return true, response.Fail(c, http.StatusForbidden, response.ErrInvalidCredentials, "Re-authentication required for advanced install")
+		}
+		c.Set(stepUpVerifiedKey, true)
+	}
+	stripped, err := json.Marshal(fields)
+	if err != nil {
+		return true, response.Fail(c, http.StatusBadRequest, response.ErrInvalidBody, "Invalid request body")
+	}
+	c.Request().Body = io.NopCloser(bytes.NewReader(stripped))
+	c.Request().ContentLength = int64(len(stripped))
+	return false, nil
 }
 
 // errProxyNodeNotFound is proxyTargetFor's answer for a ?node= that names no

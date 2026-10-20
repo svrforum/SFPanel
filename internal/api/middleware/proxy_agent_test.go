@@ -184,7 +184,7 @@ func TestRelaysToAnAgent(t *testing.T) {
 	}
 
 	ranHere := false
-	h := ClusterProxyMiddleware(func() *cluster.Manager { return mgr })(func(c echo.Context) error {
+	h := ClusterProxyMiddleware(func() *cluster.Manager { return mgr }, nil)(func(c echo.Context) error {
 		ranHere = true
 		return c.NoContent(http.StatusTeapot)
 	})
