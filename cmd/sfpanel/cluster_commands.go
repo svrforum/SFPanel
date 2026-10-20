@@ -457,40 +457,51 @@ func clusterLeave(args []string) {
 	}
 
 	// Server not running — handle locally
-	fmt.Println("Leaving cluster...")
+	if err := leaveOffline(cfg, cfgPath); err != nil {
+		log.Fatalf("Leave failed: %v", err)
+	}
+}
 
+// leaveOffline takes a stopped node out of its cluster. The cluster's files
+// go before the config stops naming the cluster: saved as standalone first,
+// a removal that then failed left ca.key and the cluster's JWT key beside a
+// config that no longer said they were a cluster's, and 'agent join' took
+// the server. A file that cannot be removed ends the leave there, config
+// untouched, as the API's leave does.
+func leaveOffline(cfg *config.Config, cfgPath string) error {
+	fmt.Println("Leaving cluster...")
 	mgr := cluster.NewManager(&cfg.Cluster)
 	if startErr := mgr.Start(); startErr == nil {
 		time.Sleep(3 * time.Second)
-		if err := mgr.Leave(); err != nil {
+		switch err := mgr.Leave(); {
+		case errors.Is(err, cluster.ErrLeaveUnacknowledged):
+			fmt.Printf("Warning: %v\n", err)
+		case err != nil:
 			fmt.Printf("Warning: could not notify cluster of departure: %v\n", err)
-		} else {
+		default:
 			fmt.Println("Leader notified of departure.")
 		}
 		mgr.Shutdown()
+	} else {
+		// Without its Raft the node can ask no one to take it out; that
+		// used to pass without a word.
+		fmt.Printf("Warning: this node's Raft did not start (%v): %v\n", startErr, cluster.ErrLeaveUnacknowledged)
 	}
-
+	for _, d := range []struct{ label, path string }{{"cluster data", cfg.Cluster.DataDir}, {"cluster certs", cfg.Cluster.CertDir}} {
+		if d.path == "" {
+			continue
+		}
+		if err := os.RemoveAll(d.path); err != nil {
+			return fmt.Errorf("remove the %s in %s: %w — the config still names the cluster; remove it by hand and run the leave again", d.label, d.path, err)
+		}
+		fmt.Printf("Removed %s: %s\n", d.label, d.path)
+	}
 	cfg.Cluster.Enabled = false
 	if err := saveConfig(cfgPath, cfg); err != nil {
-		log.Printf("Warning: failed to save config: %v", err)
+		return fmt.Errorf("save the config: %w", err)
 	}
-
-	if cfg.Cluster.DataDir != "" {
-		if err := os.RemoveAll(cfg.Cluster.DataDir); err != nil {
-			log.Printf("Warning: failed to remove cluster data: %v", err)
-		} else {
-			fmt.Printf("Removed cluster data: %s\n", cfg.Cluster.DataDir)
-		}
-	}
-	if cfg.Cluster.CertDir != "" {
-		if err := os.RemoveAll(cfg.Cluster.CertDir); err != nil {
-			log.Printf("Warning: failed to remove cluster certs: %v", err)
-		} else {
-			fmt.Printf("Removed cluster certs: %s\n", cfg.Cluster.CertDir)
-		}
-	}
-
 	fmt.Printf("Cluster left. Restart sfpanel to run in standalone mode: %ssystemctl restart sfpanel\n", sudoPrefix())
+	return nil
 }
 
 // clusterOverviewEnvelope mirrors the /cluster/overview response. /cluster/status

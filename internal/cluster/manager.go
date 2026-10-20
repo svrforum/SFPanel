@@ -862,10 +862,13 @@ func (m *Manager) RemoveNode(nodeID string) error {
 }
 
 // Leave gracefully leaves the cluster by notifying the leader to remove this node.
+// It stops this node's Raft either way, and returns ErrLeaveUnacknowledged
+// when no leader took the node out.
 func (m *Manager) Leave() error {
 	if m.raft == nil {
 		return ErrNotInitialized
 	}
+	acked := false
 	m.heartbeat.Stop()
 
 	// L-05: If we're the leader AND there's a healthy peer, transfer
@@ -897,6 +900,8 @@ func (m *Manager) Leave() error {
 		// Still leader (no transfer target or transfer failed): remove self.
 		if err := m.raft.RemoveServer(m.nodeID); err != nil {
 			slog.Error("failed to remove self from Raft", "component", "cluster", "error", err)
+		} else {
+			acked = true
 		}
 	} else {
 		// Follower (original, or post-transfer): ask the leader to drop us.
@@ -906,7 +911,7 @@ func (m *Manager) Leave() error {
 		// Operator-facing diagnostics matter here because Leave is a
 		// one-shot user-initiated action; silent failure used to require
 		// digging through journald to learn why the unit didn't drop out.
-		leaderAddr := m.raft.LeaderGRPCAddress()
+		leaderAddr := m.awaitLeaderAddress(5 * time.Second)
 		switch {
 		case leaderAddr == "":
 			slog.Warn("cluster leave: no leader known — local Raft shutdown only; leader will need `sfpanel cluster remove` to evict this node",
@@ -921,16 +926,42 @@ func (m *Manager) Leave() error {
 					"component", "cluster", "node_id", m.nodeID, "leader_addr", leaderAddr, "error", err)
 			} else {
 				ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-				if _, leaveErr := client.client.Leave(ctx, &pb.LeaveRequest{NodeId: m.nodeID}); leaveErr != nil {
-					slog.Warn("cluster leave: leader rejected/dropped Leave RPC — local Raft shutdown only; verify with `sfpanel cluster nodes` on the leader",
-						"component", "cluster", "node_id", m.nodeID, "leader_addr", leaderAddr, "error", leaveErr)
-				}
+				resp, leaveErr := client.client.Leave(ctx, &pb.LeaveRequest{NodeId: m.nodeID})
 				cancel()
+				// A node that answers but cannot remove us — it is no longer
+				// the leader, or its Raft has stopped — says so in the reply,
+				// not as an RPC error.
+				if leaveErr == nil && !resp.Success {
+					leaveErr = errors.New(resp.Error)
+				}
+				if leaveErr != nil {
+					slog.Warn("cluster leave: leader rejected/dropped Leave RPC — local Raft shutdown only; verify with `sfpanel cluster list` on the leader",
+						"component", "cluster", "node_id", m.nodeID, "leader_addr", leaderAddr, "error", leaveErr)
+				} else {
+					acked = true
+				}
 			}
 		}
 	}
 
-	return m.raft.Shutdown()
+	if err := m.raft.Shutdown(); err != nil {
+		return err
+	}
+	if !acked {
+		return ErrLeaveUnacknowledged
+	}
+	return nil
+}
+
+// awaitLeaderAddress waits up to limit for this node to know the leader's
+// gRPC address. Right after it hands leadership over, a node learns its
+// successor some milliseconds later; asking at once found none.
+func (m *Manager) awaitLeaderAddress(limit time.Duration) string {
+	for deadline := time.Now().Add(limit); ; time.Sleep(50 * time.Millisecond) {
+		if addr := m.raft.LeaderGRPCAddress(); addr != "" || !time.Now().Before(deadline) {
+			return addr
+		}
+	}
 }
 
 // pickTransferTarget returns a manager voter node ID other than self whose

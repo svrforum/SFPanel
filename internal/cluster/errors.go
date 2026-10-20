@@ -33,4 +33,7 @@ var (
 	ErrNodeIdentityTaken         = errors.New("another node already uses this name or address")
 	ErrBadCSR                    = errors.New("the certificate request is not a valid ECDSA P-256 request")
 	ErrPanelCAChangedRecently    = errors.New("this node's panel CA changed less than a minute ago; it is taken again after that")
+	// ErrLeaveUnacknowledged: this node's Raft has stopped, but no leader
+	// took it out — the others may still list it.
+	ErrLeaveUnacknowledged = errors.New("no leader took this node out of the cluster: the others may still list it; remove it on the leader with 'sfpanel cluster remove <node-id>'")
 )
