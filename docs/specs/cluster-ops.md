@@ -158,10 +158,19 @@ remaining nodes continue.
 - `cluster leave` removes the calling node from the cluster and exits the
   process (`os.Exit(1)`). systemd's `Restart=always` brings it back up in
   standalone mode.
-- `cluster disband` runs from any voter, removes Raft state and TLS material
-  cluster-wide via the FSM, and exits each node's process. The local SQLite
-  DB is **not** wiped — audit logs, monitor history, cron, and Docker state
-  are local-only and persist after the cluster goes away.
+- `cluster disband` runs on the leader; a request sent to another manager is
+  forwarded to it. Raft knows no agents, so the leader first removes every
+  agent — the one thing an agent understands — and waits up to 15 seconds
+  for the online ones to hear it. The answer names the agents it could not
+  tell (offline ones, and any that did not hear in time); each needs
+  `sudo sfpanel agent reset --yes` on its own server. The leader then
+  removes Raft state and TLS material cluster-wide via the FSM, and exits
+  each manager's process. The local SQLite DB is **not** wiped — audit
+  logs, monitor history, cron, and Docker state are local-only and persist
+  after the cluster goes away.
+- When no leader is left at all, `?force=true` disbands only the node it is
+  sent to and can tell no agent: the answer names them all. See
+  `cluster-partition-runbook.md` § Forced local disband.
 
 If you want a clean wipe after disband, manually delete `{Cluster.DataDir}`,
 `{Cluster.CertDir}`, and the `cluster:` block in `config.yaml`.
@@ -285,9 +294,11 @@ like a manager's.
    `DELETE /api/v1/cluster/nodes/<node-id>`. The leader deletes the agent's
    key first, so no manager can sign for it any more, then its record and
    its panel CA. Raft's membership does not change.
-2. At its next heartbeat the leader tells the agent it was removed. The agent
-   records that, closes its panel's cluster-side listener along with the
-   connections open on it (a terminal included), and stops its gRPC server.
+2. The leader tells the agent it was removed within a few seconds while its
+   heartbeat stream is open, or at its next heartbeat if it is offline at the
+   time. The agent records that, closes its panel's cluster-side listener
+   along with the connections open on it (a terminal included), and stops
+   its gRPC server.
    Loopback keeps answering, so `sfpanel agent status` and
    `/api/v1/health` still work, and after a restart it opens loopback only.
 3. On the agent, `sudo sfpanel agent reset --yes` makes it a standalone panel

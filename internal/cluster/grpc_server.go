@@ -445,6 +445,12 @@ func (s *GRPCServer) AgentHeartbeat(stream pb.ClusterService_AgentHeartbeatServe
 	return s.serveHeartbeat(stream, false)
 }
 
+// membershipRecheck is how often an open heartbeat stream checks, between
+// pings, that its node is still a member. An agent pings every thirty
+// seconds; its removal should reach it in seconds, and a disband waits for
+// that.
+var membershipRecheck = 2 * time.Second
+
 // serveHeartbeat runs a heartbeat stream; promote says the caller is a
 // manager, which its first ping may promote to voter.
 func (s *GRPCServer) serveHeartbeat(stream grpc.BidiStreamingServer[pb.HeartbeatPing, pb.HeartbeatPong], promote bool) error {
@@ -473,6 +479,8 @@ func (s *GRPCServer) serveHeartbeat(stream grpc.BidiStreamingServer[pb.Heartbeat
 
 	timer := time.NewTimer(idleTimeout)
 	defer timer.Stop()
+	member := time.NewTicker(membershipRecheck)
+	defer member.Stop()
 
 	for {
 		select {
@@ -488,8 +496,9 @@ func (s *GRPCServer) serveHeartbeat(stream grpc.BidiStreamingServer[pb.Heartbeat
 			// opened: otherwise a node removed while its stream is open stays
 			// recorded as alive for as long as it keeps pinging, and an agent
 			// never closes its stream on its own — it has no Raft leader
-			// change to react to. The FSM is read directly: Manager.GetNode
-			// also copies the whole state and the health table per call.
+			// change to react to. Between pings membershipRecheck does the
+			// same. The FSM is read directly: Manager.GetNode also copies the
+			// whole state and the health table per call.
 			if s.manager.raft.GetFSM().GetNode(peerCN) == nil {
 				return notMemberError(s.manager, peerCN)
 			}
@@ -531,6 +540,10 @@ func (s *GRPCServer) serveHeartbeat(stream grpc.BidiStreamingServer[pb.Heartbeat
 				FromLeader:        s.manager.IsLeader(),
 			}); err != nil {
 				return err
+			}
+		case <-member.C:
+			if s.manager.raft.GetFSM().GetNode(peerCN) == nil {
+				return notMemberError(s.manager, peerCN)
 			}
 		case <-timer.C:
 			return fmt.Errorf("heartbeat stream idle timeout (%v)", idleTimeout)

@@ -16,6 +16,7 @@ import (
 	"os"
 	"path/filepath"
 	"slices"
+	"sort"
 	"strconv"
 	"sync"
 	"sync/atomic"
@@ -64,6 +65,10 @@ type Manager struct {
 	// this leader (SetReportedPanelCA).
 	panelCAReportMu  sync.Mutex
 	panelCAChangedAt map[string]time.Time
+	// toldRemoved is when this leader told each removed node so, for a
+	// disband waiting until its agents know (RemoveAgentsForDisband).
+	toldMu      sync.Mutex
+	toldRemoved map[string]time.Time
 
 	// proxySecretCache caches the sha256(CA cert) derivation. Invalidated
 	// implicitly on cert-rotate via the TLSManager's stat-based reload —
@@ -1336,6 +1341,73 @@ func (m *Manager) SetConfig(key, value string) error {
 		Key:   key,
 		Value: mustJSON(value),
 	}, 5*time.Second)
+}
+
+func (m *Manager) noteToldRemoved(id string) {
+	m.toldMu.Lock()
+	defer m.toldMu.Unlock()
+	if m.toldRemoved == nil {
+		m.toldRemoved = map[string]time.Time{}
+	}
+	m.toldRemoved[id] = time.Now()
+}
+
+func (m *Manager) wasToldRemoved(id string) bool {
+	m.toldMu.Lock()
+	defer m.toldMu.Unlock()
+	_, ok := m.toldRemoved[id]
+	return ok
+}
+
+// RemoveAgentsForDisband removes every agent, then waits up to wait for each
+// that was online to be told — removal is the one word an agent understands,
+// and a disbanded cluster has no leader left to say it. It returns the names
+// of the agents not told: offline ones, and any whose stream did not end in
+// time. Leader only.
+func (m *Manager) RemoveAgentsForDisband(wait time.Duration) ([]string, error) {
+	if m.raft == nil || !m.raft.IsLeader() {
+		return nil, ErrNotLeader
+	}
+	type agent struct {
+		id, name string
+		online   bool
+	}
+	// Read before the removals: RemoveNode drops each agent's heartbeat.
+	health := m.heartbeat.CheckHealth()
+	var agents []agent
+	for id, n := range m.raft.GetFSM().GetState().Nodes {
+		if !n.IsManager() {
+			name := n.Name
+			if name == "" {
+				name = id
+			}
+			agents = append(agents, agent{id, name, health[id] == StatusOnline})
+		}
+	}
+	for _, a := range agents {
+		if err := m.RemoveNode(a.id); err != nil {
+			return nil, fmt.Errorf("remove agent %s: %w", a.name, err)
+		}
+	}
+	for deadline := time.Now().Add(wait); time.Now().Before(deadline); time.Sleep(200 * time.Millisecond) {
+		waiting := false
+		for _, a := range agents {
+			if a.online && !m.wasToldRemoved(a.id) {
+				waiting = true
+			}
+		}
+		if !waiting {
+			break
+		}
+	}
+	var notTold []string
+	for _, a := range agents {
+		if !a.online || !m.wasToldRemoved(a.id) {
+			notTold = append(notTold, a.name)
+		}
+	}
+	sort.Strings(notTold)
+	return notTold, nil
 }
 
 // Disband is invoked by the leader to dissolve the cluster. It applies a

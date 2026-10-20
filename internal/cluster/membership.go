@@ -22,9 +22,11 @@ const NotMemberYetMarker = "not a member of this cluster yet"
 // Only a leader whose FSM has caught up may call it removed: a follower, or a
 // leader still applying what its predecessors committed, may just not have
 // the record yet, and an agent told it was removed stops for good. The FSM is
-// read again after the catch-up, which may have brought the record in.
+// read again after the catch-up, which may have brought the record in. The
+// leader notes whom it told, for a disband waiting on its agents.
 func notMemberError(m *Manager, cn string) error {
 	if m != nil && m.raft.caughtUpLeader(2*time.Second) && m.raft.GetFSM().GetNode(cn) == nil {
+		m.noteToldRemoved(cn)
 		return status.Errorf(codes.PermissionDenied, "%s is not a member of this cluster: %s", cn, NotMemberRemovedMarker)
 	}
 	return status.Errorf(codes.PermissionDenied, "%s is %s (a node that has just joined learns its peers within seconds; try the leader)", cn, NotMemberYetMarker)

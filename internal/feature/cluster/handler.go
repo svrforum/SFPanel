@@ -12,7 +12,9 @@ import (
 	"net/http"
 	"os"
 	"regexp"
+	"sort"
 	"strconv"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -1289,8 +1291,34 @@ func (h *Handler) DisbandCluster(c echo.Context) error {
 	if mgr == nil {
 		return response.Fail(c, http.StatusBadRequest, response.ErrInvalidRequest, "Cluster not configured")
 	}
+	force := c.QueryParam("force") == "true"
+	// Only the leader can disband: a follower's broadcast cannot commit, and
+	// forcing it here wiped this node while Raft kept it as a dead voter.
+	// A forced disband that finds no leader at all stays here: it is the way
+	// out of a cluster whose quorum is gone, and there is no one to forward
+	// it to.
+	leaderless := force && !mgr.IsLeader() && mgr.LeaderNode() == nil
+	if !leaderless {
+		if handled, err := middleware.ProxyToLeader(c, mgr); handled {
+			return err
+		}
+	}
 	if h.ConfigPath == "" {
 		return response.Fail(c, http.StatusInternalServerError, response.ErrInternalError, "Config path not available")
+	}
+	var notTold []string
+	if leaderless {
+		// No leader can take the agents out, so none of them is told.
+		notTold = agentNames(mgr)
+	} else {
+		var err error
+		if notTold, err = mgr.RemoveAgentsForDisband(15 * time.Second); err != nil {
+			return response.Fail(c, http.StatusServiceUnavailable, response.ErrInternalError, "Could not remove the agents before disbanding: "+err.Error())
+		}
+	}
+	untold := ""
+	if len(notTold) > 0 {
+		untold = fmt.Sprintf(" These agents were not reached and need 'sudo sfpanel agent reset --yes' on each: %s", strings.Join(notTold, ", "))
 	}
 
 	// L-04: Broadcast disband to all nodes through the Raft FSM. Apply blocks
@@ -1303,7 +1331,6 @@ func (h *Handler) DisbandCluster(c echo.Context) error {
 		// destroys itself while the surviving majority elects a new leader
 		// and continues. Refuse the fallback unless the operator explicitly
 		// passes ?force=true, accepting the split.
-		force := c.QueryParam("force") == "true"
 		if !force {
 			slog.Warn("cluster-wide Disband broadcast failed; refusing local-only fallback (set ?force=true to proceed)",
 				"component", "cluster", "error", err)
@@ -1314,14 +1341,33 @@ func (h *Handler) DisbandCluster(c echo.Context) error {
 			"component", "cluster", "broadcast_error", err)
 		go h.performDisband(mgr.LocalNodeID())
 		return response.OK(c, map[string]string{
-			"message": "Forced local-only disband. Follower nodes (if any) require manual 'cluster leave'.",
+			"message": "Forced local-only disband. Follower nodes (if any) require manual 'cluster leave'." + untold,
 		})
 	}
 
 	slog.Info("cluster disbanded via UI, nodes will self-clean from CmdDisband", "component", "cluster")
 	return response.OK(c, map[string]string{
-		"message": "Cluster disbanded. All nodes are restarting in standalone mode...",
+		"message": "Cluster disbanded. All nodes are restarting in standalone mode..." + untold,
 	})
+}
+
+// agentNames lists the agents in this node's copy of the cluster state, by
+// name where they have one: the ones a disband without a leader cannot tell.
+// Once this node has wiped its cluster state, the answer is the only list.
+func agentNames(mgr *cluster.Manager) []string {
+	var names []string
+	for _, n := range mgr.GetNodes() {
+		if n.IsManager() {
+			continue
+		}
+		if n.Name != "" {
+			names = append(names, n.Name)
+		} else {
+			names = append(names, n.ID)
+		}
+	}
+	sort.Strings(names)
+	return names
 }
 
 func (h *Handler) ClusterUpdate(c echo.Context) error {
