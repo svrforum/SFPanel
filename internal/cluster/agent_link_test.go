@@ -246,8 +246,11 @@ func TestAgentLinkFollowsTheLeader(t *testing.T) {
 }
 
 // A follower answers the panel-CA report with the leader's address, and the
-// report goes on there. This follower's pongs name no leader, so the
-// heartbeat stays with it: only that hop can bring the CA to the leader.
+// report goes on there. The report is the first thing an attempt does, so it
+// goes through this follower before the heartbeat leaves it — its pongs name
+// no leader — for the leader listed next. That one is listed where nothing
+// listens: an attempt that reached the leader would report to it directly,
+// and the test would pass without the hop.
 func TestAgentLinkReportsThroughAFollower(t *testing.T) {
 	mgr, leaderAddr, _, _ := realLeader(t)
 	res, tm := registeredAgent(t, mgr)
@@ -261,7 +264,7 @@ func TestAgentLinkReportsThroughAFollower(t *testing.T) {
 	link, err := NewAgentLink(AgentLinkConfig{
 		NodeID: res.NodeID, TLS: tm, StatePath: filepath.Join(t.TempDir(), "agent-state.json"),
 		Interval: 100 * time.Millisecond, PanelCA: func() ([]byte, error) { return fresh, nil },
-	}, []config.ManagerRef{{ID: "f1", GRPCAddress: follower.self}, {ID: mgr.LocalNodeID(), GRPCAddress: leaderAddr}})
+	}, []config.ManagerRef{{ID: "f1", GRPCAddress: follower.self}, {ID: mgr.LocalNodeID(), GRPCAddress: closedAddr(t)}})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -325,5 +328,60 @@ func TestAgentKeyFile(t *testing.T) {
 	}
 	if _, err := tm.LoadAgentKey(); !errors.Is(err, errEmptyAgentKey) {
 		t.Fatalf("loaded an empty key: %v", err)
+	}
+}
+
+// closedAddr is an address nothing listens on.
+func closedAddr(t *testing.T) string {
+	t.Helper()
+	l, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	addr := l.Addr().String()
+	_ = l.Close()
+	return addr
+}
+
+// A manager that knows no leader — in an election, cut off from the others,
+// or a leader updating itself with its Raft stopped — is left for the next
+// one: the leader may be there. An agent that stayed was invisible to the
+// real leader for as long as that manager kept answering.
+func TestAgentLinkLeavesAManagerThatKnowsNoLeader(t *testing.T) {
+	_, ca := setupCertDir(t)
+	lost := startFakeManager(t, tlsWithRole(t, ca, "m1", CertRoleManager), &fakeManager{pong: func(string) (*pb.HeartbeatPong, error) {
+		return &pb.HeartbeatPong{}, nil
+	}})
+	leader := startFakeManager(t, tlsWithRole(t, ca, "m2", CertRoleManager), &fakeManager{pong: func(self string) (*pb.HeartbeatPong, error) {
+		return &pb.HeartbeatPong{FromLeader: true, LeaderGrpcAddress: self}, nil
+	}})
+	startLink(t, tlsWithRole(t, ca, "agent-1", CertRoleAgent), "agent-1",
+		[]config.ManagerRef{{ID: "m1", GRPCAddress: lost.self}, {ID: "m2", GRPCAddress: leader.self}})
+	waitFor(t, "the link to reach the leader", func() bool { return leader.streams.Load() > 0 })
+}
+
+// A follower's manager list may lag the leader's — one partitioned away still
+// names a manager since removed — and the list is whom the agent accepts
+// requests from. Only the leader's list is taken; a follower's word on where
+// the leader is still is.
+func TestAgentLinkTakesTheManagerListFromTheLeaderOnly(t *testing.T) {
+	_, ca := setupCertDir(t)
+	unreachableLeader := closedAddr(t)
+	// The follower lists itself where it is, as a real one does. A list that
+	// moved it would drop it from the agent's targets once taken, and the
+	// test would fail on the wait below instead of on the ghost.
+	follower := startFakeManager(t, tlsWithRole(t, ca, "m1", CertRoleManager), &fakeManager{pong: func(self string) (*pb.HeartbeatPong, error) {
+		return &pb.HeartbeatPong{LeaderGrpcAddress: unreachableLeader, Managers: []*pb.NodeInfo{
+			{Id: "m1", GrpcAddress: self, Kind: string(KindManager)},
+			{Id: "ghost", GrpcAddress: "192.0.2.66:3629", Kind: string(KindManager)},
+		}}, nil
+	}})
+	link := startLink(t, tlsWithRole(t, ca, "agent-1", CertRoleAgent), "agent-1", []config.ManagerRef{{ID: "m1", GRPCAddress: follower.self}})
+	waitFor(t, "two sessions with the follower", func() bool { return follower.streams.Load() >= 2 })
+	if ids := link.ManagerIDs(); slices.Contains(ids, "ghost") {
+		t.Fatalf("a follower's pong set whom the agent accepts: %v", ids)
+	}
+	if st, err := LoadAgentState(link.StatePath, nil); err != nil || st.Leader != unreachableLeader {
+		t.Fatalf("the follower's word on the leader was not taken: %+v %v", st, err)
 	}
 }

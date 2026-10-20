@@ -267,12 +267,17 @@ the leader removed it, its certificate's expiry, whether its key is present
 manager, the node list shows it with `kind: agent` and no Raft role; it is
 online while its heartbeats arrive.
 
-The agent heartbeats to the leader every 30 seconds and follows the leader
-address and manager list each reply carries, keeping them in
-`{Cluster.DataDir}/agent-state.json`. Only the leader can tell it that it was
-removed: a follower that has not caught up answers that the agent is not a
-member yet, and the agent keeps trying. `sfpanel cluster` commands refuse to
-run on an agent, and its certificate lasts five years like a manager's.
+The agent heartbeats to the leader every 30 seconds and keeps the leader's
+address and the manager list in `{Cluster.DataDir}/agent-state.json`. Any
+manager's reply can say where the leader is, but only the leader's sets the
+manager list — the managers the agent takes requests from — because a
+follower's may lag behind a removal. A manager that knows no leader (during
+an election, cut off from the others, or a leader updating itself) is left
+at once, and the next one is tried 30 seconds later. Only the leader can
+tell it that it was removed: a follower that has not caught up answers that
+the agent is not a member yet, and the agent keeps trying. `sfpanel cluster`
+commands refuse to run on an agent, and its certificate lasts five years
+like a manager's.
 
 ### Removing an agent
 

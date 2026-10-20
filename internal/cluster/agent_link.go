@@ -25,7 +25,7 @@ import (
 // AgentState is what an agent keeps between runs.
 type AgentState struct {
 	// Managers are whom the agent heartbeats to and takes requests from:
-	// cluster.managers until a pong names them.
+	// cluster.managers until a pong from the leader names them.
 	Managers []config.ManagerRef `json:"managers"`
 	Leader   string              `json:"leader,omitempty"` // gRPC address
 	// Removed is set once the leader has said the agent is not a member. It
@@ -107,7 +107,8 @@ type AgentLinkConfig struct {
 
 // AgentLink is an agent's tie to its managers. It heartbeats to the leader,
 // follows the leader when it moves, keeps the manager list current from the
-// pongs, and stops for good once the leader says the agent was removed.
+// leader's pongs, and stops for good once the leader says the agent was
+// removed.
 type AgentLink struct {
 	AgentLinkConfig
 
@@ -229,6 +230,10 @@ var (
 	// errManagerPredatesAgents is a manager without the agents' heartbeat:
 	// its release is older than agents, and every manager must be upgraded.
 	errManagerPredatesAgents = errors.New("this manager runs an SFPanel release from before agents; upgrade it")
+	// errNoLeaderKnown ends a session with a manager that answers but knows
+	// no leader: in an election, cut off from the others, or a leader whose
+	// Raft has stopped for its own update.
+	errNoLeaderKnown = errors.New("this manager knows no leader right now")
 )
 
 // linkRun is what one Run remembers from attempt to attempt.
@@ -395,8 +400,9 @@ func (l *AgentLink) reportPanelCA(ctx context.Context, client *GRPCClient) error
 // reads the pongs — they must be read, or they fill the stream's flow-control
 // window and both ends wedge (the drain in StartLocalMetrics) — and it ends
 // the session: on a stream error, or when a follower names the leader
-// elsewhere. What it saw is how the session ended, because a failed Send
-// says only io.EOF.
+// elsewhere; a manager that names no leader ends it too (errNoLeaderKnown).
+// What it saw is how the session ended, because a failed Send says only
+// io.EOF.
 func (l *AgentLink) heartbeat(ctx context.Context, r *linkRun, client *GRPCClient, target string) attemptEnd {
 	sctx, cancel := context.WithCancel(ctx)
 	defer cancel()
@@ -421,8 +427,14 @@ func (l *AgentLink) heartbeat(ctx context.Context, r *linkRun, client *GRPCClien
 				return
 			}
 			l.applyPong(pong)
-			if !pong.FromLeader && pong.LeaderGrpcAddress != "" && pong.LeaderGrpcAddress != target {
+			switch {
+			case !pong.FromLeader && pong.LeaderGrpcAddress != "" && pong.LeaderGrpcAddress != target:
 				end = attemptEnd{kind: endRedirected}
+				return
+			case !pong.FromLeader && pong.LeaderGrpcAddress == "":
+				// The leader may be another manager; staying here kept the
+				// agent off it for as long as this one answered.
+				end = attemptEnd{endFailed, errNoLeaderKnown}
 				return
 			}
 			if first {
@@ -463,10 +475,13 @@ func (l *AgentLink) ping() *pb.HeartbeatPing {
 	return p
 }
 
-// applyPong takes the leader's address and the manager list from a pong,
-// saving them when they changed. A manager older than these fields sends
-// neither, and an empty list is never taken: it would leave the agent no
-// manager to accept or to heartbeat to, and the saved state would keep it so.
+// applyPong takes where the leader is from any pong — a follower's word is
+// how the agent finds it — but the manager list from the leader's only: a
+// follower's list may lag the leader's, and one partitioned away can still
+// name a manager since removed, whom the agent would then accept. A manager
+// older than these fields sends neither, and an empty list is never taken:
+// it would leave the agent no manager to accept or to heartbeat to, and the
+// saved state would keep it so.
 func (l *AgentLink) applyPong(p *pb.HeartbeatPong) {
 	err := l.update(func(s *AgentState) bool {
 		changed := false
@@ -474,9 +489,11 @@ func (l *AgentLink) applyPong(p *pb.HeartbeatPong) {
 			s.Leader = p.LeaderGrpcAddress
 			changed = true
 		}
-		if refs := managerRefs(p.Managers); len(refs) > 0 && !slices.Equal(refs, s.Managers) {
-			s.Managers = refs
-			changed = true
+		if p.FromLeader {
+			if refs := managerRefs(p.Managers); len(refs) > 0 && !slices.Equal(refs, s.Managers) {
+				s.Managers = refs
+				changed = true
+			}
 		}
 		return changed
 	})
