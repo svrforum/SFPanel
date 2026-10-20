@@ -2,6 +2,7 @@ package system
 
 import (
 	"archive/tar"
+	"bytes"
 	"compress/gzip"
 	"context"
 	"crypto/sha256"
@@ -15,6 +16,7 @@ import (
 	"net/http"
 	"os"
 	"os/exec"
+	"regexp"
 	"sync"
 	"syscall"
 
@@ -30,6 +32,7 @@ import (
 	"github.com/svrforum/SFPanel/internal/cluster"
 	"github.com/svrforum/SFPanel/internal/config"
 	sfdb "github.com/svrforum/SFPanel/internal/db"
+	"github.com/svrforum/SFPanel/internal/paneltls"
 	"github.com/svrforum/SFPanel/internal/release"
 	"gopkg.in/yaml.v3"
 )
@@ -50,6 +53,11 @@ var restoreMu sync.Mutex
 // CheckUpdate / RunUpdate at an httptest server without making outbound
 // network calls.
 var releaseAPIURL = "https://api.github.com/repos/svrforum/SFPanel/releases/latest"
+
+// releaseDownloadPrefix is where a pinned release's assets must come from:
+// this project's GitHub release downloads. Tests point it elsewhere; so can a
+// build, with -ldflags -X, while it stays a string literal.
+var releaseDownloadPrefix = "https://github.com/svrforum/SFPanel/releases/download/"
 
 // exitProcess is the function the no-systemd restart fallback calls after
 // flushing its response. It's a var so unit tests can swap in a no-op and
@@ -339,16 +347,61 @@ func (h *Handler) CheckUpdate(c echo.Context) error {
 	})
 }
 
-// RunUpdate downloads the latest release and replaces the current binary, streaming progress via SSE.
-// probeScheme is the scheme the rollback watchdog should use to reach this
-// node after the binary swap.
-func (h *Handler) probeScheme() string {
-	if h.TLSEnabled {
-		return "https"
+// maxPinnedReleaseBody bounds the pinned release a cluster update sends.
+const maxPinnedReleaseBody = 64 << 10
+
+// pinnedRelease reads the release a cluster update sends with its request, or
+// nil when there is none — a request from an operator, or from an
+// orchestrator older than pinned releases. Every asset must be a download of
+// this project's release of that tag: what is sent decides where to download
+// from, and the checksum, the signature over it and the downgrade gate still
+// decide what is installed.
+func pinnedRelease(c echo.Context) (*GitHubRelease, error) {
+	body := c.Request().Body
+	if body == nil {
+		return nil, nil
 	}
-	return "http"
+	raw, err := io.ReadAll(io.LimitReader(body, maxPinnedReleaseBody+1))
+	if err != nil {
+		return nil, fmt.Errorf("read the request body: %w", err)
+	}
+	if len(bytes.TrimSpace(raw)) == 0 {
+		return nil, nil
+	}
+	if len(raw) > maxPinnedReleaseBody {
+		return nil, errors.New("the pinned release is too large")
+	}
+	var req struct {
+		Release *GitHubRelease `json:"release"`
+	}
+	if err := json.Unmarshal(raw, &req); err != nil {
+		return nil, fmt.Errorf("the pinned release is not JSON: %w", err)
+	}
+	rel := req.Release
+	if rel == nil {
+		return nil, nil
+	}
+	if !pinnedTag.MatchString(rel.TagName) {
+		return nil, fmt.Errorf("the pinned release's tag %q is not a version", rel.TagName)
+	}
+	// Exactly the tag's directory plus the name: a name with a slash in it,
+	// either way, would climb out of that directory.
+	prefix := releaseDownloadPrefix + rel.TagName + "/"
+	for _, a := range rel.Assets {
+		if a.BrowserDownloadURL != prefix+a.Name || strings.ContainsAny(a.Name, "/\\") {
+			return nil, fmt.Errorf("the pinned asset %q is not a release download of this project's %s", a.Name, rel.TagName)
+		}
+	}
+	return rel, nil
 }
 
+// pinnedTag is what a release tag looks like. The tag becomes part of every
+// download address, so a slash in it would leave that release's directory.
+var pinnedTag = regexp.MustCompile(`^v?[0-9]+\.[0-9]+\.[0-9]+([.+-][0-9A-Za-z.+-]+)?$`)
+
+// RunUpdate installs a release — the one a cluster update pins in the request
+// body, or else the latest — replacing the current binary and streaming
+// progress via SSE.
 func (h *Handler) RunUpdate(c echo.Context) error {
 	// Refuse a second concurrent update — two callers fighting over execPath+".new"
 	// can install a truncated binary if both writes interleave before the rename.
@@ -368,6 +421,11 @@ func (h *Handler) RunUpdate(c echo.Context) error {
 		return err
 	}
 
+	pinned, pinErr := pinnedRelease(c)
+	if pinErr != nil {
+		return response.Fail(c, http.StatusBadRequest, response.ErrUpdateFailed, pinErr.Error())
+	}
+
 	// Capture the request context once so every GET in the update path
 	// (release lookup, asset download, checksums, signature + cert) is bound
 	// to the request lifecycle. Cancelling the client request — operator
@@ -375,24 +433,28 @@ func (h *Handler) RunUpdate(c echo.Context) error {
 	// in-flight multi-minute download instead of leaving it running detached.
 	ctx := c.Request().Context()
 
-	client := &http.Client{Timeout: 30 * time.Second}
-	req, reqErr := http.NewRequestWithContext(ctx, http.MethodGet, releaseAPIURL, nil)
-	if reqErr != nil {
-		return response.Fail(c, http.StatusInternalServerError, response.ErrUpdateFailed, "Failed to build update request")
-	}
-	resp, err := client.Do(req)
-	if err != nil {
-		return response.Fail(c, http.StatusBadGateway, response.ErrUpdateFailed, "Failed to check for updates")
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode != 200 {
-		return response.Fail(c, http.StatusBadGateway, response.ErrUpdateFailed, "GitHub API error")
-	}
-
 	var ghRelease GitHubRelease
-	if err := json.NewDecoder(resp.Body).Decode(&ghRelease); err != nil {
-		return response.Fail(c, http.StatusInternalServerError, response.ErrUpdateFailed, "Failed to parse release")
+	if pinned != nil {
+		ghRelease = *pinned
+	} else {
+		client := &http.Client{Timeout: 30 * time.Second}
+		req, reqErr := http.NewRequestWithContext(ctx, http.MethodGet, releaseAPIURL, nil)
+		if reqErr != nil {
+			return response.Fail(c, http.StatusInternalServerError, response.ErrUpdateFailed, "Failed to build update request")
+		}
+		resp, err := client.Do(req)
+		if err != nil {
+			return response.Fail(c, http.StatusBadGateway, response.ErrUpdateFailed, "Failed to check for updates")
+		}
+		defer resp.Body.Close()
+
+		if resp.StatusCode != 200 {
+			return response.Fail(c, http.StatusBadGateway, response.ErrUpdateFailed, "GitHub API error")
+		}
+
+		if err := json.NewDecoder(resp.Body).Decode(&ghRelease); err != nil {
+			return response.Fail(c, http.StatusInternalServerError, response.ErrUpdateFailed, "Failed to parse release")
+		}
 	}
 	latest := strings.TrimPrefix(ghRelease.TagName, "v")
 	current := strings.TrimPrefix(h.Version, "v")
@@ -727,10 +789,11 @@ func (h *Handler) RunUpdate(c echo.Context) error {
 	// currently-deployed node's .bak knows the subcommand and stays alive — the
 	// probe only fails for genuine watchdog failures, not the normal upgrade path.
 	if h.Port > 0 {
+		probeURL := paneltls.Self{TLSEnabled: h.TLSEnabled, Port: h.Port}.URL("/api/v1/system/info")
 		argv := []string{backupPath, "watchdog-update",
 			backupPath,
 			execPath,
-			fmt.Sprintf("%s://127.0.0.1:%d/api/v1/system/info", h.probeScheme(), h.Port),
+			probeURL,
 			"90",
 			h.DBPath + ".bak",
 			h.DBPath,

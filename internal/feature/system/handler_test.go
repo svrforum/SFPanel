@@ -2176,6 +2176,32 @@ func TestRunUpdate_WatchdogStartsInItsOwnScopeUnderSystemd(t *testing.T) {
 	}
 }
 
+// The watchdog probes the panel at the address everything on this node
+// reaches it by (paneltls.Self). Over http against a panel that serves only
+// TLS its probe fails for all of its 90 seconds, and it then rolls the binary
+// and the database back on an update that worked.
+func TestRunUpdate_WatchdogProbesThePanelOverTLS(t *testing.T) {
+	withSystemdActive(t, true) // the scope launcher is where the argv shows
+	withRestartFlushDelay(t, 5*time.Millisecond)
+	var argv []string
+	prev := inOwnScope
+	inOwnScope = func(_ string, a []string) []string { argv = a; return a }
+	t.Cleanup(func() { inOwnScope = prev })
+
+	h := buildRunUpdateToRestartHarness(t, &restartFailCommander{MockCommander: commonExec.NewMockCommander()})
+	h.TLSEnabled = true
+	restartWG.Wait()
+	rec := httptest.NewRecorder()
+	if err := h.RunUpdate(echo.New().NewContext(httptest.NewRequest(http.MethodPost, "/api/v1/system/update", nil), rec)); err != nil {
+		t.Fatalf("RunUpdate: %v", err)
+	}
+	restartWG.Wait()
+	want := fmt.Sprintf("https://127.0.0.1:%d/api/v1/system/info", h.Port)
+	if len(argv) < 5 || argv[4] != want {
+		t.Fatalf("the watchdog started as %q, want it to probe %s: %s", argv, want, rec.Body)
+	}
+}
+
 func TestInOwnScope_StartsATransientScope(t *testing.T) {
 	got := realInOwnScope("sfpanel-update-watchdog-1", []string{"/usr/local/bin/sfpanel.bak", "watchdog-update"})
 	want := []string{"systemd-run", "--scope", "--collect", "--unit=sfpanel-update-watchdog-1", "/usr/local/bin/sfpanel.bak", "watchdog-update"}
