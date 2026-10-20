@@ -142,6 +142,20 @@ func TestStreamingAllowlist_KnownSSEHandlers(t *testing.T) {
 	}
 }
 
+// A cluster update streams for as long as its waves run — every agent, then
+// every manager — and a viewer on a follower watches it through this relay.
+func TestRelayWindowFor(t *testing.T) {
+	for path, want := range map[string]time.Duration{
+		"/api/v1/cluster/update":              2 * time.Hour,
+		"/api/v1/docker/compose/web/migrate":  2 * time.Hour,
+		"/api/v1/appstore/apps/nginx/install": 5 * time.Minute,
+	} {
+		if got := relayWindowFor(path); got != want {
+			t.Errorf("relayWindowFor(%q) = %v, want %v", path, got, want)
+		}
+	}
+}
+
 func TestCopyEndToEndHeaders_StripsHopByHop(t *testing.T) {
 	src := http.Header{}
 	src.Set("Content-Type", "application/octet-stream")

@@ -13,7 +13,6 @@ import (
 	"os"
 	"regexp"
 	"strconv"
-	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -21,11 +20,11 @@ import (
 	"github.com/labstack/echo/v4"
 	"github.com/svrforum/SFPanel/internal/api/middleware"
 	"github.com/svrforum/SFPanel/internal/api/response"
-	"github.com/svrforum/SFPanel/internal/auth"
 	"github.com/svrforum/SFPanel/internal/cluster"
 	pb "github.com/svrforum/SFPanel/internal/cluster/proto"
 	"github.com/svrforum/SFPanel/internal/config"
 	"github.com/svrforum/SFPanel/internal/paneltls"
+	"github.com/svrforum/SFPanel/internal/release"
 	"gopkg.in/yaml.v3"
 )
 
@@ -78,6 +77,9 @@ type Handler struct {
 	ConfigPath   string
 	DB           *sql.DB
 	LiveActivate cluster.LiveActivateFunc
+	// Version is this node's own version: a cluster update knows its own,
+	// whatever its heartbeats say.
+	Version string
 	// OnManagerActivated is called after a manager is set (init/join).
 	// Used to propagate the manager to other handlers (e.g. auth).
 	OnManagerActivated func(*cluster.Manager)
@@ -1332,7 +1334,8 @@ func (h *Handler) ClusterUpdate(c echo.Context) error {
 	}
 
 	var req struct {
-		Mode string `json:"mode"`
+		Mode     string `json:"mode"`
+		WaveSize int    `json:"wave_size"`
 	}
 	if err := c.Bind(&req); err != nil {
 		req.Mode = "rolling"
@@ -1358,7 +1361,7 @@ func (h *Handler) ClusterUpdate(c echo.Context) error {
 	go func() {
 		defer h.updateRunning.Store(false)
 		defer feed.finish()
-		h.runClusterUpdate(mgr, req.Mode, feed.emit)
+		h.runClusterUpdate(mgr, req.Mode, req.WaveSize, feed.emit)
 	}()
 	feed.forward(c.Request().Context().Done(), func(ev map[string]interface{}) {
 		jsonData, _ := json.Marshal(ev)
@@ -1368,315 +1371,54 @@ func (h *Handler) ClusterUpdate(c echo.Context) error {
 	return nil
 }
 
-// backOnNewVersion reports whether a node sent an update is online again on a
-// version other than the one it ran before. Online alone is not enough: the
-// node's heartbeat stays fresh for a few seconds after the update is
-// triggered, while the old process shuts down, and the orchestrator took that
-// for the node being back — then went on to the next node, or handed
-// leadership to one about to restart. A node whose version was not known
-// before falls back to online.
-func backOnNewVersion(health map[string]cluster.NodeStatus, metrics []*cluster.NodeMetrics, id, before string) bool {
-	if health[id] != cluster.StatusOnline {
-		return false
-	}
-	if before == "" {
-		return true
-	}
-	for _, m := range metrics {
-		if m.NodeID == id {
-			return m.Version != "" && m.Version != before
-		}
-	}
-	return false
-}
-
-// isTransferTarget reports whether a node may take leadership: an online
-// manager voter. Raft refuses a non-voter, and an agent is never a member.
-func isTransferTarget(voter, manager bool, status cluster.NodeStatus) bool {
-	return voter && manager && status == cluster.StatusOnline
-}
-
 // runClusterUpdate is the orchestration behind ClusterUpdate. It runs on its
 // own goroutine and reports through emit, which never blocks it: whether
 // anyone is still watching has no bearing on whether the update finishes.
-func (h *Handler) runClusterUpdate(mgr *cluster.Manager, mode string, emit func(map[string]interface{})) {
+func (h *Handler) runClusterUpdate(mgr *cluster.Manager, mode string, waveSize int, emit func(map[string]interface{})) {
+	rel, err := release.FetchLatest(context.Background())
+	if err != nil {
+		slog.Warn("cluster update: could not look up the latest release", "component", "cluster", "error", err)
+		emit(map[string]interface{}{"overall": "error", "message": "Could not look up the latest release: " + err.Error()})
+		return
+	}
 	state := mgr.GetRaft().GetFSM().GetState()
-	health := mgr.GetHeartbeat().CheckHealth()
-	metricsSlice := mgr.GetHeartbeat().GetAllMetrics()
-	metricsMap := make(map[string]*cluster.NodeMetrics, len(metricsSlice))
-	for _, m := range metricsSlice {
-		metricsMap[m.NodeID] = m
+	versions := map[string]string{}
+	for _, m := range mgr.GetHeartbeat().GetAllMetrics() {
+		versions[m.NodeID] = m.Version
 	}
-
-	localID := mgr.LocalNodeID()
-	type nodeInfo struct {
-		ID      string
-		Name    string
-		Version string
-		IsLocal bool
-		Voter   bool
-		Manager bool
+	if h.Version != "" {
+		versions[mgr.LocalNodeID()] = h.Version
 	}
-
-	var followers []nodeInfo
-	var leader nodeInfo
-	for id, node := range state.Nodes {
-		if s, ok := health[id]; !ok || s != cluster.StatusOnline {
-			emit(map[string]interface{}{"node_id": id, "node_name": node.Name, "step": "skipped", "message": "Node is offline"})
-			continue
-		}
-		ver := ""
-		if m, ok := metricsMap[id]; ok {
-			ver = m.Version
-		}
-		ni := nodeInfo{ID: id, Name: node.Name, Version: ver, IsLocal: id == localID,
-			Voter: node.Role == cluster.RoleVoter, Manager: node.IsManager()}
-		if id == localID {
-			leader = ni
-		} else {
-			followers = append(followers, ni)
-		}
-	}
-
-	// Quorum guard for simultaneous mode. Restarting every voter at once would
-	// break Raft for the duration of the slowest node's download + restart
-	// (which can be minutes for a 200 MB tarball on a slow link). Refuse it
-	// up front when the cluster doesn't have enough headroom: a 3-voter cluster
-	// can't safely take all 3 down at once, and a 5-voter cluster can lose at
-	// most 2. Single-node clusters are always fine — there's nothing to lose.
-	if mode == "simultaneous" && len(followers) > 0 {
-		voters := 1 + len(followers) // 1 leader + N online followers as voters
-		quorum := voters/2 + 1
-		// We're about to take voters-many nodes down. Surviving is voters - voters = 0,
-		// which is < quorum unless voters == 1.
-		if voters >= 2 {
-			emit(map[string]interface{}{
-				"overall": "error",
-				"message": fmt.Sprintf("Refusing simultaneous update: would take all %d voters offline at once (quorum=%d). Use rolling mode.", voters, quorum),
-			})
-			return
-		}
-	}
-
-	emit(map[string]interface{}{"overall": "started", "mode": mode, "total_nodes": len(followers) + 1})
-
-	updateNode := func(ni nodeInfo) bool {
-		emit(map[string]interface{}{"node_id": ni.ID, "node_name": ni.Name, "step": "updating", "message": "Starting update..."})
-
-		if ni.IsLocal {
-			emit(map[string]interface{}{"node_id": ni.ID, "node_name": ni.Name, "step": "updating", "message": "Triggering local update..."})
-			return true
-		}
-
-		// Re-fetch from the live FSM rather than the snapshot captured at the
-		// top of the handler: a rolling update runs for minutes, during which a
-		// node may be removed or its gRPC address changed, and the stale snapshot
-		// would target the wrong address or miss the removal.
-		node, ok := mgr.GetRaft().GetFSM().GetState().Nodes[ni.ID]
-		if !ok {
-			emit(map[string]interface{}{"node_id": ni.ID, "node_name": ni.Name, "step": "error", "message": "Node not found"})
-			return false
-		}
-
-		pool := mgr.GetConnPool()
-		client, err := pool.Get(node.GRPCAddress)
-		if err != nil {
-			emit(map[string]interface{}{"node_id": ni.ID, "node_name": ni.Name, "step": "error", "message": "Connection failed: " + err.Error()})
-			return false
-		}
-
-		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
-		defer cancel()
-
-		// Unsigned: the target's gRPC server drops any internal-proxy header
-		// and signs its own loopback hop. One signed here bought nothing and
-		// handed the target a forced update every manager accepts once — and
-		// the follower list holds every online node, agents included.
-		resp, err := client.ProxyRequest(ctx, &pb.APIRequest{
-			Method: "POST",
-			Path:   orchestratedUpdatePath,
-		})
-		if err != nil {
-			emit(map[string]interface{}{"node_id": ni.ID, "node_name": ni.Name, "step": "error", "message": "Proxy failed: " + err.Error()})
-			return false
-		}
-
-		if resp.StatusCode >= 400 {
-			// Surface the remote node's response body so the operator
-			// gets the actual reason ("Refusing update: 1/2 voters
-			// would remain online…", "version downgrade refused", etc.)
-			// instead of just an HTTP status. Body is bounded by the
-			// gRPC 4 MB recv cap which is the proxy ceiling anyway.
-			detail := response.SanitizeOutput(strings.TrimSpace(string(resp.Body)))
-			if detail == "" {
-				detail = fmt.Sprintf("HTTP %d", resp.StatusCode)
-			} else {
-				detail = fmt.Sprintf("HTTP %d: %s", resp.StatusCode, detail)
-			}
-			// A 401/403 here is almost always the target running a version too old
-			// to authenticate the relayed update on its own loopback hop: the leader
-			// sends no credential (the target's gRPC server signs that hop itself),
-			// and there is no v1 fallback by design (that would be replayable). Make
-			// the chicken-and-egg actionable instead of an opaque auth error.
-			if resp.StatusCode == http.StatusUnauthorized || resp.StatusCode == http.StatusForbidden {
-				detail += " — the target node is likely too old to authenticate the update relay; update it locally (SSH + install.sh) for large version jumps, then it can re-join cluster updates"
-			}
-			emit(map[string]interface{}{"node_id": ni.ID, "node_name": ni.Name, "step": "error", "message": "Update failed: " + detail})
-			return false
-		}
-
-		// A node already on the latest release answers with a plain JSON
-		// "up_to_date" instead of a restart; waiting a minute for it to come
-		// back from a restart that never happens would only mislead.
-		if strings.Contains(string(resp.Body), `"up_to_date"`) {
-			emit(map[string]interface{}{"node_id": ni.ID, "node_name": ni.Name, "step": "online", "message": "Already up to date"})
-			return true
-		}
-
-		emit(map[string]interface{}{"node_id": ni.ID, "node_name": ni.Name, "step": "complete", "message": "Update triggered, node restarting..."})
-
-		emit(map[string]interface{}{"node_id": ni.ID, "node_name": ni.Name, "step": "waiting", "message": "Waiting for node to restart..."})
-		for attempt := 0; attempt < 12; attempt++ {
-			// No bail-out on the watcher leaving: the node being waited for
-			// may be the one relaying the watcher's stream (see updateFeed).
-			time.Sleep(5 * time.Second)
-			hb := mgr.GetHeartbeat()
-			if backOnNewVersion(hb.CheckHealth(), hb.GetAllMetrics(), ni.ID, ni.Version) {
-				emit(map[string]interface{}{"node_id": ni.ID, "node_name": ni.Name, "step": "online", "message": "Node back online"})
-				return true
-			}
-		}
-		emit(map[string]interface{}{"node_id": ni.ID, "node_name": ni.Name, "step": "warning", "message": "Node did not come back on a new version within 60s"})
-		return true
-	}
-
-	updated := 0
-	failed := 0
-
-	if mode == "rolling" {
-		for _, f := range followers {
-			if updateNode(f) {
-				updated++
-			} else {
-				emit(map[string]interface{}{"overall": "error", "message": fmt.Sprintf("Rolling update stopped: %s failed", f.Name)})
-				slog.Warn("cluster update stopped", "component", "cluster", "failed_node", f.Name, "updated", updated)
-				return
-			}
-		}
-	} else {
-		type result struct {
-			ok   bool
-			name string
-		}
-		ch := make(chan result, len(followers))
-		for _, f := range followers {
-			go func(ni nodeInfo) {
-				ch <- result{ok: updateNode(ni), name: ni.Name}
-			}(f)
-		}
-		for range followers {
-			r := <-ch
-			if r.ok {
-				updated++
-			} else {
-				failed++
+	if mode == "simultaneous" {
+		waveSize = 0
+		for _, n := range state.Nodes {
+			if !n.IsManager() {
+				waveSize++
 			}
 		}
 	}
-
-	// The leader's own step ends in mgr.Shutdown() and a self-update. When
-	// there is nothing newer to install, that self-update answers
-	// "up_to_date" and the process carries on with its cluster manager
-	// already shut down — alive, but out of the cluster until someone
-	// restarts it by hand. A leader updated on its own before this run is
-	// exactly that case, so ask first. An unanswerable check counts as "no":
-	// shutting down on a guess is the one outcome that needs a console to undo.
-	updateLeader := false
-	if leader.ID != "" {
-		need, err := h.leaderNeedsUpdate()
-		switch {
-		case err != nil:
-			slog.Warn("cluster update: leader left as is, update check failed", "component", "cluster", "error", err)
-			emit(map[string]interface{}{"node_id": leader.ID, "node_name": leader.Name, "step": "warning", "message": "Leader left as is: could not check for an update"})
-		case !need:
-			emit(map[string]interface{}{"node_id": leader.ID, "node_name": leader.Name, "step": "complete", "message": "Leader is already up to date"})
-		default:
-			updateLeader = true
+	plan := planClusterUpdate(state, mgr.GetHeartbeat().CheckHealth(), versions, mgr.LocalNodeID(), rel.TagName, waveSize)
+	env := clusterUpdateEnv{mgr: mgr, self: paneltls.Self{
+		TLSEnabled: h.Config.Server.TLS.Enabled,
+		Dir:        h.Config.Server.TLS.Dir,
+		CertFile:   h.Config.Server.TLS.CertFile,
+		CAFile:     h.Config.Server.TLS.CAFile,
+		Port:       h.Config.Server.Port,
+	}}
+	// Nobody may be watching (see updateFeed); the line below is then the
+	// only record of how the run ended, so it carries the run's last word:
+	// the counts alone read the same for a run that finished and one that
+	// stopped when leadership moved.
+	var outcome, reason string
+	updated, failed := runUpdatePlan(env, plan, rel, mode, func(ev map[string]interface{}) {
+		if o, ok := ev["overall"].(string); ok && o != "started" {
+			outcome = o
+			reason, _ = ev["message"].(string)
 		}
-	}
-
-	if updateLeader {
-		emit(map[string]interface{}{"node_id": leader.ID, "node_name": leader.Name, "step": "updating", "message": "Updating leader (this node)..."})
-		transferred := false
-		for _, f := range followers {
-			if !isTransferTarget(f.Voter, f.Manager, mgr.GetHeartbeat().CheckHealth()[f.ID]) {
-				continue
-			}
-			emit(map[string]interface{}{"node_id": leader.ID, "node_name": leader.Name, "step": "transfer", "message": "Transferring leadership to " + f.Name})
-			if err := mgr.GetRaft().TransferLeadership(f.ID); err != nil {
-				slog.Warn("cluster update: leadership transfer failed", "component", "cluster", "target", f.ID, "error", err)
-				emit(map[string]interface{}{"node_id": leader.ID, "node_name": leader.Name, "step": "warning", "message": "Leadership transfer to " + f.Name + " failed: " + err.Error()})
-				continue
-			}
-			transferred = true
-			time.Sleep(2 * time.Second)
-			break
-		}
-		if !transferred {
-			emit(map[string]interface{}{"node_id": leader.ID, "node_name": leader.Name, "step": "warning", "message": "No manager took over leadership; the managers elect a new leader when this one stops"})
-		}
-		updated++
-	}
-
-	emit(map[string]interface{}{"overall": "complete", "updated": updated, "failed": failed})
-	// Nobody may be watching (see updateFeed); this line is then the only
-	// record of how the run ended.
-	slog.Info("cluster update finished", "component", "cluster", "mode", mode, "updated", updated, "failed", failed, "leader_self_update", updateLeader)
-
-	if updateLeader {
-		// Sign the v2 header NOW, before Shutdown — we can't rely on the
-		// signing path (TLSManager-derived secret) remaining alive past
-		// Shutdown. Note the pre-signed MAC carries a timestamp: if Shutdown
-		// ever takes longer than the ±30s proxy clock-skew window, this
-		// self-update call will 401 (true before the v1 drop too — a present
-		// v2 header always short-circuits v1).
-		v2Sig := auth.SignProxyRequestV2("POST", orchestratedUpdatePath)
-		// Resolve the loopback endpoint and its client BEFORE the goroutine:
-		// it runs after mgr.Shutdown(), so anything it needs must be captured
-		// first — the same reason the v2 MAC above is pre-signed.
-		self := paneltls.Self{
-			TLSEnabled: h.Config.Server.TLS.Enabled,
-			Dir:        h.Config.Server.TLS.Dir,
-			CertFile:   h.Config.Server.TLS.CertFile,
-			CAFile:     h.Config.Server.TLS.CAFile,
-			Port:       h.Config.Server.Port,
-		}
-		selfURL := self.URL(orchestratedUpdatePath)
-		selfClient, selfClientErr := self.HTTPClient(0)
-		if selfClientErr != nil {
-			slog.Error("leader self-update: build client", "component", "cluster", "error", selfClientErr)
-			emit(map[string]interface{}{"overall": "error", "message": "Followers updated, but the leader could not start its own update"})
-			return
-		}
-		go func() {
-			time.Sleep(1 * time.Second)
-			mgr.Shutdown()
-			// From here this node's cluster manager is gone. A successful
-			// self-update restarts the process within seconds; if this
-			// goroutine is still here afterwards, the node is alive but
-			// outside the cluster and nothing will bring it back. Exiting
-			// hands it to systemd (Restart=always), which starts it again and
-			// it rejoins. The one exception is a 409: another update already
-			// owns the restart, and exiting would cut it off mid-download.
-			status := selfUpdate(selfClient, selfURL, v2Sig)
-			if status == http.StatusConflict {
-				return
-			}
-			time.Sleep(30 * time.Second)
-			slog.Error("leader self-update did not restart this node; exiting so the supervisor brings it back into the cluster", "component", "cluster", "status", status)
-			os.Exit(1)
-		}()
-	}
+		emit(ev)
+	})
+	slog.Info("cluster update finished", "component", "cluster", "mode", mode, "target", rel.TagName,
+		"outcome", outcome, "reason", reason, "updated", updated, "failed", failed)
 }
 
 // orchestratedUpdatePath is how the cluster update asks a node — a follower,
@@ -1687,36 +1429,6 @@ func (h *Handler) runClusterUpdate(mgr *cluster.Manager, mode string, emit func(
 // two-node cluster, where one node down is always "below quorum". The query is
 // part of the signed request URI, so it must be signed as written here.
 const orchestratedUpdatePath = "/api/v1/system/update?force=true"
-
-// selfUpdate asks this node's own panel to update and returns the HTTP status,
-// or 0 when the request could not be made at all.
-func selfUpdate(client *http.Client, url, sig string) int {
-	// Bound the call explicitly so it can't pin indefinitely on a hung
-	// loopback connection mid-shutdown.
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
-	defer cancel()
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, url, nil)
-	if err != nil {
-		slog.Error("leader self-update: build request", "component", "cluster", "error", err)
-		return 0
-	}
-	if sig != "" {
-		req.Header.Set(auth.InternalProxyHeaderV2, sig)
-	}
-	resp, err := client.Do(req)
-	if err != nil {
-		slog.Error("leader self-update: request failed", "component", "cluster", "error", err)
-		return 0
-	}
-	defer resp.Body.Close()
-	// Drain: a successful update streams its progress, and the restart that
-	// follows is what ends it.
-	_, _ = io.Copy(io.Discard, resp.Body)
-	if resp.StatusCode >= 400 {
-		slog.Error("leader self-update: non-2xx response", "component", "cluster", "status", resp.StatusCode)
-	}
-	return resp.StatusCode
-}
 
 // PublishPanelCA records a node's panel certificate authority in replicated
 // state, on behalf of that node.

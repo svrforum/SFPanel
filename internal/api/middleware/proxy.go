@@ -377,6 +377,18 @@ func executeHTTPRelay(
 	return copyErr
 }
 
+// relayWindowFor is how long an SSE relay may run: http.Client.Timeout caps
+// the whole request, streamed body included. A stack migration (quiesce →
+// transfer → restore → healthcheck) and a cluster update (every agent wave,
+// then every manager) routinely outlive the five minutes an install or a
+// node's own update needs. Two hours is the migration's own limit.
+func relayWindowFor(path string) time.Duration {
+	if strings.HasSuffix(path, "/migrate") || path == "/api/v1/cluster/update" {
+		return 2 * time.Hour
+	}
+	return 5 * time.Minute
+}
+
 // relaySSE opens a direct HTTP connection to the remote node's SSE endpoint
 // and relays the event stream to the client in real-time.
 // If the remote node doesn't support SSE streaming (old version), falls back
@@ -400,16 +412,9 @@ func relaySSE(c echo.Context, targetNode *cluster.Node, mgr *cluster.Manager) er
 		req.Body.Close()
 	}
 
-	// http.Client.Timeout caps the WHOLE request including the streamed body, so
-	// it bounds the longest an SSE relay can run. The stack-migration stream
-	// (quiesce → transfer → restore → healthcheck) routinely outlives the 5-minute
-	// default used for install/update; give it a window matching the migrate
-	// orchestrator's own 2-hour op timeout (large data+image transfer) so the
-	// relay never cuts a still-live migration off mid-flight.
-	window := 5 * time.Minute
-	if strings.HasSuffix(req.URL.Path, "/migrate") {
-		window = 2 * time.Hour
-	}
+	// The window bounds the whole relay, streamed body included; see
+	// relayWindowFor.
+	window := relayWindowFor(req.URL.Path)
 
 	ctx, cancel := context.WithTimeout(req.Context(), window)
 	defer cancel()

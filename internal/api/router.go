@@ -245,6 +245,7 @@ func NewRouter(database *sql.DB, auditWriter *sfdb.AsyncWriter, alertManager *fe
 			ConfigPath:   cfgPath,
 			DB:           database,
 			LiveActivate: liveActivate,
+			Version:      version,
 			OnManagerActivated: func(m *cluster.Manager) {
 				authHandler.SetClusterMgr(m)
 				composeHandler.SetClusterMgr(m)
