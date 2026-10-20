@@ -36,4 +36,7 @@ var (
 	// ErrLeaveUnacknowledged: this node's Raft has stopped, but no leader
 	// took it out — the others may still list it.
 	ErrLeaveUnacknowledged = errors.New("no leader took this node out of the cluster: the others may still list it; remove it on the leader with 'sfpanel cluster remove <node-id>'")
+	// ErrNotRaftNonvoter: ConfirmJoin found the node in the FSM but not in
+	// the Raft configuration as a non-voter — not a joiner, so not promoted.
+	ErrNotRaftNonvoter = errors.New("this node is not a Raft non-voter: it left Raft or never joined it, and must join again")
 )

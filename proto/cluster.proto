@@ -92,6 +92,11 @@ message HeartbeatPing {
     // What this node's code supports. The leader waits for every member to
     // report a capability before it turns on what depends on it.
     repeated string capabilities = 8;
+    // The sender's Raft applied index, from a manager. The leader promotes a
+    // joining manager to voter only once this shows its Raft has caught up:
+    // a node whose Raft port the leader cannot reach heartbeats over gRPC all
+    // the same, and as a voter it would cost the cluster its quorum.
+    optional uint64 raft_applied_index = 9;
 }
 
 message HeartbeatPong {

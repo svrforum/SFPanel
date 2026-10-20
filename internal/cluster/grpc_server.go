@@ -513,12 +513,14 @@ func (s *GRPCServer) serveHeartbeat(stream grpc.BidiStreamingServer[pb.Heartbeat
 			})
 
 			// Two-phase join: a node added as non-voter via HandleJoin gets
-			// promoted on its first successful heartbeat — that's the
-			// strongest in-cluster signal that the new node is fully up
-			// (gRPC connected, certs accepted, Raft caught up). Idempotent
-			// for already-voter nodes; a missing FSM entry just no-ops.
+			// promoted on the first heartbeat whose Raft applied index shows
+			// its Raft has caught up (a node older than that field: on its
+			// first). A heartbeat alone says only that gRPC is up and its
+			// certs are accepted, not that the leader reaches its Raft port.
+			// Idempotent for already-voter nodes; a missing FSM entry just
+			// no-ops.
 			if promote {
-				s.manager.PromoteOnHeartbeatIfPending(result.ping.NodeId)
+				s.manager.PromoteOnHeartbeatIfPending(result.ping.NodeId, result.ping.RaftAppliedIndex)
 			}
 
 			if err := stream.Send(&pb.HeartbeatPong{

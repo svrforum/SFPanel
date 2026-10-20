@@ -489,9 +489,14 @@ type HeartbeatPing struct {
 	Version        string                 `protobuf:"bytes,7,opt,name=version,proto3" json:"version,omitempty"`
 	// What this node's code supports. The leader waits for every member to
 	// report a capability before it turns on what depends on it.
-	Capabilities  []string `protobuf:"bytes,8,rep,name=capabilities,proto3" json:"capabilities,omitempty"`
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
+	Capabilities []string `protobuf:"bytes,8,rep,name=capabilities,proto3" json:"capabilities,omitempty"`
+	// The sender's Raft applied index, from a manager. The leader promotes a
+	// joining manager to voter only once this shows its Raft has caught up:
+	// a node whose Raft port the leader cannot reach heartbeats over gRPC all
+	// the same, and as a voter it would cost the cluster its quorum.
+	RaftAppliedIndex *uint64 `protobuf:"varint,9,opt,name=raft_applied_index,json=raftAppliedIndex,proto3,oneof" json:"raft_applied_index,omitempty"`
+	unknownFields    protoimpl.UnknownFields
+	sizeCache        protoimpl.SizeCache
 }
 
 func (x *HeartbeatPing) Reset() {
@@ -578,6 +583,13 @@ func (x *HeartbeatPing) GetCapabilities() []string {
 		return x.Capabilities
 	}
 	return nil
+}
+
+func (x *HeartbeatPing) GetRaftAppliedIndex() uint64 {
+	if x != nil && x.RaftAppliedIndex != nil {
+		return *x.RaftAppliedIndex
+	}
+	return 0
 }
 
 type HeartbeatPong struct {
@@ -1483,7 +1495,7 @@ const file_proto_cluster_proto_rawDesc = "" +
 	"\anode_id\x18\x01 \x01(\tR\x06nodeId\"?\n" +
 	"\rLeaveResponse\x12\x18\n" +
 	"\asuccess\x18\x01 \x01(\bR\asuccess\x12\x14\n" +
-	"\x05error\x18\x02 \x01(\tR\x05error\"\x98\x02\n" +
+	"\x05error\x18\x02 \x01(\tR\x05error\"\xe2\x02\n" +
 	"\rHeartbeatPing\x12\x17\n" +
 	"\anode_id\x18\x01 \x01(\tR\x06nodeId\x12\x1f\n" +
 	"\vcpu_percent\x18\x02 \x01(\x01R\n" +
@@ -1493,7 +1505,9 @@ const file_proto_cluster_proto_rawDesc = "" +
 	"\ttimestamp\x18\x05 \x01(\x03R\ttimestamp\x12!\n" +
 	"\fdisk_percent\x18\x06 \x01(\x01R\vdiskPercent\x12\x18\n" +
 	"\aversion\x18\a \x01(\tR\aversion\x12\"\n" +
-	"\fcapabilities\x18\b \x03(\tR\fcapabilities\"\xd2\x01\n" +
+	"\fcapabilities\x18\b \x03(\tR\fcapabilities\x121\n" +
+	"\x12raft_applied_index\x18\t \x01(\x04H\x00R\x10raftAppliedIndex\x88\x01\x01B\x15\n" +
+	"\x13_raft_applied_index\"\xd2\x01\n" +
 	"\rHeartbeatPong\x12\x1b\n" +
 	"\tleader_id\x18\x01 \x01(\tR\bleaderId\x12\x1c\n" +
 	"\ttimestamp\x18\x02 \x01(\x03R\ttimestamp\x12.\n" +
@@ -1661,6 +1675,7 @@ func file_proto_cluster_proto_init() {
 	if File_proto_cluster_proto != nil {
 		return
 	}
+	file_proto_cluster_proto_msgTypes[6].OneofWrappers = []any{}
 	type x struct{}
 	out := protoimpl.TypeBuilder{
 		File: protoimpl.DescBuilder{

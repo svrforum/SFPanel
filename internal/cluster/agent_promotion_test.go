@@ -11,7 +11,7 @@ import (
 func TestAgentIsNeverPromotedToVoter(t *testing.T) {
 	mgr, _, _, _ := realLeader(t)
 	addTestNode(t, mgr.raft.GetFSM(), Node{ID: "agent-1", Kind: KindAgent, GRPCAddress: "127.0.0.1:1"})
-	mgr.PromoteOnHeartbeatIfPending("agent-1")
+	mgr.PromoteOnHeartbeatIfPending("agent-1", nil)
 	f := mgr.raft.raft.GetConfiguration()
 	if err := f.Error(); err != nil {
 		t.Fatal(err)

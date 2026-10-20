@@ -22,9 +22,11 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/hashicorp/raft"
 	pb "github.com/svrforum/SFPanel/internal/cluster/proto"
 	"github.com/svrforum/SFPanel/internal/common/safe"
 	"github.com/svrforum/SFPanel/internal/config"
+	"google.golang.org/protobuf/proto"
 )
 
 // Replicated FSM config keys for the cluster CA. The CA private key is stored
@@ -652,15 +654,16 @@ func (m *Manager) HandleJoin(nodeID, nodeName, apiAddr, grpcAddr, token string, 
 }
 
 // ConfirmJoin promotes a previously-added non-voter to voter. The leader
-// calls it when the joining node's first heartbeat arrives
+// calls it once a heartbeat of the joining node shows its Raft has caught up
 // (PromoteOnHeartbeatIfPending): by then the node has its certs on disk,
 // gRPC up, and Raft following. An agent is refused with ErrNotManager.
 // Idempotent: calling it on a node that's already a voter is a no-op,
 // so a network blip causing a retry doesn't break anything.
 //
-// If the FSM still shows the node but Raft no longer does (operator yanked
-// it during the gap), AddVoter adds it back as a new voter: nothing here
-// checks Raft's configuration first or rolls the FSM back.
+// A node the FSM lists and Raft does not is refused with ErrNotRaftNonvoter.
+// Such a record is left by a removal whose FSM write failed, or by a
+// peers.json recovery; AddVoter would put the node back as a voter, undoing
+// the removal, and a voter that is gone costs the cluster its quorum.
 func (m *Manager) ConfirmJoin(nodeID string) error {
 	if m.raft == nil || !m.raft.IsLeader() {
 		return ErrNotLeader
@@ -680,8 +683,20 @@ func (m *Manager) ConfirmJoin(nodeID string) error {
 	grpcPort, _ := strconv.Atoi(grpcPortStr)
 	raftAddr := fmt.Sprintf("%s:%d", host, grpcPort+1)
 
-	if err := m.raft.PromoteToVoter(nodeID, raftAddr); err != nil {
-		return fmt.Errorf("promote to voter: %w", err)
+	suffrage, listed, err := m.raft.Suffrage(nodeID)
+	if err != nil {
+		return fmt.Errorf("read the Raft configuration: %w", err)
+	}
+	switch {
+	case !listed:
+		return ErrNotRaftNonvoter
+	case suffrage == raft.Voter:
+		// Promoted on an earlier heartbeat; only the FSM role write below
+		// failed then.
+	default:
+		if err := m.raft.PromoteToVoter(nodeID, raftAddr); err != nil {
+			return fmt.Errorf("promote to voter: %w", err)
+		}
 	}
 
 	// Mark the FSM role as voter so cluster status reflects the promotion.
@@ -696,12 +711,9 @@ func (m *Manager) ConfirmJoin(nodeID string) error {
 		// the promotion itself succeeded and reverting it would be worse than
 		// a stale role label.
 		//
-		// This is NOT self-healing. An earlier version of this comment claimed
-		// the next heartbeat tick would rewrite the entry via StartLocalMetrics;
-		// that function only records heartbeats and sends gRPC pings — it
-		// contains no raft.Apply at all, so nothing repairs the role on its own.
-		// The symptom is a node that works as a voter but shows the wrong role
-		// in the UI; the remedy is to re-run the promotion from the leader.
+		// It heals itself: the FSM still says non-voter, so the next heartbeat
+		// brings the node back here, where Raft already lists it as a voter
+		// and only the role is written.
 		slog.Warn("FSM voter-role update failed after promotion",
 			"component", "cluster", "node_id", nodeID, "error", err)
 	}
@@ -710,16 +722,18 @@ func (m *Manager) ConfirmJoin(nodeID string) error {
 	return nil
 }
 
-// PromoteOnHeartbeatIfPending promotes a non-voter node to voter when its
-// first heartbeat arrives. Called from the leader's heartbeat handler. No-op
-// when not leader, when the node is already a voter or is an agent, or when
-// the node isn't in the FSM. Errors are logged but never bubbled — heartbeats
-// must keep flowing even if the FSM is mid-migration.
+// PromoteOnHeartbeatIfPending promotes a non-voter node to voter once a
+// heartbeat shows its Raft has caught up: applied is the ping's Raft applied
+// index, nil from a node older than the field (promotionReady). Called from
+// the leader's heartbeat handler. No-op when not leader, when the node is
+// already a voter or is an agent, or when the node isn't in the FSM. Errors
+// are logged but never bubbled — heartbeats must keep flowing even if the FSM
+// is mid-migration.
 //
 // Rate-limited per nodeID: at most one promotion attempt every 5 s for any
 // given node. A misbehaving (or malicious) heartbeat flood with a forged
 // nodeID can no longer churn Raft config-change entries on the leader.
-func (m *Manager) PromoteOnHeartbeatIfPending(nodeID string) {
+func (m *Manager) PromoteOnHeartbeatIfPending(nodeID string, applied *uint64) {
 	if m.raft == nil || !m.raft.IsLeader() {
 		return
 	}
@@ -733,9 +747,30 @@ func (m *Manager) PromoteOnHeartbeatIfPending(nodeID string) {
 	if !m.promoteRateLimit(nodeID) {
 		return
 	}
+	// A node the leader cannot reach on its Raft port heartbeats over gRPC
+	// all the same; as a voter it would take the leader's majority with it.
+	if leaderApplied := m.raft.AppliedIndex(); !promotionReady(applied, leaderApplied) {
+		slog.Info("joining manager not promoted yet: its Raft has not caught up — is the leader able to reach its Raft port (the gRPC port + 1)?",
+			"component", "cluster", "node_id", nodeID, "applied", *applied, "leader_applied", leaderApplied)
+		return
+	}
 	if err := m.ConfirmJoin(nodeID); err != nil {
 		slog.Warn("non-voter promotion deferred", "component", "cluster", "node_id", nodeID, "error", err)
 	}
+}
+
+// promoteMaxLag is how far behind the leader's FSM a joining manager's may be
+// and still be promoted.
+const promoteMaxLag = 64
+
+// promotionReady reports whether a joining manager's Raft has caught up
+// enough to vote. A sender from before raft_applied_index (nil) is promoted
+// as joiners always were; one whose Raft never applied an entry (0) never is.
+func promotionReady(applied *uint64, leaderApplied uint64) bool {
+	if applied == nil {
+		return true
+	}
+	return *applied > 0 && *applied+promoteMaxLag >= leaderApplied
 }
 
 // promoteRateLimit returns true if promotion for nodeID is allowed now;
@@ -1687,6 +1722,9 @@ func (m *Manager) StartLocalMetrics(collector MetricsCollector) {
 						Version:        m.version,
 						Timestamp:      metrics.Timestamp,
 						Capabilities:   m.heartbeatCapabilities(),
+						// The leader promotes this node only once it shows
+						// its Raft has caught up (promotionReady).
+						RaftAppliedIndex: proto.Uint64(m.raft.AppliedIndex()),
 					})
 					if err != nil {
 						slog.Warn("heartbeat send failed", "component", "cluster", "error", err)

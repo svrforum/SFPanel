@@ -314,6 +314,23 @@ func (rn *RaftNode) RemoveServer(nodeID string) error {
 	return f.Error()
 }
 
+// AppliedIndex is the index of the last entry applied to this node's FSM.
+func (rn *RaftNode) AppliedIndex() uint64 { return rn.raft.AppliedIndex() }
+
+// Suffrage reports how the Raft configuration lists id, and whether it does.
+func (rn *RaftNode) Suffrage(id string) (raft.ServerSuffrage, bool, error) {
+	f := rn.raft.GetConfiguration()
+	if err := f.Error(); err != nil {
+		return 0, false, err
+	}
+	for _, s := range f.Configuration().Servers {
+		if string(s.ID) == id {
+			return s.Suffrage, true, nil
+		}
+	}
+	return 0, false, nil
+}
+
 // isLeader reports leadership, treating a RaftNode with no underlying Raft as
 // "not the leader" rather than dereferencing nil.
 //
