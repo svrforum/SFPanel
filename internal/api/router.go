@@ -305,6 +305,9 @@ func NewRouter(database *sql.DB, auditWriter *sfdb.AsyncWriter, alertManager *fe
 		}
 	}
 	authorized.Use(mw.AuditMiddleware(auditWriter, localNodeIDFn))
+	// A migration names this node as its source by the ID its audit rows
+	// carry: the live manager's, or the one an agent registered under.
+	composeHandler.NodeID = localNodeIDFn
 	// Settings
 	settingsHandler := &featureSettings.Handler{DB: database}
 	authorized.GET("/settings", settingsHandler.GetSettings)
@@ -750,13 +753,20 @@ func NewRouter(database *sql.DB, auditWriter *sfdb.AsyncWriter, alertManager *fe
 	compose.POST("/:project/healthcheck/:service/test", composeHandler.TestHealthcheck)
 	compose.POST("/import", composeHandler.ImportFromGit)
 	compose.POST("/migrate-import", composeHandler.MigrateImport)
-	// An agent can receive a stack but not send one: the source side needs
-	// this node's cluster manager, which an agent does not run.
+	// An agent does not run a migration itself: these send to the target,
+	// which needs this node's cluster manager, and an agent runs none.
 	if !agent {
 		compose.POST("/:project/migrate/preflight", composeHandler.MigratePreflight)
 		compose.POST("/:project/migrate", composeHandler.Migrate)
 	}
 	compose.GET("/migrate/target-info", composeHandler.MigrateTargetInfo)
+	// Every node, an agent too, serves a migration of its own stacks as a
+	// session a manager drives: the manager pulls the bundle and carries it
+	// to the target. Node to node only; the handlers check the signature.
+	compose.GET("/:project/migrate-source/info", composeHandler.MigrateSourceInfo)
+	compose.POST("/:project/migrate-source", composeHandler.MigrateSource)
+	compose.GET("/:project/migrate-source/bundle", composeHandler.MigrateSourceBundle)
+	compose.POST("/:project/migrate-source/outcome", composeHandler.MigrateSourceOutcome)
 	compose.DELETE("/:project", composeHandler.DeleteProject)
 	compose.POST("/:project/up", composeHandler.ProjectUp)
 	compose.POST("/:project/up-stream", composeHandler.ProjectUpStream)

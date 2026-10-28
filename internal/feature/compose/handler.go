@@ -88,6 +88,16 @@ type Handler struct {
 	// clearVolume + tar-extract on the one shared volume. Keyed by docker volume
 	// name; held only for the target import's restore window. Zero-value ready.
 	volInFlight sync.Map
+
+	// NodeID is this node's cluster ID, which a migration names as its
+	// source: a manager's from its live cluster manager, an agent's the ID it
+	// registered under — an agent runs no cluster manager to ask. A handler
+	// built without it asks the cluster manager (localNodeID).
+	NodeID func() string
+
+	// sessions are the migrations of this node's stacks that a manager is
+	// carrying, by session ID (migration_source.go).
+	sessions sync.Map
 }
 
 // tryAcquireVolumes marks a set of docker volume names as in-flight for a
@@ -143,6 +153,18 @@ func (h *Handler) clusterManager() *cluster.Manager {
 	h.clusterMu.RLock()
 	defer h.clusterMu.RUnlock()
 	return h.clusterMgr
+}
+
+// localNodeID is this node's cluster ID: NodeID as the router wired it, or,
+// for a handler built without it, the cluster manager's; "" when standalone.
+func (h *Handler) localNodeID() string {
+	if h.NodeID != nil {
+		return h.NodeID()
+	}
+	if mgr := h.clusterManager(); mgr != nil {
+		return mgr.LocalNodeID()
+	}
+	return ""
 }
 
 // ListProjectsWithStatus returns all compose projects with real-time service status.

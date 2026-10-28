@@ -22,6 +22,7 @@ const (
 	PhasePreflight   = "preflight"
 	PhaseQuiesce     = "quiesce"
 	PhasePackage     = "package"
+	PhaseReady       = "ready" // a source session's bundle can be pulled (migration_source.go)
 	PhaseTransfer    = "transfer"
 	PhaseRestore     = "restore"
 	PhaseUp          = "up"

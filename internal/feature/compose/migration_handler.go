@@ -498,6 +498,39 @@ func (h *Handler) usedHostPorts(ctx context.Context) []int {
 	return ports
 }
 
+// localMigrationFacts are the source's half of a pre-flight, read on this node
+// from the stack's resolved config: this node, what the stack asks of a target
+// (host ports, binds, external volumes, devices) and how much it moves.
+// gatherPreflight adds the target's half; MigrateSourceInfo answers them to a
+// manager that carries this node's stack.
+func (h *Handler) localMigrationFacts(ctx context.Context, project string) (PreflightInput, error) {
+	cfgJSON, err := h.Compose.GetResolvedConfig(ctx, project)
+	if err != nil {
+		return PreflightInput{}, err
+	}
+	facts, err := parseStackConfig(cfgJSON, filepath.Join(h.ComposePath, project))
+	if err != nil {
+		return PreflightInput{}, err
+	}
+
+	in := PreflightInput{
+		SourceNodeID:      h.localNodeID(),
+		SourceArch:        runtime.GOARCH,
+		StackPorts:        facts.HostPorts,
+		HasSystemBind:     facts.HasSystemBind,
+		HasExternalVolume: facts.HasExternalVolume,
+		HasAbsBind:        facts.HasAbsBind,
+		HasDevice:         facts.HasDevice,
+	}
+	// Real estimate, split by destination filesystem: volume+image data lands on
+	// the docker storage FS, stack files + bind data on the stacks FS — so the
+	// insufficient-disk block can check each against the right free space.
+	dockerBytes, stacksBytes := estimateTransferBytes(ctx, facts)
+	in.EstimatedDockerBytes = dockerBytes
+	in.EstimatedBytes = int64(len(cfgJSON)) + stacksBytes + (16 << 20)
+	return in, nil
+}
+
 // gatherPreflight runs the source-side dry-run: it resolves the stack's compose
 // config for local facts, queries the target node over the cluster channel for
 // its facts, and folds both into a PreflightReport. Shared by MigratePreflight
@@ -509,33 +542,13 @@ func (h *Handler) gatherPreflight(ctx context.Context, project, targetNodeID, us
 	if mgr == nil {
 		return PreflightReport{}, fmt.Errorf("cluster is not enabled")
 	}
-	cfgJSON, err := h.Compose.GetResolvedConfig(ctx, project)
+	in, err := h.localMigrationFacts(ctx, project)
 	if err != nil {
 		return PreflightReport{}, err
 	}
-	facts, err := parseStackConfig(cfgJSON, filepath.Join(h.ComposePath, project))
-	if err != nil {
-		return PreflightReport{}, err
-	}
-
-	in := PreflightInput{
-		SourceNodeID:      mgr.LocalNodeID(),
-		TargetNodeID:      targetNodeID,
-		SourceArch:        runtime.GOARCH,
-		StackPorts:        facts.HostPorts,
-		HasSystemBind:     facts.HasSystemBind,
-		HasExternalVolume: facts.HasExternalVolume,
-		HasAbsBind:        facts.HasAbsBind,
-		HasDevice:         facts.HasDevice,
-		OverwriteAcked:    overwriteAcked,
-		Disposition:       DispositionRetain, // preflight is disposition-agnostic for blocking; clone relaxation handled at migrate time
-	}
-	// Real estimate, split by destination filesystem: volume+image data lands on
-	// the docker storage FS, stack files + bind data on the stacks FS — so the
-	// insufficient-disk block can check each against the right free space.
-	dockerBytes, stacksBytes := estimateTransferBytes(ctx, facts)
-	in.EstimatedDockerBytes = dockerBytes
-	in.EstimatedBytes = int64(len(cfgJSON)) + stacksBytes + (16 << 20)
+	in.TargetNodeID = targetNodeID
+	in.OverwriteAcked = overwriteAcked
+	in.Disposition = DispositionRetain // preflight is disposition-agnostic for blocking; clone relaxation handled at migrate time
 
 	// Target facts via the cross-node info endpoint. A 200 with an unparseable
 	// body (version skew, truncation) must NOT masquerade as a clean pass — it
@@ -636,29 +649,8 @@ func (h *Handler) Migrate(c echo.Context) error {
 	}
 	defer h.releaseMigration(project)
 
-	c.Response().Header().Set("Content-Type", "text/event-stream")
-	c.Response().Header().Set("Cache-Control", "no-cache")
-	c.Response().Header().Set("Connection", "keep-alive")
-	c.Response().WriteHeader(http.StatusOK)
-	flusher := c.Response()
 	username, _ := c.Get("username").(string)
-	send := func(phase, msg string, done bool) {
-		// Durable audit trail: every terminal outcome is logged with the full
-		// who/what/where (the request-level audit middleware records only the call).
-		if done {
-			lvl := slog.LevelInfo
-			if phase == PhaseError {
-				lvl = slog.LevelWarn
-			}
-			slog.LogAttrs(context.Background(), lvl, "stack migration "+phase,
-				slog.String("component", "compose"), slog.String("stack", project),
-				slog.String("target", req.TargetNodeID), slog.String("disposition", req.Disposition),
-				slog.String("user", username), slog.String("detail", msg))
-		}
-		data, _ := json.Marshal(map[string]any{"phase": phase, "message": msg, "done": done})
-		fmt.Fprintf(flusher, "data: %s\n\n", data)
-		flusher.Flush()
-	}
+	send := migrationStream(c, project, req.TargetNodeID, req.Disposition, username)
 	slog.Info("stack migration starting", "component", "compose", "stack", project,
 		"target", req.TargetNodeID, "disposition", req.Disposition, "user", username,
 		"rate_limit_mibps", req.RateLimitMbps)
@@ -698,45 +690,12 @@ func (h *Handler) Migrate(c echo.Context) error {
 		}
 	}
 
-	// 2. quiesce — stop the source (cold) so the snapshot is consistent.
-	send(PhaseQuiesce, "Stopping source stack...", false)
-	if _, err := h.Compose.Stop(opCtx, project); err != nil {
-		h.reportRollback(send, project, "quiesce failed", err.Error())
-		return nil
-	}
-
-	// 3. package — archive definition + volume/bind data + images into a bundle.
-	send(PhasePackage, "Packaging stack (data + images)...", false)
-	yamlPath, _ := h.Compose.ResolveComposeFile(opCtx, project)
-	composeFile := filepath.Base(yamlPath)
-	hasEnv := false
-	if _, err := os.Stat(filepath.Join(h.ComposePath, project, ".env")); err == nil {
-		hasEnv = true
-	}
-	manifest := buildDefinitionManifest(project, composeFile, hasEnv, mgr.LocalNodeID(), runtime.GOARCH, req.TargetNodeID, disp, req.OverwriteAcked)
-	// Populate data sections from the resolved config. A parse failure falls back
-	// to a definition-only migration rather than aborting the run.
-	if cfgJSON, cerr := h.Compose.GetResolvedConfig(opCtx, project); cerr == nil {
-		if facts, ferr := parseStackConfig(cfgJSON, filepath.Join(h.ComposePath, project)); ferr == nil {
-			manifest.Volumes = facts.Volumes
-			manifest.Binds = facts.Binds
-			manifest.Images = facts.Images
-			manifest.Devices = facts.Devices
-			manifest.Ports = facts.HostPorts
-		}
-	}
-	tmpDir, terr0 := os.MkdirTemp(h.ComposePath, ".mig-pkg-*")
-	if terr0 != nil {
-		h.reportRollback(send, project, "packaging failed", terr0.Error())
-		return nil
+	// 2-3. quiesce and package.
+	bundleFile, sha, tmpDir, qerr := h.quiesceAndPackage(opCtx, project, req.TargetNodeID, disp, req.OverwriteAcked, send)
+	if qerr != nil {
+		return nil // the source was restarted, and the stream says why
 	}
 	defer func() { _ = os.RemoveAll(tmpDir) }()
-	bundleFile := filepath.Join(tmpDir, "bundle.tar")
-	sha, pkgErr := packageFullBundle(opCtx, bundleFile, &manifest, filepath.Join(h.ComposePath, project), tmpDir)
-	if pkgErr != nil {
-		h.reportRollback(send, project, "packaging failed", pkgErr.Error())
-		return nil
-	}
 
 	// 4. transfer — stream the bundle to the target; it restores + ups + healthchecks.
 	send(PhaseTransfer, "Transferring to target...", false)
@@ -777,16 +736,102 @@ func (h *Handler) Migrate(c echo.Context) error {
 		return nil
 	}
 
-	// 5. finalize — disposition (target is healthy now). A finalize failure does
-	// NOT undo the successful migration, so it terminates as DONE with a warning
-	// rather than masquerading as a failed migration.
+	// 5. finalize — disposition (target is healthy now).
+	h.reportFinalize(opCtx, send, project, disp)
+	return nil
+}
+
+// migrationStream starts a migration's event stream on c and returns its
+// writer of {phase, message, done} events. Durable audit trail: every terminal
+// outcome is also logged with the full who/what/where (the request-level audit
+// middleware records only the call).
+func migrationStream(c echo.Context, project, target, disposition, username string) func(phase, msg string, done bool) {
+	c.Response().Header().Set("Content-Type", "text/event-stream")
+	c.Response().Header().Set("Cache-Control", "no-cache")
+	c.Response().Header().Set("Connection", "keep-alive")
+	c.Response().WriteHeader(http.StatusOK)
+	return func(phase, msg string, done bool) {
+		if done {
+			lvl := slog.LevelInfo
+			if phase == PhaseError {
+				lvl = slog.LevelWarn
+			}
+			slog.LogAttrs(context.Background(), lvl, "stack migration "+phase,
+				slog.String("component", "compose"), slog.String("stack", project),
+				slog.String("target", target), slog.String("disposition", disposition),
+				slog.String("user", username), slog.String("detail", msg))
+		}
+		writeMigrationEvent(c, map[string]any{"phase": phase, "message": msg, "done": done})
+	}
+}
+
+// writeMigrationEvent writes one event on a migration's stream.
+func writeMigrationEvent(c echo.Context, ev map[string]any) {
+	data, _ := json.Marshal(ev)
+	fmt.Fprintf(c.Response(), "data: %s\n\n", data)
+	c.Response().Flush()
+}
+
+// quiesceAndPackage is steps 2 and 3 of a migration, shared by Migrate and a
+// source session (MigrateSource): it stops the stack and packages it into a
+// bundle in a fresh .mig-pkg-* directory under the stacks root. The manifest
+// names this node as the source. On failure it has restarted the source and
+// sent the terminal event (reportRollback), and removed its directory; on
+// success the caller removes tmpDir.
+func (h *Handler) quiesceAndPackage(ctx context.Context, project, targetID string, disp Disposition, overwrite bool, send func(string, string, bool)) (bundlePath, sha, tmpDir string, err error) {
+	// 2. quiesce — stop the source (cold) so the snapshot is consistent.
+	send(PhaseQuiesce, "Stopping source stack...", false)
+	if _, err := h.Compose.Stop(ctx, project); err != nil {
+		h.reportRollback(send, project, "quiesce failed", err.Error())
+		return "", "", "", err
+	}
+
+	// 3. package — archive definition + volume/bind data + images into a bundle.
+	send(PhasePackage, "Packaging stack (data + images)...", false)
+	yamlPath, _ := h.Compose.ResolveComposeFile(ctx, project)
+	composeFile := filepath.Base(yamlPath)
+	hasEnv := false
+	if _, err := os.Stat(filepath.Join(h.ComposePath, project, ".env")); err == nil {
+		hasEnv = true
+	}
+	manifest := buildDefinitionManifest(project, composeFile, hasEnv, h.localNodeID(), runtime.GOARCH, targetID, disp, overwrite)
+	// Populate data sections from the resolved config. A parse failure falls back
+	// to a definition-only migration rather than aborting the run.
+	if cfgJSON, cerr := h.Compose.GetResolvedConfig(ctx, project); cerr == nil {
+		if facts, ferr := parseStackConfig(cfgJSON, filepath.Join(h.ComposePath, project)); ferr == nil {
+			manifest.Volumes = facts.Volumes
+			manifest.Binds = facts.Binds
+			manifest.Images = facts.Images
+			manifest.Devices = facts.Devices
+			manifest.Ports = facts.HostPorts
+		}
+	}
+	tmpDir, err = os.MkdirTemp(h.ComposePath, ".mig-pkg-*")
+	if err != nil {
+		h.reportRollback(send, project, "packaging failed", err.Error())
+		return "", "", "", err
+	}
+	bundlePath = filepath.Join(tmpDir, "bundle.tar")
+	sha, err = packageFullBundle(ctx, bundlePath, &manifest, filepath.Join(h.ComposePath, project), tmpDir)
+	if err != nil {
+		h.reportRollback(send, project, "packaging failed", err.Error())
+		_ = os.RemoveAll(tmpDir)
+		return "", "", "", err
+	}
+	return bundlePath, sha, tmpDir, nil
+}
+
+// reportFinalize applies the disposition once the target runs the stack and
+// ends the stream. A finalize failure does NOT undo the successful migration,
+// so it terminates as DONE with a warning rather than masquerading as a failed
+// migration.
+func (h *Handler) reportFinalize(ctx context.Context, send func(string, string, bool), project string, disp Disposition) {
 	send(PhaseFinalize, "Applying source disposition ("+string(disp)+")...", false)
-	if err := h.migrateFinalize(opCtx, project, disp); err != nil {
+	if err := h.migrateFinalize(ctx, project, disp); err != nil {
 		send(PhaseDone, response.SanitizeOutput("migrated to target (running); source cleanup needs attention: "+err.Error()), true)
-		return nil
+		return
 	}
 	send(PhaseDone, "Migration complete.", true)
-	return nil
 }
 
 // reportRollback restarts the source after a pre-finalize failure and emits an

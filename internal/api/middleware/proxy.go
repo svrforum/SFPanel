@@ -63,6 +63,11 @@ func isStreamingEndpoint(path string) bool {
 	// "/migrate-import" (binary relay) and "/migrate/preflight" (unary JSON).
 	case strings.HasSuffix(path, "/migrate"):
 		return true
+	// A source session (the source's side of a migration a manager carries)
+	// streams its phases until the manager's outcome. Its bundle is a binary
+	// relay; its info and outcome are unary JSON.
+	case strings.HasSuffix(path, "/migrate-source"):
+		return true
 	}
 	return false
 }
@@ -118,7 +123,8 @@ func isBinaryRelayEndpoint(path string) bool {
 		strings.HasSuffix(path, "/files/upload") ||
 		strings.HasSuffix(path, "/system/backup") ||
 		strings.HasSuffix(path, "/system/restore") ||
-		strings.HasSuffix(path, "/compose/migrate-import")
+		strings.HasSuffix(path, "/compose/migrate-import") ||
+		strings.HasSuffix(path, "/migrate-source/bundle")
 }
 
 // hopByHopHeaders are headers that must not be forwarded across HTTP
@@ -381,9 +387,11 @@ func executeHTTPRelay(
 // the whole request, streamed body included. A stack migration (quiesce →
 // transfer → restore → healthcheck) and a cluster update (every agent wave,
 // then every manager) routinely outlive the five minutes an install or a
-// node's own update needs. Two hours is the migration's own limit.
+// node's own update needs, and so does a migration's source session, which
+// waits out the transfer for its outcome. Two hours is the migration's own
+// limit.
 func relayWindowFor(path string) time.Duration {
-	if strings.HasSuffix(path, "/migrate") || path == "/api/v1/cluster/update" {
+	if strings.HasSuffix(path, "/migrate") || strings.HasSuffix(path, "/migrate-source") || path == "/api/v1/cluster/update" {
 		return 2 * time.Hour
 	}
 	return 5 * time.Minute

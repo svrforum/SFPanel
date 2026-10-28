@@ -41,6 +41,12 @@ func TestIsBinaryRelayEndpoint(t *testing.T) {
 		// SSE-style endpoints handled by relaySSE, not relayHTTP.
 		{"/api/v1/system/update", false},
 		{"/api/v1/docker/compose/foo/up-stream", false},
+		// A source session's bundle is a stack's data and images; the
+		// session itself is SSE, and its info and outcome are small JSON.
+		{"/api/v1/docker/compose/foo/migrate-source/bundle", true},
+		{"/api/v1/docker/compose/foo/migrate-source", false},
+		{"/api/v1/docker/compose/foo/migrate-source/info", false},
+		{"/api/v1/docker/compose/foo/migrate-source/outcome", false},
 	}
 	for _, tc := range cases {
 		if got := isBinaryRelayEndpoint(tc.path); got != tc.want {
@@ -80,6 +86,8 @@ func TestIsStreamingEndpoint(t *testing.T) {
 		{"/api/v1/ai/tools/codex/update-stream", true},
 		// Stack migrate orchestrator (SSE phase stream).
 		{"/api/v1/docker/compose/myproj/migrate", true},
+		// A source session streams its phases until the manager's outcome.
+		{"/api/v1/docker/compose/myproj/migrate-source", true},
 		// Sync POSTs that intentionally stay unary.
 		{"/api/v1/packages/install", false},
 		{"/api/v1/packages/remove", false},
@@ -90,6 +98,11 @@ func TestIsStreamingEndpoint(t *testing.T) {
 		// a binary relay and the preflight is unary JSON.
 		{"/api/v1/docker/compose/migrate-import", false},
 		{"/api/v1/docker/compose/myproj/migrate/preflight", false},
+		// A source session's other routes: the bundle is a binary relay,
+		// the info and the outcome unary JSON.
+		{"/api/v1/docker/compose/myproj/migrate-source/bundle", false},
+		{"/api/v1/docker/compose/myproj/migrate-source/info", false},
+		{"/api/v1/docker/compose/myproj/migrate-source/outcome", false},
 	}
 	for _, tc := range cases {
 		if got := isStreamingEndpoint(tc.path); got != tc.want {
@@ -127,6 +140,7 @@ func TestStreamingAllowlist_KnownSSEHandlers(t *testing.T) {
 		"/api/v1/docker/compose/myproj/up-stream",
 		"/api/v1/docker/compose/myproj/update-stream",
 		"/api/v1/docker/compose/myproj/migrate",
+		"/api/v1/docker/compose/myproj/migrate-source",
 		// network
 		"/api/v1/network/tailscale/install",
 		// cluster orchestrator
@@ -149,6 +163,9 @@ func TestRelayWindowFor(t *testing.T) {
 		"/api/v1/cluster/update":              2 * time.Hour,
 		"/api/v1/docker/compose/web/migrate":  2 * time.Hour,
 		"/api/v1/appstore/apps/nginx/install": 5 * time.Minute,
+		// A source session waits out the manager's transfer and the
+		// target's restore before it hears the outcome.
+		"/api/v1/docker/compose/web/migrate-source": 2 * time.Hour,
 	} {
 		if got := relayWindowFor(path); got != want {
 			t.Errorf("relayWindowFor(%q) = %v, want %v", path, got, want)

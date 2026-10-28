@@ -126,6 +126,15 @@ var expectedManagerOnlyRoutes = func() []string {
 	return s
 }()
 
+// sourceSessionRoutes are the source side of a migration that a manager
+// carries: every node serves them for its own stacks, an agent too.
+var sourceSessionRoutes = []string{
+	"GET /api/v1/docker/compose/:project/migrate-source/info",
+	"POST /api/v1/docker/compose/:project/migrate-source",
+	"GET /api/v1/docker/compose/:project/migrate-source/bundle",
+	"POST /api/v1/docker/compose/:project/migrate-source/outcome",
+}
+
 // serve sends r to e from addr and returns the recorded response.
 func serve(e *echo.Echo, addr string, r *http.Request) *httptest.ResponseRecorder {
 	r.RemoteAddr = addr
@@ -155,6 +164,11 @@ func TestAgentRouteSet(t *testing.T) {
 	slices.Sort(missing)
 	if !slices.Equal(missing, expectedManagerOnlyRoutes) {
 		t.Fatalf("manager-only routes differ:\n got %v\nwant %v", missing, expectedManagerOnlyRoutes)
+	}
+	for _, r := range sourceSessionRoutes {
+		if !agent[r] || !manager[r] {
+			t.Fatalf("%s: served by the agent %v, by the manager %v; every node serves its stacks' migration sessions", r, agent[r], manager[r])
+		}
 	}
 
 	// The agent's chain is its managers' signature and nothing else. From
