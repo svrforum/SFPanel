@@ -79,3 +79,26 @@ func TestSameVersion(t *testing.T) {
 		}
 	}
 }
+
+// A node the leader's heartbeats show offline is skipped whatever version it
+// last reported: counted current, the stream said it was online, and the
+// leader offered it as the manager to hand leadership to.
+func TestPlanSkipsAnOfflineNodeOnTheTarget(t *testing.T) {
+	state := cluster.ClusterState{Nodes: map[string]*cluster.Node{
+		"m1": {ID: "m1", Name: "m1", Kind: cluster.KindManager, Role: cluster.RoleVoter},
+		"m2": {ID: "m2", Name: "m2", Kind: cluster.KindManager, Role: cluster.RoleVoter},
+		"m3": {ID: "m3", Name: "m3", Kind: cluster.KindManager, Role: cluster.RoleVoter},
+	}}
+	health := map[string]cluster.NodeStatus{"m1": cluster.StatusOnline, "m2": cluster.StatusOffline, "m3": cluster.StatusOnline}
+	versions := map[string]string{"m1": "0.80.0", "m2": "0.81.0", "m3": "0.81.0"}
+	p := planClusterUpdate(state, health, versions, "m1", "v0.81.0", 1)
+	if got := ids(p.Skipped); !reflect.DeepEqual(got, []string{"m2"}) {
+		t.Errorf("skipped %v", got)
+	}
+	if got := ids(p.Current); !reflect.DeepEqual(got, []string{"m3"}) {
+		t.Errorf("current %v", got)
+	}
+	if p.Leader == nil || p.Leader.ID != "m1" {
+		t.Errorf("leader %+v", p.Leader)
+	}
+}

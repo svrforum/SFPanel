@@ -18,8 +18,8 @@ type updatePlan struct {
 	Waves    [][]updateNode // agents, wave by wave
 	Managers []updateNode   // the other managers, one at a time
 	Leader   *updateNode    // this node, last; nil when it runs the target already
-	Skipped  []updateNode   // offline by the leader's heartbeats: not asked
-	Current  []updateNode   // running the target already: not asked
+	Skipped  []updateNode   // offline by the leader's heartbeats, whatever they last ran: not asked
+	Current  []updateNode   // online and running the target already: not asked
 }
 
 // planClusterUpdate orders a cluster update: agents first, waveSize at a
@@ -35,14 +35,19 @@ func planClusterUpdate(state cluster.ClusterState, health map[string]cluster.Nod
 	var agents, managers []updateNode
 	for id, n := range state.Nodes {
 		un := updateNode{ID: id, Name: n.Name, Version: versions[id], Manager: n.IsManager(), Voter: n.Role == cluster.RoleVoter}
+		// Health before version: the version of an offline node is only
+		// what it last reported, and one counted current would be announced
+		// online and offered the leadership.
 		switch {
-		case sameVersion(un.Version, target):
+		case id == localID && sameVersion(un.Version, target):
 			plan.Current = append(plan.Current, un)
 		case id == localID:
 			local := un
 			plan.Leader = &local
 		case health[id] != cluster.StatusOnline:
 			plan.Skipped = append(plan.Skipped, un)
+		case sameVersion(un.Version, target):
+			plan.Current = append(plan.Current, un)
 		case un.Manager:
 			managers = append(managers, un)
 		default:
