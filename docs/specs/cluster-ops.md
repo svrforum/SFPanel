@@ -737,14 +737,20 @@ the join and stays an agent.
 **Becoming a voter.** A promoted manager is a Raft non-voter until its Raft
 has caught up, as any joining manager is (§ Joining a manager), and that
 needs its Raft port reachable from the leader. An agent needs no Raft port
-(§ Ports), so a firewall in front of one may well close it. Until it is
-open, the node stays a non-voter, and the leader's log shows Raft's own
-errors for its Raft address (`failed to heartbeat to`,
-`failed to appendEntries to`). Its Raft never hears from the leader, so the
-node sends no manager heartbeat either, and the leader counts it among the
-managers not ready for agents: agent registrations and conversions are
-refused, naming it, until the port is open or the node is removed. Convert
-or promote one node at a time, and let each come back before the next.
+(§ Ports), so a firewall in front of one may well close it: open it to the
+managers before the promotion. The agent holds the port open from step 2
+until its promotion has run, and the leader dials it before it turns the
+record into a manager's. A port the leader cannot reach refuses the join,
+and the agent comes back as the agent it was; its log and the leader's say
+why (`cannot reach … Raft port`). Admitted with the port closed, the node's
+Raft would never hear from the leader, it would send no manager heartbeat,
+and every agent registration and conversion would wait for it. A port that
+closes after the join does just that: the node stays a non-voter, the
+leader's log shows Raft's own errors for its Raft address
+(`failed to heartbeat to`, `failed to appendEntries to`), and agent
+registrations and conversions are refused, naming it, until the port is
+open or the node is removed. Convert or promote one node at a time, and let
+each come back before the next.
 
 **A join that the leader admitted and the server could not finish** — the
 leader's answer failed the CA pin, or a file could not be written — leaves

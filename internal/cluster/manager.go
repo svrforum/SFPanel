@@ -619,6 +619,25 @@ func (m *Manager) HandleJoin(nodeID, nodeName, apiAddr, grpcAddr, token string, 
 		return nil, nil, nil, nil, fmt.Errorf("%w: the agent this join token was made for is no longer in the cluster", ErrNodeNotFound)
 	}
 
+	host, grpcPortStr, _ := net.SplitHostPort(grpcAddr)
+	grpcPort, _ := strconv.Atoi(grpcPortStr)
+	if promoting {
+		// An agent needs no Raft port, and its firewall may close it. Admitted
+		// with the port closed, the node's Raft would never hear from the
+		// leader, so it would send no manager heartbeat, and every agent
+		// registration would wait for it (managersNotReadyForAgents). The
+		// agent holds the port open while it joins (BecomeManager), so a dial
+		// that fails here fails for Raft too.
+		raftPort := net.JoinHostPort(host, strconv.Itoa(grpcPort+1))
+		conn, derr := net.DialTimeout("tcp", raftPort, 3*time.Second)
+		if derr != nil {
+			slog.Warn("a promotion to a manager was refused: the leader cannot reach the node's Raft port",
+				"component", "cluster", "node_id", nodeID, "raft_addr", raftPort, "error", derr)
+			return nil, nil, nil, nil, fmt.Errorf("%w (%v)", ErrRaftPortUnreachable, derr)
+		}
+		_ = conn.Close()
+	}
+
 	// Ensure the CA private key is on disk before signing. On a leader that
 	// joined the cluster (rather than founding the CA) the key lives only in
 	// replicated FSM state until first use; materialize it now. If it's nowhere
@@ -628,7 +647,6 @@ func (m *Manager) HandleJoin(nodeID, nodeName, apiAddr, grpcAddr, token string, 
 		return nil, nil, nil, nil, caKeyErr
 	}
 
-	host, _, _ := net.SplitHostPort(grpcAddr)
 	certPEM, keyPEM, tlsErr := m.tls.IssueNodeCert(nodeID, []string{host}, CertRoleManager)
 	if tlsErr != nil {
 		return nil, nil, nil, nil, fmt.Errorf("issue cert: %w", tlsErr)
@@ -692,8 +710,6 @@ func (m *Manager) HandleJoin(nodeID, nodeName, apiAddr, grpcAddr, token string, 
 	}
 
 	// Derive Raft port from joining node's gRPC port (+1), not leader's config
-	_, grpcPortStr, _ := net.SplitHostPort(grpcAddr)
-	grpcPort, _ := strconv.Atoi(grpcPortStr)
 	raftAddr := fmt.Sprintf("%s:%d", host, grpcPort+1)
 	if addErr := m.raft.AddNonvoter(nodeID, raftAddr); addErr != nil {
 		// Rollback: AddNonvoter can return an error after its config-change

@@ -56,4 +56,8 @@ var (
 	// reason after it says what stands in the way.
 	ErrPromoteRefused  = errors.New("the promotion to a manager was refused")
 	ErrPromoteNotAgent = errors.New("only an agent is promoted: this node is a manager already")
+	// ErrRaftPortUnreachable: an agent's join as a manager is refused because
+	// the leader could not reach the Raft port the agent held open for it.
+	// Surfaced to the operator via "join rejected: …" in the agent's log.
+	ErrRaftPortUnreachable = errors.New("the leader cannot reach this node's Raft port, the cluster gRPC port + 1, which a manager needs open to the other managers: open it to them, then promote the node again")
 )

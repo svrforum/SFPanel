@@ -3,6 +3,7 @@ package cluster
 import (
 	"errors"
 	"fmt"
+	"net"
 	"os"
 	"path/filepath"
 	"slices"
@@ -472,7 +473,15 @@ func TestAnAgentPromotesToAManager(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	if err := PromoteToManager(cfg, path, nil, ConvertRequest{Token: tok.Token, Pin: pin, Manager: addr, Advertise: "127.0.0.2"}); err != nil {
+	// The agent holds its Raft port while it joins, as BecomeManager does:
+	// the leader dials it before it makes the record a manager's.
+	held, err := net.Listen("tcp", fmt.Sprintf("127.0.0.2:%d", cfg.Cluster.GRPCPort+1))
+	if err != nil {
+		t.Fatal(err)
+	}
+	err = PromoteToManager(cfg, path, nil, ConvertRequest{Token: tok.Token, Pin: pin, Manager: addr, Advertise: "127.0.0.2"})
+	_ = held.Close()
+	if err != nil {
 		t.Fatal(err)
 	}
 	n := mgr.raft.GetFSM().GetNode(id)
@@ -495,6 +504,38 @@ func TestAnAgentPromotesToAManager(t *testing.T) {
 	leaf, err := NewTLSManager(cfg.Cluster.CertDir).NodeCertLeaf()
 	if err != nil || CertRole(leaf) != CertRoleManager || leaf.Subject.CommonName != id {
 		t.Fatalf("the node certificate: %v", err)
+	}
+}
+
+// A promoted manager's Raft hears from the leader on its Raft port, which an
+// agent has no use for and its firewall may well close. Admitted all the
+// same, the node's Raft never heard from the leader, so it sent no manager
+// heartbeat, and every agent registration and conversion waited for it. The
+// leader dials the port while the agent joins and refuses the join when it
+// cannot reach it, with nothing changed: nothing listens here, as nothing
+// gets through a firewall that closes it.
+func TestAPromotionTheLeaderCannotReachOverRaftIsRefused(t *testing.T) {
+	mgr, addr, _, pin := realLeader(t)
+	id, path := promotableAgent(t, mgr, addr, pin)
+	tok, err := mgr.PrepareManagerPromotion(id)
+	if err != nil {
+		t.Fatal(err)
+	}
+	cfg := loadTestConfig(t, path)
+	raftAddr := fmt.Sprintf("127.0.0.2:%d", cfg.Cluster.GRPCPort+1)
+	err = PromoteToManager(cfg, path, nil, ConvertRequest{Token: tok.Token, Pin: pin, Manager: addr, Advertise: "127.0.0.2"})
+	waiting := mgr.managersNotReadyForAgents(mgr.raft.GetFSM().GetState())
+	if err == nil || !strings.Contains(err.Error(), "Raft port") || !strings.Contains(err.Error(), raftAddr) {
+		t.Fatalf("got %v, want a refusal naming the Raft port at %s; agent registrations wait for %v", err, raftAddr, waiting)
+	}
+	if len(waiting) != 0 {
+		t.Fatalf("agent registrations wait for %v", waiting)
+	}
+	if n := mgr.raft.GetFSM().GetNode(id); n == nil || n.Kind != KindAgent {
+		t.Fatalf("on the leader: %+v", n)
+	}
+	if _, err := mgr.tokens.Peek(tok.Token); err != nil {
+		t.Fatalf("the token was spent: %v", err)
 	}
 }
 

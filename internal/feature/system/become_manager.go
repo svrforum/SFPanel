@@ -87,7 +87,10 @@ func (h *BecomeManagerHandler) BecomeManager(c echo.Context) error {
 	// The manager binds its Raft port, the gRPC port + 1, on the address this
 	// node advertises when it starts. An agent uses no such port; held by
 	// anything else, the node would come up without its cluster while the
-	// leader lists it as a manager.
+	// leader lists it as a manager. It stays held until the promotion has run:
+	// the leader dials it at the join, before it makes this node a manager,
+	// and refuses a node it cannot reach — behind a firewall that closes the
+	// port, this node's Raft would never hear from it.
 	next := *h.Config
 	advertise := next.Cluster.AdvertiseAddress
 	grpcPort := next.Cluster.GRPCPort
@@ -100,13 +103,14 @@ func (h *BecomeManagerHandler) BecomeManager(c echo.Context) error {
 		return response.Fail(c, http.StatusBadRequest, response.ErrInvalidRequest, fmt.Sprintf(
 			"The Raft port %d (the cluster gRPC port + 1) cannot be listened on at %s, where the manager this node becomes binds it: %s", raftPort, advertise, response.SanitizeOutput(err.Error())))
 	}
-	_ = ln.Close()
 
 	h.becoming = body.Token
 	req := cluster.ConvertRequest{Token: body.Token, Pin: pin, Manager: body.Manager, Advertise: advertise}
 	exit, promote := exitAfterPromotion, promoteToManager
 	go func() {
-		if err := promote(&next, h.ConfigPath, h.DB, req); err != nil {
+		err := promote(&next, h.ConfigPath, h.DB, req)
+		_ = ln.Close() // the manager binds it after the restart
+		if err != nil {
 			slog.Error("the promotion to a manager failed", "component", "agent", "node_id", next.Cluster.NodeID, "error", err)
 		}
 		// Restart to come up in the new role (CLAUDE.md: Restart=always

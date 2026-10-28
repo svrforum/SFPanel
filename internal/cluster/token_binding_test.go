@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"net"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -124,7 +125,8 @@ func TestABoundManagerJoinPromotesTheAgentRecord(t *testing.T) {
 	// gRPC port + 1, which the leader then dials. A documentation address is
 	// dialled through this host's default route and hangs for the transport's
 	// 10 s, which the leader's shutdown at the end of the test waits out.
-	grpcAddr := fmt.Sprintf("127.0.0.1:%d", freePortPair(t))
+	port := freePortPair(t)
+	grpcAddr := fmt.Sprintf("127.0.0.1:%d", port)
 	res := Node{ID: "agent-1", Name: "agent-host", APIAddress: "127.0.0.1:1", GRPCAddress: grpcAddr, Kind: KindAgent, Status: StatusOnline}
 	if err := mgr.SetConfig(AgentKeyConfigKey(res.ID), "the-agent-key"); err != nil {
 		t.Fatal(err)
@@ -144,7 +146,15 @@ func TestABoundManagerJoinPromotesTheAgentRecord(t *testing.T) {
 		t.Fatal(err)
 	}
 	tok, _ := mgr.CreateBoundJoinToken(time.Hour, KindManager, res.ID, "127.0.0.1")
-	if _, _, _, _, err := mgr.HandleJoin(res.ID, "renamed", res.APIAddress, res.GRPCAddress, tok.Token, []string{CapAgents}); err != nil {
+	// The agent holds its Raft port while it joins, as BecomeManager does:
+	// the leader dials it before it makes the record a manager's.
+	held, err := net.Listen("tcp", fmt.Sprintf("127.0.0.1:%d", port+1))
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, _, _, _, err = mgr.HandleJoin(res.ID, "renamed", res.APIAddress, res.GRPCAddress, tok.Token, []string{CapAgents})
+	_ = held.Close()
+	if err != nil {
 		t.Fatal(err)
 	}
 	n := mgr.raft.GetFSM().GetNode(res.ID)

@@ -152,6 +152,48 @@ func TestBecomeManagerChecksTheRaftPortFirst(t *testing.T) {
 	noRun(t, runs)
 }
 
+// The leader dials this agent's Raft port while it joins and refuses a join it
+// cannot reach there, so the agent holds the port it checked through the
+// promotion — let go before, every promotion would be refused — and frees it
+// for the manager it restarts as.
+func TestBecomeManagerHoldsTheRaftPortThroughThePromotion(t *testing.T) {
+	h := becomeManagerNode(t)
+	raftAddr := fmt.Sprintf("127.0.0.1:%d", h.Config.Cluster.GRPCPort+1)
+	dialed, exits := make(chan error, 1), make(chan int, 1)
+	oldPromote, oldExit := promoteToManager, exitAfterPromotion
+	t.Cleanup(func() { promoteToManager, exitAfterPromotion = oldPromote, oldExit })
+	promoteToManager = func(*config.Config, string, *sql.DB, cluster.ConvertRequest) error {
+		conn, err := net.DialTimeout("tcp", raftAddr, time.Second) // as the leader does at the join
+		if err == nil {
+			_ = conn.Close()
+		}
+		dialed <- err
+		return nil
+	}
+	exitAfterPromotion = func(code int) { exits <- code }
+	if status, _, msg := postBecomeManager(t, h, becomeManagerBody); status != http.StatusAccepted {
+		t.Fatalf("%d %q", status, msg)
+	}
+	select {
+	case err := <-dialed:
+		if err != nil {
+			t.Fatalf("the Raft port was not held while the node joined: %v", err)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("no promotion")
+	}
+	select {
+	case <-exits:
+	case <-time.After(5 * time.Second):
+		t.Fatal("no restart")
+	}
+	l, err := net.Listen("tcp", raftAddr)
+	if err != nil {
+		t.Fatalf("the Raft port stayed held past the promotion: %v", err)
+	}
+	_ = l.Close()
+}
+
 // Only an agent is promoted: the route is an agent's, and a node that is not
 // one refuses before anything runs.
 func TestBecomeManagerTakesAnAgentOnly(t *testing.T) {

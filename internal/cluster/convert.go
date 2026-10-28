@@ -430,11 +430,14 @@ func agentOwnFiles(c *config.ClusterConfig) []string {
 //  2. It joins as a manager under its own ID and name (JoinEngine). The
 //     leader turns the agent's record into a manager's, keeping its name and
 //     labels, and the engine writes the manager's certificate and config: no
-//     role, no managers list, the cluster's JWT key. A join the leader
-//     refuses writes nothing. One it admitted that this server then cannot
-//     finish — an answer that fails the pin, a file it cannot write — leaves
-//     the leader listing a manager this server is not: remove the node on a
-//     manager and join this server again.
+//     role, no managers list, the cluster's JWT key. The leader first dials
+//     this server's Raft port, which the caller holds open through this call
+//     (BecomeManager), and refuses a server it cannot reach there
+//     (ErrRaftPortUnreachable). A join the leader refuses writes nothing. One
+//     it admitted that this server then cannot finish — an answer that fails
+//     the pin, a file it cannot write — leaves the leader listing a manager
+//     this server is not: remove the node on a manager and join this server
+//     again.
 //  3. It removes the agent's own files (agentOwnFiles).
 //
 // On success cfg is the config it saved. The caller restarts the process
