@@ -385,3 +385,51 @@ func TestAgentLinkTakesTheManagerListFromTheLeaderOnly(t *testing.T) {
 		t.Fatalf("the follower's word on the leader was not taken: %+v %v", st, err)
 	}
 }
+
+// A leader elected while the agent was not listening — a manager that joined
+// and took over within one heartbeat — is not on the agent's list, and only
+// that leader's own pong carries the list. A follower names it: the agent
+// takes that one entry from the follower's list and reaches the leader.
+// Without it the agent cycled through its old list, never accepting the
+// leader's certificate, until leadership moved to a manager it knew.
+func TestAgentLinkReachesALeaderItsListLacks(t *testing.T) {
+	_, ca := setupCertDir(t)
+	var followerAddr atomic.Value // the follower listens after the leader
+	newLeader := startFakeManager(t, tlsWithRole(t, ca, "m4", CertRoleManager), &fakeManager{pong: func(self string) (*pb.HeartbeatPong, error) {
+		fa, _ := followerAddr.Load().(string)
+		return &pb.HeartbeatPong{FromLeader: true, LeaderGrpcAddress: self, Managers: []*pb.NodeInfo{
+			{Id: "m2", GrpcAddress: fa, Kind: string(KindManager)},
+			{Id: "m4", GrpcAddress: self, Kind: string(KindManager)},
+		}}, nil
+	}})
+	follower := startFakeManager(t, tlsWithRole(t, ca, "m2", CertRoleManager), &fakeManager{pong: func(self string) (*pb.HeartbeatPong, error) {
+		return &pb.HeartbeatPong{LeaderGrpcAddress: newLeader.self, Managers: []*pb.NodeInfo{
+			{Id: "m2", GrpcAddress: self, Kind: string(KindManager)},
+			{Id: "m4", GrpcAddress: newLeader.self, Kind: string(KindManager)},
+		}}, nil
+	}})
+	followerAddr.Store(follower.self)
+	link := startLink(t, tlsWithRole(t, ca, "agent-1", CertRoleAgent), "agent-1",
+		[]config.ManagerRef{{ID: "m1", GRPCAddress: closedAddr(t)}, {ID: "m2", GRPCAddress: follower.self}})
+	waitFor(t, "the link to reach the new leader", func() bool { return newLeader.streams.Load() > 0 })
+	waitFor(t, "the leader's list", func() bool { return slices.Equal(link.ManagerIDs(), []string{"m2", "m4"}) })
+}
+
+// Only that entry: the rest of a follower's list — here a manager since
+// removed — is still not taken.
+func TestAgentLinkTakesOnlyTheNamedLeaderFromAFollower(t *testing.T) {
+	_, ca := setupCertDir(t)
+	unreachable := closedAddr(t)
+	follower := startFakeManager(t, tlsWithRole(t, ca, "m2", CertRoleManager), &fakeManager{pong: func(self string) (*pb.HeartbeatPong, error) {
+		return &pb.HeartbeatPong{LeaderGrpcAddress: unreachable, Managers: []*pb.NodeInfo{
+			{Id: "m2", GrpcAddress: self, Kind: string(KindManager)},
+			{Id: "m4", GrpcAddress: unreachable, Kind: string(KindManager)},
+			{Id: "ghost", GrpcAddress: "192.0.2.66:3629", Kind: string(KindManager)},
+		}}, nil
+	}})
+	link := startLink(t, tlsWithRole(t, ca, "agent-1", CertRoleAgent), "agent-1", []config.ManagerRef{{ID: "m2", GRPCAddress: follower.self}})
+	waitFor(t, "two sessions with the follower", func() bool { return follower.streams.Load() >= 2 })
+	if ids := link.ManagerIDs(); !slices.Contains(ids, "m4") || slices.Contains(ids, "ghost") {
+		t.Fatalf("the agent accepts %v: it should have taken the named leader m4 and nothing else", ids)
+	}
+}

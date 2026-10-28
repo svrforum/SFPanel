@@ -376,7 +376,10 @@ The agent heartbeats to the leader every 30 seconds and keeps the leader's
 address and the manager list in `{Cluster.DataDir}/agent-state.json`. Any
 manager's reply can say where the leader is, but only the leader's sets the
 manager list — the managers the agent takes requests from — because a
-follower's may lag behind a removal. A manager that knows no leader (during
+follower's may lag behind a removal. The one entry a follower adds is the
+leader it names, when the agent has no manager at that address: a leader
+elected while the agent was not listening is reached that way, and its own
+reply then sets the list. A manager that knows no leader (during
 an election, cut off from the others, or a leader updating itself) is left
 at once, and the next one is tried 30 seconds later. Only the leader can
 tell it that it was removed: a follower that has not caught up answers that

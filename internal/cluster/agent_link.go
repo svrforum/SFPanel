@@ -482,6 +482,11 @@ func (l *AgentLink) ping() *pb.HeartbeatPing {
 // older than these fields sends neither, and an empty list is never taken:
 // it would leave the agent no manager to accept or to heartbeat to, and the
 // saved state would keep it so.
+//
+// The one entry taken from a follower is the leader it names, when the
+// agent has no manager at that address: a leader elected while the agent was
+// not listening is reachable only once the agent accepts it, and only its
+// own pong carries the list, which then replaces the agent's.
 func (l *AgentLink) applyPong(p *pb.HeartbeatPong) {
 	err := l.update(func(s *AgentState) bool {
 		changed := false
@@ -494,12 +499,29 @@ func (l *AgentLink) applyPong(p *pb.HeartbeatPong) {
 				s.Managers = refs
 				changed = true
 			}
+		} else if leader, ok := namedLeader(p); ok && !slices.ContainsFunc(s.Managers, func(m config.ManagerRef) bool { return m.GRPCAddress == leader.GRPCAddress }) {
+			managers := slices.DeleteFunc(slices.Clone(s.Managers), func(m config.ManagerRef) bool { return m.ID == leader.ID })
+			s.Managers = append(managers, leader)
+			changed = true
 		}
 		return changed
 	})
 	if err != nil {
 		slog.Warn("could not save the agent state", "component", "agent", "path", l.StatePath, "error", err)
 	}
+}
+
+// namedLeader is the entry in p's manager list for the leader p names.
+func namedLeader(p *pb.HeartbeatPong) (config.ManagerRef, bool) {
+	if p.LeaderGrpcAddress == "" {
+		return config.ManagerRef{}, false
+	}
+	for _, ref := range managerRefs(p.Managers) {
+		if ref.GRPCAddress == p.LeaderGrpcAddress {
+			return ref, true
+		}
+	}
+	return config.ManagerRef{}, false
 }
 
 func managerRefs(infos []*pb.NodeInfo) []config.ManagerRef {
