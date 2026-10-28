@@ -7,6 +7,7 @@ import (
 	"net"
 	"os"
 	"path/filepath"
+	"sync"
 	"sync/atomic"
 	"time"
 
@@ -18,6 +19,17 @@ import (
 type RaftNode struct {
 	raft *raft.Raft
 	fsm  *FSM
+
+	// The BoltDB files NewRaftNode opened. Bolt holds their lock until they
+	// are closed, and opening the same data again in this process — a live
+	// join retried after a failure — would wait on it forever, so Shutdown
+	// closes them once Raft has stopped.
+	logStore, stableStore *raftboltdb.BoltStore
+	// One stop for every Shutdown call: stopped closes once Raft has stopped
+	// and the stores are closed, with stopErr Raft's answer.
+	stopOnce sync.Once
+	stopped  chan struct{}
+	stopErr  error
 
 	// caughtUpTerm is the last term in which a barrier went through with this
 	// node as leader (caughtUpLeader); 0 until one has.
@@ -59,19 +71,31 @@ func NewRaftNode(cfg RaftConfig) (*RaftNode, error) {
 		return nil, err
 	}
 
-	logStore, err := raftboltdb.NewBoltStore(filepath.Join(cfg.DataDir, "raft-log.db"))
-	if err != nil {
-		return nil, fmt.Errorf("create log store: %w", err)
+	// A failure from here on lets go of what was opened: kept, the Raft port
+	// stays bound and the stores stay locked, and a retry in this process
+	// fails on the one or waits forever on the other.
+	var logStore, stableStore *raftboltdb.BoltStore
+	fail := func(err error) (*RaftNode, error) {
+		if c, ok := transport.(raft.WithClose); ok {
+			_ = c.Close()
+		}
+		closeStores(logStore, stableStore)
+		return nil, err
 	}
 
-	stableStore, err := raftboltdb.NewBoltStore(filepath.Join(cfg.DataDir, "raft-stable.db"))
+	logStore, err = raftboltdb.NewBoltStore(filepath.Join(cfg.DataDir, "raft-log.db"))
 	if err != nil {
-		return nil, fmt.Errorf("create stable store: %w", err)
+		return fail(fmt.Errorf("create log store: %w", err))
+	}
+
+	stableStore, err = raftboltdb.NewBoltStore(filepath.Join(cfg.DataDir, "raft-stable.db"))
+	if err != nil {
+		return fail(fmt.Errorf("create stable store: %w", err))
 	}
 
 	snapshotStore, err := raft.NewFileSnapshotStore(cfg.DataDir, 2, os.Stderr)
 	if err != nil {
-		return nil, fmt.Errorf("create snapshot store: %w", err)
+		return fail(fmt.Errorf("create snapshot store: %w", err))
 	}
 
 	fsm := NewFSM()
@@ -90,7 +114,7 @@ func NewRaftNode(cfg RaftConfig) (*RaftNode, error) {
 			NonVoter bool   `json:"non_voter"`
 		}
 		if jsonErr := json.Unmarshal(data, &peers); jsonErr != nil {
-			return nil, fmt.Errorf("parse peers.json: %w", jsonErr)
+			return fail(fmt.Errorf("parse peers.json: %w", jsonErr))
 		}
 		servers := make([]raft.Server, 0, len(peers))
 		for _, p := range peers {
@@ -110,13 +134,13 @@ func NewRaftNode(cfg RaftConfig) (*RaftNode, error) {
 		// recover from. Refuse (leaving peers.json in place for the operator
 		// to fix) rather than apply a malformed recovery.
 		if vErr := validateRecoveryServers(servers, cfg.NodeID); vErr != nil {
-			return nil, vErr
+			return fail(vErr)
 		}
 		slog.Warn("Raft peers.json detected — running RecoverCluster",
 			"component", "cluster", "peer_count", len(servers))
 		if recErr := raft.RecoverCluster(raftCfg, fsm, logStore, stableStore, snapshotStore, transport,
 			raft.Configuration{Servers: servers}); recErr != nil {
-			return nil, fmt.Errorf("recover cluster from peers.json: %w", recErr)
+			return fail(fmt.Errorf("recover cluster from peers.json: %w", recErr))
 		}
 		// Rename so it doesn't run again. peers.info is purely informational.
 		_ = os.Rename(peersPath, filepath.Join(cfg.DataDir, "peers.info"))
@@ -138,7 +162,7 @@ func NewRaftNode(cfg RaftConfig) (*RaftNode, error) {
 
 	r, err := raft.NewRaft(raftCfg, fsm, logStore, stableStore, snapshotStore, transport)
 	if err != nil {
-		return nil, fmt.Errorf("create raft: %w", err)
+		return fail(fmt.Errorf("create raft: %w", err))
 	}
 
 	if cfg.Bootstrap {
@@ -152,13 +176,29 @@ func NewRaftNode(cfg RaftConfig) (*RaftNode, error) {
 		}
 		f := r.BootstrapCluster(configuration)
 		if err := f.Error(); err != nil && err != raft.ErrCantBootstrap {
-			return nil, fmt.Errorf("bootstrap: %w", err)
+			// Raft is running: it stops first, and only then is nothing
+			// writing to the stores.
+			_ = r.Shutdown().Error()
+			return fail(fmt.Errorf("bootstrap: %w", err))
 		}
 	}
 
 	slog.Info("Raft node started", "component", "cluster", "id", cfg.NodeID, "addr", cfg.BindAddr, "bootstrap", cfg.Bootstrap)
 
-	return &RaftNode{raft: r, fsm: fsm}, nil
+	return &RaftNode{raft: r, fsm: fsm, logStore: logStore, stableStore: stableStore}, nil
+}
+
+// closeStores closes Raft stores, which lets go of their files' lock. Only
+// with Raft stopped, or before it started: it writes to them while it runs.
+func closeStores(stores ...*raftboltdb.BoltStore) {
+	for _, s := range stores {
+		if s == nil {
+			continue
+		}
+		if err := s.Close(); err != nil {
+			slog.Warn("could not close a Raft store", "component", "cluster", "error", err)
+		}
+	}
 }
 
 // validateRecoveryServers sanity-checks a peers.json-derived server set
@@ -411,20 +451,29 @@ func (rn *RaftNode) TransferLeadership(targetNodeID string) error {
 	return f.Error()
 }
 
-// Shutdown cleanly stops the Raft node with a timeout.
+// Shutdown cleanly stops the Raft node with a timeout, and closes its stores
+// once it has stopped.
 func (rn *RaftNode) Shutdown() error {
 	if rn == nil || rn.raft == nil {
 		return nil // nothing was ever started
 	}
-	done := make(chan error, 1)
-	go func() {
-		f := rn.raft.Shutdown()
-		done <- f.Error()
-	}()
+	// Every call waits on the first one's stop: raft answers a second
+	// Shutdown at once whether or not it has stopped, and closing the stores
+	// on that answer would close them under a Raft still writing.
+	rn.stopOnce.Do(func() {
+		rn.stopped = make(chan struct{})
+		go func() {
+			rn.stopErr = rn.raft.Shutdown().Error()
+			closeStores(rn.logStore, rn.stableStore)
+			close(rn.stopped)
+		}()
+	})
 	select {
-	case err := <-done:
-		return err
+	case <-rn.stopped:
+		return rn.stopErr
 	case <-time.After(10 * time.Second):
+		// The stores stay open until Raft has stopped: it may still be
+		// writing to them.
 		slog.Warn("Raft shutdown timed out after 10s, forcing", "component", "cluster")
 		return nil
 	}

@@ -179,6 +179,15 @@ func (m *Manager) HandleRegisterAgent(in RegisterAgentInput) (*RegisterAgentResu
 		m.undoRegisterAgent(id, used)
 		return nil, fmt.Errorf("register agent: %w", err)
 	}
+	// Never cleared, not even by the undo below: once a cluster has had an
+	// agent the derived secret stays dead (configKeyAgentsSeen). A failed
+	// write is tried again by the next registration; until then the agent's
+	// record does the same.
+	if v, _ := m.raft.GetFSM().GetConfigValue(configKeyAgentsSeen); v == "" {
+		if err := m.SetConfig(configKeyAgentsSeen, "true"); err != nil {
+			slog.Warn("could not record that this cluster has had an agent", "component", "cluster", "node_id", id, "error", err)
+		}
+	}
 	if err := m.SetPanelCA(id, string(in.PanelCA)); err != nil {
 		m.undoRegisterAgent(id, used)
 		return nil, fmt.Errorf("register agent panel CA: %w", err)

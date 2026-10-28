@@ -69,6 +69,10 @@ type Manager struct {
 	// disband waiting until its agents know (RemoveAgentsForDisband).
 	toldMu      sync.Mutex
 	toldRemoved map[string]time.Time
+	// skewWarned is when this node last warned of each node's clock
+	// (noteClockSkew).
+	skewMu     sync.Mutex
+	skewWarned map[string]time.Time
 
 	// proxySecretCache caches the sha256(CA cert) derivation. Invalidated
 	// implicitly on cert-rotate via the TLSManager's stat-based reload —
@@ -1357,6 +1361,38 @@ func (m *Manager) wasToldRemoved(id string) bool {
 	defer m.toldMu.Unlock()
 	_, ok := m.toldRemoved[id]
 	return ok
+}
+
+// clockSkewWarn is how far a node's ping time may be off the clock of the
+// manager it pings — the leader, for a manager; every manager, for an agent —
+// before that manager says so: the internal-proxy window is thirty seconds,
+// and past it every streamed relay to the node is refused.
+const clockSkewWarn = 20 * time.Second
+
+// noteClockSkew warns, at most every ten minutes per node, of a node whose
+// ping carries a time far from this node's clock.
+func (m *Manager) noteClockSkew(nodeID string, pingUnix int64) {
+	if pingUnix <= 0 {
+		return
+	}
+	skew := time.Since(time.Unix(pingUnix, 0))
+	if skew < 0 {
+		skew = -skew
+	}
+	if skew < clockSkewWarn {
+		return
+	}
+	m.skewMu.Lock()
+	defer m.skewMu.Unlock()
+	if last, ok := m.skewWarned[nodeID]; ok && time.Since(last) < 10*time.Minute {
+		return
+	}
+	if m.skewWarned == nil {
+		m.skewWarned = map[string]time.Time{}
+	}
+	m.skewWarned[nodeID] = time.Now()
+	slog.Warn("a node's clock is far from this one's: relays to it are refused past thirty seconds — check NTP on both",
+		"component", "cluster", "node_id", nodeID, "skew", skew.Round(time.Second).String())
 }
 
 // RemoveAgentsForDisband removes every agent, then waits up to wait for each

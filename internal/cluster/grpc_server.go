@@ -520,6 +520,9 @@ func (s *GRPCServer) serveHeartbeat(stream grpc.BidiStreamingServer[pb.Heartbeat
 				Timestamp:      result.ping.Timestamp,
 				Capabilities:   result.ping.Capabilities,
 			})
+			// The ping's time is the sender's clock, in seconds — a manager's
+			// and an agent's alike.
+			s.manager.noteClockSkew(result.ping.NodeId, result.ping.Timestamp)
 
 			// Two-phase join: a node added as non-voter via HandleJoin gets
 			// promoted on the first heartbeat whose Raft applied index shows

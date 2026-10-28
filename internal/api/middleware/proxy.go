@@ -251,7 +251,7 @@ func failUnsigned(c echo.Context, err error) error {
 // operator's session here — which is how the browser reads a 401, logging
 // them out.
 func failAgentRefusedSignature(c echo.Context) error {
-	return response.Fail(c, http.StatusBadGateway, response.ErrClusterAgentAuthFailed, "the agent refused the manager's signature")
+	return response.Fail(c, http.StatusBadGateway, response.ErrClusterAgentAuthFailed, "the agent refused the manager's signature: its clock may be more than thirty seconds off this manager's (check NTP on both), or it no longer has the key this manager signs with")
 }
 
 // writeSSEEvent writes a single SSE event to the response writer and flushes.

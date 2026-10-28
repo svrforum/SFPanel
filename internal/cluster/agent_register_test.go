@@ -89,6 +89,11 @@ func TestRegisterAgent(t *testing.T) {
 	if k, _ := mgr.raft.GetFSM().GetConfigValue(AgentKeyConfigKey(res.NodeID)); k == "" || k != res.AgentKey {
 		t.Fatal("agent key not in replicated state")
 	}
+	// The agent keeps ca.crt after a removal, so the cluster remembers it had
+	// one (configKeyAgentsSeen).
+	if v, _ := mgr.raft.GetFSM().GetConfigValue(configKeyAgentsSeen); v == "" {
+		t.Fatal("the registration did not mark the cluster as one that has had an agent")
+	}
 	if ep, err := mgr.PanelEndpointChecked(node); err != nil || ep.TLSConfig == nil {
 		t.Fatalf("panel CA not stored: %v", err)
 	}

@@ -8,7 +8,6 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
-	"os"
 	"path/filepath"
 	"slices"
 	"strconv"
@@ -80,12 +79,7 @@ func TestRestartKeepsTheRotation(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	// Restart on a copy: bolt keeps its lock until the process exits.
-	restarted := filepath.Join(t.TempDir(), "raft")
-	if err := os.CopyFS(restarted, os.DirFS(dataDir)); err != nil {
-		t.Fatal(err)
-	}
-	m2 := proxyTestManager(t, tlsMgr, restarted, false)
+	m2 := proxyTestManager(t, tlsMgr, dataDir, false)
 	if _, caughtUp := m2.raft.GetFSM().GetConfigValue(configKeyProxyRotatedAt); caughtUp {
 		t.Fatal("precondition: the FSM already holds the rotation, so the window is not exercised")
 	}
@@ -176,6 +170,68 @@ func TestAnAgentEndsTheDerivedSecret(t *testing.T) {
 	}
 	if !auth.IsInternalProxyRequest(signedProxyRequest(t, "replicated-secret")) {
 		t.Fatal("the replicated secret is refused")
+	}
+}
+
+// Removing the last agent made the cluster look as if it never had one, and a
+// manager whose clock ran behind took the CA-derived secret again inside the
+// grace — a secret a removed agent, which keeps ca.crt, can compute. Once a
+// cluster has had an agent, the derived secret stays dead.
+func TestAClusterThatHadAgentsKeepsTheDerivedSecretDead(t *testing.T) {
+	t.Cleanup(func() { auth.SetClusterProxySecret("") })
+	_, tlsMgr := setupCertDir(t)
+	m := proxyTestManager(t, tlsMgr, filepath.Join(t.TempDir(), "raft"), true)
+	legacy := m.ProxySecret()
+	if err := m.raft.Apply(Command{Type: CmdAddNode, Value: mustJSON(Node{ID: "n1", Kind: KindManager, Role: RoleVoter})}, 5*time.Second); err != nil {
+		t.Fatal(err)
+	}
+	if err := m.SetConfig(configKeyProxySecret, "replicated-secret"); err != nil {
+		t.Fatal(err)
+	}
+	if err := m.SetConfig(configKeyProxyRotatedAt, time.Now().Add(-time.Minute).UTC().Format(time.RFC3339)); err != nil {
+		t.Fatal(err)
+	}
+	if err := m.SetConfig(configKeyAgentsSeen, "true"); err != nil { // an agent registered once, and is gone
+		t.Fatal(err)
+	}
+	m.ApplyProxySecrets()
+	if auth.IsInternalProxyRequest(signedProxyRequest(t, legacy)) {
+		t.Fatal("the derived secret is accepted in a cluster that has had an agent")
+	}
+}
+
+// After a restart the FSM shows neither the agents nor the mark until the
+// node has replayed its log — and once every agent is removed, the agents do
+// not come back with the replay. The floor file stands in for the mark, so
+// the derived secret stays dead through that window too.
+func TestRestartKeepsTheAgentsMark(t *testing.T) {
+	t.Cleanup(func() { auth.SetClusterProxySecret("") })
+	_, tlsMgr := setupCertDir(t)
+	dataDir := filepath.Join(t.TempDir(), "raft")
+	m := proxyTestManager(t, tlsMgr, dataDir, true)
+	legacy := m.ProxySecret()
+	if err := m.SetConfig(configKeyProxySecret, "replicated-secret"); err != nil {
+		t.Fatal(err)
+	}
+	// Inside the grace, so only the mark can refuse the derived secret.
+	if err := m.SetConfig(configKeyProxyRotatedAt, time.Now().Add(-time.Minute).UTC().Format(time.RFC3339)); err != nil {
+		t.Fatal(err)
+	}
+	if err := m.SetConfig(configKeyAgentsSeen, "true"); err != nil {
+		t.Fatal(err)
+	}
+	m.ApplyProxySecrets()
+	if err := m.raft.Shutdown(); err != nil {
+		t.Fatal(err)
+	}
+
+	m2 := proxyTestManager(t, tlsMgr, dataDir, false)
+	if _, caughtUp := m2.raft.GetFSM().GetConfigValue(configKeyAgentsSeen); caughtUp {
+		t.Fatal("precondition: the FSM already holds the mark, so the window is not exercised")
+	}
+	m2.ApplyProxySecrets() // what activation does at boot
+	if auth.IsInternalProxyRequest(signedProxyRequest(t, legacy)) {
+		t.Fatal("a restarted manager accepts the derived secret before its FSM shows the cluster had an agent")
 	}
 }
 

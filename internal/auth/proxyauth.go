@@ -37,9 +37,11 @@ const InternalProxyHeader = "X-SFPanel-Internal-Proxy"
 const InternalProxyHeaderV2 = "X-SFPanel-Internal-Proxy-V2"
 
 // proxyClockSkew is how far in either direction a v2 proxy timestamp can
-// drift from the server clock. 30s is generous enough for typical NTP-locked
-// hosts; tightening would force inter-node clock sync that's already implicit
-// in Raft's heartbeat math.
+// drift from the server clock. Nothing in the cluster keeps clocks close —
+// Raft runs on local timers, and agents are not in Raft — so this relies on
+// NTP: a node further off has every internally signed request refused, and
+// the leader warns of such a node from its pings
+// (cluster.Manager.noteClockSkew).
 const proxyClockSkew = 30 * time.Second
 
 // nonceCacheTTL is how long a seen nonce stays in the dedup cache. Must be

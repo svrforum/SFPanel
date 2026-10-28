@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"path/filepath"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -188,7 +189,7 @@ func TestRelaysToAnAgent(t *testing.T) {
 		ranHere = true
 		return c.NoContent(http.StatusTeapot)
 	})
-	relay := func(method, target string) (int, string) {
+	relay := func(method, target string) (int, string, string) {
 		req := httptest.NewRequest(method, target, nil)
 		req.Header.Set("Authorization", "Bearer user-jwt")
 		rec := httptest.NewRecorder()
@@ -199,11 +200,12 @@ func TestRelaysToAnAgent(t *testing.T) {
 		}
 		var body struct {
 			Error struct {
-				Code string `json:"code"`
+				Code    string `json:"code"`
+				Message string `json:"message"`
 			} `json:"error"`
 		}
 		_ = json.Unmarshal(rec.Body.Bytes(), &body)
-		return rec.Code, body.Error.Code
+		return rec.Code, body.Error.Code, body.Error.Message
 	}
 	const (
 		binary = "/api/v1/files/download?path=/x&node="
@@ -216,15 +218,15 @@ func TestRelaysToAnAgent(t *testing.T) {
 		}
 	}
 
-	status, code := relay(http.MethodPost, "/api/v1/cluster/leave?node=a-plain")
+	status, code, _ := relay(http.MethodPost, "/api/v1/cluster/leave?node=a-plain")
 	expect("cluster route", status, code, http.StatusConflict, response.ErrClusterRouteNotOnAgent)
-	status, code = relay(http.MethodGet, binary+"a-plain")
+	status, code, _ = relay(http.MethodGet, binary+"a-plain")
 	expect("binary, no panel CA", status, code, http.StatusBadGateway, response.ErrClusterAgentInsecure)
-	status, code = relay(http.MethodPost, sse+"a-plain")
+	status, code, _ = relay(http.MethodPost, sse+"a-plain")
 	expect("SSE, no panel CA", status, code, http.StatusBadGateway, response.ErrClusterAgentInsecure)
-	status, code = relay(http.MethodGet, binary+"a-tls")
+	status, code, _ = relay(http.MethodGet, binary+"a-tls")
 	expect("binary, no key", status, code, http.StatusBadGateway, response.ErrClusterAgentAuthFailed)
-	status, code = relay(http.MethodPost, sse+"a-tls")
+	status, code, _ = relay(http.MethodPost, sse+"a-tls")
 	expect("SSE, no key", status, code, http.StatusBadGateway, response.ErrClusterAgentAuthFailed)
 	if hits, _ := plain.seen(); hits != 0 {
 		t.Fatalf("the agent without a panel CA was contacted %d times", hits)
@@ -237,7 +239,7 @@ func TestRelaysToAnAgent(t *testing.T) {
 		t.Fatal(err)
 	}
 	for _, tc := range []struct{ method, target string }{{http.MethodGet, binary + "a-tls"}, {http.MethodPost, sse + "a-tls"}} {
-		if status, _ := relay(tc.method, tc.target); status != http.StatusOK {
+		if status, _, _ := relay(tc.method, tc.target); status != http.StatusOK {
 			t.Fatalf("%s %s: %d", tc.method, tc.target, status)
 		}
 		_, got := secure.seen()
@@ -256,11 +258,19 @@ func TestRelaysToAnAgent(t *testing.T) {
 	secure.mu.Lock()
 	secure.status = http.StatusUnauthorized
 	secure.mu.Unlock()
-	status, code = relay(http.MethodGet, binary+"a-tls")
+	// A clock more than thirty seconds off is one reason the agent refuses a
+	// signature, and nothing else would tell the operator so.
+	status, code, msg := relay(http.MethodGet, binary+"a-tls")
 	expect("binary, the agent answers 401", status, code, http.StatusBadGateway, response.ErrClusterAgentAuthFailed)
-	status, code = relay(http.MethodPost, sse+"a-tls")
+	if !strings.Contains(msg, "clock") {
+		t.Fatalf("binary, the agent answers 401: %q does not name the clock", msg)
+	}
+	status, code, msg = relay(http.MethodPost, sse+"a-tls")
 	expect("SSE, the agent answers 401", status, code, http.StatusBadGateway, response.ErrClusterAgentAuthFailed)
-	status, code = relay(http.MethodGet, "/api/v1/system/info?node=a-tls")
+	if !strings.Contains(msg, "clock") {
+		t.Fatalf("SSE, the agent answers 401: %q does not name the clock", msg)
+	}
+	status, code, _ = relay(http.MethodGet, "/api/v1/system/info?node=a-tls")
 	expect("gRPC, the agent answers 401", status, code, http.StatusBadGateway, response.ErrClusterAgentAuthFailed)
 	if ranHere {
 		t.Fatal("a request for an agent ran on the manager")

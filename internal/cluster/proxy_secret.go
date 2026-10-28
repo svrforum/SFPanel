@@ -23,6 +23,10 @@ import (
 const (
 	configKeyProxySecret    = "cluster_proxy_secret"
 	configKeyProxyRotatedAt = "cluster_proxy_secret_rotated_at"
+	// configKeyAgentsSeen is set at the first agent registration and never
+	// cleared: once a cluster has had an agent, its derived secret stays
+	// dead — a removed agent keeps ca.crt.
+	configKeyAgentsSeen = "cluster_agents_seen"
 
 	// CapProxySecret is the heartbeat capability of a node that accepts the
 	// replicated secret.
@@ -40,10 +44,11 @@ const (
 	proxyRotationSettled = legacyProxyGrace + 3*time.Minute
 )
 
-// proxySecretsAt says what this node signs with and accepts. Once an agent
-// exists the derived secret is dead whatever the clocks say: the agent holds
-// ca.crt, from which it is computed, and the grace below is this node's clock
-// measured against a time the leader's clock wrote.
+// proxySecretsAt says what this node signs with and accepts. Once the cluster
+// has had an agent the derived secret is dead whatever the clocks say: an
+// agent holds ca.crt, from which it is computed, and keeps it once removed,
+// and the grace below is this node's clock measured against a time the
+// leader's clock wrote.
 func proxySecretsAt(legacy, replicated, rotatedAt string, now time.Time, hasAgents bool) (sign string, accept []string) {
 	if hasAgents && replicated != "" {
 		return replicated, []string{replicated}
@@ -108,16 +113,19 @@ func hasAgentNodes(state ClusterState) bool {
 }
 
 // proxySecretFloorFile keeps the replicated secret and its rotation time as
-// this node last applied them, beside the Raft data whose lifetime it
-// shares. After a restart the FSM holds only what the last snapshot held
-// until the node learns the commit index — seconds, or the length of an
-// election — and without the floor the node would sign with, and accept,
-// the CA-derived secret again for that long.
+// this node last applied them, and whether the cluster has had an agent,
+// beside the Raft data whose lifetime it shares. After a restart the FSM
+// holds only what the last snapshot held until the node learns the commit
+// index — seconds, or the length of an election — and without the floor the
+// node would sign with, and accept, the CA-derived secret again for that
+// long.
 const proxySecretFloorFile = "proxy-secret.json"
 
 type proxySecretFloor struct {
 	Secret    string `json:"secret"`
 	RotatedAt string `json:"rotated_at,omitempty"`
+	// AgentsSeen is unknown to releases from before it, which ignore it.
+	AgentsSeen bool `json:"agents_seen,omitempty"`
 }
 
 // onConfigChange applies the proxy secrets the moment the FSM changes them,
@@ -145,7 +153,7 @@ func (m *Manager) ApplyProxySecrets() {
 	replicated, _ := fsm.GetConfigValue(configKeyProxySecret)
 	rotatedAt, _ := fsm.GetConfigValue(configKeyProxyRotatedAt)
 	replicated, rotatedAt = m.withProxySecretFloor(replicated, rotatedAt)
-	sign, accept := proxySecretsAt(m.ProxySecret(), replicated, rotatedAt, time.Now(), hasAgentNodes(fsm.GetState()))
+	sign, accept := proxySecretsAt(m.ProxySecret(), replicated, rotatedAt, time.Now(), m.agentsSeen(fsm.GetState()))
 	m.appliedReplicated = replicated
 	if sign == m.appliedSign && slices.Equal(accept, m.appliedAccept) {
 		return
@@ -188,7 +196,7 @@ func (m *Manager) withProxySecretFloor(replicated, rotatedAt string) (string, st
 		rotatedAt = m.floor.RotatedAt
 	}
 	if replicated != "" && (replicated != m.floor.Secret || rotatedAt != m.floor.RotatedAt) {
-		next := proxySecretFloor{Secret: replicated, RotatedAt: rotatedAt}
+		next := proxySecretFloor{Secret: replicated, RotatedAt: rotatedAt, AgentsSeen: m.floor.AgentsSeen}
 		data, _ := json.Marshal(next)
 		if err := config.AtomicWriteFile(path, data, 0600); err != nil {
 			slog.Warn("could not record the internal proxy secret", "component", "cluster", "path", path, "error", err)
@@ -197,6 +205,30 @@ func (m *Manager) withProxySecretFloor(replicated, rotatedAt string) (string, st
 		}
 	}
 	return replicated, rotatedAt
+}
+
+// agentsSeen reports whether this cluster has, or ever had, an agent, and
+// records it in the floor file: during boot replay the FSM lacks both the
+// agents and the mark, and the floor stands in for them. Caller holds
+// appliedSecretsMu.
+func (m *Manager) agentsSeen(state ClusterState) bool {
+	seen := hasAgentNodes(state) || state.Config[configKeyAgentsSeen] != ""
+	if m.config == nil || m.config.DataDir == "" {
+		return seen
+	}
+	// m.floor was loaded by withProxySecretFloor, which runs first.
+	if seen && !m.floor.AgentsSeen {
+		next := m.floor
+		next.AgentsSeen = true
+		data, _ := json.Marshal(next)
+		path := filepath.Join(m.config.DataDir, proxySecretFloorFile)
+		if err := config.AtomicWriteFile(path, data, 0600); err != nil {
+			slog.Warn("could not record that this cluster has had an agent", "component", "cluster", "path", path, "error", err)
+		} else {
+			m.floor = next
+		}
+	}
+	return seen || m.floor.AgentsSeen
 }
 
 // MaybeRotateProxySecret seeds the replicated secret and, once shouldRotate
