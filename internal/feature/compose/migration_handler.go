@@ -459,8 +459,8 @@ func (h *Handler) usedHostPorts(ctx context.Context) []int {
 // config for local facts, queries the target node over the cluster channel for
 // its facts, and folds both into a PreflightReport. Shared by MigratePreflight
 // (returns it as JSON) and Migrate (consumes it directly). A target that can't
-// be reached is non-fatal — the report carries a target-unreachable warning and
-// the local-only checks still run.
+// be reached is non-fatal here — the report carries a target-unreachable
+// warning and the local-only checks still run — but Migrate stops nothing on it.
 func (h *Handler) gatherPreflight(ctx context.Context, project, targetNodeID, username string, overwriteAcked bool) (PreflightReport, error) {
 	mgr := h.clusterManager()
 	if mgr == nil {
@@ -551,20 +551,24 @@ func (h *Handler) MigratePreflight(c echo.Context) error {
 }
 
 // Migrate (POST /docker/compose/:project/migrate, SSE) cold-migrates a stack to
-// targetNodeId. Body: {"targetNodeId","disposition","overwriteAcked"}. Streams
-// phase events. The source is restored to running on any failure before
-// finalize; the source is only destroyed (delete disposition) AFTER the target
-// reports healthy.
+// targetNodeId. Body: {"targetNodeId","disposition","overwriteAcked",
+// "acknowledgeRisks"}. Streams phase events. Nothing is stopped until the
+// target is known to be reachable and signable. The source is restored to
+// running on any failure before finalize; the source is only destroyed (delete
+// disposition) AFTER the target reports healthy.
 func (h *Handler) Migrate(c echo.Context) error {
 	project := c.Param("project")
 	if !validProjectID(project) {
 		return response.Fail(c, http.StatusBadRequest, response.ErrInvalidName, "invalid project id")
 	}
 	var req struct {
-		TargetNodeID   string  `json:"targetNodeId"`
-		Disposition    string  `json:"disposition"`
-		OverwriteAcked bool    `json:"overwriteAcked"`
-		RateLimitMbps  float64 `json:"rateLimitMbps"` // transfer cap in MiB/s; <=0 = unlimited
+		TargetNodeID   string `json:"targetNodeId"`
+		Disposition    string `json:"disposition"`
+		OverwriteAcked bool   `json:"overwriteAcked"`
+		// AcknowledgeRisks is the operator's word on a risky compose file,
+		// sent to the target in the import policy.
+		AcknowledgeRisks bool    `json:"acknowledgeRisks"`
+		RateLimitMbps    float64 `json:"rateLimitMbps"` // transfer cap in MiB/s; <=0 = unlimited
 	}
 	if err := c.Bind(&req); err != nil {
 		return response.Fail(c, http.StatusBadRequest, response.ErrInvalidBody, "invalid request body")
@@ -636,6 +640,20 @@ func (h *Handler) Migrate(c echo.Context) error {
 		send(PhaseError, "pre-flight blocked: "+blocksSummary(report.Blocks), true)
 		return nil
 	}
+	// The target must take the bundle before the source stops: finding out
+	// in pushBundle meant stopping and packaging the source for nothing.
+	if err := h.checkPushTarget(req.TargetNodeID); err != nil {
+		send(PhaseError, response.SanitizeOutput("pre-flight blocked: "+err.Error()), true)
+		return nil
+	}
+	// A target that did not answer the pre-flight is not one to stop for: its
+	// disk, ports and existing stacks went unchecked.
+	for _, w := range report.Warnings {
+		if w.Code == "target-unreachable" {
+			send(PhaseError, "pre-flight blocked: "+w.Message, true)
+			return nil
+		}
+	}
 
 	// 2. quiesce — stop the source (cold) so the snapshot is consistent.
 	send(PhaseQuiesce, "Stopping source stack...", false)
@@ -686,7 +704,9 @@ func (h *Handler) Migrate(c echo.Context) error {
 		}
 		send(PhaseTransfer, msg, false)
 	}
-	status, body, terr := h.pushBundleFileToTarget(opCtx, req.TargetNodeID, username, bundleFile, sha, onProg, rateBytes)
+	// The source is this manager, so AgentSource stays false.
+	policy := importPolicy{Overwrite: req.OverwriteAcked, AckRisks: req.AcknowledgeRisks}
+	status, body, terr := h.pushBundleFileToTarget(opCtx, req.TargetNodeID, username, bundleFile, sha, policy, onProg, rateBytes)
 	if terr != nil || status != http.StatusOK {
 		// On a CONNECTION error the target detaches its restore+up from the dropped
 		// connection, so the stack may actually be running there. Probe before

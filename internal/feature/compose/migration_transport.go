@@ -245,15 +245,40 @@ func (t *throttledReader) Read(b []byte) (int, error) {
 	return n, err
 }
 
+// checkPushTarget says why a bundle could not be sent to target, before
+// anything is stopped. These are pushBundle's own refusals — a node this
+// manager does not know, an agent it cannot reach over HTTPS, a node it holds
+// no key for — met without sending anything.
+func (h *Handler) checkPushTarget(targetNodeID string) error {
+	mgr := h.clusterManager()
+	if mgr == nil {
+		return fmt.Errorf("cluster is not enabled")
+	}
+	node := mgr.GetNode(targetNodeID)
+	if node == nil {
+		return fmt.Errorf("unknown target node %q", targetNodeID)
+	}
+	if _, err := mgr.PanelEndpointChecked(node); err != nil {
+		return err
+	}
+	return mgr.CanSignFor(node)
+}
+
+// maxImportAnswer bounds what pushBundle reads of the target's answer, which
+// is one line of JSON: a hostile target could otherwise make this manager
+// buffer whatever it sends.
+const maxImportAnswer = 1 << 20
+
 // pushBundle streams body (length contentLength) to the target node's
-// migrate-import endpoint with internal-proxy auth + the SHA header, returning
-// the target's HTTP status + body. HTTPS verified against the target's panel
+// migrate-import endpoint with internal-proxy auth, the SHA header and the
+// import policy, returning the target's HTTP status + body (at most
+// maxImportAnswer of it). HTTPS verified against the target's panel
 // CA when replicated state holds one (an agent must), plain HTTP otherwise. No
 // fixed client Timeout — a multi-GB transfer can outlast any deadline; the
 // caller's opCtx bounds (and cancels) the whole migration instead. onProgress
 // (optional) is called with cumulative/total bytes as the body streams out.
 // rateBytesPerSec > 0 caps transfer throughput (QoS).
-func (h *Handler) pushBundle(ctx context.Context, targetNodeID, username string, body io.Reader, contentLength int64, sha string, onProgress func(sent, total int64), rateBytesPerSec int64) (int, []byte, error) {
+func (h *Handler) pushBundle(ctx context.Context, targetNodeID, username string, body io.Reader, contentLength int64, sha string, policy importPolicy, onProgress func(sent, total int64), rateBytesPerSec int64) (int, []byte, error) {
 	mgr := h.clusterManager()
 	if mgr == nil {
 		return 0, nil, fmt.Errorf("cluster is not enabled")
@@ -303,6 +328,10 @@ func (h *Handler) pushBundle(ctx context.Context, targetNodeID, username string,
 	req.Header.Set("Content-Type", "application/octet-stream")
 	req.Header.Set(migrationShaHeader, sha)
 	req.ContentLength = contentLength
+	// The policy rides outside the signature, which covers the method and the
+	// path only. What lets the target take it is who could sign: the target's
+	// key, which no agent holds for another node, so the sender is a manager.
+	policy.setHeaders(req.Header)
 	// Signed with the key for the target: an agent's own, never the managers'
 	// secret, which every manager would accept. Nothing goes out unsigned.
 	sig, err := mgr.SignProxyRequestFor(node, http.MethodPost, importPath)
@@ -318,14 +347,14 @@ func (h *Handler) pushBundle(ctx context.Context, targetNodeID, username string,
 		return 0, nil, err
 	}
 	defer func() { _ = resp.Body.Close() }()
-	respBody, _ := io.ReadAll(resp.Body)
+	respBody, _ := io.ReadAll(io.LimitReader(resp.Body, maxImportAnswer))
 	return resp.StatusCode, respBody, nil
 }
 
 // pushBundleFileToTarget streams a staged bundle file (no in-memory copy) to the
-// target's migrate-import endpoint. onProgress (optional) reports bytes sent;
-// rateBytesPerSec > 0 caps transfer throughput.
-func (h *Handler) pushBundleFileToTarget(ctx context.Context, targetNodeID, username, bundlePath, sha string, onProgress func(sent, total int64), rateBytesPerSec int64) (int, []byte, error) {
+// target's migrate-import endpoint under policy. onProgress (optional) reports
+// bytes sent; rateBytesPerSec > 0 caps transfer throughput.
+func (h *Handler) pushBundleFileToTarget(ctx context.Context, targetNodeID, username, bundlePath, sha string, policy importPolicy, onProgress func(sent, total int64), rateBytesPerSec int64) (int, []byte, error) {
 	f, err := os.Open(bundlePath)
 	if err != nil {
 		return 0, nil, err
@@ -335,5 +364,5 @@ func (h *Handler) pushBundleFileToTarget(ctx context.Context, targetNodeID, user
 	if err != nil {
 		return 0, nil, err
 	}
-	return h.pushBundle(ctx, targetNodeID, username, f, fi.Size(), sha, onProgress, rateBytesPerSec)
+	return h.pushBundle(ctx, targetNodeID, username, f, fi.Size(), sha, policy, onProgress, rateBytesPerSec)
 }

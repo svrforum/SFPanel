@@ -78,7 +78,7 @@ func TestPushBundleToAnAgent(t *testing.T) {
 	h := &Handler{}
 	h.SetClusterMgr(mgr)
 	push := func(node string) (int, error) {
-		status, _, err := h.pushBundle(context.Background(), node, "alice", strings.NewReader("bundle"), 6, "sha", nil, 0)
+		status, _, err := h.pushBundle(context.Background(), node, "alice", strings.NewReader("bundle"), 6, "sha", importPolicy{}, nil, 0)
 		return status, err
 	}
 
