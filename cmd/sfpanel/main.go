@@ -22,6 +22,7 @@ import (
 	"runtime/debug"
 	"sort"
 	"strings"
+	"sync/atomic"
 
 	"syscall"
 	"time"
@@ -327,7 +328,9 @@ func main() {
 	// valid NodeIdentity here because the interface is satisfied implicitly
 	// only when the underlying *cluster.Manager is non-nil; passing a typed
 	// nil would defeat the interface-nil check, so guard explicitly. An agent
-	// has no manager; its node ID is fixed in its config.
+	// has no manager; its node ID is fixed in its config. A live init or join
+	// sets the identity later (onManagerActivated, and the router for the
+	// alert manager).
 	var alertIdentity featureAlert.NodeIdentity
 	if clusterMgr != nil {
 		alertIdentity = clusterMgr
@@ -343,8 +346,9 @@ func main() {
 	// Docker observability: per-container metrics history, daemon events
 	// listener, and retention pruners. Default-on; opt-out via config.
 	// They start when Docker is reached, which may be long after boot.
+	var containerDisp *featureAlert.ContainerDispatcher
 	if cfg.Docker.Observability.IsEnabled() {
-		containerDisp := featureAlert.NewContainerDispatcherWithIdentity(database, alertManager, alertIdentity)
+		containerDisp = featureAlert.NewContainerDispatcherWithIdentity(database, alertManager, alertIdentity)
 		metricsRet, _ := parseObservabilityRetention(cfg.Docker.Observability.MetricsRetention)
 		eventsRet, _ := parseObservabilityRetention(cfg.Docker.Observability.EventsRetention)
 		dockerConn.OnConnect(func(dockerCli *docker.Client) {
@@ -377,21 +381,37 @@ func main() {
 	// standalone deployments (nil manager) check unconditionally. An agent
 	// never polls: it is never the leader, and a hundred of them would be a
 	// hundred requests an hour.
-	var isLeaderFn func() bool
+	//
+	// liveMgr is this node's cluster manager: the one it booted with, or the
+	// one a live init or join made it (onManagerActivated).
+	var liveMgr atomic.Pointer[cluster.Manager]
 	if clusterMgr != nil {
-		mgr := clusterMgr
-		isLeaderFn = func() bool { return mgr.IsLeader() }
-	} else if agentRT != nil {
-		isLeaderFn = func() bool { return false }
+		liveMgr.Store(clusterMgr)
+	}
+	isLeaderFn := func() bool {
+		if m := liveMgr.Load(); m != nil {
+			return m.IsLeader()
+		}
+		return agentRT == nil // standalone polls; an agent never does
 	}
 	monitor.StartUpdateChecker(version, isLeaderFn)
+
+	// What main built before the router and holds itself follows a live init
+	// or join here; the router updates its own handlers and the alert manager.
+	onManagerActivated := func(m *cluster.Manager) {
+		liveMgr.Store(m)
+		// m != nil: a nil *Manager would be a typed nil identity.
+		if containerDisp != nil && m != nil {
+			containerDisp.SetIdentity(m)
+		}
+	}
 
 	// An agent's panel answers loopback and the addresses AllowsSource names.
 	var agentSources func(net.IP) bool
 	if agentRT != nil {
 		agentSources = agentRT.AllowsSource
 	}
-	e, routerCleanup := api.NewRouter(database, auditWriter, alertManager, cfg, sfpanel.WebDistFS, version, clusterMgr, cfgPath, liveActivate, dockerConn, agentSources)
+	e, routerCleanup := api.NewRouter(database, auditWriter, alertManager, cfg, sfpanel.WebDistFS, version, clusterMgr, cfgPath, liveActivate, dockerConn, agentSources, onManagerActivated)
 	e.Logger.SetOutput(log.Writer())
 
 	addr := fmt.Sprintf("%s:%d", cfg.Server.Host, cfg.Server.Port)

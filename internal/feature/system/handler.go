@@ -18,6 +18,7 @@ import (
 	"os/exec"
 	"regexp"
 	"sync"
+	"sync/atomic"
 	"syscall"
 
 	commonExec "github.com/svrforum/SFPanel/internal/common/exec"
@@ -186,12 +187,13 @@ type Handler struct {
 	// time, so a panel with TLS on would auto-revert every self-update.
 	TLSEnabled bool
 	Cmd        commonExec.Commander
-	// ClusterMgr is the cluster manager when this node is part of a Raft
+	// clusterMgr is the cluster manager when this node is part of a Raft
 	// cluster; nil in standalone mode. RunUpdate consults it to enforce a
 	// quorum guard before taking the node offline, so an operator running
 	// `for n in nodes; ssh $n sudo sfpanel update`-style fan-out can't
-	// inadvertently take every voter down at once.
-	ClusterMgr *cluster.Manager
+	// inadvertently take every voter down at once. It is set at boot and
+	// again by a live init or join (SetClusterMgr).
+	clusterMgr atomic.Pointer[cluster.Manager]
 	// AgentMode is set on an agent (cluster.role: agent). A restore there
 	// keeps the agent's own cluster block, JWT key, panel port and TLS,
 	// whatever the archive carries (keepLiveClusterBlock), and refuses a
@@ -199,6 +201,10 @@ type Handler struct {
 	// (archiveRoleRefusal).
 	AgentMode bool
 }
+
+// SetClusterMgr points the handler at this node's cluster manager: at boot,
+// and again when a live init or join makes the node a member.
+func (h *Handler) SetClusterMgr(m *cluster.Manager) { h.clusterMgr.Store(m) }
 
 type GitHubRelease struct {
 	TagName     string          `json:"tag_name"`
@@ -897,29 +903,30 @@ func (h *Handler) RunUpdate(c echo.Context) error {
 // ?force=true bypasses for the operator who genuinely wants to update a
 // stranded node without waiting for the cluster to heal.
 func (h *Handler) clusterUpdateQuorumGuard(c echo.Context) error {
-	if h.ClusterMgr == nil {
+	mgr := h.clusterMgr.Load()
+	if mgr == nil {
 		return nil
 	}
 	if c.QueryParam("force") == "true" {
 		return nil
 	}
-	hb := h.ClusterMgr.GetHeartbeat()
+	hb := mgr.GetHeartbeat()
 	if hb == nil {
 		return nil
 	}
-	local := h.ClusterMgr.LocalNodeID()
+	local := mgr.LocalNodeID()
 	health := hb.CheckHealth()
 	// A node whose heartbeat says "offline" or "suspect" is treated as
 	// already down, so taking another voter offline must still leave a
 	// quorum among the survivors that Raft can see.
-	onlineVoters := countOnlineManagerVoters(local, health, h.ClusterMgr.GetNode)
+	onlineVoters := countOnlineManagerVoters(local, health, mgr.GetNode)
 	// Only the leader hears every member's heartbeat; a follower's map holds
 	// itself (members ping the leader, not each other) and so cannot tell
 	// which voters are down. Until it can, a follower judges by the voters it
 	// sees, as it always has.
 	totalVoters := onlineVoters
-	if h.ClusterMgr.IsLeader() {
-		totalVoters = countManagerVoters(local, h.ClusterMgr.GetNodes())
+	if mgr.IsLeader() {
+		totalVoters = countManagerVoters(local, mgr.GetNodes())
 	}
 	refuse, survivors, quorum := computeUpdateQuorum(onlineVoters, totalVoters)
 	if !refuse {

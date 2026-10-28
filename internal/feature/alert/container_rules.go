@@ -174,7 +174,8 @@ func ruleSeverity(typ, own string) string {
 type ContainerDispatcher struct {
 	db       *sql.DB
 	chDsp    ChannelDispatcher
-	identity NodeIdentity // nil in single-node mode
+	mu       sync.RWMutex
+	identity NodeIdentity // nil in single-node mode; guarded by mu
 }
 
 func NewContainerDispatcher(db *sql.DB, ch ChannelDispatcher) *ContainerDispatcher {
@@ -186,6 +187,22 @@ func NewContainerDispatcher(db *sql.DB, ch ChannelDispatcher) *ContainerDispatch
 // way the periodic Manager.evaluate path does.
 func NewContainerDispatcherWithIdentity(db *sql.DB, ch ChannelDispatcher, identity NodeIdentity) *ContainerDispatcher {
 	return &ContainerDispatcher{db: db, chDsp: ch, identity: identity}
+}
+
+// SetIdentity replaces the node identity rules are scoped by: a live init or
+// join makes a standalone node (nil identity: every rule applies) a cluster
+// member. A typed nil must not be passed: it is not a nil interface.
+func (d *ContainerDispatcher) SetIdentity(id NodeIdentity) {
+	d.mu.Lock()
+	d.identity = id
+	d.mu.Unlock()
+}
+
+// currentIdentity is the identity rules are scoped by at this moment.
+func (d *ContainerDispatcher) currentIdentity() NodeIdentity {
+	d.mu.RLock()
+	defer d.mu.RUnlock()
+	return d.identity
 }
 
 // Dispatch is the entry point — translates the event to alert evaluation.
@@ -208,7 +225,7 @@ func (d *ContainerDispatcher) Dispatch(ctx context.Context, ev *AlertContainerEv
 		if rule, ok := containerRules[typ]; !ok || ev.Type != rule.event {
 			continue
 		}
-		if !ruleAppliesToNode(d.identity, nodeScope, nodeIDs) {
+		if !ruleAppliesToNode(d.currentIdentity(), nodeScope, nodeIDs) {
 			continue
 		}
 		var cond struct {

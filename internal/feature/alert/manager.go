@@ -55,7 +55,7 @@ type fireKey struct {
 
 type Manager struct {
 	db       *sql.DB
-	identity NodeIdentity
+	identity NodeIdentity // guarded by mu: SetIdentity replaces it at runtime
 	mu       sync.RWMutex
 	lastSent map[fireKey]time.Time // last successful send (cooldown)
 	inFlight map[fireKey]bool      // a dispatch is queued/running
@@ -88,6 +88,22 @@ func NewManagerWithIdentity(db *sql.DB, identity NodeIdentity) *Manager {
 	}
 	m.deliver = m.deliverToChannels
 	return m
+}
+
+// SetIdentity replaces the node identity rules are scoped by: a live init or
+// join makes a standalone node (nil identity: every rule applies) a cluster
+// member. A typed nil must not be passed: it is not a nil interface.
+func (m *Manager) SetIdentity(id NodeIdentity) {
+	m.mu.Lock()
+	m.identity = id
+	m.mu.Unlock()
+}
+
+// currentIdentity is the identity rules are scoped by at this moment.
+func (m *Manager) currentIdentity() NodeIdentity {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	return m.identity
 }
 
 func (m *Manager) Start(ctx context.Context) {
@@ -169,7 +185,7 @@ func (m *Manager) evaluate() {
 		// Cluster node-scope filter. In single-node mode (identity==nil)
 		// every rule applies. In cluster mode, "specific" scope requires
 		// the local node ID to appear in the rule's node_ids JSON array.
-		if !ruleAppliesToNode(m.identity, r.NodeScope, r.NodeIDs) {
+		if !ruleAppliesToNode(m.currentIdentity(), r.NodeScope, r.NodeIDs) {
 			continue
 		}
 

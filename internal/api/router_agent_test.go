@@ -55,7 +55,7 @@ func buildRouter(t *testing.T, role string) *echo.Echo {
 	if role == config.ClusterRoleAgent {
 		sources = func(ip net.IP) bool { return managersNet.Contains(ip) }
 	}
-	e, cleanup := NewRouter(database, sfdb.NewAsyncWriter(ctx, database, "audit", 16), featureAlert.NewManager(database), cfg, embed.FS{}, "test", nil, filepath.Join(dir, "config.yaml"), nil, docker.NewLazy("unix:///nonexistent.sock"), sources)
+	e, cleanup := NewRouter(database, sfdb.NewAsyncWriter(ctx, database, "audit", 16), featureAlert.NewManager(database), cfg, embed.FS{}, "test", nil, filepath.Join(dir, "config.yaml"), nil, docker.NewLazy("unix:///nonexistent.sock"), sources, nil)
 	t.Cleanup(cleanup)
 	return e
 }

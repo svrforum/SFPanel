@@ -76,7 +76,10 @@ func healthHandler(db *sql.DB, version string) echo.HandlerFunc {
 // of its managers signed with the agent's key, from loopback and the addresses
 // agentSources allows (nil: loopback alone). It has no login, accounts,
 // cluster management or SPA: operators reach it through a manager.
-func NewRouter(database *sql.DB, auditWriter *sfdb.AsyncWriter, alertManager *featureAlert.Manager, cfg *config.Config, webFS embed.FS, version string, clusterMgr *cluster.Manager, cfgPath string, liveActivate cluster.LiveActivateFunc, dockerConn *docker.Lazy, agentSources func(net.IP) bool) (*echo.Echo, func()) {
+//
+// onManagerActivated (may be nil) is called with the manager a live init or
+// join activates, for what main built before the router and holds itself.
+func NewRouter(database *sql.DB, auditWriter *sfdb.AsyncWriter, alertManager *featureAlert.Manager, cfg *config.Config, webFS embed.FS, version string, clusterMgr *cluster.Manager, cfgPath string, liveActivate cluster.LiveActivateFunc, dockerConn *docker.Lazy, agentSources func(net.IP) bool, onManagerActivated func(*cluster.Manager)) (*echo.Echo, func()) {
 	// Every signer and verifier reads the token key from auth.JWTSecret at the
 	// moment of use, so a cluster join can swap it without a restart. Seed it
 	// here, where all of them are wired.
@@ -187,9 +190,9 @@ func NewRouter(database *sql.DB, auditWriter *sfdb.AsyncWriter, alertManager *fe
 		TLSDir:     cfg.Server.TLS.Dir,
 		TLSManaged: cfg.Server.TLS.Managed(),
 		Cmd:        cmd,
-		ClusterMgr: clusterMgr,
 		AgentMode:  agent,
 	}
+	systemHandler.SetClusterMgr(clusterMgr) // boot-time manager (nil if cluster disabled); updated on runtime activation below
 
 	// Docker is connected whenever it is there: at boot if it already is, and
 	// on the first request after Packages installs it, without a restart
@@ -249,6 +252,17 @@ func NewRouter(database *sql.DB, auditWriter *sfdb.AsyncWriter, alertManager *fe
 			OnManagerActivated: func(m *cluster.Manager) {
 				authHandler.SetClusterMgr(m)
 				composeHandler.SetClusterMgr(m)
+				// Otherwise a node that init or join makes a member without a
+				// restart keeps no update quorum guard and fires every alert
+				// rule, whatever node it is scoped to.
+				systemHandler.SetClusterMgr(m)
+				// m != nil: a nil *Manager would be a typed nil identity.
+				if alertManager != nil && m != nil {
+					alertManager.SetIdentity(m)
+				}
+				if onManagerActivated != nil {
+					onManagerActivated(m)
+				}
 			},
 		}
 		// Boot path wires Manager via the struct literal above, bypassing
