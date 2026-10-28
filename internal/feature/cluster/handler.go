@@ -1212,6 +1212,10 @@ func (h *Handler) proxyToLeaderTimeout(c echo.Context, timeout time.Duration) (*
 
 // LeaveCluster gracefully removes this node from the cluster.
 // Unlike Disband, it notifies the leader of departure before cleaning up.
+// exitProcess ends the process after a leave, so that systemd starts it again
+// standalone. A test replaces it.
+var exitProcess = os.Exit
+
 func (h *Handler) LeaveCluster(c echo.Context) error {
 	mgr := h.getManager()
 	if mgr == nil {
@@ -1242,8 +1246,15 @@ func (h *Handler) LeaveCluster(c echo.Context) error {
 
 	// Notify leader of departure (best-effort).
 	// Leave() internally shuts down Raft, so no separate Shutdown() call needed.
+	// A leave no leader took goes ahead, as the CLI's does, but its answer
+	// says so: the UI and the CLI with the service running show only that.
+	untaken := ""
+	nodeID := mgr.LocalNodeID()
 	if err := mgr.Leave(); err != nil {
 		slog.Warn("could not notify cluster of departure", "component", "cluster", "error", err)
+		if errors.Is(err, cluster.ErrLeaveUnacknowledged) {
+			untaken = fmt.Sprintf(" Warning: %v. This node's ID is %s.", err, nodeID)
+		}
 	}
 
 	// L-03: Wipe Raft data + TLS material *before* flipping config.Enabled=false.
@@ -1276,13 +1287,14 @@ func (h *Handler) LeaveCluster(c echo.Context) error {
 
 	slog.Info("node left cluster via API, restarting", "component", "cluster")
 
+	exit := exitProcess
 	go func() {
 		time.Sleep(2 * time.Second)
-		os.Exit(1)
+		exit(1)
 	}()
 
 	return response.OK(c, map[string]string{
-		"message": "Left cluster. Service restarting in standalone mode...",
+		"message": "Left cluster. Service restarting in standalone mode..." + untaken,
 	})
 }
 

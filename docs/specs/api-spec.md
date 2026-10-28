@@ -4922,6 +4922,8 @@ data: {"phase":"done","message":"Migration complete.","done":true}
 }
 ```
 
+어떤 리더도 이 노드를 빼 주지 않았으면(리더를 모르거나, 닿지 않거나, 거절) 탈퇴는 그대로 진행되고, `message` 끝에 `Warning: no leader took this node out of the cluster: …`와 이 노드의 ID가 붙습니다. 다른 노드들은 여전히 이 노드를 목록에 두므로 리더에서 `sudo sfpanel cluster remove <node-id>`로 지워야 합니다.
+
 **에러 응답:**
 | 코드 | HTTP 상태 | 조건 |
 |------|-----------|------|

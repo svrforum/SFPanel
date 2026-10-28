@@ -225,8 +225,9 @@ update counts as a failure and stops on (see above).
   it refused — the leave goes on and says so (`no leader took this node out
   of the cluster: the others may still list it …`): remove the node on the
   leader with `sudo sfpanel cluster remove <node-id>`. The CLI prints this
-  when the service is stopped; otherwise it is in the service's log, since
-  the CLI hands a leave to the running service.
+  when the service is stopped; through the running service — the UI, or
+  the CLI, which hands the leave to it — the answer's message ends with the
+  same warning and this node's ID.
 - A leave removes the cluster's data and certificate directories before it
   saves the config as standalone. One it cannot remove ends the leave with
   the config still naming the cluster: remove it by hand and leave again.
