@@ -32,6 +32,10 @@ type JoinEngine struct {
 	// NodeID is the ID to join under: an agent promoted to a manager keeps
 	// its own, with a token the leader made for it. Empty, a new one.
 	NodeID string
+	// Name is the node name to join under; empty, the host name. An agent
+	// promoted to a manager keeps the one the cluster knows it by, as the
+	// leader's record of it does.
+	Name string
 	// SkipPortCheck skips PreFlight's check that the cluster gRPC port is
 	// free. On an agent being promoted, the agent's gRPC server holds it on
 	// the advertise address; the manager binds it after the restart that
@@ -193,7 +197,10 @@ func (e *JoinEngine) Execute(leaderAddr, token, advertiseAddr, pin string) (*Joi
 	if nodeID == "" {
 		nodeID = uuid.New().String()
 	}
-	hostname, _ := os.Hostname()
+	name := e.Name
+	if name == "" {
+		name, _ = os.Hostname()
+	}
 
 	grpcPort := e.Config.Cluster.GRPCPort
 	if grpcPort == 0 {
@@ -222,7 +229,7 @@ func (e *JoinEngine) Execute(leaderAddr, token, advertiseAddr, pin string) (*Joi
 	resp, err := client.Join(context.Background(), &pb.JoinRequest{
 		Token:        token,
 		NodeId:       nodeID,
-		NodeName:     hostname,
+		NodeName:     name,
 		ApiAddress:   apiAddr,
 		GrpcAddress:  grpcAddr,
 		Capabilities: []string{CapAgents},
@@ -266,7 +273,7 @@ func (e *JoinEngine) Execute(leaderAddr, token, advertiseAddr, pin string) (*Joi
 	e.Config.Cluster.Enabled = true
 	e.Config.Cluster.Name = resp.ClusterName
 	e.Config.Cluster.NodeID = nodeID
-	e.Config.Cluster.NodeName = hostname
+	e.Config.Cluster.NodeName = name
 	e.Config.Cluster.AdvertiseAddress = advertiseAddr
 	e.Config.Cluster.GRPCPort = grpcPort
 	e.Config.Cluster.RaftTLS = resp.RaftTls
@@ -328,7 +335,7 @@ func (e *JoinEngine) Execute(leaderAddr, token, advertiseAddr, pin string) (*Joi
 	return &JoinResult{
 		ClusterName: resp.ClusterName,
 		NodeID:      nodeID,
-		NodeName:    hostname,
+		NodeName:    name,
 		Manager:     mgr,
 	}, nil
 }

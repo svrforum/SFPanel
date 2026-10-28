@@ -378,3 +378,139 @@ func TestBecomeAgentChecksTheAgentsAddressFirst(t *testing.T) {
 		})
 	}
 }
+
+// promotable gives the leader mgr an agent a1 it can promote: online and
+// labelled.
+func promotable(t *testing.T, mgr *cluster.Manager) {
+	t.Helper()
+	data, err := json.Marshal(cluster.Node{ID: "a1", Name: "a1", Kind: cluster.KindAgent,
+		APIAddress: "192.0.2.40:3628", GRPCAddress: "192.0.2.40:3629", Labels: map[string]string{"group": "edge"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := mgr.GetRaft().Apply(cluster.Command{Type: cluster.CmdAddNode, Value: data}, 5*time.Second); err != nil {
+		t.Fatal(err)
+	}
+	mgr.GetHeartbeat().RecordHeartbeat(&cluster.NodeMetrics{NodeID: "a1", Version: "test"})
+}
+
+// postPromote answers POST /cluster/nodes/:id/promote as postConvert does.
+func postPromote(t *testing.T, h *Handler, id string) (int, string, string) {
+	t.Helper()
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/cluster/nodes/"+id+"/promote", nil)
+	rec := httptest.NewRecorder()
+	c := echo.New().NewContext(req, rec)
+	c.SetParamNames("id")
+	c.SetParamValues(id)
+	if err := h.PromoteNode(c); err != nil {
+		t.Fatal(err)
+	}
+	var out struct {
+		Data  struct{ Message string }       `json:"data"`
+		Error struct{ Code, Message string } `json:"error"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &out); err != nil {
+		t.Fatalf("%v (body %s)", err, rec.Body.String())
+	}
+	return rec.Code, out.Error.Code, out.Data.Message + out.Error.Message
+}
+
+// joinWith offers the leader a manager join with token as node id at ip and
+// returns its refusal. It sends no capabilities, so a join the token admits
+// stops before anything is written, on the agents the cluster has.
+func joinWith(mgr *cluster.Manager, token, id, ip string) error {
+	_, _, _, _, err := mgr.HandleJoin(id, id, ip+":3628", ip+":3629", token, nil)
+	return err
+}
+
+// The leader hands the agent a manager's token made for it alone, at its
+// address, through a route of the agent's own: an agent serves no /cluster
+// route, and the managers relay none to one.
+func TestPromoteNodeHandsTheAgentAManagerTokenMadeForIt(t *testing.T) {
+	mgr := tokenLeader(t)
+	promotable(t, mgr)
+	var calls []nodeCall
+	h := &Handler{Manager: mgr, callNode: answering(&calls, http.StatusAccepted, `{"success":true,"data":{"message":"joining"}}`, nil)}
+	status, _, msg := postPromote(t, h, "a1")
+	if status != http.StatusAccepted || !strings.Contains(msg, "a1 is joining the cluster as a manager") {
+		t.Fatalf("promote: %d %q", status, msg)
+	}
+	if len(calls) != 1 || calls[0].nodeID != "a1" || calls[0].method != http.MethodPost || calls[0].path != "/api/v1/system/become-manager" {
+		t.Fatalf("calls %+v", calls)
+	}
+	key, err := mgr.CAPublicKey()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if b := calls[0].body; b.CAPin != cluster.CAPin(key) || b.Manager != mgr.GetNode(mgr.LocalNodeID()).GRPCAddress || b.Token == "" {
+		t.Fatalf("the agent was sent %+v", b)
+	}
+	tok := calls[0].body.Token
+	if _, err := mgr.HandleRegisterAgent(cluster.RegisterAgentInput{Token: tok, NodeID: "a1", NodeName: "a1", APIAddress: "192.0.2.40:3628", GRPCAddress: "192.0.2.40:3629"}); !errors.Is(err, cluster.ErrTokenKind) {
+		t.Fatalf("a manager's token, offered for an agent: %v", err)
+	}
+	if err := joinWith(mgr, tok, "other", "192.0.2.40"); !errors.Is(err, cluster.ErrTokenBinding) {
+		t.Fatalf("another node: %v", err)
+	}
+	if err := joinWith(mgr, tok, "a1", "198.51.100.7"); !errors.Is(err, cluster.ErrTokenBinding) {
+		t.Fatalf("a1 elsewhere: %v", err)
+	}
+	if err := joinWith(mgr, tok, "a1", "192.0.2.40"); !errors.Is(err, cluster.ErrJoinerPredatesAgents) {
+		t.Fatalf("a1 at its address: %v", err)
+	}
+}
+
+// A manager is not promoted, and the answer says why; nothing is minted and
+// no node is asked.
+func TestPromoteNodeRefusesAManager(t *testing.T) {
+	mgr := tokenLeader(t)
+	var calls []nodeCall
+	h := &Handler{Manager: mgr, callNode: answering(&calls, http.StatusAccepted, `{}`, nil)}
+	status, code, msg := postPromote(t, h, mgr.LocalNodeID())
+	if status != http.StatusConflict || code != response.ErrClusterPromoteRefused || !strings.Contains(msg, cluster.ErrPromoteNotAgent.Error()) {
+		t.Fatalf("promote a manager: %d %s %q", status, code, msg)
+	}
+	if len(calls) != 0 {
+		t.Fatalf("calls %+v", calls)
+	}
+	if tokens, err := mgr.ListJoinTokens(); err != nil || len(tokens) != 0 {
+		t.Fatalf("tokens %v %v", tokens, err)
+	}
+}
+
+// An agent that refuses — one from before promotions answers 404 — takes the
+// promotion nowhere, and its token goes again.
+func TestPromoteNodeTakesBackWhatTheAgentRefused(t *testing.T) {
+	mgr := tokenLeader(t)
+	promotable(t, mgr)
+	var calls []nodeCall
+	h := &Handler{Manager: mgr, callNode: answering(&calls, http.StatusNotFound, `{"success":false,"error":{"code":"NOT_FOUND","message":"No such endpoint"}}`, nil)}
+	status, code, msg := postPromote(t, h, "a1")
+	if status != http.StatusBadGateway || code != response.ErrClusterPromoteRefused || !strings.Contains(msg, "404") || !strings.Contains(msg, "No such endpoint") {
+		t.Fatalf("promote: %d %s %q", status, code, msg)
+	}
+	if len(calls) != 1 {
+		t.Fatalf("calls %+v", calls)
+	}
+	if err := joinWith(mgr, calls[0].body.Token, "a1", "192.0.2.40"); !errors.Is(err, cluster.ErrTokenNotFound) {
+		t.Fatalf("the token: %v", err)
+	}
+}
+
+// An agent that did not answer may have taken the request. Its token goes
+// all the same: the agent's join then took it already, or is refused and the
+// agent comes back as the agent it was — no state in between. The answer
+// says to look.
+func TestPromoteNodeRevokesTheTokenOfAnAgentThatDidNotAnswer(t *testing.T) {
+	mgr := tokenLeader(t)
+	promotable(t, mgr)
+	var calls []nodeCall
+	h := &Handler{Manager: mgr, callNode: answering(&calls, 0, "", errors.New("proxy to node \"a1\": connection reset"))}
+	status, _, msg := postPromote(t, h, "a1")
+	if status != http.StatusBadGateway || !strings.Contains(msg, "did not answer") || !strings.Contains(msg, "node list") {
+		t.Fatalf("promote: %d %q", status, msg)
+	}
+	if err := joinWith(mgr, calls[0].body.Token, "a1", "192.0.2.40"); !errors.Is(err, cluster.ErrTokenNotFound) {
+		t.Fatalf("the token: %v", err)
+	}
+}

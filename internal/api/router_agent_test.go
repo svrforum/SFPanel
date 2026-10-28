@@ -116,6 +116,7 @@ var expectedManagerOnlyRoutes = func() []string {
 		"POST /api/v1/cluster/update",
 		"POST /api/v1/cluster/nodes/:id/convert",
 		"POST /api/v1/cluster/become-agent",
+		"POST /api/v1/cluster/nodes/:id/promote",
 
 		"GET /api/v1/docker/compose/cluster-stacks",
 		"POST /api/v1/docker/compose/:project/migrate/preflight",
@@ -127,6 +128,12 @@ var expectedManagerOnlyRoutes = func() []string {
 	slices.Sort(s)
 	return s
 }()
+
+// expectedAgentOnlyRoutes is what an agent serves and a manager does not: its
+// half of its promotion to a manager, which the leader calls. Sorted.
+var expectedAgentOnlyRoutes = []string{
+	"POST /api/v1/system/become-manager",
+}
 
 // sourceSessionRoutes are the source side of a migration that a manager
 // carries: every node serves them for its own stacks, an agent too.
@@ -145,17 +152,23 @@ func serve(e *echo.Echo, addr string, r *http.Request) *httptest.ResponseRecorde
 	return rec
 }
 
-// Agent routes are the manager's minus exactly the list in this task, and an
-// unsigned request to one of them gets 401.
+// Agent routes are the manager's minus exactly the list in this task, plus
+// the agent's own half of a promotion, and an unsigned request to one of
+// them gets 401.
 func TestAgentRouteSet(t *testing.T) {
 	managerRouter := buildRouter(t, "")
 	agentRouter := buildRouter(t, config.ClusterRoleAgent)
 	manager := routeSet(managerRouter)
 	agent := routeSet(agentRouter)
+	var agentOnly []string
 	for r := range agent {
 		if !manager[r] {
-			t.Fatalf("agent-only route %s", r)
+			agentOnly = append(agentOnly, r)
 		}
+	}
+	slices.Sort(agentOnly)
+	if !slices.Equal(agentOnly, expectedAgentOnlyRoutes) {
+		t.Fatalf("agent-only routes differ:\n got %v\nwant %v", agentOnly, expectedAgentOnlyRoutes)
 	}
 	var missing []string
 	for r := range manager {
@@ -182,6 +195,13 @@ func TestAgentRouteSet(t *testing.T) {
 
 	if rec := serve(agentRouter, local, settings()); rec.Code != http.StatusUnauthorized || !strings.Contains(rec.Body.String(), `"MISSING_TOKEN"`) {
 		t.Fatalf("unsigned: %d %s, want 401 MISSING_TOKEN", rec.Code, rec.Body)
+	}
+	// The agent's half of a promotion as well: only what its managers sign
+	// reaches it, the leader's call among them.
+	promote := httptest.NewRequest(http.MethodPost, "/api/v1/system/become-manager", strings.NewReader(`{}`))
+	promote.Header.Set("Content-Type", "application/json")
+	if rec := serve(agentRouter, local, promote); rec.Code != http.StatusUnauthorized || !strings.Contains(rec.Body.String(), `"MISSING_TOKEN"`) {
+		t.Fatalf("unsigned promotion: %d %s, want 401 MISSING_TOKEN", rec.Code, rec.Body)
 	}
 	// A token for this node's own JWT key gets nowhere on an agent. The
 	// manager router takes the same token, so the refusal is the agent's

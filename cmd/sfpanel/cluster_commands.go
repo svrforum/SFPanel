@@ -167,6 +167,8 @@ func clusterCommand(args []string) {
 		clusterRemove(args[1:])
 	case "convert":
 		clusterConvert(args[1:])
+	case "promote":
+		clusterPromote(args[1:])
 	case "reissue-cert":
 		clusterReissueCert(args[1:])
 	case "list":
@@ -917,6 +919,31 @@ func clusterConvert(args []string) {
 	fmt.Println(string(raw))
 }
 
+// clusterPromote turns an agent into a manager under its own ID, through the
+// running panel, as clusterConvert does the other way: the leader checks the
+// gates and the agent joins on its own.
+func clusterPromote(args []string) {
+	cfgPath, rest := parseCfgFlag(args)
+	if len(rest) != 1 {
+		fmt.Println("Usage: sfpanel cluster promote <node-id> [--config PATH]")
+		os.Exit(1)
+	}
+	nodeID := rest[0]
+
+	cfg := loadCfgForCLI(cfgPath)
+	if !cfg.Cluster.Enabled {
+		log.Fatal("Cluster not initialized.")
+	}
+	if !isServerRunning(cfg.Server.Port) {
+		log.Fatal("Local sfpanel server is not running — a promotion runs on the live cluster.")
+	}
+	raw, err := callLocalAPI(cfg, http.MethodPost, "/api/v1/cluster/nodes/"+nodeID+"/promote", nil)
+	if err != nil {
+		log.Fatalf("Promote failed: %v", err)
+	}
+	fmt.Println(string(raw))
+}
+
 func saveConfig(path string, cfg *config.Config) error {
 	data, err := yaml.Marshal(cfg)
 	if err != nil {
@@ -938,6 +965,7 @@ func printClusterHelp() {
 	fmt.Println("  sfpanel cluster leader-transfer NODE_ID   Hand off leadership to NODE_ID (for graceful drains)")
 	fmt.Println("  sfpanel cluster remove NODE_ID            Remove a node")
 	fmt.Println("  sfpanel cluster convert NODE_ID           Turn a manager into an agent, keeping its ID and labels")
+	fmt.Println("  sfpanel cluster promote NODE_ID           Turn an agent into a manager, keeping its ID and labels")
 	fmt.Println("  sfpanel cluster leave                     Leave the cluster")
 	fmt.Println("  sfpanel cluster reissue-cert              Re-issue this node's cluster cert (hot reload)")
 	fmt.Println()

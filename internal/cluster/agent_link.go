@@ -22,6 +22,10 @@ import (
 	"github.com/svrforum/SFPanel/internal/config"
 )
 
+// AgentStateFile is the file in the cluster data directory where an agent
+// keeps its AgentState.
+const AgentStateFile = "agent-state.json"
+
 // AgentState is what an agent keeps between runs.
 type AgentState struct {
 	// Managers are whom the agent heartbeats to and takes requests from:

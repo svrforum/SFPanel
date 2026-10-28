@@ -237,7 +237,7 @@ func restartIfActive() (bool, error) {
 // agentStatePath is where an agent's link keeps the managers and the leader
 // it last heard of, and whether the leader removed it.
 func agentStatePath(cfg *config.Config) string {
-	return filepath.Join(cfg.Cluster.DataDir, "agent-state.json")
+	return filepath.Join(cfg.Cluster.DataDir, cluster.AgentStateFile)
 }
 
 // notAnAgent says what a server that is not an agent is instead.

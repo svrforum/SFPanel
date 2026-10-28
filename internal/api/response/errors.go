@@ -450,6 +450,12 @@ const (
 	// address an agent would need), 502 when the node refused the request.
 	// The message names the reason.
 	ErrClusterConvertRefused = "CLUSTER_CONVERT_REFUSED"
+	// ErrClusterPromoteRefused is returned when an agent is not promoted to a
+	// manager, nothing having changed: HTTP 409 for a gate the leader or the
+	// agent refuses on (a node that is not an agent, one not online, no room
+	// for another manager, another promotion under way), 502 when the agent
+	// refused the request. The message names the reason.
+	ErrClusterPromoteRefused = "CLUSTER_PROMOTE_REFUSED"
 )
 
 // TLS error codes

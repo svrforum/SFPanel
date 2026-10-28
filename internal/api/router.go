@@ -389,6 +389,9 @@ func NewRouter(database *sql.DB, auditWriter *sfdb.AsyncWriter, alertManager *fe
 		// signed call reaches (become-agent).
 		clusterGroup.POST("/nodes/:id/convert", clusterHandler.ConvertNode)
 		clusterGroup.POST("/become-agent", clusterHandler.BecomeAgent)
+		// An agent becomes a manager under its own ID: the leader's gates and
+		// token here, then the agent's own half (system/become-manager).
+		clusterGroup.POST("/nodes/:id/promote", clusterHandler.PromoteNode)
 		clusterGroup.PATCH("/nodes/:id/labels", clusterHandler.UpdateNodeLabels)
 		clusterGroup.PUT("/name", clusterHandler.RenameCluster)
 		clusterGroup.PATCH("/nodes/:id/address", clusterHandler.UpdateNodeAddress)
@@ -401,6 +404,12 @@ func NewRouter(database *sql.DB, auditWriter *sfdb.AsyncWriter, alertManager *fe
 		clusterGroup.POST("/disband", clusterHandler.DisbandCluster)
 		clusterGroup.GET("/interfaces", clusterHandler.GetNetworkInterfaces)
 		clusterGroup.POST("/update", clusterHandler.ClusterUpdate)
+	} else {
+		// An agent's half of its promotion to a manager, which the leader
+		// calls (POST /cluster/nodes/:id/promote): under /system, as an agent
+		// serves no /cluster route.
+		promotion := &featureSystem.BecomeManagerHandler{Config: cfg, ConfigPath: cfgPath, DB: database}
+		authorized.POST("/system/become-manager", promotion.BecomeManager)
 	}
 
 	// Terminal: list the caller's live PTY sessions so the UI can reattach to a

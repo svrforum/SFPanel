@@ -1614,6 +1614,114 @@ func (h *Handler) BecomeAgent(c echo.Context) error {
 	return response.Accepted(c, answer)
 }
 
+// becomeManagerPath is an agent's half of its promotion, which PromoteNode
+// calls. Not under /api/v1/cluster/: an agent serves no cluster route.
+const becomeManagerPath = "/api/v1/system/become-manager"
+
+// becomeManagerRequest is what the leader sends an agent it promotes to a
+// manager: the fields a conversion sends, which internal/feature/system's
+// BecomeManager reads on the agent.
+type becomeManagerRequest becomeAgentRequest
+
+// PromoteNode (POST /cluster/nodes/:id/promote) turns an agent into a manager
+// under its own ID, keeping its name and labels. The leader runs the gates
+// and makes a manager token bound to the node (PrepareManagerPromotion), then
+// asks the agent to join with it (become-manager). The agent answers before
+// it joins, so 202 says the promotion has begun; it is over when the node
+// comes back from its restart as a manager — a non-voter until the leader
+// reaches its Raft port and its Raft has caught up.
+func (h *Handler) PromoteNode(c echo.Context) error {
+	mgr := h.getManager()
+	if mgr == nil {
+		return response.Fail(c, http.StatusBadRequest, response.ErrInvalidRequest, "Cluster not configured")
+	}
+	// The leader holds the tokens and hears every agent's heartbeat.
+	if handled, err := middleware.ProxyToLeader(c, mgr); handled {
+		return err
+	}
+	id := c.Param("id")
+	if id == "" {
+		return response.Fail(c, http.StatusBadRequest, response.ErrInvalidRequest, "Node ID required")
+	}
+
+	// What the node joins with, settled before anything is made for it.
+	caKey, err := mgr.CAPublicKey()
+	if err != nil {
+		return response.Fail(c, http.StatusInternalServerError, response.ErrInternalError, "cluster CA unavailable")
+	}
+	self := mgr.GetNode(mgr.LocalNodeID())
+	if self == nil || self.GRPCAddress == "" {
+		return response.Fail(c, http.StatusInternalServerError, response.ErrInternalError, "this leader's own record is missing its gRPC address")
+	}
+	tok, err := mgr.PrepareManagerPromotion(id)
+	if err != nil {
+		if errors.Is(err, cluster.ErrPromoteRefused) {
+			return response.Fail(c, http.StatusConflict, response.ErrClusterPromoteRefused, err.Error())
+		}
+		return clusterErrResponse(c, err)
+	}
+	name := id
+	if n := mgr.GetNode(id); n != nil && n.Name != "" {
+		name = n.Name
+	}
+	// From here a failure takes the token back, answer or none: an agent
+	// whose join has not spent it stays the agent it was, refused for it if
+	// it took the request after all, and one whose join spent it loses
+	// nothing — no state in between, unlike a conversion's, whose node may
+	// have left Raft.
+	abandon := func() {
+		if err := mgr.AbandonManagerPromotion(tok); err != nil {
+			slog.Warn("a promotion's token was not revoked", "component", "cluster", "node_id", id, "error", err)
+		}
+	}
+	body, err := json.Marshal(becomeManagerRequest{Token: tok.Token, CAPin: cluster.CAPin(caKey), Manager: self.GRPCAddress})
+	if err != nil {
+		abandon()
+		return response.Fail(c, http.StatusInternalServerError, response.ErrInternalError, err.Error())
+	}
+	call := h.callNode
+	if call == nil {
+		call = mgr.ProxyToNode
+	}
+	username, _ := c.Get("username").(string)
+	// The token is made: the call is not cut short by a caller that left.
+	ctx, cancel := context.WithTimeout(context.WithoutCancel(c.Request().Context()), 30*time.Second)
+	defer cancel()
+	status, answer, err := call(ctx, id, http.MethodPost, becomeManagerPath, body, username)
+	if err != nil {
+		abandon()
+		slog.Warn("an agent did not answer its promotion to a manager; its token is revoked", "component", "cluster", "node_id", id, "error", err)
+		return response.Fail(c, http.StatusBadGateway, response.ErrInternalError, fmt.Sprintf(
+			"%s did not answer (%s), and the token made for it is revoked: if it took the request first, it is joining the cluster as a manager — look for it in the node list in a minute, and if it is still an agent there, promote it again", name, response.SanitizeOutput(err.Error())))
+	}
+	if status != http.StatusAccepted {
+		abandon()
+		return response.Fail(c, http.StatusBadGateway, response.ErrClusterPromoteRefused, fmt.Sprintf(
+			"%s refused the promotion (HTTP %d): %s", name, status, response.SanitizeOutput(refusalReason(answer))))
+	}
+	slog.Info("promotion to a manager started", "component", "cluster", "node_id", id, "name", name)
+	return response.Accepted(c, map[string]string{"message": name + " is joining the cluster as a manager under its own ID, and restarts as one", "node_id": id})
+}
+
+// refusalReason is what a node's refusal says: the error its panel answered
+// with, Echo's own message (a 404 among them), or the body as it came.
+func refusalReason(answer []byte) string {
+	var reply struct {
+		Error struct {
+			Message string `json:"message"`
+		} `json:"error"`
+		Message string `json:"message"`
+	}
+	_ = json.Unmarshal(answer, &reply)
+	switch {
+	case reply.Error.Message != "":
+		return reply.Error.Message
+	case reply.Message != "":
+		return reply.Message
+	}
+	return strings.TrimSpace(string(answer))
+}
+
 func (h *Handler) ClusterUpdate(c echo.Context) error {
 	mgr := h.getManager()
 	if mgr == nil {

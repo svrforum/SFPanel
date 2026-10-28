@@ -16,8 +16,9 @@ import (
 	"github.com/svrforum/SFPanel/internal/config"
 )
 
-// conversionTokenTTL is how long the token a conversion hands its node lives.
-// The node spends it seconds after it gets it, once it has left Raft.
+// conversionTokenTTL is how long the token a conversion or a promotion hands
+// its node lives. The node spends it seconds after it gets it: once it has
+// left Raft, or, promoted, at once.
 const conversionTokenTTL = 30 * time.Minute
 
 // refuseConversion is a gate's refusal of a conversion: nothing has changed.
@@ -328,4 +329,158 @@ func wipeManagerSecrets(cfg *config.Config, cfgPath string, db *sql.DB) error {
 		}
 	}
 	return errors.Join(errs...)
+}
+
+// refusePromotion is a gate's refusal of a promotion: nothing has changed.
+func refusePromotion(reason error) error {
+	return fmt.Errorf("%w: %w", ErrPromoteRefused, reason)
+}
+
+// PrepareManagerPromotion readies the promotion of the agent id to a manager
+// (leader only). The gates come first, while a refusal changes nothing: the
+// node must be an agent and online — it joins again itself — and its join
+// must have nothing to be refused for that can be told here: no room for
+// another manager, no CA key to sign its certificate with, a record address
+// the token cannot be bound to. Met only at the join, those would restart
+// the agent for nothing. Then it makes a manager token that admits id alone,
+// at the IP of its gRPC address. Nothing else changes until the node joins
+// with it, and the join (HandleJoin) turns the agent's record into a
+// manager's, keeping its name and labels. A refusal wraps ErrPromoteRefused.
+func (m *Manager) PrepareManagerPromotion(id string) (*JoinToken, error) {
+	if m.raft == nil || !m.raft.IsLeader() {
+		return nil, ErrNotLeader
+	}
+	// As in PrepareAgentConversion: the gates read what earlier terms
+	// committed.
+	if err := m.raft.Barrier(2 * time.Second); err != nil {
+		return nil, fmt.Errorf("leader barrier failed: %w", err)
+	}
+	state := m.raft.GetFSM().GetState()
+	node, ok := state.Nodes[id]
+	if !ok {
+		return nil, ErrNodeNotFound
+	}
+	if node.IsManager() {
+		return nil, refusePromotion(ErrPromoteNotAgent)
+	}
+	name := node.Name
+	if name == "" {
+		name = id
+	}
+	health := m.heartbeat.CheckHealth()
+	switch met := m.heartbeat.GetMetrics(id); {
+	case met == nil:
+		return nil, refusePromotion(fmt.Errorf("%s has not been heard from: it joins the cluster again itself, so it must be online", name))
+	case health[id] != StatusOnline:
+		return nil, refusePromotion(fmt.Errorf("%s is %s: it joins the cluster again itself, so it must be online", name, health[id]))
+	}
+	if countKind(state, KindManager) >= MaxNodes {
+		return nil, refusePromotion(ErrMaxNodesReached)
+	}
+	if !m.tls.HasCAKey() && state.Config[configKeyCAKey] == "" {
+		return nil, refusePromotion(ErrCAKeyUnavailable)
+	}
+	ip, ok := ipAndPort(node.GRPCAddress)
+	if !ok {
+		return nil, refusePromotion(fmt.Errorf("the cluster has %s at %q, which is not an IP and a port: the token it joins with is bound to the IP of its address", name, node.GRPCAddress))
+	}
+	tok, err := m.CreateBoundJoinToken(conversionTokenTTL, KindManager, id, ip.String())
+	if err != nil {
+		return nil, err
+	}
+	slog.Info("promotion to a manager prepared", "component", "cluster", "node_id", id, "name", name)
+	return tok, nil
+}
+
+// AbandonManagerPromotion takes back the token PrepareManagerPromotion made,
+// for a promotion the node refused or may not have started. Revoked once a
+// join has spent it, it changes nothing.
+func (m *Manager) AbandonManagerPromotion(tok *JoinToken) error {
+	if err := m.tokens.Revoke(tokenFingerprint(tok.Token)); err != nil && !errors.Is(err, ErrTokenNotFound) {
+		return fmt.Errorf("revoke the token: %w", err)
+	}
+	return nil
+}
+
+// agentOwnFiles are the files an agent keeps that a manager has no use
+// for: its internal-proxy key, which the leader removes from replicated state
+// when it makes the node a manager, and its link's state.
+func agentOwnFiles(c *config.ClusterConfig) []string {
+	var files []string
+	if c.CertDir != "" {
+		files = append(files, filepath.Join(c.CertDir, "agent.key"))
+	}
+	if c.DataDir != "" {
+		files = append(files, filepath.Join(c.DataDir, AgentStateFile))
+	}
+	return files
+}
+
+// PromoteToManager is an agent's promotion to a manager, run in the agent's
+// own process with its config cfg at cfgPath and its database db once the
+// leader's gates have passed (PrepareManagerPromotion). req carries the token
+// the leader made for it, the cluster CA's fingerprint, the leader's gRPC
+// address and the address this server advertises. Each step runs only once
+// the one before it has succeeded:
+//
+//  1. It removes what an earlier membership as a manager left (ManagerFiles)
+//     while the server is still an agent, which uses none of it: once the
+//     config is a manager's, the manager opens the Raft log and stable store
+//     it finds, their old term and peers with them.
+//  2. It joins as a manager under its own ID and name (JoinEngine). The
+//     leader turns the agent's record into a manager's, keeping its name and
+//     labels, and the engine writes the manager's certificate and config: no
+//     role, no managers list, the cluster's JWT key. A join the leader
+//     refuses writes nothing. One it admitted that this server then cannot
+//     finish — an answer that fails the pin, a file it cannot write — leaves
+//     the leader listing a manager this server is not: remove the node on a
+//     manager and join this server again.
+//  3. It removes the agent's own files (agentOwnFiles).
+//
+// On success cfg is the config it saved. The caller restarts the process
+// afterwards whatever the outcome: a node runs one role per boot, and an
+// agent whose promotion stopped before its join comes back as that agent.
+func PromoteToManager(cfg *config.Config, cfgPath string, db *sql.DB, req ConvertRequest) error {
+	// Refused while nothing has changed.
+	if !cfg.Cluster.IsAgent() {
+		return errors.New("promote to a manager: this server is not an agent")
+	}
+	if cfgPath == "" {
+		return errors.New("promote to a manager: no config file to write the manager's config to")
+	}
+	id := cfg.Cluster.NodeID
+	log := slog.With("component", "cluster", "node_id", id)
+
+	log.Info("promoting to a manager: removing what an earlier membership left", "step", "leftovers")
+	removed, err := WipeManagerFiles(&cfg.Cluster)
+	if err != nil {
+		return fmt.Errorf("remove what an earlier membership as a manager left: %w", err)
+	}
+	if len(removed) > 0 {
+		log.Warn("removed the files an earlier membership as a manager left", "files", removed)
+	}
+
+	log.Info("promoting to a manager: joining under its own ID", "step", "join", "manager", req.Manager)
+	next := *cfg
+	next.Cluster.Enabled = false
+	next.Cluster.Role = ""
+	next.Cluster.Managers = nil
+	e := &JoinEngine{Config: &next, ConfigPath: cfgPath, DB: db, NodeID: id, Name: cfg.Cluster.NodeName, SkipPortCheck: true}
+	if _, err := e.Execute(req.Manager, req.Token, req.Advertise, req.Pin); err != nil {
+		return fmt.Errorf("join as a manager: %w", err)
+	}
+	*cfg = next
+
+	log.Info("promoting to a manager: removing the agent's files", "step", "agent-files")
+	var errs []error
+	for _, p := range agentOwnFiles(&next.Cluster) {
+		if err := os.Remove(p); err != nil && !errors.Is(err, os.ErrNotExist) {
+			errs = append(errs, err)
+		}
+	}
+	if err := errors.Join(errs...); err != nil {
+		return fmt.Errorf("joined the cluster as a manager, but the agent's files stayed: %w — a manager does not use them; remove them by hand", err)
+	}
+	log.Info("promoted to a manager", "step", "done")
+	return nil
 }

@@ -2,6 +2,7 @@ package cluster
 
 import (
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"slices"
@@ -9,6 +10,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/svrforum/SFPanel/internal/auth"
 	"github.com/svrforum/SFPanel/internal/config"
 	"github.com/svrforum/SFPanel/internal/db"
 	"gopkg.in/yaml.v3"
@@ -411,5 +413,288 @@ func TestManagerBackups(t *testing.T) {
 	}
 	if got := ManagerBackups(cfg); got != dir {
 		t.Fatalf("a backup: %q", got)
+	}
+}
+
+// loadTestConfig loads the config.yaml at path as the panel boots from it.
+func loadTestConfig(t *testing.T, path string) *config.Config {
+	t.Helper()
+	cfg, err := config.Load(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return cfg
+}
+
+// promotableAgent registers an agent with the leader mgr at 127.0.0.2 — an
+// agent's address is its own, and the leader's is 127.0.0.1 — and records a
+// heartbeat from it. It returns the agent's ID and its config.yaml.
+func promotableAgent(t *testing.T, mgr *Manager, addr, pin string) (string, string) {
+	t.Helper()
+	settleRotation(t, mgr)
+	tok, err := mgr.CreateJoinToken(time.Hour, KindAgent)
+	if err != nil {
+		t.Fatal(err)
+	}
+	e, path := agentJoinTarget(t)
+	res, err := e.Execute(addr, tok.Token, "127.0.0.2", pin, panelCAPEM(t))
+	if err != nil {
+		t.Fatal(err)
+	}
+	mgr.GetHeartbeat().RecordHeartbeat(&NodeMetrics{NodeID: res.NodeID, Version: "test"})
+	// The join installs the cluster's key process-wide.
+	t.Cleanup(func() { auth.SetJWTSecret("") })
+	return res.NodeID, path
+}
+
+// An agent promoted to a manager joins under its own ID — the record keeps
+// its name and labels — and comes back a manager: no role, no managers list,
+// no agent key, and an empty Raft to start from.
+func TestAnAgentPromotesToAManager(t *testing.T) {
+	mgr, addr, _, pin := realLeader(t)
+	id, path := promotableAgent(t, mgr, addr, pin)
+	if err := mgr.UpdateNodeLabels(id, map[string]string{"group": "edge"}); err != nil {
+		t.Fatal(err)
+	}
+	tok, err := mgr.PrepareManagerPromotion(id)
+	if err != nil {
+		t.Fatal(err)
+	}
+	cfg := loadTestConfig(t, path) // the agent's config.yaml as the join wrote it
+	// What an earlier membership as a manager left, and the agent link's state.
+	stale := filepath.Join(cfg.Cluster.DataDir, "raft-log.db")
+	state := filepath.Join(cfg.Cluster.DataDir, "agent-state.json")
+	if err := os.MkdirAll(cfg.Cluster.DataDir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	for _, p := range []string{stale, state} {
+		if err := os.WriteFile(p, []byte("stale"), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := PromoteToManager(cfg, path, nil, ConvertRequest{Token: tok.Token, Pin: pin, Manager: addr, Advertise: "127.0.0.2"}); err != nil {
+		t.Fatal(err)
+	}
+	n := mgr.raft.GetFSM().GetNode(id)
+	if n == nil || !n.IsManager() || n.Labels["group"] != "edge" || n.Name != "agent-host" {
+		t.Fatalf("on the leader: %+v", n)
+	}
+	saved := loadTestConfig(t, path)
+	if saved.Cluster.IsAgent() || len(saved.Cluster.Managers) != 0 || saved.Cluster.NodeID != id || !saved.Cluster.Enabled {
+		t.Fatalf("saved config: %+v", saved.Cluster)
+	}
+	// What the cluster knows it by, not this host's name.
+	if saved.Cluster.NodeName != "agent-host" {
+		t.Fatalf("saved as %q", saved.Cluster.NodeName)
+	}
+	for _, f := range []string{filepath.Join(cfg.Cluster.CertDir, "agent.key"), stale, state} {
+		if _, err := os.Lstat(f); err == nil {
+			t.Errorf("%s stayed", f)
+		}
+	}
+	leaf, err := NewTLSManager(cfg.Cluster.CertDir).NodeCertLeaf()
+	if err != nil || CertRole(leaf) != CertRoleManager || leaf.Subject.CommonName != id {
+		t.Fatalf("the node certificate: %v", err)
+	}
+}
+
+// A promotion's gates are the leader's, checked before the node is asked:
+// met only at its join, a refusal would restart the agent for nothing. A
+// refusal mints no token.
+func TestAPromotionIsRefusedWhereTheJoinWouldBe(t *testing.T) {
+	mgr, _, _, _ := realLeader(t)
+	ready := Node{ID: "a1", Name: "a1", Kind: KindAgent, APIAddress: "192.0.2.40:3628", GRPCAddress: "192.0.2.40:3629"}
+	heard := func() { mgr.GetHeartbeat().RecordHeartbeat(&NodeMetrics{NodeID: "a1", Version: "test"}) }
+	tokens := func() int {
+		list, err := mgr.ListJoinTokens()
+		if err != nil {
+			t.Fatal(err)
+		}
+		return len(list)
+	}
+	for _, tc := range []struct {
+		name   string
+		id     string
+		target func(*Node)
+		setup  func(t *testing.T)
+		want   error
+		reason string
+	}{
+		{name: "a manager", id: mgr.LocalNodeID(), want: ErrPromoteNotAgent},
+		{name: "an agent not heard from", setup: func(t *testing.T) { mgr.GetHeartbeat().RemoveNode("a1") }, reason: "not been heard from"},
+		{name: "an agent gone quiet", setup: func(t *testing.T) {
+			hb := mgr.GetHeartbeat()
+			hb.mu.Lock()
+			hb.lastSeen["a1"] = time.Now().Add(-time.Hour)
+			hb.mu.Unlock()
+		}, reason: "a1 is offline"},
+		{name: "no room for another manager", setup: func(t *testing.T) {
+			for i := 1; i < MaxNodes; i++ {
+				id := fmt.Sprintf("m%d", i)
+				addTestNode(t, mgr.raft.GetFSM(), Node{ID: id, Name: id, Kind: KindManager, Role: RoleNonVoter})
+				t.Cleanup(func() { applyCmd(t, mgr.raft.GetFSM(), Command{Type: CmdRemoveNode, Key: id}) })
+			}
+		}, want: ErrMaxNodesReached},
+		{name: "a leader without the CA key", setup: func(t *testing.T) {
+			key, err := mgr.tls.LoadCAKey()
+			if err != nil {
+				t.Fatal(err)
+			}
+			replicated, _ := mgr.raft.GetFSM().GetConfigValue(configKeyCAKey)
+			if err := os.Remove(filepath.Join(mgr.config.CertDir, "ca.key")); err != nil {
+				t.Fatal(err)
+			}
+			applyCmd(t, mgr.raft.GetFSM(), Command{Type: CmdDeleteConfig, Key: configKeyCAKey})
+			t.Cleanup(func() {
+				_ = mgr.tls.SaveCAKey(key)
+				applyCmd(t, mgr.raft.GetFSM(), Command{Type: CmdSetConfig, Key: configKeyCAKey, Value: mustJSON(replicated)})
+			})
+		}, want: ErrCAKeyUnavailable},
+		{name: "an address that is not an IP", target: func(n *Node) { n.GRPCAddress = "a1.example:3629" }, reason: "not an IP"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			target := ready
+			if tc.target != nil {
+				tc.target(&target)
+			}
+			addTestNode(t, mgr.raft.GetFSM(), target)
+			heard()
+			if tc.setup != nil {
+				tc.setup(t)
+			}
+			id := tc.id
+			if id == "" {
+				id = "a1"
+			}
+			before := tokens()
+			_, err := mgr.PrepareManagerPromotion(id)
+			if !errors.Is(err, ErrPromoteRefused) || (tc.want != nil && !errors.Is(err, tc.want)) || !strings.Contains(err.Error(), tc.reason) {
+				t.Fatalf("got %v, want a refusal for %v %q", err, tc.want, tc.reason)
+			}
+			if after := tokens(); after != before {
+				t.Fatalf("a refusal minted a token: %d, then %d", before, after)
+			}
+		})
+	}
+	if _, err := mgr.PrepareManagerPromotion("nobody"); !errors.Is(err, ErrNodeNotFound) {
+		t.Fatalf("no such node: %v", err)
+	}
+	// And with every row undone, the agent gets a manager's token made for
+	// it alone, at its address.
+	addTestNode(t, mgr.raft.GetFSM(), ready)
+	heard()
+	tok, err := mgr.PrepareManagerPromotion("a1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if jt, err := mgr.tokens.Peek(tok.Token); err != nil || jt.EffectiveKind() != KindManager || jt.NodeID != "a1" || jt.IP != "192.0.2.40" {
+		t.Fatalf("the token: %+v %v", jt, err)
+	}
+}
+
+// A promotion the leader refuses changes nothing on the agent: its config,
+// its certificate, its key and its link's state stay as they were.
+func TestAPromotionTheLeaderRefusesChangesNothing(t *testing.T) {
+	mgr, addr, _, pin := realLeader(t)
+	id, path := promotableAgent(t, mgr, addr, pin)
+	cfg := loadTestConfig(t, path)
+	state := filepath.Join(cfg.Cluster.DataDir, "agent-state.json")
+	if err := os.MkdirAll(cfg.Cluster.DataDir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(state, []byte("{}"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	keep := []string{path, state, filepath.Join(cfg.Cluster.CertDir, "agent.key"), filepath.Join(cfg.Cluster.CertDir, "node.crt"), filepath.Join(cfg.Cluster.CertDir, "node.key")}
+	before := map[string]string{}
+	for _, p := range keep {
+		data, err := os.ReadFile(p)
+		if err != nil {
+			t.Fatal(err)
+		}
+		before[p] = string(data)
+	}
+	// A manager token made for no node: the leader takes the agent's ID for
+	// a node it has, and refuses.
+	free, err := mgr.CreateJoinToken(time.Hour, KindManager)
+	if err != nil {
+		t.Fatal(err)
+	}
+	err = PromoteToManager(cfg, path, nil, ConvertRequest{Token: free.Token, Pin: pin, Manager: addr, Advertise: "127.0.0.2"})
+	if err == nil || !strings.Contains(err.Error(), ErrNodeAlreadyExists.Error()) {
+		t.Fatalf("a join the leader refuses: %v", err)
+	}
+	for _, p := range keep {
+		if data, _ := os.ReadFile(p); string(data) != before[p] {
+			t.Errorf("%s changed", p)
+		}
+	}
+	if !cfg.Cluster.IsAgent() {
+		t.Fatalf("the config in memory became %+v", cfg.Cluster)
+	}
+	if n := mgr.raft.GetFSM().GetNode(id); n == nil || n.Kind != KindAgent {
+		t.Fatalf("on the leader: %+v", n)
+	}
+}
+
+// What an earlier membership as a manager left goes before the join, while
+// the server is still an agent, which uses none of it: once its config is a
+// manager's, a manager would open the Raft log it found. One that will not go
+// refuses the promotion with the leader not asked.
+func TestAPromotionThatCannotClearALeftoverDoesNotJoin(t *testing.T) {
+	if os.Geteuid() == 0 {
+		t.Skip("root removes files from a read-only directory")
+	}
+	mgr, addr, _, pin := realLeader(t)
+	id, path := promotableAgent(t, mgr, addr, pin)
+	tok, err := mgr.PrepareManagerPromotion(id)
+	if err != nil {
+		t.Fatal(err)
+	}
+	cfg := loadTestConfig(t, path)
+	snap := filepath.Join(cfg.Cluster.DataDir, "snapshots")
+	stuck := filepath.Join(snap, "2-10-1700000000")
+	if err := os.MkdirAll(stuck, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(stuck, "state.bin"), []byte("x"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chmod(stuck, 0o500); err != nil { // its entries cannot be removed
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = os.Chmod(stuck, 0o700) })
+	before, _ := os.ReadFile(path)
+	err = PromoteToManager(cfg, path, nil, ConvertRequest{Token: tok.Token, Pin: pin, Manager: addr, Advertise: "127.0.0.2"})
+	if err == nil || !strings.Contains(err.Error(), snap) {
+		t.Fatalf("a leftover that will not go: %v", err)
+	}
+	if n := mgr.raft.GetFSM().GetNode(id); n == nil || n.Kind != KindAgent {
+		t.Fatalf("on the leader: %+v", n)
+	}
+	if _, err := mgr.tokens.Peek(tok.Token); err != nil {
+		t.Fatalf("the token was spent: %v", err)
+	}
+	if after, _ := os.ReadFile(path); string(after) != string(before) {
+		t.Fatal("the config changed")
+	}
+}
+
+// Only an agent is promoted: a manager's or a standalone panel's config is
+// left as it is, and no leader is asked.
+func TestPromoteToManagerTakesAnAgentOnly(t *testing.T) {
+	cfg, path := leftManagerConfig(t)
+	before, _ := os.ReadFile(path)
+	err := PromoteToManager(cfg, path, nil, ConvertRequest{Token: "tok", Pin: "sha256:" + strings.Repeat("ab", 32), Manager: closedAddr(t), Advertise: "127.0.0.1"})
+	if err == nil || !strings.Contains(err.Error(), "not an agent") {
+		t.Fatalf("a manager's config: %v", err)
+	}
+	if after, _ := os.ReadFile(path); string(after) != string(before) {
+		t.Fatal("the config changed")
+	}
+	for _, p := range ManagerFiles(&cfg.Cluster) {
+		if _, err := os.Lstat(p); err != nil {
+			t.Fatalf("%s went: %v", p, err)
+		}
 	}
 }

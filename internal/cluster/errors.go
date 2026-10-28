@@ -51,4 +51,9 @@ var (
 	// left keep their quorum through it.
 	ErrConvertLeader     = errors.New("the leader cannot be converted: hand its leadership to another manager first ('sfpanel cluster leader-transfer <node-id>')")
 	ErrConvertNotManager = errors.New("only a manager is converted: this node is an agent already")
+	// ErrPromoteRefused is wrapped by every gate a promotion to a manager
+	// refuses on (PrepareManagerPromotion): nothing has changed, and the
+	// reason after it says what stands in the way.
+	ErrPromoteRefused  = errors.New("the promotion to a manager was refused")
+	ErrPromoteNotAgent = errors.New("only an agent is promoted: this node is a manager already")
 )
