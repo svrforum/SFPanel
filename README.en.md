@@ -304,12 +304,12 @@ All cluster commands support the `--config PATH` option (default: `/etc/sfpanel/
 An agent is a server the cluster manages without making it a member of Raft: it does not vote, has no login, accounts or web UI, and is managed from a manager's panel by selecting the node. On a manager, `sudo sfpanel cluster token --agent` prints the commands below with the leader address, token and CA fingerprint filled in.
 
 ```bash
-sfpanel agent join ADDR:PORT TOKEN --ca FINGERPRINT [--advertise IP]  # join as an agent (ADDR = the leader, PORT = 3629)
+sfpanel agent join ADDR:PORT TOKEN --ca FINGERPRINT [--advertise IP] [--name NAME]  # join as an agent (ADDR = the leader, PORT = 3629)
 sfpanel agent status                                   # show the managers, leader, certificate and panel
 sfpanel agent reset --yes                              # make it a standalone panel again (without --yes, only lists what it would do)
 
 # New server — install and join as an agent in one line
-curl -fsSL https://raw.githubusercontent.com/svrforum/SFPanel/main/scripts/install.sh | sudo bash -s -- --agent <leader-ip>:3629 <token> --ca <ca-fingerprint>
+curl -fsSL https://raw.githubusercontent.com/svrforum/SFPanel/main/scripts/install.sh | sudo bash -s -- --agent <leader-ip>:3629 <token> --ca <ca-fingerprint> [--name <name>]
 ```
 
 Upgrade every manager to the latest release before adding agents. On an agent, `sfpanel cluster` commands refuse to run. Ports, the removal steps and why an agent's panel serves HTTPS are in "Agents" in [docs/specs/cluster-ops.md](docs/specs/cluster-ops.md#agents).

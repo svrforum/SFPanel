@@ -302,12 +302,12 @@ sfpanel cluster reissue-cert                           # 이 노드의 인증서
 에이전트는 클러스터가 관리하지만 Raft에는 들지 않는 서버입니다. 투표하지 않고, 로그인·계정·웹 UI가 없으며, 매니저의 패널에서 그 노드를 골라 관리합니다. 매니저에서 `sudo sfpanel cluster token --agent`를 실행하면 아래 명령을 리더 주소·토큰·CA 지문까지 채워 출력합니다.
 
 ```bash
-sfpanel agent join ADDR:PORT TOKEN --ca FINGERPRINT [--advertise IP]  # 에이전트로 참여 (ADDR = 리더, PORT = 3629)
+sfpanel agent join ADDR:PORT TOKEN --ca FINGERPRINT [--advertise IP] [--name NAME]  # 에이전트로 참여 (ADDR = 리더, PORT = 3629)
 sfpanel agent status                                   # 매니저·리더·인증서·패널 상태 확인
 sfpanel agent reset --yes                              # 단독 패널로 되돌림 (--yes 없이는 할 일만 출력)
 
 # 새 서버 — 설치와 에이전트 가입을 한 줄로
-curl -fsSL https://raw.githubusercontent.com/svrforum/SFPanel/main/scripts/install.sh | sudo bash -s -- --agent <리더-IP>:3629 <token> --ca <CA 지문>
+curl -fsSL https://raw.githubusercontent.com/svrforum/SFPanel/main/scripts/install.sh | sudo bash -s -- --agent <리더-IP>:3629 <token> --ca <CA 지문> [--name <이름>]
 ```
 
 에이전트를 붙이기 전에 모든 매니저를 최신 버전으로 올리세요. 에이전트에서는 `sfpanel cluster` 명령이 거부됩니다. 포트, 제거 순서, 패널 HTTPS가 필요한 이유는 [docs/specs/cluster-ops.md](docs/specs/cluster-ops.md#agents)의 "Agents"를 보세요.

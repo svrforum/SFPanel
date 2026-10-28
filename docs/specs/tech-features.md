@@ -333,7 +333,7 @@
 - **클러스터 UI (좌측 트리)**: 클러스터 모드에서 표준 사이드바를 2단 트리로 대체 (`ClusterSidebar` = `TreePanel` + `ContextMenu`). TreePanel은 데이터센터(클러스터) 루트 + 노드 목록(상태 점/리더 왕관/local 태그, 로컬 우선 정렬)을, ContextMenu는 선택 범위에 따라 메뉴를 렌더 — **데이터센터 범위**: 개요/노드/토큰/설정, **노드 범위**: 해당 노드의 전체 모듈 메뉴. 선택·접힘 상태 localStorage 지속. 노드 선택 시 `api.setCurrentNode`로 `?node=` 전역 주입, 데이터센터 선택 시 해제. (기존 `NodeSelector`는 비클러스터 폴백 전용)
 - **데이터센터 개요** (`/cluster/overview`): 노드별 메트릭 집계 (평균 CPU/메모리/디스크, 총 컨테이너, online/total), 팔로워 stale 응답 시 경고 배너, 최근 이벤트, 리더 전용 롤링/동시 업데이트 버튼(SSE 진행률). 미초기화 시 `ClusterInitForm`(init/join) 렌더
   - **WebSocket 푸시** (`/ws/cluster/overview`, v0.31.0): 세 HTTP 엔드포인트를 15초마다 폴링하는 대신, **상태 + 개요 + 최근 이벤트** 스냅샷을 소켓으로 수신. 노드당 **공유 샘플러 1개**가 로컬(Raft 복제) FSM + 이벤트 버스에서 5초마다 스냅샷을 재구성해 열려 있는 모든 대시보드로 팬아웃 — 탭별 리더 RPC 없음. 팔로워는 복제된 뷰를 `stale` 플래그로 제공(UI가 배너 렌더). 페이지는 즉시 첫 페인트용 마운트 시점 fetch 1회만 유지하고 이후 소켓으로 라이브 업데이트
-- **클러스터 업데이트 가드**: 동시 모드는 정족수를 깨는 경우(투표자 ≥2) 사전 거부, 롤링은 첫 실패 시 중단. 리더는 자기 업데이트 전에 리더십을 온라인 팔로워로 이전
+- **클러스터 업데이트 순서와 가드**: 에이전트를 물결로(`wave_size`, 기본 1 — 동시 모드는 모든 에이전트를 한 물결로) → 다른 매니저 한 대씩 → 리더. 스트림 안의 오류와 4분 안에 새 버전으로 답하지 않는 것도 실패로 보고 첫 실패에서 중단. 리더는 다른 매니저 투표자에게 리더십을 넘긴 뒤에만 자신을 업데이트 (`cluster-ops.md`의 "Update orchestration")
 - **Graceful 누락 처리**: 원격 노드에 ufw/crontab/rsyslog 미설치 시 500 대신 빈 결과 반환
 - **알려진 제약**:
   - 토큰은 만든 리더에만 있다 (복제되지 않음 — 리더가 바뀌면 이전 토큰은 쓸 수 없음)
@@ -814,7 +814,7 @@ SQLite (WAL 모드, busy_timeout 5000ms, `SetMaxOpenConns(4)`, 추가 프래그�
 | `POST /api/v1/packages/upgrade` | 패키지 업그레이드 (전체/선택) | 평문 라인 + `[DONE]` |
 | `POST /api/v1/ai/tools/:tool/install-stream` · `update-stream` | AI CLI 설치/업데이트 (계정별) | 평문 라인 + `[DONE]` |
 | `POST /api/v1/network/tailscale/install` | Tailscale 설치 | 평문 라인 + `[DONE]` |
-| `POST /api/v1/cluster/update` | 멀티노드 업데이트 오케스트레이션 | JSON `{node_id, node_name, step, status, message}` |
+| `POST /api/v1/cluster/update` | 멀티노드 업데이트 오케스트레이션 | JSON — `{overall, …}` 실행 상태, `{wave, waves, nodes}` 물결, `{node_id, node_name, step, message}` 노드 |
 
 ### API 응답 형식
 

@@ -93,7 +93,7 @@
 | 요청 유형 | 전송 방식 | 타임아웃 |
 |-----------|----------|----------|
 | 일반 REST | gRPC `ClusterService.ProxyRequest` | 30초 |
-| SSE(`-stream` 접미사 또는 `/system/update`, `/appstore/.../install` 등) | HTTP 직접 릴레이 | 5분 |
+| SSE(`-stream` 접미사 또는 `/system/update`, `/appstore/.../install` 등) | HTTP 직접 릴레이 | 5분 (`/cluster/update`와 스택 이관 `/migrate`는 2시간) |
 | 파일 전송(`/files/download`·`/files/upload`·`/system/backup`·`/system/restore`·`/docker/compose/migrate-import`) | HTTP 직접 릴레이 | 30분 |
 | WebSocket | `WrapEchoWSHandler` 양방향 프록시 | WS 생명주기 전체 |
 
@@ -111,13 +111,14 @@
 - `/api/v1/auth/*`는 `?node=`가 무엇을 가리키든 브라우저가 접속한 노드가 처리합니다 — 세션·리프레시 행·쿠키가 그 노드의 것입니다.
 - `/api/v1/cluster/*`는 대상이 에이전트이면 중계하지도, 이 매니저가 대신 실행하지도 않고 `409 CLUSTER_ROUTE_NOT_ON_AGENT`로 거부합니다. 노드 목록·상태처럼 클러스터 전체의 것은 `?node=` 없이 매니저에게 묻습니다.
 - 에이전트로 서명할 키가 복제 상태에 없거나 에이전트 패널의 CA를 모르면 중계를 보내지 않습니다. 매니저들의 비밀로 대신 서명하거나 평문 HTTP로 내려가지 않습니다.
+- 앱스토어 고급 설치(`POST /appstore/apps/:id/install`, `"advanced": true`)는 매니저가 운영자의 비밀번호를 확인한 뒤에만 중계합니다. 비밀번호는 에이전트로 가지 않습니다: 매니저는 본문에서 `password` 키를 대소문자와 상관없이 모두 지우고, 확인했다는 증명(`X-SFPanel-Step-Up` — 그 에이전트의 키로 만든 HMAC으로, 이 중계 요청의 `X-SFPanel-Internal-Proxy-V2` 헤더와 보내는 본문에 묶임)을 붙입니다. 에이전트는 증명이 없거나 맞지 않는 고급 설치를 `403 INVALID_CREDENTIALS`로 거부합니다 — 증명을 보내지 않는 이전 릴리스의 매니저를 거친 요청이 그렇습니다. 매니저 쪽 거부(`400`·`403`·`429`)는 설치 API 항목을 보세요.
 
 | 코드 | HTTP 상태 | 의미 |
 |------|-----------|------|
 | `CLUSTER_TOKEN_KIND` | 400 | 참가 토큰이 다른 종류의 노드용이다(에이전트 토큰으로 매니저 가입, 또는 그 반대). 거부된 토큰은 소모되지 않는다. 지금 이 코드로 답하는 라우트는 없다: 웹의 가입(`POST /cluster/join`)은 이 거부를 다른 가입 실패처럼 `INTERNAL_ERROR`와 사유 문장으로 알린다 |
 | `CLUSTER_MAX_AGENTS` | 400 | 에이전트가 이미 리더의 `cluster.max_agents`(기본 100)대라 에이전트 토큰을 만들 수 없다 |
 | `CLUSTER_ROUTE_NOT_ON_AGENT` | 409 | `?node=`가 에이전트를 가리키는 `/cluster/*` 요청 |
-| `CLUSTER_AGENT_AUTH_FAILED` | 502 | 에이전트로 서명할 키가 복제 상태에 없거나, 에이전트가 요청을 401로 거부했다. 401을 그대로 넘기면 브라우저가 이 매니저의 세션을 끝내므로 502로 바꾼다 |
+| `CLUSTER_AGENT_AUTH_FAILED` | 502 | 에이전트로 서명할 키가 복제 상태에 없거나, 에이전트가 요청을 401로 거부했다 — 에이전트의 시계가 이 매니저와 30초 넘게 어긋나면 서명이 거부된다(양쪽 NTP 확인). 401을 그대로 넘기면 브라우저가 이 매니저의 세션을 끝내므로 502로 바꾼다 |
 | `CLUSTER_AGENT_PANEL_INSECURE` | 502 | 에이전트 패널의 CA가 복제 상태에 없어 평문 HTTP로만 중계할 수 있다 — 보내지 않는다 |
 
 WebSocket 중계는 업그레이드 전에 같은 이유로 거부하며, 이때 응답은 `502`와 `{"error": "<이유>"}`입니다.
@@ -3252,12 +3253,19 @@ Fail2ban jail 중지 (비활성화).
 
 **Request Body (고급 모드):** `{ "advanced": true, "compose": "<yaml>", "env_raw": "<.env>", "password": "<재인증>", "acknowledge_risks": false }` — 비밀번호 bcrypt 재확인은 그대로이고, compose 안전성 검사는 두 단계입니다. `privileged`/host 네임스페이스/docker.sock 등 위험 패턴은 `"acknowledge_risks": true`로 승인하면 진행되고, 호스트 경로가 `/etc/sfpanel`, `/var/lib/sfpanel`, `/root/.ssh`, `/etc/sudoers.d` 이거나 그 하위인 바인드는 승인해도 거부됩니다. 거부는 스트림의 `{stage:"prepare", success:false, done:true}` 이벤트로 `Refused compose file: <findings>` 형태로 전달되며, 같은 이벤트의 `code` 필드가 `COMPOSE_RISKY`(승인으로 풀림) 또는 `COMPOSE_FORBIDDEN`(풀리지 않음)을 알려줍니다 — 클라이언트는 이 값으로 승인 대화상자를 띄울지 판단합니다. 요청 바디 1MB 캡.
 
+**재인증 (고급 모드):** `password`는 로그인과 같은 계정으로 확인합니다 — 클러스터에서는 복제된 계정이 먼저입니다. 시도는 로그인과 같은 주소별 한도에 들어가서, 1분 안에 다섯 번 실패하면 그 주소는 5분 동안 `429`를 받습니다(로그인도 함께). 성공하면 한도가 초기화됩니다. 대상이 에이전트(`?node=<에이전트 ID>`)이면 에이전트에는 계정이 없으므로 요청을 받은 매니저가 확인하고, 비밀번호 없이 확인했다는 증명만 에이전트에 보냅니다(위 "`?node=`가 에이전트일 때"). 이때 아래 재인증 거부는 매니저가 답하며, 요청은 에이전트에 닿지 않습니다.
+
 **배포 직전 재검사 (심플·고급 공통):** compose 파일과 `.env`를 쓴 뒤 `pull` 전에 `docker compose config`로 해석한 문서를 금지 계층으로 한 번 더 검사합니다. 저장 시점 검사는 `${UPLOAD_LOCATION}` 같은 텍스트만 보고, 심플 모드는 그 값을 비밀번호 재확인 없이 운영자가 정하기 때문입니다. 해석된 문서가 `/etc/sfpanel`, `/var/lib/sfpanel`, `/root/.ssh`, `/etc/sudoers.d`를 바인드하면 스테이징한 디렉터리를 정리하고 위 고급 모드와 같은 모양의 `{stage:"prepare", success:false, done:true}` 이벤트(`code`는 `COMPOSE_FORBIDDEN`)로 스트림을 끝냅니다. 설정을 해석할 수 없으면 검사를 건너뛰고 설치가 계속됩니다 — `up`이 같은 오류를 더 정확한 메시지로 보고합니다.
 
 **스트림 종료/에러** (스트림 시작 전 사전 검사):
 | 코드 | HTTP 상태 | 조건 |
 |------|-----------|------|
 | `INVALID_ID` | 400 | 잘못된 앱 ID |
+| `INVALID_BODY` | 400 | 본문이 JSON이 아니거나 1MB 초과, 또는 심플 모드 `env` 값에 줄바꿈 |
+| `MISSING_FIELDS` | 400 | 고급 모드인데 `password`가 비어 있음 |
+| `INVALID_PASSWORD` | 403 | 고급 모드의 `password`가 틀림 |
+| `INVALID_CREDENTIALS` | 403 | 고급 모드 재인증을 할 수 없음(세션 사용자의 계정을 읽지 못함 등). 에이전트에서는 매니저의 증명이 없거나 맞지 않음 |
+| `RATE_LIMITED` | 429 | 이 주소에서 1분 안에 재인증·로그인이 다섯 번 실패함 — 5분 동안 |
 | `NOT_FOUND` | 404 | 존재하지 않는 앱 |
 | `PORT_CONFLICT` | 409 | 선언 포트가 이미 사용 중 |
 | `CONTAINER_CONFLICT` | 409 | 컨테이너 이름 충돌 |
@@ -3350,6 +3358,31 @@ GitHub 릴리즈 API에서 최신 버전 확인.
 
 - **인증 필요**: 예
 - **응답 형식**: `text/event-stream` (표준 JSON 응답이 아님)
+
+**Request Body (선택):** 클러스터 업데이트(`POST /api/v1/cluster/update`)가 노드마다 보내는 본문입니다. 리더가 한 번 조회한 릴리스를 그대로 설치하게 해서, 노드가 GitHub API를 따로 부르지 않습니다. 본문이 없거나 `release`가 없으면 노드가 최신 릴리스를 직접 조회합니다.
+```json
+{
+  "release": {
+    "tag_name": "v1.2.3",
+    "assets": [
+      {
+        "name": "sfpanel_1.2.3_linux_amd64.tar.gz",
+        "browser_download_url": "https://github.com/svrforum/SFPanel/releases/download/v1.2.3/sfpanel_1.2.3_linux_amd64.tar.gz"
+      },
+      {
+        "name": "checksums.txt",
+        "browser_download_url": "https://github.com/svrforum/SFPanel/releases/download/v1.2.3/checksums.txt"
+      },
+      {
+        "name": "checksums.txt.sigstore.json",
+        "browser_download_url": "https://github.com/svrforum/SFPanel/releases/download/v1.2.3/checksums.txt.sigstore.json"
+      }
+    ]
+  }
+}
+```
+
+`assets`는 GitHub의 최신 릴리스 응답에 있는 자산 목록 그대로입니다(위는 일부). 노드는 받은 릴리스의 모양만 확인합니다: 본문이 64 KiB 이하이고, 태그가 버전 모양이며, 모든 자산의 주소가 정확히 `https://github.com/svrforum/SFPanel/releases/download/<tag_name>/<name>`이어야 합니다(`name`에 `/`·`\` 불가). 맞지 않으면 스트림 전에 `400 UPDATE_FAILED`로 거부하고, 메시지가 이유를 말합니다. 무엇을 설치할지는 본문이 없을 때와 같이 체크섬, 그 서명, 하향 금지가 정합니다.
 
 **Response:** SSE 스트림 (각 이벤트는 JSON)
 ```
@@ -4899,9 +4932,10 @@ data: {"phase":"done","message":"Migration complete.","done":true}
 ---
 
 ### POST /api/v1/cluster/disband
-전체 클러스터 해산 (리더 전용). 클러스터 데이터 및 TLS 인증서를 정리하고 서비스를 재시작합니다.
+전체 클러스터 해산. 실행은 리더가 하며, 다른 매니저에서 요청하면 리더로 전달됩니다. Raft는 에이전트를 모르므로 리더는 먼저 모든 에이전트를 제거하고, 온라인 에이전트가 그것을 들을 때까지 최대 15초 기다린 뒤 해산을 Raft로 복제합니다. 그러면 모든 매니저가 클러스터 데이터와 TLS 인증서를 정리하고 단독 모드로 재시작합니다.
 
 - **인증 필요**: 예
+- **쿼리 파라미터**: `force` — 리더가 해산을 복제하지 못하면(과반 상실) 기본은 503으로 거부하고, `?force=true`면 그 노드만 해산합니다. 리더가 아예 없을 때 `?force=true`는 리더로 전달하지 않고 요청을 받은 노드만 해산하며, 어느 에이전트에도 알리지 못하므로 전부 이름을 댑니다(`cluster-partition-runbook.md`의 "Forced local disband").
 
 **Request Body:** 없음 (빈 POST)
 
@@ -4910,16 +4944,21 @@ data: {"phase":"done","message":"Migration complete.","done":true}
 {
   "success": true,
   "data": {
-    "message": "Cluster disbanded. Service restarting..."
+    "message": "Cluster disbanded. All nodes are restarting in standalone mode... These agents were not reached and need 'sudo sfpanel agent reset --yes' on each: agent-03"
   }
 }
 ```
+
+알리지 못한 에이전트(오프라인이었거나 시간 안에 듣지 못한 것)는 메시지 끝에 이름이 나오며, 각 서버에서 `sudo sfpanel agent reset --yes`가 필요합니다. 모두 알렸으면 메시지는 `Cluster disbanded. All nodes are restarting in standalone mode...`에서 끝납니다.
 
 **에러 응답:**
 | 코드 | HTTP 상태 | 조건 |
 |------|-----------|------|
 | `INVALID_REQUEST` | 400 | 클러스터가 구성되지 않음 |
-| `INTERNAL_ERROR` | 500 | 설정 저장 실패 |
+| `INTERNAL_ERROR` | 503 | 리더 없음(선출 중) — 팔로워가 전달할 곳이 없음 (`?force=true` 없이) |
+| `INTERNAL_ERROR` | 503 | 해산 전에 에이전트를 제거하지 못함 |
+| `INTERNAL_ERROR` | 503 | 해산 복제 실패(과반 상실) — `?force=true`면 이 노드만 해산 |
+| `INTERNAL_ERROR` | 500 | 설정 파일 경로를 모름 |
 
 ---
 
@@ -5133,9 +5172,9 @@ Raft 리더십을 지정한 노드로 이전. 실행은 리더가 하며, 팔로
 ---
 
 ### POST /api/v1/cluster/update
-클러스터 전체 SFPanel 업데이트 오케스트레이션 (리더 전용). SSE 스트리밍으로 각 노드의 업데이트 진행 상황을 실시간 전달합니다.
+클러스터 전체 SFPanel 업데이트 오케스트레이션 (리더 전용). 리더가 최신 릴리스를 한 번 조회한 뒤 **에이전트 물결 → 다른 매니저 한 대씩 → 리더** 순서로 각 노드에 그 릴리스를 실은 `/api/v1/system/update?force=true`를 보내고, SSE 스트리밍으로 진행 상황을 실시간 전달합니다. 각 단계 안에서는 노드 이름순이고, 이미 그 릴리스인 노드는 요청하지 않으며, 리더의 하트비트로 오프라인인 노드는 건너뜁니다. 실패 판정, 실패하면 멈추는 규칙, 리더십 이전은 `docs/specs/cluster-ops.md`의 "Update orchestration"을 보세요.
 
-리더에서만 실행되지만 어느 노드에서든 `?node=<리더 ID>`로 보낼 수 있습니다. 진행은 요청과 분리되어 있어 스트림이 끊겨도(중계하던 노드의 재시작, 탭 닫기) 끝까지 진행되며, 이미 진행 중이면 `409 UPDATE_IN_PROGRESS`를 반환합니다.
+리더에서만 실행되지만 어느 노드에서든 `?node=<리더 ID>`로 보낼 수 있고, 그 노드를 거친 중계는 2시간까지 이어집니다. 진행은 요청과 분리되어 있어 스트림이 끊겨도(중계하던 노드의 재시작, 탭 닫기) 끝까지 진행되며, 이미 진행 중이면 `409 UPDATE_IN_PROGRESS`를 반환합니다.
 
 - **인증 필요**: 예
 - **응답 형식**: `text/event-stream` (SSE)
@@ -5143,38 +5182,53 @@ Raft 리더십을 지정한 노드로 이전. 실행은 리더가 하며, 팔로
 **Request Body:**
 ```json
 {
-  "mode": "rolling"
+  "mode": "rolling",
+  "wave_size": 2
 }
 ```
 
 | 필드 | 타입 | 필수 | 설명 |
 |------|------|------|------|
-| `mode` | string | 아니오 | 업데이트 모드: `rolling` (순차, 기본값) 또는 `simultaneous` (동시) |
+| `mode` | string | 아니오 | `rolling`(기본값) 또는 `simultaneous`. 다른 값이나 읽을 수 없는 본문은 `rolling`입니다. 두 모드는 에이전트만 다르게 다룹니다 — `simultaneous`는 모든 에이전트를 한 물결로 보내고, 매니저는 어느 모드든 한 대씩입니다 |
+| `wave_size` | number | 아니오 | `rolling`에서 한 물결에 함께 업데이트할 에이전트 수. 생략하거나 1보다 작으면 1. `simultaneous`에서는 쓰지 않습니다 |
 
-**SSE 이벤트 예시:**
+**SSE 이벤트 예시** (에이전트 두 대를 한 물결로, 매니저 두 대):
 ```
-data: {"overall":"started","mode":"rolling","total_nodes":3}
+data: {"overall":"started","mode":"rolling","total_nodes":4,"waves":1,"target":"v1.2.3"}
 
-data: {"node_id":"node-abc","node_name":"worker-01","step":"updating","message":"Starting update..."}
+data: {"wave":1,"waves":1,"nodes":["agent-01","agent-02"]}
 
-data: {"node_id":"node-abc","node_name":"worker-01","step":"complete","message":"Updated successfully"}
+data: {"node_id":"node-a1","node_name":"agent-01","step":"updating","message":"Starting update..."}
 
-data: {"overall":"complete","success_count":3,"fail_count":0}
+data: {"node_id":"node-a1","node_name":"agent-01","step":"waiting","message":"Waiting for the node to restart on v1.2.3..."}
+
+data: {"node_id":"node-a1","node_name":"agent-01","step":"online","message":"Back on v1.2.3"}
+
+(agent-02, 그다음 manager-02도 같은 모양)
+
+data: {"node_id":"node-m1","node_name":"manager-01","step":"transfer","message":"Transferring leadership to manager-02"}
+
+data: {"node_id":"node-m1","node_name":"manager-01","step":"updating","message":"Updating this node..."}
+
+data: {"overall":"complete","updated":4,"failed":0,"leader_restarting":true}
 ```
 
 | SSE 필드 | 설명 |
 |----------|------|
-| `overall` | 전체 진행 상태: `started`, `complete` |
-| `node_id` | 업데이트 대상 노드 ID |
-| `node_name` | 업데이트 대상 노드 이름 |
-| `step` | 노드별 진행 단계: `updating`, `complete`, `failed`, `skipped` |
-| `message` | 사람이 읽을 수 있는 상태 메시지 |
+| `overall` | 실행 상태: 처음 `started`, 끝은 `complete` 또는 `error`. 릴리스 조회가 실패하면 `error` 하나만 옵니다 |
+| `mode`, `total_nodes`, `waves`, `target` | `started`에만. `total_nodes`는 업데이트를 요청할 노드 수(물결의 에이전트 + 다른 매니저 + 리더 — 건너뛴 노드와 이미 그 릴리스인 노드는 빠짐), `waves`는 에이전트 물결 수, `target`은 리더가 조회한 릴리스 태그 |
+| `wave`, `nodes` | 물결이 시작될 때(`waves`와 함께): 몇 번째 물결인지와 그 물결의 노드 이름 |
+| `node_id`, `node_name`, `step`, `message` | 노드 이벤트. `step`: `skipped`(오프라인), `updating`, `waiting`(새 버전으로 답하기를 기다림), `online`(새 버전으로 돌아옴, 또는 이미 그 버전), `transfer`(리더가 리더십을 넘기는 중), `error`(그 노드의 실패, `message`에 이유) |
+| `updated`, `failed` | `complete`와 `error`에(릴리스 조회 실패는 제외): 업데이트된 노드 수와 실패한 노드 수 |
+| `leader_restarting` | `complete`에만: 리더가 자신을 업데이트해 지금 재시작하는지. `false`면 리더는 이미 그 릴리스여서 그대로입니다 |
+| `message` | `error`에: 멈춘 이유 — `Wave 1 of 2 failed (agent-01): the update stopped, and no manager was updated`, `Rolling update stopped: manager-02 failed`, `Leadership could not be handed over (…): the leader was not updated`, `Leadership moved during the update: run it again on the new leader to finish`, `The leader's own update failed: …`, `Could not look up the latest release: …` |
 
-**에러 응답:**
+**에러 응답 (스트림 시작 전):**
 | 코드 | HTTP 상태 | 조건 |
 |------|-----------|------|
 | `INVALID_REQUEST` | 400 | 클러스터가 구성되지 않음 |
 | `INTERNAL_ERROR` | 503 | 리더가 아닌 노드에서 요청 |
+| `UPDATE_IN_PROGRESS` | 409 | 클러스터 업데이트가 이미 진행 중 |
 
 ---
 
@@ -5849,7 +5903,7 @@ WireGuard 키페어 생성 (`wg genkey` + `wg pubkey`).
 | POST | `/api/v1/cluster/init` | O | 클러스터 초기화 (CA 생성, Raft 부트스트랩) |
 | POST | `/api/v1/cluster/join` | O | 기존 클러스터 참가 (pre-flight 검증 포함) |
 | POST | `/api/v1/cluster/leave` | O | 클러스터 탈퇴 (서비스 재시작, quorum 가드 `?force=`) |
-| POST | `/api/v1/cluster/disband` | O | 클러스터 해산 (리더 전용) |
+| POST | `/api/v1/cluster/disband` | O | 클러스터 해산 (팔로워 요청은 리더로 전달, 알리지 못한 에이전트는 응답에) |
 | GET | `/api/v1/cluster/interfaces` | O | 네트워크 인터페이스 목록 (클러스터 초기화용) |
 | POST | `/api/v1/cluster/update` | O | 클러스터 전체 업데이트 오케스트레이션 (SSE, 리더 전용) |
 

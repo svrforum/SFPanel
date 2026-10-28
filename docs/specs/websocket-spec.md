@@ -729,7 +729,7 @@ WebSocket 외에 **단방향 진행률 푸시** 용도로 SSE 엔드포인트 12
 | `/api/v1/packages/install-docker` | POST | Docker 엔진 설치 (get.docker.com 스크립트) | 평문 라인, 종료 시 `[DONE]` |
 | `/api/v1/packages/install-node` | POST | Node.js/NVM 설치 | 평문 라인, 종료 시 `[DONE]` |
 | `/api/v1/network/tailscale/install` | POST | Tailscale 설치 (공식 install.sh) | 평문 라인, 종료 시 `[DONE]` |
-| `/api/v1/cluster/update` | POST | 클러스터 멀티노드 업데이트 오케스트레이션 | JSON `{overall?, node_id, node_name, step, status, message}` — 전체 시작 시 `{"overall":"started","mode":"rolling","total_nodes":N}`, 이후 노드별 진행 이벤트 |
+| `/api/v1/cluster/update` | POST | 클러스터 멀티노드 업데이트 오케스트레이션 (에이전트 물결 → 다른 매니저 한 대씩 → 리더) | JSON — 시작 `{"overall":"started","mode","total_nodes","waves","target"}`, 물결마다 `{"wave","waves","nodes"}`, 노드마다 `{node_id, node_name, step, message}` (step: `skipped` / `updating` / `waiting` / `online` / `transfer` / `error`), 끝 `{"overall":"complete","updated","failed","leader_restarting"}` 또는 `{"overall":"error","message",...}` |
 | `/api/v1/docker/compose/:project/migrate` | POST | 스택 노드 간 콜드 이관 (소스 정지 → 패키징 → 전송 → disposition) | JSON `{phase, message, done}` — phase: `preflight` / `quiesce` / `package` / `transfer` / `finalize` / 종료 `done`; 실패 시 `rollback`(소스 복구 후) 또는 `error` |
 
 ### 메시지 예시
@@ -754,14 +754,32 @@ data: >>> Docker installation completed successfully!
 data: [DONE]
 ```
 
-`/api/v1/cluster/update` (rolling 모드):
+`/api/v1/cluster/update` (rolling 모드, 에이전트 한 대와 매니저 두 대):
 ```
-data: {"overall":"started","mode":"rolling","total_nodes":3}
+data: {"overall":"started","mode":"rolling","total_nodes":3,"waves":1,"target":"v1.2.3"}
 
-data: {"node_id":"node-1","node_name":"Leader","step":"updating","message":"Starting update..."}
+data: {"wave":1,"waves":1,"nodes":["Agent"]}
 
-data: {"node_id":"node-1","node_name":"Leader","step":"complete","message":"Node updated successfully"}
+data: {"node_id":"node-3","node_name":"Agent","step":"updating","message":"Starting update..."}
+
+data: {"node_id":"node-3","node_name":"Agent","step":"waiting","message":"Waiting for the node to restart on v1.2.3..."}
+
+data: {"node_id":"node-3","node_name":"Agent","step":"online","message":"Back on v1.2.3"}
+
+data: {"node_id":"node-2","node_name":"Follower","step":"updating","message":"Starting update..."}
+
+data: {"node_id":"node-2","node_name":"Follower","step":"waiting","message":"Waiting for the node to restart on v1.2.3..."}
+
+data: {"node_id":"node-2","node_name":"Follower","step":"online","message":"Back on v1.2.3"}
+
+data: {"node_id":"node-1","node_name":"Leader","step":"transfer","message":"Transferring leadership to Follower"}
+
+data: {"node_id":"node-1","node_name":"Leader","step":"updating","message":"Updating this node..."}
+
+data: {"overall":"complete","updated":3,"failed":0,"leader_restarting":true}
 ```
+
+물결 안의 노드가 하나라도 실패하면 그 물결이 끝난 뒤 `{"overall":"error","message":"Wave 1 of 1 failed (Agent): the update stopped, and no manager was updated","updated":0,"failed":1}`로 끝나고, 매니저는 건드리지 않는다. 필드와 멈추는 경우 전체는 REST 스펙의 `POST /cluster/update` 참조.
 
 `/api/v1/docker/compose/:project/migrate` (콜드 이관):
 ```
@@ -786,7 +804,7 @@ data: {"phase":"done","message":"Migration complete.","done":true}
 
 ### 클러스터 프록시
 
-SSE 엔드포인트에 `?node=X`가 오면 `ClusterProxyMiddleware`가 gRPC 프록시 대신 **HTTP 직접 릴레이**로 처리한다 (스트리밍 특성 때문에 gRPC 단일-응답 모델이 맞지 않음). 타임아웃 5분 (`config.yaml` 조정 불가, 코드 상수). 릴레이 식별은 경로의 `-stream` 접미사 또는 `/system/update`, `/appstore/.../install` 같은 화이트리스트.
+SSE 엔드포인트에 `?node=X`가 오면 `ClusterProxyMiddleware`가 gRPC 프록시 대신 **HTTP 직접 릴레이**로 처리한다 (스트리밍 특성 때문에 gRPC 단일-응답 모델이 맞지 않음). 타임아웃 5분, `/cluster/update`와 스택 이관(`/migrate`)은 2시간 — 모든 물결과 매니저를 거치는 클러스터 업데이트와 큰 이관은 5분을 넘긴다 (`config.yaml` 조정 불가, 코드에 고정 — `proxy.go`의 `relayWindowFor`). 릴레이 식별은 경로의 `-stream` 접미사 또는 `/system/update`, `/appstore/.../install` 같은 화이트리스트.
 
 ### 프론트엔드 소비
 

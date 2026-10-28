@@ -19,14 +19,13 @@ returns EOF. Re-election typically takes 15–20 s. `HeartbeatTimeout` and
 just produces more flapping.
 
 **Mitigation:** Roll voters one at a time with ≥ 10 s between each. The web
-UI's cluster update flow uses this pattern by default (`mode=rolling`). If
-you fan out manually, wait for `sfpanel cluster status` to report a leader
-before continuing.
+UI's cluster update flow rolls the managers this way in either mode: one at
+a time, each answering on the new release before the next starts (see
+§ Update orchestration). If you fan out manually, wait for
+`sfpanel cluster status` to report a leader before continuing.
 
-`mode=simultaneous` is hard-blocked when it would take all voters offline at
-once — see `internal/feature/cluster/handler.go` `ClusterUpdate`. The guard
-allows simultaneous restart of a single-node cluster (nothing to lose) but
-refuses 2+-voter clusters with a clear SSE error.
+`mode=simultaneous` changes only how the agents go — all of them in one
+wave. Agents are not Raft voters, so no mode takes the voters down together.
 
 ---
 
@@ -40,6 +39,24 @@ answers "token does not exist" for them. Issue new tokens on the current
 leader with `sfpanel cluster token`. The file holds the HMAC secret plus the
 token map; protect it like any other cluster credential. If the file is
 corrupted or deleted, all pending invites become invalid.
+
+---
+
+## Joining a manager
+
+A manager joins as a Raft non-voter and becomes a voter once its Raft has
+caught up: the leader promotes it on a heartbeat (every 30 seconds) whose
+Raft applied index is within 64 entries of the leader's own. A joiner whose
+Raft port — the gRPC port + 1, 3630 by default — the leader cannot reach
+stays a non-voter: as a voter the leader cannot reach, it could cost the
+cluster its quorum. The leader's log says why. Raft's own errors name the
+joiner's Raft address (`failed to heartbeat to`, `failed to appendEntries
+to`), and a joiner that heartbeats before its Raft has caught up is logged
+as `joining manager not promoted yet: its Raft has not caught up — is the
+leader able to reach its Raft port (the gRPC port + 1)?`. Open the port,
+and once its Raft has caught up the next heartbeat promotes it. A manager on
+a release that does not report its applied index is promoted at its first
+heartbeat.
 
 ---
 
@@ -92,28 +109,71 @@ implicitly requires a restart — there is no hot-reload path for the CA.
 
 ## Update orchestration
 
-`POST /api/v1/cluster/update` runs from the leader and fans out
-`/api/v1/system/update` to every healthy follower in `rolling` (default) or
-`simultaneous` mode.
+`POST /api/v1/cluster/update` runs on the leader. It looks the latest
+release up once, then updates the cluster in this order:
+
+1. **Agents, in waves** of `wave_size` (default 1). The agents of a wave
+   update together, and the next wave starts once every one of them has
+   finished. `mode=simultaneous` puts every agent in one wave.
+2. **The other managers, one at a time**, in either mode.
+3. **The leader**, last.
+
+Within each of these, nodes go by name. A node already on the release is
+not asked, and one the leader's heartbeats show offline is skipped.
 
 - It can be started from any node: the UI sends it to the leader with
-  `?node=<leader_id>`, relayed through the node the browser is on. That node
-  is usually one the update restarts, so the progress stream is cut off part
-  way; the orchestration runs on its own goroutine and finishes regardless of
-  whether anyone is still watching. Closing the tab does not cancel it.
+  `?node=<leader_id>`, relayed through the node the browser is on. That
+  relay lasts up to two hours (most event streams are relayed for five
+  minutes), but the node is usually one the update restarts, so the progress
+  stream is cut off part way; the orchestration runs on its own goroutine and
+  finishes regardless of whether anyone is still watching. Closing the tab
+  does not cancel it.
 - One cluster update at a time: a second request while one is running gets
   `409 UPDATE_IN_PROGRESS`.
+- The leader sends the release it looked up to every node with the request,
+  so a run asks GitHub's API once however many nodes it updates: the API
+  allows sixty unauthenticated requests an hour per address. A node takes
+  that release only if every download in it is this project's release
+  download of that tag (`400` otherwise); the checksum, the signature over it
+  and the downgrade guard below still decide what is installed. A node still
+  on a release that does not read it ignores what is sent and looks the
+  latest release up itself. If the leader's lookup fails, nothing is
+  updated.
 - The orchestrator calls each node's `/api/v1/system/update?force=true`. The
   quorum guard on that route is for operators updating nodes by hand; the
   orchestrator has already made the quorum decision, and letting the guard
   veto it refused the old leader of every two-node cluster.
-- The leader updates itself last, after checking a newer release exists. If
-  its self-update does not restart it within 30 seconds of the request
-  returning, it exits and systemd (`Restart=always`) brings it back — by then
-  its cluster manager is already shut down, and staying up would leave it
-  outside the cluster. A `409` (another update running) is the exception.
-- The simultaneous mode quorum guard refuses to take all voters offline at
-  once.
+- A node's update **fails** when:
+  - the request fails or answers an HTTP error;
+  - its stream reports an error — a download, checksum or signature
+    failure. The node answers `200` before it streams, so these are only in
+    the stream;
+  - it does not answer on the new release within four minutes of its update
+    returning, which covers the restart, the rollback watchdog's ninety
+    seconds and a boot. The leader asks the node's own `/api/v1/health` over
+    the cluster's gRPC, so a node whose heartbeats go elsewhere is judged
+    all the same. A node that still answers on its old release was rolled
+    back, or never restarted, and the failure says so.
+- **A failure stops the run.** A wave in which any agent failed ends it once
+  the wave is done, before any manager is touched (`Wave 1 of 2 failed
+  (web-01): the update stopped, and no manager was updated`). A manager that
+  fails ends it before the next manager and the leader.
+- **The leader updates itself only after handing leadership over** to
+  another manager voter — one the run has just updated, else one already on
+  the release. If no handover works, the run stops and the leader is left as
+  it is (`Leadership could not be handed over …: the leader was not
+  updated`). With no other manager voter to hand over to, as in a
+  one-manager cluster, it updates without a handover. Its Raft keeps running
+  through the download: the restart after a successful update stops it as
+  any restart does, and a failed update leaves the node in the cluster as it
+  was. The run ends once the leader's own update is installed, with
+  `leader_restarting: true`; it does not wait for the leader to come back.
+- **If leadership moves, the run stops** (`Leadership moved during the
+  update: run it again on the new leader to finish`). The leader checks
+  before each wave, each manager and its own update. In a two-manager
+  cluster the other manager's restart costs the quorum until it is back, and
+  the leader can lose its role meanwhile. Run the update again on the new
+  leader: the nodes already on the release are not asked again.
 - `/api/v1/system/update` itself is serialised by an in-process mutex; a
   second concurrent call returns `409 UPDATE_IN_PROGRESS`.
 - The downgrade guard (`internal/release.IsForwardUpdate`) refuses any
@@ -138,18 +198,18 @@ implicitly requires a restart — there is no hot-reload path for the CA.
 
 Self-update spawns a detached watchdog process from the BACKUP binary
 (`/usr/local/bin/sfpanel.bak`) before triggering `systemctl restart`. The
-watchdog polls `http://127.0.0.1:<port>/api/v1/system/info` for 90 s. If
-the new binary never responds, the watchdog `rename(2)`s `.bak` back over
-`sfpanel` and restarts the service. See `cmd/sfpanel/watchdog.go`.
+watchdog polls the panel's `/api/v1/system/info` on 127.0.0.1 — over HTTPS
+when the panel serves it — for 90 s. If the new binary never responds, the
+watchdog `rename(2)`s `.bak` back over `sfpanel` and restarts the service.
+See `cmd/sfpanel/watchdog.go`.
 
 This is a forward-only feature: pre-watchdog binaries used as `.bak`
 don't know the `watchdog-update` subcommand and exit 2 immediately. Once
 a node has updated *to* a watchdog-aware binary, every subsequent update
 inherits the rollback safety net.
 
-If a follower fails its update, rolling mode stops and reports the failed
-node. Simultaneous mode is best-effort — failed nodes are reported but the
-remaining nodes continue.
+A node the watchdog rolled back answers on its old release, which a cluster
+update counts as a failure and stops on (see above).
 
 ---
 
@@ -158,6 +218,18 @@ remaining nodes continue.
 - `cluster leave` removes the calling node from the cluster and exits the
   process (`os.Exit(1)`). systemd's `Restart=always` brings it back up in
   standalone mode.
+- A follower asks the leader to take it out. A leader first hands
+  leadership to another online manager voter and then asks it the same way,
+  so the new leader removes it from Raft and deletes its record.
+- When no leader took the node out — none was known or could be reached, or
+  it refused — the leave goes on and says so (`no leader took this node out
+  of the cluster: the others may still list it …`): remove the node on the
+  leader with `sudo sfpanel cluster remove <node-id>`. The CLI prints this
+  when the service is stopped; otherwise it is in the service's log, since
+  the CLI hands a leave to the running service.
+- A leave removes the cluster's data and certificate directories before it
+  saves the config as standalone. One it cannot remove ends the leave with
+  the config still naming the cluster: remove it by hand and leave again.
 - `cluster disband` runs on the leader; a request sent to another manager is
   forwarded to it. Raft knows no agents, so the leader first removes every
   agent — the one thing an agent understands — and waits up to 15 seconds
@@ -234,6 +306,12 @@ curl -fsSL https://raw.githubusercontent.com/svrforum/SFPanel/main/scripts/insta
   manager. It must be an address of this server — the agent's certificate
   names it and its listeners bind it — so behind NAT the join fails instead
   of registering an address the agent could not serve.
+- `--name NAME` registers the agent under that name instead of the server's
+  host name: 1–63 letters, digits, dots, hyphens or underscores, starting
+  with a letter or digit. A cluster holds each node name and each address
+  once, so servers cloned from one image need a name each. A host name that
+  is not a valid name stops the join before anything is sent, and the error
+  says to pass `--name`.
 - An agent token admits an agent only and a manager token a manager only,
   and the refusal leaves the token usable for its own kind. Like every join
   token it is single-use and lives on the leader that made it: after a
@@ -244,6 +322,17 @@ curl -fsSL https://raw.githubusercontent.com/svrforum/SFPanel/main/scripts/insta
   certificate, the agent's certificate and key, and its internal proxy key
   (`agent.key`, 0600) under `cluster.cert_dir`, and restarts a running
   sfpanel, which comes back as an agent.
+- Before the token travels, the join checks that the panel's certificate
+  verifies against the panel's CA for the advertise IP, where the managers
+  reach the panel, and for 127.0.0.1, where the agent's own gRPC server
+  hands their requests on. The managed certificate names the addresses on
+  the server's stable interfaces (not Docker's `br-*` and `veth*`); an
+  operator certificate has to name both, or the join stops and says so.
+- A server that still holds a cluster manager's files is refused: `ca.key`
+  in `cluster.cert_dir`, or `raft-log.db`, `raft-stable.db`, `snapshots`,
+  `tokens.json`, `proxy-secret.json` or `peers.json` in `cluster.data_dir`.
+  They hold the cluster's keys, which an agent joined over them would keep.
+  Remove what the refusal lists, then join again.
 
 ### Ports
 
@@ -267,6 +356,12 @@ is the one route open without one. The agent's gRPC server, also on the
 advertise address, serves only ProxyRequest, and only to manager
 certificates from its manager list.
 
+Because its listeners bind the advertise address, an agent's boot waits up
+to 60 seconds for that address to come up — a Tailscale or WireGuard
+interface, or a DHCP lease, can arrive after sfpanel starts. Past that the
+boot fails (`the advertise address … is not on this server after 1m0s`) and
+systemd starts it again.
+
 ### Checking an agent
 
 On the agent, `sudo sfpanel agent status` shows its cluster, node ID and
@@ -287,6 +382,17 @@ tell it that it was removed: a follower that has not caught up answers that
 the agent is not a member yet, and the agent keeps trying. `sfpanel cluster`
 commands refuse to run on an agent, and its certificate lasts five years
 like a manager's.
+
+Keep the agent's clock in step with its managers' (NTP on both). A manager
+signs each relay to the agent's panel — event streams, file transfers,
+terminals and other WebSockets — with its own time, and the agent refuses a
+signature more than thirty seconds off its clock: the manager then answers
+`502 CLUSTER_AGENT_AUTH_FAILED` and names the clock as a likely cause.
+Requests over gRPC are not affected, since the agent signs that hop to its
+own panel itself. The manager an agent heartbeats to — the leader, unless it
+cannot be reached — logs a warning once a ping's time is twenty seconds off
+(`a node's clock is far from this one's …`), at most every ten minutes per
+node; the leader watches the managers' pings the same way.
 
 ### Removing an agent
 
@@ -325,6 +431,21 @@ panel's CA. Two archives are refused before anything is touched:
 
 The upload itself reaches the agent before it is refused, so select the
 node with care: a manager's backup carries the cluster's JWT key.
+
+### Advanced app installs on an agent
+
+An advanced app install (your own compose file) asks for the operator's
+password again. An agent has no accounts, so the manager the request goes
+through checks it — against the cluster's account, as a login does — and the
+password never reaches the agent: the manager takes it out of the body and
+sends instead its word that the check passed (`X-SFPanel-Step-Up`), made
+with that agent's key and bound to that one request and its body. A wrong
+password is refused by the manager (`403 INVALID_PASSWORD`), as is a missing
+one (`400`); five failed tries within a minute shut that address out for
+five minutes (`429`), logins included. None of these reaches the agent. The
+agent refuses an advanced install that carries no word from a manager, so
+one sent through a manager on a release that does not send it fails until
+that manager is updated.
 
 ### Why an agent's panel serves HTTPS
 
