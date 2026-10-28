@@ -3,6 +3,7 @@ package cluster
 import (
 	"crypto/rand"
 	"encoding/hex"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"log/slog"
@@ -19,10 +20,43 @@ import (
 
 // RegisterAgentInput is an agent's registration (the RegisterAgent RPC). CSR
 // is a DER certificate request for a key the agent made and keeps; PanelCA is
-// the PEM of the CA behind its panel's HTTPS certificate.
+// the PEM of the CA behind its panel's HTTPS certificate. NodeID is the ID the
+// agent asks to register under — a converted manager's own — and empty for a
+// new one.
 type RegisterAgentInput struct {
-	Token, NodeName, APIAddress, GRPCAddress, Version string
-	CSR, PanelCA                                      []byte
+	Token, NodeName, APIAddress, GRPCAddress, Version, NodeID string
+	CSR, PanelCA                                              []byte
+}
+
+// ConversionIntentKey is the FSM config key under which the leader keeps a
+// manager's conversion to an agent (ConversionIntent). The node leaves the
+// cluster, which takes its record, and its registration under its own ID
+// reads this and removes it.
+func ConversionIntentKey(id string) string { return "converting/" + id }
+
+// ConversionIntent is what a converting manager's record held that its agent
+// record keeps: what the cluster knew it by. JSON, an FSM config value.
+type ConversionIntent struct {
+	Name     string            `json:"name"`
+	Labels   map[string]string `json:"labels,omitempty"`
+	JoinedAt time.Time         `json:"joined_at"`
+}
+
+// conversionIntent is the intent kept for id, nil when there is none. One
+// that does not parse is logged and taken as empty: the node registers
+// without its old name and labels rather than not at all, for it has left
+// the cluster already.
+func conversionIntent(state ClusterState, id string) *ConversionIntent {
+	raw := state.Config[ConversionIntentKey(id)]
+	if raw == "" {
+		return nil
+	}
+	var ci ConversionIntent
+	if err := json.Unmarshal([]byte(raw), &ci); err != nil {
+		slog.Warn("a conversion's intent record does not parse; the node registers without its name and labels", "component", "cluster", "node_id", id, "error", err)
+		ci = ConversionIntent{}
+	}
+	return &ci
 }
 
 // RegisterAgentResult is what a registered agent gets: its node ID and
@@ -78,7 +112,10 @@ var errAgentAddress = errors.New("register agent: api and grpc addresses must be
 // certificate request, makes the agent's internal-proxy key, and records the
 // agent, the key and the agent's panel CA in replicated state. The agent never
 // enters Raft. Every refusal comes before the token is spent; a failure after
-// takes back what was written and puts the token back.
+// takes back what was written and puts the token back. The agent gets a new
+// ID, or the one it asks for with a token made for that ID: a manager
+// converted to an agent, which comes back with what its conversion's intent
+// record kept.
 func (m *Manager) HandleRegisterAgent(in RegisterAgentInput) (*RegisterAgentResult, error) {
 	if m.raft == nil || !m.raft.IsLeader() {
 		return nil, ErrNotLeader
@@ -120,7 +157,26 @@ func (m *Manager) HandleRegisterAgent(in RegisterAgentInput) (*RegisterAgentResu
 	if err != nil {
 		return nil, err
 	}
-	if identityTaken(state, in.NodeName, ip) {
+	// A token made for one node admits it alone, at its address: the managers
+	// send a node's terminals to the address it registers. An ID is asked for
+	// only with a token made for it.
+	if (jt.NodeID == "" && in.NodeID != "") || !jt.admits(in.NodeID, in.APIAddress, in.GRPCAddress) {
+		return nil, ErrTokenBinding
+	}
+	id, name := uuid.New().String(), in.NodeName
+	var intent *ConversionIntent
+	if in.NodeID != "" {
+		// A converting manager has left the cluster, and its record with it:
+		// a record under the ID is another registration's, or a node still in.
+		if _, exists := state.Nodes[in.NodeID]; exists {
+			return nil, ErrNodeAlreadyExists
+		}
+		id = in.NodeID
+		if intent = conversionIntent(state, id); intent != nil && intent.Name != "" {
+			name = intent.Name
+		}
+	}
+	if identityTaken(state, name, ip) {
 		return nil, ErrNodeIdentityTaken
 	}
 	// The managers' streaming relays reach an agent's panel over HTTPS only
@@ -136,7 +192,6 @@ func (m *Manager) HandleRegisterAgent(in RegisterAgentInput) (*RegisterAgentResu
 		return nil, err
 	}
 
-	id := uuid.New().String()
 	// The certificate names the registered IP and nothing else; the request's
 	// subject and SANs are ignored (SignNodeCSR).
 	certPEM, err := m.tls.SignNodeCSR(id, []string{ip.String()}, CertRoleAgent, in.CSR)
@@ -167,13 +222,19 @@ func (m *Manager) HandleRegisterAgent(in RegisterAgentInput) (*RegisterAgentResu
 	now := time.Now()
 	node := Node{
 		ID:          id,
-		Name:        in.NodeName,
+		Name:        name,
 		APIAddress:  in.APIAddress,
 		GRPCAddress: in.GRPCAddress,
 		Kind:        KindAgent, // and no Raft role: never a voter or a non-voter
 		Status:      StatusOnline,
 		JoinedAt:    now,
 		LastSeen:    now,
+	}
+	if intent != nil {
+		node.Labels = intent.Labels
+		if !intent.JoinedAt.IsZero() {
+			node.JoinedAt = intent.JoinedAt
+		}
 	}
 	if err := m.raft.Apply(Command{Type: CmdAddNode, Value: mustJSON(node)}, 5*time.Second); err != nil {
 		m.undoRegisterAgent(id, used)
@@ -192,9 +253,17 @@ func (m *Manager) HandleRegisterAgent(in RegisterAgentInput) (*RegisterAgentResu
 		m.undoRegisterAgent(id, used)
 		return nil, fmt.Errorf("register agent panel CA: %w", err)
 	}
+	// The record holds the intent now. One left behind is read by nothing but
+	// a registration under this ID, which only the node's next conversion
+	// makes possible, and that writes a new one.
+	if intent != nil {
+		if err := m.raft.Apply(Command{Type: CmdDeleteConfig, Key: ConversionIntentKey(id)}, 5*time.Second); err != nil {
+			slog.Warn("the conversion's intent record was not removed", "component", "cluster", "node_id", id, "error", err)
+		}
+	}
 
-	m.events.Emit(EventNodeJoined, id, in.NodeName, "agent registered")
-	slog.Info("agent registered", "component", "cluster", "node_id", id, "name", in.NodeName, "address", ip.String(), "version", in.Version)
+	m.events.Emit(EventNodeJoined, id, name, "agent registered")
+	slog.Info("agent registered", "component", "cluster", "node_id", id, "name", name, "address", ip.String(), "version", in.Version, "own_id", in.NodeID != "")
 	return &RegisterAgentResult{
 		NodeID:      id,
 		AgentKey:    agentKey,

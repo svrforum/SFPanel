@@ -29,6 +29,14 @@ type JoinEngine struct {
 	Config     *config.Config
 	DB         *sql.DB          // for updating admin credentials
 	OnActivate LiveActivateFunc // nil = config-only mode (CLI without running server)
+	// NodeID is the ID to join under: an agent promoted to a manager keeps
+	// its own, with a token the leader made for it. Empty, a new one.
+	NodeID string
+	// SkipPortCheck skips PreFlight's check that the cluster gRPC port is
+	// free. On an agent being promoted, the agent's gRPC server holds it on
+	// the advertise address; the manager binds it after the restart that
+	// ends that server.
+	SkipPortCheck bool
 }
 
 // adoptClusterAdmin makes the cluster admin this node's local admin account.
@@ -110,10 +118,12 @@ func (e *JoinEngine) PreFlight(leaderAddr, token, pin string) (*PreFlightResult,
 	if grpcPort == 0 {
 		grpcPort = e.Config.Server.Port + 1
 	}
-	if ln, lnErr := net.Listen("tcp", fmt.Sprintf(":%d", grpcPort)); lnErr != nil {
-		return nil, fmt.Errorf("gRPC port %d is already in use locally", grpcPort)
-	} else {
-		ln.Close()
+	if !e.SkipPortCheck {
+		if ln, lnErr := net.Listen("tcp", fmt.Sprintf(":%d", grpcPort)); lnErr != nil {
+			return nil, fmt.Errorf("gRPC port %d is already in use locally", grpcPort)
+		} else {
+			ln.Close()
+		}
 	}
 
 	// Step 4: Detect advertise address
@@ -179,7 +189,10 @@ func (e *JoinEngine) Execute(leaderAddr, token, advertiseAddr, pin string) (*Joi
 		advertiseAddr = detected
 	}
 
-	nodeID := uuid.New().String()
+	nodeID := e.NodeID
+	if nodeID == "" {
+		nodeID = uuid.New().String()
+	}
 	hostname, _ := os.Hostname()
 
 	grpcPort := e.Config.Cluster.GRPCPort
@@ -257,6 +270,10 @@ func (e *JoinEngine) Execute(leaderAddr, token, advertiseAddr, pin string) (*Joi
 	e.Config.Cluster.AdvertiseAddress = advertiseAddr
 	e.Config.Cluster.GRPCPort = grpcPort
 	e.Config.Cluster.RaftTLS = resp.RaftTls
+	// A manager's config: an agent's role and managers list, kept, would boot
+	// it as an agent again (IsAgent reads the role alone).
+	e.Config.Cluster.Role = ""
+	e.Config.Cluster.Managers = nil
 
 	// The config carries the cluster's key from here so the file saved below
 	// has it; the running panel switches to it only once the join commits.

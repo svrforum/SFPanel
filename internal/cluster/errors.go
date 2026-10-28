@@ -39,4 +39,8 @@ var (
 	// ErrNotRaftNonvoter: ConfirmJoin found the node in the FSM but not in
 	// the Raft configuration as a non-voter — not a joiner, so not promoted.
 	ErrNotRaftNonvoter = errors.New("this node is not a Raft non-voter: it left Raft or never joined it, and must join again")
+	// ErrTokenBinding: the token was made for one node at its address
+	// (CreateBoundJoinToken) and this is another node or another address,
+	// or a token made for no node asked for a node ID.
+	ErrTokenBinding = errors.New("this join token was not made for this node at this address")
 )

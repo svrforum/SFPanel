@@ -38,6 +38,10 @@ type AgentJoinEngine struct {
 	// it with the new agent.
 	Version string
 	Name    string // the name to register under; empty: the host name
+	// NodeID is the ID to register under: a manager converted to an agent
+	// keeps its own, with a token the leader made for it. Empty, the leader
+	// assigns one.
+	NodeID string
 	// CheckPanelCert refuses a panel certificate the agent could not be
 	// reached with, before anything is sent; nil checks nothing. The CLI
 	// supplies it, as it does panelCA, so this package need not import
@@ -143,9 +147,16 @@ func (e *AgentJoinEngine) Execute(managerAddr, token, advertise, pin string, pan
 		GrpcAddress: net.JoinHostPort(advertise, strconv.Itoa(grpcPort)),
 		PanelCaCert: panelCA,
 		Version:     e.Version,
+		NodeId:      e.NodeID,
 	}, advertise)
 	if err != nil {
 		return nil, err
+	}
+	// A leader from before node_id ignores it and assigns a new ID: this
+	// server would come back as another node, the history and alert scope
+	// that name its ID left behind.
+	if e.NodeID != "" && resp.NodeId != e.NodeID {
+		return nil, registeredAnyway(resp.NodeId, name, fmt.Errorf("the leader registered this server as node %s, not under its own ID %s: every manager must be upgraded to this version first", resp.NodeId, e.NodeID))
 	}
 
 	// The leader has recorded the agent and spent the token: from here a

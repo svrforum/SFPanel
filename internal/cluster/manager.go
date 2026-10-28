@@ -473,8 +473,34 @@ func (m *Manager) verifySelfAddress() {
 // (empty is a manager). Managers and agents have separate caps, each counting
 // only its own kind: managers MaxNodes, agents cluster.max_agents.
 func (m *Manager) CreateJoinToken(ttl time.Duration, kind NodeKind) (*JoinToken, error) {
+	kind, err := m.roomFor(kind)
+	if err != nil {
+		return nil, err
+	}
+	return m.tokens.Create(ttl, m.nodeID, kind)
+}
+
+// CreateBoundJoinToken mints a token as CreateJoinToken does that admits one
+// node only: nodeID, with its addresses on ip. A conversion or a promotion
+// hands it to that node to come back under its own ID. Whoever else holds it
+// can join neither as another node nor from elsewhere — where, under that ID,
+// the managers would send the node's terminals.
+func (m *Manager) CreateBoundJoinToken(ttl time.Duration, kind NodeKind, nodeID, ip string) (*JoinToken, error) {
+	kind, err := m.roomFor(kind)
+	if err != nil {
+		return nil, err
+	}
+	if nodeID == "" || net.ParseIP(ip) == nil {
+		return nil, fmt.Errorf("a join token for one node needs its ID and an IP address, got %q and %q", nodeID, ip)
+	}
+	return m.tokens.CreateFor(ttl, m.nodeID, kind, nodeID, ip)
+}
+
+// roomFor is kind, empty being a manager, when this node leads and the
+// cluster has room for another node of that kind.
+func (m *Manager) roomFor(kind NodeKind) (NodeKind, error) {
 	if m.raft == nil || !m.raft.IsLeader() {
-		return nil, ErrNotLeader
+		return "", ErrNotLeader
 	}
 	if kind == "" {
 		kind = KindManager
@@ -484,17 +510,16 @@ func (m *Manager) CreateJoinToken(ttl time.Duration, kind NodeKind) (*JoinToken,
 	switch kind {
 	case KindManager:
 		if countKind(state, KindManager) >= MaxNodes {
-			return nil, ErrMaxNodesReached
+			return "", ErrMaxNodesReached
 		}
 	case KindAgent:
 		if countKind(state, KindAgent) >= m.agentCap() {
-			return nil, ErrMaxAgentsReached
+			return "", ErrMaxAgentsReached
 		}
 	default:
-		return nil, fmt.Errorf("unknown node kind %q", kind)
+		return "", fmt.Errorf("unknown node kind %q", kind)
 	}
-
-	return m.tokens.Create(ttl, m.nodeID, kind)
+	return kind, nil
 }
 
 // countKind counts the nodes of one kind; a node recorded before kinds
@@ -536,7 +561,10 @@ func (m *Manager) RevokeJoinToken(id string) error {
 	return m.tokens.Revoke(id)
 }
 
-// HandleJoin processes a join request from a new node (leader-only).
+// HandleJoin processes a join request from a new node (leader-only). An
+// agent joins here as a manager under its own ID with a token made for it
+// (CreateBoundJoinToken): its record becomes a manager's and keeps its name,
+// labels and join time.
 func (m *Manager) HandleJoin(nodeID, nodeName, apiAddr, grpcAddr, token string, caps []string) (caCert, nodeCert, nodeKey []byte, peers []Node, err error) {
 	if m.raft == nil || !m.raft.IsLeader() {
 		return nil, nil, nil, nil, ErrNotLeader
@@ -553,6 +581,11 @@ func (m *Manager) HandleJoin(nodeID, nodeName, apiAddr, grpcAddr, token string, 
 	}
 	if jt.EffectiveKind() != KindManager {
 		return nil, nil, nil, nil, ErrTokenKind
+	}
+	// A token made for one node admits it alone, at its address: the managers
+	// reach a node at the addresses its record names, its panel's included.
+	if !jt.admits(nodeID, apiAddr, grpcAddr) {
+		return nil, nil, nil, nil, ErrTokenBinding
 	}
 
 	// Barrier: confirm we still have quorum before issuing certs and
@@ -573,8 +606,17 @@ func (m *Manager) HandleJoin(nodeID, nodeName, apiAddr, grpcAddr, token string, 
 	if countKind(state, KindManager) >= MaxNodes {
 		return nil, nil, nil, nil, ErrMaxNodesReached
 	}
-	if _, exists := state.Nodes[nodeID]; exists {
+	// An agent's ID is taken, as any node's, unless the token was made for
+	// that agent: then this is its promotion. A token made for a node that is
+	// not an agent admits no join.
+	existing, exists := state.Nodes[nodeID]
+	promoting := jt.NodeID != "" && exists && !existing.IsManager()
+	switch {
+	case promoting:
+	case exists:
 		return nil, nil, nil, nil, ErrNodeAlreadyExists
+	case jt.NodeID != "":
+		return nil, nil, nil, nil, fmt.Errorf("%w: the agent this join token was made for is no longer in the cluster", ErrNodeNotFound)
 	}
 
 	// Ensure the CA private key is on disk before signing. On a leader that
@@ -620,13 +662,33 @@ func (m *Manager) HandleJoin(nodeID, nodeName, apiAddr, grpcAddr, token string, 
 		JoinedAt: time.Now(),
 		LastSeen: time.Now(),
 	}
+	var agentKey string
+	if promoting {
+		// The node is one the cluster knows: what it is known by stays.
+		newNode.Name, newNode.Labels, newNode.JoinedAt = existing.Name, existing.Labels, existing.JoinedAt
+		agentKey = state.Config[AgentKeyConfigKey(nodeID)]
+	}
 	nodeJSON, _ := json.Marshal(newNode)
 	if applyErr := m.raft.Apply(Command{
 		Type:  CmdAddNode,
 		Value: nodeJSON,
 	}, 5*time.Second); applyErr != nil {
-		m.tokens.Restore(used) // allow retry
+		if promoting {
+			m.undoPromotion(existing, agentKey, used)
+		} else {
+			m.tokens.Restore(used) // allow retry
+		}
 		return nil, nil, nil, nil, fmt.Errorf("register node: %w", applyErr)
+	}
+	if promoting {
+		// The managers sign for a manager with their own secret, so the
+		// agent's key is used no more; kept, it would stay in replicated state
+		// for good, as removing a manager takes no agent key with it. Its
+		// panel CA stays: the managers reach a manager's panel by it as well.
+		if err := m.raft.Apply(Command{Type: CmdDeleteConfig, Key: AgentKeyConfigKey(nodeID)}, 5*time.Second); err != nil {
+			m.undoPromotion(existing, agentKey, used)
+			return nil, nil, nil, nil, fmt.Errorf("remove the agent key: %w", err)
+		}
 	}
 
 	// Derive Raft port from joining node's gRPC port (+1), not leader's config
@@ -642,6 +704,11 @@ func (m *Manager) HandleJoin(nodeID, nodeName, apiAddr, grpcAddr, token string, 
 		if rmErr := m.raft.RemoveServer(nodeID); rmErr != nil {
 			slog.Debug("rollback RemoveServer ignored", "component", "cluster", "node_id", nodeID, "error", rmErr)
 		}
+		if promoting {
+			// The agent goes back to what it was rather than out.
+			m.undoPromotion(existing, agentKey, used)
+			return nil, nil, nil, nil, fmt.Errorf("add nonvoter: %w", addErr)
+		}
 		if rmFsmErr := m.raft.Apply(Command{Type: CmdRemoveNode, Key: nodeID}, 5*time.Second); rmFsmErr != nil {
 			slog.Warn("rollback FSM remove failed (stale-leader suspect)",
 				"component", "cluster", "node_id", nodeID, "error", rmFsmErr)
@@ -656,10 +723,32 @@ func (m *Manager) HandleJoin(nodeID, nodeName, apiAddr, grpcAddr, token string, 
 		peerList = append(peerList, *n)
 	}
 
-	m.events.Emit(EventNodeJoined, nodeID, nodeName, fmt.Sprintf("joined at %s", grpcAddr))
+	detail := fmt.Sprintf("joined at %s", grpcAddr)
+	if promoting {
+		detail = fmt.Sprintf("joined at %s as a manager, from an agent", grpcAddr)
+	}
+	m.events.Emit(EventNodeJoined, nodeID, newNode.Name, detail)
 
-	slog.Info("node joined", "component", "cluster", "name", nodeName, "node_id", nodeID, "grpc_addr", grpcAddr)
+	slog.Info("node joined", "component", "cluster", "name", newNode.Name, "node_id", nodeID, "grpc_addr", grpcAddr, "from_agent", promoting)
 	return caCertPEM, certPEM, keyPEM, peerList, nil
+}
+
+// undoPromotion puts back the agent a failed promotion had begun to turn into
+// a manager — its key, then its record as it was — and the token for a
+// retry. The key goes first, as in a registration: the managers never see the
+// agent without the key they sign for it with. Best-effort, as
+// undoRegisterAgent: a write fails most often because this node lost
+// leadership, and then these fail too.
+func (m *Manager) undoPromotion(agent *Node, agentKey string, used *JoinToken) {
+	if agentKey != "" {
+		if err := m.SetConfig(AgentKeyConfigKey(agent.ID), agentKey); err != nil {
+			slog.Warn("promotion rollback: the agent's key was not put back", "component", "cluster", "node_id", agent.ID, "error", err)
+		}
+	}
+	if err := m.raft.Apply(Command{Type: CmdAddNode, Value: mustJSON(*agent)}, 5*time.Second); err != nil {
+		slog.Warn("promotion rollback: the agent's record was not put back", "component", "cluster", "node_id", agent.ID, "error", err)
+	}
+	m.tokens.Restore(used)
 }
 
 // ConfirmJoin promotes a previously-added non-voter to voter. The leader

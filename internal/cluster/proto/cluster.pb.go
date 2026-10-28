@@ -1149,14 +1149,19 @@ func (x *NodeInfo) GetKind() string {
 }
 
 type RegisterAgentRequest struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	Token         string                 `protobuf:"bytes,1,opt,name=token,proto3" json:"token,omitempty"`
-	Csr           []byte                 `protobuf:"bytes,2,opt,name=csr,proto3" json:"csr,omitempty"` // DER PKCS#10 for an ECDSA P-256 key made on the agent
-	NodeName      string                 `protobuf:"bytes,3,opt,name=node_name,json=nodeName,proto3" json:"node_name,omitempty"`
-	ApiAddress    string                 `protobuf:"bytes,4,opt,name=api_address,json=apiAddress,proto3" json:"api_address,omitempty"`      // advertise:panel_port
-	GrpcAddress   string                 `protobuf:"bytes,5,opt,name=grpc_address,json=grpcAddress,proto3" json:"grpc_address,omitempty"`   // advertise:grpc_port
-	PanelCaCert   []byte                 `protobuf:"bytes,6,opt,name=panel_ca_cert,json=panelCaCert,proto3" json:"panel_ca_cert,omitempty"` // PEM: the CA of the agent panel's HTTPS certificate
-	Version       string                 `protobuf:"bytes,7,opt,name=version,proto3" json:"version,omitempty"`
+	state       protoimpl.MessageState `protogen:"open.v1"`
+	Token       string                 `protobuf:"bytes,1,opt,name=token,proto3" json:"token,omitempty"`
+	Csr         []byte                 `protobuf:"bytes,2,opt,name=csr,proto3" json:"csr,omitempty"` // DER PKCS#10 for an ECDSA P-256 key made on the agent
+	NodeName    string                 `protobuf:"bytes,3,opt,name=node_name,json=nodeName,proto3" json:"node_name,omitempty"`
+	ApiAddress  string                 `protobuf:"bytes,4,opt,name=api_address,json=apiAddress,proto3" json:"api_address,omitempty"`      // advertise:panel_port
+	GrpcAddress string                 `protobuf:"bytes,5,opt,name=grpc_address,json=grpcAddress,proto3" json:"grpc_address,omitempty"`   // advertise:grpc_port
+	PanelCaCert []byte                 `protobuf:"bytes,6,opt,name=panel_ca_cert,json=panelCaCert,proto3" json:"panel_ca_cert,omitempty"` // PEM: the CA of the agent panel's HTTPS certificate
+	Version     string                 `protobuf:"bytes,7,opt,name=version,proto3" json:"version,omitempty"`
+	// The ID to register under: a manager converted to an agent keeps its
+	// own. Empty, the leader assigns one; only a token bound to this ID
+	// admits it. A leader older than the field ignores it and assigns one,
+	// which the agent then refuses.
+	NodeId        string `protobuf:"bytes,8,opt,name=node_id,json=nodeId,proto3" json:"node_id,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -1236,6 +1241,13 @@ func (x *RegisterAgentRequest) GetPanelCaCert() []byte {
 func (x *RegisterAgentRequest) GetVersion() string {
 	if x != nil {
 		return x.Version
+	}
+	return ""
+}
+
+func (x *RegisterAgentRequest) GetNodeId() string {
+	if x != nil {
+		return x.NodeId
 	}
 	return ""
 }
@@ -1562,7 +1574,7 @@ const file_proto_cluster_proto_rawDesc = "" +
 	"\fgrpc_address\x18\x04 \x01(\tR\vgrpcAddress\x12\x12\n" +
 	"\x04role\x18\x05 \x01(\tR\x04role\x12\x16\n" +
 	"\x06status\x18\x06 \x01(\tR\x06status\x12\x12\n" +
-	"\x04kind\x18\a \x01(\tR\x04kind\"\xdd\x01\n" +
+	"\x04kind\x18\a \x01(\tR\x04kind\"\xf6\x01\n" +
 	"\x14RegisterAgentRequest\x12\x14\n" +
 	"\x05token\x18\x01 \x01(\tR\x05token\x12\x10\n" +
 	"\x03csr\x18\x02 \x01(\fR\x03csr\x12\x1b\n" +
@@ -1571,7 +1583,8 @@ const file_proto_cluster_proto_rawDesc = "" +
 	"apiAddress\x12!\n" +
 	"\fgrpc_address\x18\x05 \x01(\tR\vgrpcAddress\x12\"\n" +
 	"\rpanel_ca_cert\x18\x06 \x01(\fR\vpanelCaCert\x12\x18\n" +
-	"\aversion\x18\a \x01(\tR\aversion\"\xbd\x02\n" +
+	"\aversion\x18\a \x01(\tR\aversion\x12\x17\n" +
+	"\anode_id\x18\b \x01(\tR\x06nodeId\"\xbd\x02\n" +
 	"\x15RegisterAgentResponse\x12\x18\n" +
 	"\asuccess\x18\x01 \x01(\bR\asuccess\x12\x14\n" +
 	"\x05error\x18\x02 \x01(\tR\x05error\x12\x17\n" +

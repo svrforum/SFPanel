@@ -168,6 +168,11 @@ message RegisterAgentRequest {
     string grpc_address = 5;   // advertise:grpc_port
     bytes  panel_ca_cert = 6;  // PEM: the CA of the agent panel's HTTPS certificate
     string version = 7;
+    // The ID to register under: a manager converted to an agent keeps its
+    // own. Empty, the leader assigns one; only a token bound to this ID
+    // admits it. A leader older than the field ignores it and assigns one,
+    // which the agent then refuses.
+    string node_id = 8;
 }
 
 message RegisterAgentResponse {

@@ -8,6 +8,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"log/slog"
+	"net"
 	"os"
 	"path/filepath"
 	"strings"
@@ -100,6 +101,13 @@ func NewPersistedTokenManager(path string) (*TokenManager, error) {
 // Create mints a token that admits one kind of node; an empty kind is a
 // manager, as every token was before kinds existed.
 func (tm *TokenManager) Create(ttl time.Duration, createdBy string, kind NodeKind) (*JoinToken, error) {
+	return tm.CreateFor(ttl, createdBy, kind, "", "")
+}
+
+// CreateFor mints a token as Create does, bound to one node: it admits node
+// ID nodeID only, with its addresses on ip (admits). Empty, each binds
+// nothing.
+func (tm *TokenManager) CreateFor(ttl time.Duration, createdBy string, kind NodeKind, nodeID, ip string) (*JoinToken, error) {
 	tm.mu.Lock()
 	defer tm.mu.Unlock()
 
@@ -120,6 +128,8 @@ func (tm *TokenManager) Create(ttl time.Duration, createdBy string, kind NodeKin
 		ExpiresAt: time.Now().Add(ttl),
 		CreatedBy: createdBy,
 		Kind:      kind,
+		NodeID:    nodeID,
+		IP:        ip,
 	}
 	tm.tokens[token] = jt
 
@@ -291,6 +301,26 @@ func (tm *TokenManager) Validate(token string, kind NodeKind) (*JoinToken, error
 	}
 	cp := *jt
 	return &cp, nil
+}
+
+// admits reports whether a join or registration is one the token was made
+// for. A token bound to a node admits that node ID only, with every address
+// on the IP it is bound to — compared as addresses, as identityTaken does;
+// an unbound token admits any.
+func (jt *JoinToken) admits(nodeID string, addrs ...string) bool {
+	if jt.NodeID != "" && nodeID != jt.NodeID {
+		return false
+	}
+	if jt.IP == "" {
+		return true
+	}
+	bound := net.ParseIP(jt.IP)
+	for _, addr := range addrs {
+		if ip, ok := ipAndPort(addr); !ok || !ip.Equal(bound) {
+			return false
+		}
+	}
+	return bound != nil
 }
 
 // Restore puts back a token Validate consumed, unused, so a join that failed

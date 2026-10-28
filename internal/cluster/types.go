@@ -72,6 +72,12 @@ type JoinToken struct {
 	// Kind is the kind of node the token admits. It stays on the leader that
 	// minted it; the token string does not carry it.
 	Kind NodeKind `json:"kind,omitempty"`
+	// NodeID and IP bind the token to one node: it admits that node ID only,
+	// with its addresses on that IP (CreateBoundJoinToken, admits). Empty,
+	// the token is bound to nothing — as it is on a leader from before them,
+	// which drops both when it loads the token.
+	NodeID string `json:"node_id,omitempty"`
+	IP     string `json:"ip,omitempty"`
 }
 
 // EffectiveKind is the kind a token was minted for; tokens saved before

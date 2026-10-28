@@ -2,13 +2,16 @@ package cluster
 
 import (
 	"database/sql"
+	"net"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/svrforum/SFPanel/internal/auth"
 	"github.com/svrforum/SFPanel/internal/config"
 	"github.com/svrforum/SFPanel/internal/db"
+	"gopkg.in/yaml.v3"
 )
 
 func TestJoinEngine_Rollback_ConfigSaveFailure(t *testing.T) {
@@ -130,5 +133,60 @@ func TestAdoptClusterAdmin_InsertsWhenThereIsNoLocalAdmin(t *testing.T) {
 	got := adminRows(t, database)
 	if len(got) != 1 || got[0]["username"] != "admin" || got[0]["totp"] != "<null>" {
 		t.Fatalf("admin rows after join = %v, want one cluster admin with 2FA off", got)
+	}
+}
+
+// An agent promoted to a manager joins under its own ID, and its config comes
+// out a manager's: one that kept role: agent and its managers list booted it
+// as an agent again.
+func TestJoinEngineJoinsUnderItsOwnIDAsAManager(t *testing.T) {
+	mgr, addr, token, pin := realLeader(t)
+	dir := t.TempDir()
+	path := filepath.Join(dir, "config.yaml")
+	cfg := &config.Config{}
+	cfg.Server.Port = 1
+	cfg.Cluster.GRPCPort = freePortPair(t)
+	cfg.Cluster.CertDir = filepath.Join(dir, "certs")
+	cfg.Cluster.Role = config.ClusterRoleAgent
+	cfg.Cluster.Managers = []config.ManagerRef{{ID: mgr.LocalNodeID(), GRPCAddress: addr}}
+	e := &JoinEngine{Config: cfg, ConfigPath: path, NodeID: "node-x"}
+	res, err := e.Execute(addr, token, "127.0.0.1", pin)
+	if err != nil {
+		t.Fatal(err)
+	}
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var saved config.Config
+	if err := yaml.Unmarshal(data, &saved); err != nil {
+		t.Fatal(err)
+	}
+	if res.NodeID != "node-x" || saved.Cluster.NodeID != "node-x" || !saved.Cluster.Enabled || saved.Cluster.Role != "" || len(saved.Cluster.Managers) != 0 {
+		t.Fatalf("joined as %q, saved %+v", res.NodeID, saved.Cluster)
+	}
+	if n := mgr.raft.GetFSM().GetNode("node-x"); n == nil || !n.IsManager() {
+		t.Fatalf("on the leader: %+v", n)
+	}
+}
+
+// An agent being promoted still runs its gRPC server on the cluster gRPC
+// port, which the manager binds only after its restart: PreFlight's check
+// that the port is free is skipped when asked, and only then.
+func TestJoinPreFlightSkipsThePortCheckWhenAsked(t *testing.T) {
+	_, addr, token, pin := realLeader(t)
+	busy, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer busy.Close()
+	e := &JoinEngine{Config: &config.Config{}}
+	e.Config.Cluster.GRPCPort = busy.Addr().(*net.TCPAddr).Port
+	if _, err := e.PreFlight(addr, token, pin); err == nil || !strings.Contains(err.Error(), "already in use locally") {
+		t.Fatalf("a busy port: %v", err)
+	}
+	e.SkipPortCheck = true
+	if _, err := e.PreFlight(addr, token, pin); err != nil {
+		t.Fatalf("a busy port, skipped: %v", err)
 	}
 }

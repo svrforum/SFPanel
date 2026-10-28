@@ -533,6 +533,52 @@ func TestAgentJoinRegistersUnderTheGivenName(t *testing.T) {
 	}
 }
 
+// A manager converted to an agent registers under its own ID, the one the
+// leader's token for it is bound to.
+func TestAgentJoinUnderItsOwnID(t *testing.T) {
+	mgr, addr, _, pin := realLeader(t)
+	settleRotation(t, mgr)
+	tok, err := mgr.CreateBoundJoinToken(time.Hour, KindAgent, "node-x", "192.0.2.10")
+	if err != nil {
+		t.Fatal(err)
+	}
+	e, path := agentJoinTarget(t)
+	e.NodeID = "node-x"
+	res, err := e.Execute(addr, tok.Token, "192.0.2.10", pin, panelCAPEM(t))
+	if err != nil {
+		t.Fatal(err)
+	}
+	saved, err := config.Load(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if res.NodeID != "node-x" || saved.Cluster.NodeID != "node-x" {
+		t.Fatalf("joined as %q, saved %q", res.NodeID, saved.Cluster.NodeID)
+	}
+	if n := mgr.raft.GetFSM().GetNode("node-x"); n == nil || n.Kind != KindAgent {
+		t.Fatalf("on the leader: %+v", n)
+	}
+}
+
+// A leader from before node_id ignores it and registers the server under a
+// new ID: the join stops there, names that record for removal, and writes
+// nothing.
+func TestAgentJoinRefusesAnotherID(t *testing.T) {
+	_, ca := setupCertDir(t)
+	f := startFakeRegistrar(t, ca, &fakeRegistrar{answer: answerAs(ca)}) // agent-1, whatever is asked
+	e, path := agentJoinTarget(t)
+	e.NodeID = "node-x"
+	before, _ := os.ReadFile(path)
+	_, err := e.Execute(f.self, "tok", "192.0.2.10", CAPin(caPublicKey(t, ca)), panelCAPEM(t))
+	if err == nil || !strings.Contains(err.Error(), "not under its own ID node-x") || !strings.Contains(err.Error(), "sfpanel cluster remove agent-1") {
+		t.Fatalf("got %v", err)
+	}
+	if got := f.last.Load().NodeId; got != "node-x" {
+		t.Fatalf("the registration asked for %q", got)
+	}
+	assertUntouched(t, e, path, before)
+}
+
 // A panel certificate the agent cannot be reached with — its managers dial
 // the advertise IP, its own gRPC hop dials 127.0.0.1 — registered the agent,
 // spent the token and then failed every request to it. Now the join stops

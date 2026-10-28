@@ -367,7 +367,7 @@ func (s *GRPCServer) RegisterAgent(ctx context.Context, req *pb.RegisterAgentReq
 	if !s.manager.IsLeader() {
 		return &pb.RegisterAgentResponse{Error: ErrNotLeader.Error(), LeaderGrpcAddress: s.manager.GetRaft().LeaderGRPCAddress()}, nil
 	}
-	res, err := s.manager.HandleRegisterAgent(RegisterAgentInput{Token: req.Token, CSR: req.Csr, NodeName: req.NodeName, APIAddress: req.ApiAddress, GRPCAddress: req.GrpcAddress, PanelCA: req.PanelCaCert, Version: req.Version})
+	res, err := s.manager.HandleRegisterAgent(RegisterAgentInput{Token: req.Token, CSR: req.Csr, NodeName: req.NodeName, APIAddress: req.ApiAddress, GRPCAddress: req.GrpcAddress, PanelCA: req.PanelCaCert, Version: req.Version, NodeID: req.NodeId})
 	if err != nil {
 		return &pb.RegisterAgentResponse{Error: err.Error()}, nil
 	}
