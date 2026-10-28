@@ -11,6 +11,7 @@ import (
 	"crypto/x509/pkix"
 	"errors"
 	"net"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -248,7 +249,6 @@ func TestRegisterAgentRefusals(t *testing.T) {
 		{"the leader's address, IPv4-mapped", func(in *RegisterAgentInput) {
 			in.APIAddress, in.GRPCAddress = "[::ffff:127.0.0.1]:3628", "[::ffff:127.0.0.1]:3629"
 		}, "", ErrNodeIdentityTaken},
-		{"no name", func(in *RegisterAgentInput) { in.NodeName = "" }, "", errAgentName},
 		// The certificate names the panel's host; a gRPC address elsewhere
 		// would be an address nothing checked.
 		{"api and grpc on different hosts", func(in *RegisterAgentInput) { in.GRPCAddress = "192.0.2.11:3629" }, "", errAgentAddress},
@@ -279,6 +279,22 @@ func TestRegisterAgentRefusals(t *testing.T) {
 			}
 		})
 	}
+
+	// A name travels as it is in the UI, the CLI and ?node= URLs; the leader
+	// took any that was not empty.
+	t.Run("a name that is not one", func(t *testing.T) {
+		for _, name := range []string{"", "../../etc"} {
+			tok, _ := mgr.CreateJoinToken(time.Hour, KindAgent)
+			in := registerInput(t, tok.Token)
+			in.NodeName = name
+			if _, err := mgr.HandleRegisterAgent(in); err == nil || !strings.Contains(err.Error(), "node name") {
+				t.Fatalf("%q: got %v", name, err)
+			}
+			if _, err := mgr.tokens.Peek(tok.Token); err != nil {
+				t.Fatalf("%q: token consumed", name)
+			}
+		}
+	})
 
 	t.Run("agent cap", func(t *testing.T) {
 		mgr.config.MaxAgents = 1

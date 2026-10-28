@@ -295,12 +295,31 @@ func TestInstallParsesAgentArgs(t *testing.T) {
 		{"--agent :3629 tok --ca sha256:abc", "needs a port"},
 		{"--agent 192.0.2.1:3629 tok --ca", "--ca needs a value"},
 		{"--agent 192.0.2.1:3629 tok --ca sha256:abc --advertise", "--advertise needs a value"},
+		{"--agent 192.0.2.1:3629 tok --ca sha256:abc --name", "--name needs a value"},
 		{"--agent 192.0.2.1:3629 tok --ca sha256:abc --advertize 192.0.2.10", "Unknown argument: --advertize"},
 		{"--agent 192.0.2.1:3629 tok extra --ca sha256:abc", "Unknown argument: extra"},
 	} {
 		out, code := runInstallFunc(t, "parse_agent_args "+tc.args+"; echo parsed")
 		if code != 1 || !strings.Contains(out, tc.reason) || strings.Contains(out, "parsed") {
 			t.Errorf("parse_agent_args %s: exit %d, want 1 saying %q:\n%s", tc.args, code, tc.reason, out)
+		}
+	}
+
+	// --name reaches 'sfpanel agent join' when it is given, and only then:
+	// this script is fetched from main, and a release from before --name
+	// refuses an option it does not know.
+	for _, tc := range []struct{ args, want string }{
+		{"--agent 192.0.2.1:3629 tok --name web-7 --ca sha256:abc", "sfpanel agent join 192.0.2.1:3629 tok --ca sha256:abc --name web-7 --config "},
+		{"--agent 192.0.2.1:3629 tok --ca sha256:abc", "sfpanel agent join 192.0.2.1:3629 tok --ca sha256:abc --config "},
+	} {
+		h := newInstallHarness(t, map[string]string{})
+		h.stubSfpanel("exit 0")
+		if out, code := h.run("parse_agent_args " + tc.args + "; run_agent_join no-restart"); code != 0 {
+			t.Fatalf("%s: exit %d:\n%s", tc.args, code, out)
+		}
+		calls := h.calls()
+		if len(calls) != 1 || !strings.HasPrefix(calls[0], tc.want) || strings.Count(calls[0], "--name") != strings.Count(tc.want, "--name") {
+			t.Fatalf("%s: ran %q, want %q…", tc.args, calls, tc.want)
 		}
 	}
 }
@@ -482,7 +501,7 @@ func TestInstallRunsTheAgentJoin(t *testing.T) {
 	pin := "sha256:" + strings.Repeat("ab", 32)
 	c := newInstallHarness(t, map[string]string{})
 	c.stub(filepath.Join(c.installDir, "sfpanel"), `printf '%s\n' "$@" > "$HOME/args"`)
-	if out, code := c.run(`AGENT_MANAGER=192.0.2.1:3629; AGENT_TOKEN=tok; AGENT_CA=` + pin + `; AGENT_ADVERTISE=192.0.2.10; run_agent_join no-restart`); code != 0 {
+	if out, code := c.run(`AGENT_MANAGER=192.0.2.1:3629; AGENT_TOKEN=tok; AGENT_CA=` + pin + `; AGENT_ADVERTISE=192.0.2.10; AGENT_NAME=web-7; run_agent_join no-restart`); code != 0 {
 		t.Fatalf("exit %d:\n%s", code, out)
 	}
 	data, err := os.ReadFile(filepath.Join(c.dir, "args"))
@@ -494,20 +513,20 @@ func TestInstallRunsTheAgentJoin(t *testing.T) {
 		t.Fatalf("ran sfpanel %q", args)
 	}
 	if a, err := parseAgentJoinArgs(args[2:]); err != nil || a.Manager != "192.0.2.1:3629" || a.Token != "tok" || a.Pin != pin ||
-		a.Advertise != "192.0.2.10" || a.ConfigPath != c.configPath() || !a.NoRestart {
+		a.Advertise != "192.0.2.10" || a.Name != "web-7" || a.ConfigPath != c.configPath() || !a.NoRestart {
 		t.Fatalf("parseAgentJoinArgs(%q) = %+v, %v", args[2:], a, err)
 	}
 
 	failing := newInstallHarness(t, map[string]string{})
 	failing.stubSfpanel(`echo "Agent join failed: join token already used" >&2; exit 1`)
-	out, code := failing.run(set + `run_agent_join no-restart; echo "went on"`)
+	out, code := failing.run(set + `AGENT_NAME=web-7; run_agent_join no-restart; echo "went on"`)
 	if code != 1 || strings.Contains(out, "went on") {
 		t.Fatalf("exit %d, want 1 and a stop:\n%s", code, out)
 	}
 	for _, want := range []string{
 		"Agent join failed: join token already used",
 		"sfpanel was not started",
-		"bash -s -- --agent 192.0.2.1:3629 <token> --ca sha256:abc",
+		"bash -s -- --agent 192.0.2.1:3629 <token> --ca sha256:abc --name web-7",
 		"sfpanel cluster token --agent",
 	} {
 		if !strings.Contains(out, want) {

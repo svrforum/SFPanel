@@ -13,6 +13,7 @@ import (
 	"net"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strconv"
 	"syscall"
 
@@ -36,15 +37,33 @@ type AgentJoinEngine struct {
 	// Version is this binary's, sent with the registration; the leader logs
 	// it with the new agent.
 	Version string
+	Name    string // the name to register under; empty: the host name
+	// CheckPanelCert refuses a panel certificate the agent could not be
+	// reached with, before anything is sent; nil checks nothing. The CLI
+	// supplies it, as it does panelCA, so this package need not import
+	// paneltls.
+	CheckPanelCert func(advertise string) error
 
-	// hostname is what the agent is named after; nil is os.Hostname. Tests
-	// set it: their leader runs on the same host and already carries the
-	// host's name, and a cluster holds each name once.
+	// hostname is what the agent is named after when Name is empty; nil is
+	// os.Hostname. Tests set it: their leader runs on the same host and
+	// already carries the host's name, and a cluster holds each name once.
 	hostname func() (string, error)
 	// listenOn checks this server can listen on the advertise address at the
 	// cluster gRPC port, as the agent's gRPC server will; nil tries it. Tests
 	// register at documentation addresses no host has.
 	listenOn func(ip net.IP, port int) error
+}
+
+// validNodeName is what a node may be called: what the UI, the CLI and a
+// ?node= URL can carry as it is.
+var validNodeName = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._-]{0,62}$`)
+
+// ValidNodeName refuses a name a node may not have.
+func ValidNodeName(name string) error {
+	if !validNodeName.MatchString(name) {
+		return fmt.Errorf("the node name %q is not one: 1-63 letters, digits, dots, hyphens or underscores, starting with a letter or digit", name)
+	}
+	return nil
 }
 
 // AgentJoinResult is what a join tells the operator.
@@ -98,7 +117,21 @@ func (e *AgentJoinEngine) Execute(managerAddr, token, advertise, pin string, pan
 	if err != nil {
 		return nil, err
 	}
-	name := e.nodeName()
+	if e.CheckPanelCert != nil {
+		if err := e.CheckPanelCert(advertise); err != nil {
+			return nil, err
+		}
+	}
+	name := e.Name
+	if name == "" {
+		name = e.nodeName()
+	}
+	if err := ValidNodeName(name); err != nil {
+		if e.Name == "" {
+			return nil, fmt.Errorf("%w — it is this server's host name: pass --name with one that is", err)
+		}
+		return nil, err
+	}
 
 	slog.Info("registering with the cluster as an agent", "component", "agent",
 		"manager", managerAddr, "advertise", advertise, "name", name)
@@ -234,9 +267,10 @@ func canListenOn(ip net.IP, port int) error {
 	return ln.Close()
 }
 
-// nodeName is the name the agent registers under: the host name or, when
-// there is none, eight random hex digits in the shape of a node-ID prefix —
-// the ID itself is the leader's to assign, after the name is sent.
+// nodeName is the name the agent registers under when it is given none: the
+// host name or, when there is none, eight random hex digits in the shape of a
+// node-ID prefix — the ID itself is the leader's to assign, after the name is
+// sent.
 func (e *AgentJoinEngine) nodeName() string {
 	hostname := e.hostname
 	if hostname == nil {
@@ -306,7 +340,7 @@ func agentRefusalMessage(errStr, name, advertise string) string {
 	case ErrMaxAgentsReached.Error():
 		hint = "remove an agent, or raise cluster.max_agents in the leader's config"
 	case ErrNodeIdentityTaken.Error():
-		hint = fmt.Sprintf("this server registers as %q at %s: give it a host name no other node has, or check --advertise; a node an earlier attempt left behind is removed on a manager with 'sfpanel cluster remove <node-id>'", name, advertise)
+		hint = fmt.Sprintf("this server registers as %q at %s: pass --name with a name no other node has, or check --advertise; a node an earlier attempt left behind is removed on a manager with 'sfpanel cluster remove <node-id>'", name, advertise)
 	default:
 		// Shown as the leader worded it: the refusals that say what to do
 		// already (ErrProxyRotationPending, ErrAgentPanelCARequired,

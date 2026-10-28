@@ -504,6 +504,75 @@ func TestStartAgentRefusesAnAddressItCannotListenOn(t *testing.T) {
 	}
 }
 
+// An agent binds the address it registered with. One on an interface that
+// comes up late — tailscale0, a WireGuard link, a slow DHCP lease — failed
+// the bind, and the agent exited and restarted every five seconds; after an
+// update, the watchdog took that for a broken release and rolled it back.
+func TestWaitForLocalAddress(t *testing.T) {
+	ip := net.ParseIP("192.0.2.10")
+	have := func(present ...string) func() ([]net.Addr, error) {
+		return func() ([]net.Addr, error) {
+			var out []net.Addr
+			for _, p := range present {
+				out = append(out, &net.IPNet{IP: net.ParseIP(p), Mask: net.CIDRMask(24, 32)})
+			}
+			return out, nil
+		}
+	}
+	if err := waitForLocalAddress(ip, time.Second, have("127.0.0.1", "192.0.2.10")); err != nil {
+		t.Fatalf("present: %v", err)
+	}
+	if err := waitForLocalAddress(ip, 300*time.Millisecond, have("127.0.0.1")); err == nil || !strings.Contains(err.Error(), "192.0.2.10") {
+		t.Fatalf("absent: %v", err)
+	}
+	calls := 0
+	late := func() ([]net.Addr, error) {
+		calls++
+		if calls < 3 {
+			return have("127.0.0.1")()
+		}
+		return have("192.0.2.10")()
+	}
+	if err := waitForLocalAddress(ip, 10*time.Second, late); err != nil {
+		t.Fatalf("comes up late: %v", err)
+	}
+
+	// lo lists 127.0.0.1/8 and binds the whole prefix — these tests' agents
+	// register at 127.0.0.2 — while an address in the subnet of another
+	// interface's is not this server's.
+	lo := func() ([]net.Addr, error) {
+		return []net.Addr{
+			&net.IPNet{IP: net.ParseIP("127.0.0.1"), Mask: net.CIDRMask(8, 32)},
+			&net.IPNet{IP: net.ParseIP("192.0.2.1"), Mask: net.CIDRMask(24, 32)},
+		}, nil
+	}
+	if err := waitForLocalAddress(net.ParseIP("127.0.0.2"), time.Second, lo); err != nil {
+		t.Fatalf("in loopback's prefix: %v", err)
+	}
+	if err := waitForLocalAddress(ip, 300*time.Millisecond, lo); err == nil || !strings.Contains(err.Error(), "192.0.2.10") {
+		t.Fatalf("in another address's subnet: %v", err)
+	}
+}
+
+// The boot waits for the address before anything binds it, and one that
+// never comes up ends the boot saying so — not as a bind failure, which an
+// interface that comes up late made one restart after another.
+func TestStartAgentWaitsForItsAddress(t *testing.T) {
+	s := newAgentSetup(t, "127.0.0.1")
+	s.cfg.Cluster.AdvertiseAddress = "192.0.2.10" // an address no host has
+	orig := agentAddressWait
+	agentAddressWait = 0
+	t.Cleanup(func() { agentAddressWait = orig })
+	rt, err := startAgent(s.cfg, "test", nil, nil)
+	if err == nil {
+		rt.Stop()
+		t.Fatal("started")
+	}
+	if !strings.Contains(err.Error(), "the advertise address 192.0.2.10 is not on this server") {
+		t.Fatalf("got %v", err)
+	}
+}
+
 // The CA an agent reports and a manager publishes is the one behind the
 // panel's certificate: the managed CA, or the operator's ca_file.
 func TestPanelCAReader(t *testing.T) {

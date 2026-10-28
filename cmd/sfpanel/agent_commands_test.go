@@ -2,7 +2,15 @@ package main
 
 import (
 	"bytes"
+	"crypto/ecdsa"
+	"crypto/elliptic"
+	"crypto/rand"
+	"crypto/x509"
+	"crypto/x509/pkix"
+	"encoding/pem"
 	"errors"
+	"math/big"
+	"net"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
@@ -13,6 +21,7 @@ import (
 	"strings"
 	"sync/atomic"
 	"testing"
+	"time"
 
 	"gopkg.in/yaml.v3"
 
@@ -24,7 +33,11 @@ import (
 func TestParseAgentJoinArgs(t *testing.T) {
 	pin := "sha256:" + strings.Repeat("ab", 32)
 	a, err := parseAgentJoinArgs([]string{"192.0.2.1:3629", "tok", "--ca", pin, "--advertise", "192.0.2.10", "--no-restart"})
-	if err != nil || a.Manager != "192.0.2.1:3629" || a.Token != "tok" || a.Advertise != "192.0.2.10" || !a.NoRestart || a.ConfigPath != defaultCfgPath {
+	if err != nil || a.Manager != "192.0.2.1:3629" || a.Token != "tok" || a.Advertise != "192.0.2.10" || !a.NoRestart || a.ConfigPath != defaultCfgPath || a.Name != "" {
+		t.Fatalf("%+v %v", a, err)
+	}
+	// A name of its own, for a server that shares its host name with another.
+	if a, err := parseAgentJoinArgs([]string{"192.0.2.1:3629", "tok", "--name", "web-7", "--ca", pin}); err != nil || a.Name != "web-7" {
 		t.Fatalf("%+v %v", a, err)
 	}
 	// Options go anywhere, and the pin is kept in the form the engine compares.
@@ -45,6 +58,8 @@ func TestParseAgentJoinArgs(t *testing.T) {
 		// A malformed fingerprint is refused before anything is sent.
 		{[]string{"192.0.2.1:3629", "tok", "--ca", "sha256:x"}, "the CA fingerprint must be sha256: and 64 hex characters"},
 		{[]string{"192.0.2.1:3629", "tok", "--ca"}, "--ca needs a value"},
+		{[]string{"192.0.2.1:3629", "tok", "--ca", pin, "--name"}, "--name needs a value"},
+		{[]string{"192.0.2.1:3629", "tok", "--ca", pin, "--name", "../x"}, `the node name "../x" is not one`},
 		// install.sh passes its arguments through: a misspelt option is not
 		// skipped, and so neither is an address meant for --advertise.
 		{[]string{"192.0.2.1:3629", "tok", "--ca", pin, "--advertize", "192.0.2.10"}, "unknown option --advertize"},
@@ -123,6 +138,43 @@ func TestPreparePanelTLSForAgentWithAnOperatorCertificate(t *testing.T) {
 	cfg.Server.TLS.KeyFile = other.ServerKeyPath()
 	if _, _, err := preparePanelTLSForAgent(cfg); err == nil || !strings.Contains(err.Error(), "do not load as a pair") {
 		t.Fatalf("a key that is not the certificate's: %v", err)
+	}
+}
+
+// The agent is reached at the advertise IP by its managers and at 127.0.0.1
+// by its own gRPC hop, both verifying the panel's certificate.
+func TestPanelCertCheckWantsLoopbackAndTheAdvertiseIP(t *testing.T) {
+	dir := t.TempDir()
+	caKey, _ := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
+	caTmpl := &x509.Certificate{SerialNumber: big.NewInt(1), Subject: pkix.Name{CommonName: "Operator CA"}, NotBefore: time.Now().Add(-time.Hour), NotAfter: time.Now().Add(time.Hour), IsCA: true, BasicConstraintsValid: true, KeyUsage: x509.KeyUsageCertSign}
+	caDER, _ := x509.CreateCertificate(rand.Reader, caTmpl, caTmpl, &caKey.PublicKey, caKey)
+	ca, _ := x509.ParseCertificate(caDER)
+	leafFor := func(ips ...string) *config.Config {
+		key, _ := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
+		tmpl := &x509.Certificate{SerialNumber: big.NewInt(2), Subject: pkix.Name{CommonName: "panel"}, NotBefore: time.Now().Add(-time.Hour), NotAfter: time.Now().Add(time.Hour), ExtKeyUsage: []x509.ExtKeyUsage{x509.ExtKeyUsageServerAuth}}
+		for _, ip := range ips {
+			tmpl.IPAddresses = append(tmpl.IPAddresses, net.ParseIP(ip))
+		}
+		der, _ := x509.CreateCertificate(rand.Reader, tmpl, ca, &key.PublicKey, caKey)
+		sub := t.TempDir()
+		write := func(name string, typ string, b []byte) string {
+			p := filepath.Join(sub, name)
+			_ = os.WriteFile(p, pem.EncodeToMemory(&pem.Block{Type: typ, Bytes: b}), 0o600)
+			return p
+		}
+		keyDER, _ := x509.MarshalECPrivateKey(key)
+		cfg := &config.Config{}
+		cfg.Server.TLS = config.TLSConfig{Enabled: true, Dir: dir, CertFile: write("panel.crt", "CERTIFICATE", der), KeyFile: write("panel.key", "EC PRIVATE KEY", keyDER), CAFile: write("ca.crt", "CERTIFICATE", caDER)}
+		return cfg
+	}
+	if err := panelCertCheck(leafFor("192.0.2.10"))("192.0.2.10"); err == nil || !strings.Contains(err.Error(), "127.0.0.1") {
+		t.Fatalf("a certificate without 127.0.0.1: %v", err)
+	}
+	if err := panelCertCheck(leafFor("127.0.0.1"))("192.0.2.10"); err == nil || !strings.Contains(err.Error(), "192.0.2.10") {
+		t.Fatalf("a certificate without the advertise IP: %v", err)
+	}
+	if err := panelCertCheck(leafFor("127.0.0.1", "192.0.2.10"))("192.0.2.10"); err != nil {
+		t.Fatalf("a certificate for both: %v", err)
 	}
 }
 
@@ -351,6 +403,28 @@ func TestReadyForAgentJoin(t *testing.T) {
 	}
 	if err := readyForAgentJoin(standalone); err != nil {
 		t.Fatalf("no state file: %v", err)
+	}
+}
+
+// The files a cluster manager leaves in its cert and data directories hold
+// the cluster's keys — the CA key, every agent's key, the accounts — and an
+// agent joined over them kept them all.
+func TestAgentJoinRefusesAManagersLeftovers(t *testing.T) {
+	dir := t.TempDir()
+	cfg := &config.Config{}
+	cfg.Cluster.CertDir = filepath.Join(dir, "certs")
+	cfg.Cluster.DataDir = filepath.Join(dir, "data")
+	for _, f := range []string{filepath.Join(cfg.Cluster.CertDir, "ca.key"), filepath.Join(cfg.Cluster.DataDir, "raft-log.db")} {
+		if err := os.MkdirAll(filepath.Dir(f), 0o700); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(f, []byte("x"), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	err := readyForAgentJoin(cfg)
+	if err == nil || !strings.Contains(err.Error(), "ca.key") || !strings.Contains(err.Error(), "raft-log.db") {
+		t.Fatalf("got %v", err)
 	}
 }
 

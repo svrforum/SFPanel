@@ -72,10 +72,7 @@ func (m *Manager) managersNotReadyForAgents(state ClusterState) []string {
 	return waiting
 }
 
-var (
-	errAgentName    = errors.New("register agent: the node name is required")
-	errAgentAddress = errors.New("register agent: api and grpc addresses must be ip:port on the same host")
-)
+var errAgentAddress = errors.New("register agent: api and grpc addresses must be ip:port on the same host")
 
 // HandleRegisterAgent registers an agent (leader only): it signs the agent's
 // certificate request, makes the agent's internal-proxy key, and records the
@@ -116,8 +113,8 @@ func (m *Manager) HandleRegisterAgent(in RegisterAgentInput) (*RegisterAgentResu
 	if countKind(state, KindAgent) >= m.agentCap() {
 		return nil, ErrMaxAgentsReached
 	}
-	if in.NodeName == "" {
-		return nil, errAgentName
+	if err := ValidNodeName(in.NodeName); err != nil {
+		return nil, err
 	}
 	ip, err := agentIP(in.APIAddress, in.GRPCAddress)
 	if err != nil {

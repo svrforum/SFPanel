@@ -2,7 +2,9 @@ package main
 
 import (
 	"crypto/tls"
+	"crypto/x509"
 	"encoding/json"
+	"encoding/pem"
 	"errors"
 	"fmt"
 	"io"
@@ -49,21 +51,21 @@ func agentCommand(args []string) {
 	}
 }
 
-const agentJoinUsage = "Usage: sfpanel agent join <manager-address:port> <token> --ca <fingerprint> [--advertise IP] [--config PATH] [--no-restart]"
+const agentJoinUsage = "Usage: sfpanel agent join <manager-address:port> <token> --ca <fingerprint> [--advertise IP] [--name NAME] [--config PATH] [--no-restart]"
 
 // agentJoinArgs are the arguments of `sfpanel agent join`.
 type agentJoinArgs struct {
-	Manager, Token, Pin, Advertise, ConfigPath string
-	NoRestart                                  bool
+	Manager, Token, Pin, Advertise, ConfigPath, Name string
+	NoRestart                                        bool
 }
 
 // parseAgentJoinArgs reads `agent join`'s arguments: the manager's gRPC
 // address and the token, and the options in any place. Whatever it can tell
 // is wrong it refuses here, before anything is sent: an option it does not
 // know (install.sh passes arguments through, and a misspelt one skipped
-// would join with the wrong address), the fingerprint's form, and an address
-// with no port — none is guessed, the command `cluster token --agent` prints
-// names it.
+// would join with the wrong address), the fingerprint's form, a name no node
+// may have, and an address with no port — none is guessed, the command
+// `cluster token --agent` prints names it.
 func parseAgentJoinArgs(args []string) (agentJoinArgs, error) {
 	a := agentJoinArgs{ConfigPath: defaultCfgPath}
 	var positional []string
@@ -71,7 +73,7 @@ func parseAgentJoinArgs(args []string) (agentJoinArgs, error) {
 		switch arg := args[i]; arg {
 		case "--no-restart":
 			a.NoRestart = true
-		case "--ca", "--advertise", "--config":
+		case "--ca", "--advertise", "--config", "--name":
 			if i+1 == len(args) {
 				return agentJoinArgs{}, fmt.Errorf("%s needs a value", arg)
 			}
@@ -81,6 +83,11 @@ func parseAgentJoinArgs(args []string) (agentJoinArgs, error) {
 				a.Pin = args[i]
 			case "--advertise":
 				a.Advertise = args[i]
+			case "--name":
+				if err := cluster.ValidNodeName(args[i]); err != nil {
+					return agentJoinArgs{}, err
+				}
+				a.Name = args[i]
 			default:
 				a.ConfigPath = args[i]
 			}
@@ -138,7 +145,7 @@ func agentJoin(args []string) {
 		log.Fatal(err)
 	}
 
-	engine := &cluster.AgentJoinEngine{Config: cfg, ConfigPath: a.ConfigPath, Version: version}
+	engine := &cluster.AgentJoinEngine{Config: cfg, ConfigPath: a.ConfigPath, Version: version, Name: a.Name, CheckPanelCert: panelCertCheck(cfg)}
 	fmt.Printf("Joining the cluster at %s as an agent...\n", a.Manager)
 	res, err := engine.Execute(a.Manager, a.Token, a.Advertise, a.Pin, panelCA)
 	if err != nil {
@@ -170,16 +177,39 @@ func agentJoin(args []string) {
 }
 
 // readyForAgentJoin refuses a join on a server in a cluster already — an
-// agent config boots as an agent whatever cluster.enabled says (main) — and
-// removes the state an earlier membership as an agent left behind: the link
-// would prefer it to the managers the join registers with, and it may record
-// that membership's removal, which keeps an agent on loopback.
+// agent config boots as an agent whatever cluster.enabled says (main) — or on
+// one that still holds a cluster manager's files, and removes the state an
+// earlier membership as an agent left behind: the link would prefer it to the
+// managers the join registers with, and it may record that membership's
+// removal, which keeps an agent on loopback.
 func readyForAgentJoin(cfg *config.Config) error {
 	switch {
 	case cfg.Cluster.IsAgent():
 		return errors.New("this server is an agent already: 'sfpanel agent status' shows its link, and after 'sfpanel agent reset --yes' it can join again")
 	case cfg.Cluster.Enabled:
 		return errors.New("this server is a cluster manager: 'sfpanel cluster leave' takes it out of the cluster before it can join as an agent")
+	}
+	// A cluster manager's files hold the cluster's keys — the CA key, every
+	// agent's key, the accounts — and an agent joined over them kept them.
+	var leftovers []string
+	for _, p := range []string{
+		filepath.Join(cfg.Cluster.CertDir, "ca.key"),
+		filepath.Join(cfg.Cluster.DataDir, "raft-log.db"),
+		filepath.Join(cfg.Cluster.DataDir, "raft-stable.db"),
+		filepath.Join(cfg.Cluster.DataDir, "snapshots"),
+		filepath.Join(cfg.Cluster.DataDir, "tokens.json"),
+		filepath.Join(cfg.Cluster.DataDir, "proxy-secret.json"),
+		filepath.Join(cfg.Cluster.DataDir, "peers.json"),
+	} {
+		if dirOf := filepath.Dir(p); dirOf == "." || dirOf == "" {
+			continue // cert_dir or data_dir unset
+		}
+		if _, err := os.Lstat(p); err == nil {
+			leftovers = append(leftovers, p)
+		}
+	}
+	if len(leftovers) > 0 {
+		return fmt.Errorf("this server still holds a cluster manager's files, which hold the cluster's keys: %s — an agent needs none of them; remove them, then join again", strings.Join(leftovers, ", "))
 	}
 	if cfg.Cluster.DataDir == "" {
 		return nil
@@ -227,6 +257,60 @@ func preparePanelTLSForAgent(cfg *config.Config) (caPEM []byte, changed bool, er
 	}
 	cfg.Server.TLS = t
 	return caPEM, changed, nil
+}
+
+// panelCertCheck refuses a panel certificate the agent could not be reached
+// with: its managers dial it at the advertise IP and its own gRPC hop at
+// 127.0.0.1, both verifying against the CA the registration reports. One for
+// other names registered the agent, spent the token and failed every request.
+func panelCertCheck(cfg *config.Config) func(advertise string) error {
+	return func(advertise string) error {
+		t := cfg.Server.TLS
+		certPath, caPath := t.CertFile, t.CAFile
+		if t.Managed() {
+			m := paneltls.New(t.Dir)
+			certPath, caPath = m.ServerCertPath(), m.CACertPath()
+		}
+		certPEM, err := os.ReadFile(certPath)
+		if err != nil {
+			return fmt.Errorf("read the panel's certificate: %w", err)
+		}
+		var leaf *x509.Certificate
+		inter := x509.NewCertPool()
+		for rest := certPEM; ; {
+			var block *pem.Block
+			block, rest = pem.Decode(rest)
+			if block == nil {
+				break
+			}
+			c, err := x509.ParseCertificate(block.Bytes)
+			if err != nil {
+				return fmt.Errorf("parse the panel's certificate: %w", err)
+			}
+			if leaf == nil {
+				leaf = c
+			} else {
+				inter.AddCert(c)
+			}
+		}
+		if leaf == nil {
+			return fmt.Errorf("%s holds no certificate", certPath)
+		}
+		caPEM, err := os.ReadFile(caPath)
+		if err != nil {
+			return fmt.Errorf("read the panel's CA: %w", err)
+		}
+		roots := x509.NewCertPool()
+		if !roots.AppendCertsFromPEM(caPEM) {
+			return fmt.Errorf("%s holds no certificate", caPath)
+		}
+		for _, host := range []string{"127.0.0.1", advertise} {
+			if _, err := leaf.Verify(x509.VerifyOptions{Roots: roots, Intermediates: inter, DNSName: host}); err != nil {
+				return fmt.Errorf("the panel's certificate %s does not verify for %s against %s: %w — the agent could not be reached with it; issue one that names 127.0.0.1 and %s", certPath, host, caPath, err, advertise)
+			}
+		}
+		return nil
+	}
 }
 
 // runSystemctl runs systemctl; tests replace it.
@@ -478,7 +562,7 @@ func removedByLeader(cfg *config.Config) bool {
 func printAgentHelp() {
 	fmt.Println("SFPanel Agent Commands:")
 	fmt.Println()
-	fmt.Println("  sfpanel agent join ADDR:PORT TOKEN --ca FINGERPRINT [--advertise IP] [--no-restart]")
+	fmt.Println("  sfpanel agent join ADDR:PORT TOKEN --ca FINGERPRINT [--advertise IP] [--name NAME] [--no-restart]")
 	fmt.Println("                                            Join a cluster as an agent ('sfpanel cluster token --agent' on a manager prints the command)")
 	fmt.Println("  sfpanel agent status                      Show this agent's managers, certificate and panel")
 	fmt.Println("  sfpanel agent reset [--yes]               Make this agent a standalone panel again; without --yes, show what that removes")

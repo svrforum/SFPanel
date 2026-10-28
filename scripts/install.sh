@@ -6,7 +6,7 @@ set -euo pipefail
 #        sudo ./install.sh                # install / upgrade
 #        sudo ./install.sh uninstall      # remove binary + service
 #        FORCE_SYSTEMD=1 sudo ./install.sh   # rewrite systemd unit even if present
-#        curl -fsSL …/install.sh | sudo bash -s -- --agent <manager>:3629 <token> --ca <fingerprint> [--advertise <ip>]
+#        curl -fsSL …/install.sh | sudo bash -s -- --agent <manager>:3629 <token> --ca <fingerprint> [--advertise <ip>] [--name <name>]
 #                                         # install and join a cluster as an agent ('sfpanel cluster token --agent' on a manager prints this)
 
 REPO="svrforum/SFPanel"
@@ -26,12 +26,14 @@ SFPANEL_REQUIRE_COSIGN="${SFPANEL_REQUIRE_COSIGN:-0}"
 # verify_service_started only auto-reverts on a failed upgrade THIS run (not on
 # a same-version reconcile that finds a stale .bak from an earlier upgrade).
 BINARY_BACKED_UP=0
-# Set by parse_agent_args from --agent ADDR TOKEN --ca FP [--advertise IP]:
-# a server given them joins a cluster as an agent before its service starts.
+# Set by parse_agent_args from --agent ADDR TOKEN --ca FP [--advertise IP]
+# [--name NAME]: a server given them joins a cluster as an agent before its
+# service starts.
 AGENT_MANAGER=""
 AGENT_TOKEN=""
 AGENT_CA=""
 AGENT_ADVERTISE=""
+AGENT_NAME=""
 
 # Colors
 RED='\033[0;31m'
@@ -819,12 +821,12 @@ print_agent_firewall() {
 # --- Joining as an agent ---
 
 # parse_agent_args reads the installer's arguments, which past uninstall can
-# only be an agent join's: --agent ADDR TOKEN, --ca FP and --advertise IP, in
-# any order. What it can tell is wrong it refuses before anything is
-# downloaded; 'sfpanel agent join' checks the rest — the fingerprint's form,
-# the advertise address — before the token is sent. An argument it does not
-# know is refused too: skipped, a misspelt --advertise would have the agent
-# registered at an address detected instead.
+# only be an agent join's: --agent ADDR TOKEN, --ca FP, --advertise IP and
+# --name NAME, in any order. What it can tell is wrong it refuses before
+# anything is downloaded; 'sfpanel agent join' checks the rest — the
+# fingerprint's form, the advertise address, the name — before the token is
+# sent. An argument it does not know is refused too: skipped, a misspelt
+# --advertise would have the agent registered at an address detected instead.
 parse_agent_args() {
   while [ "$#" -gt 0 ]; do
     case "$1" in
@@ -838,14 +840,16 @@ parse_agent_args() {
         AGENT_TOKEN="$3"
         shift 3
         ;;
-      --ca|--advertise)
+      --ca|--advertise|--name)
         if [ "$#" -lt 2 ] || [ -z "$2" ] || [ "${2#-}" != "$2" ]; then
           agent_args_error "$1 needs a value"
         fi
         if [ "$1" = "--ca" ]; then
           AGENT_CA="$2"
-        else
+        elif [ "$1" = "--advertise" ]; then
           AGENT_ADVERTISE="$2"
+        else
+          AGENT_NAME="$2"
         fi
         shift 2
         ;;
@@ -872,7 +876,7 @@ parse_agent_args() {
 # agent_args_error stops the installer on arguments parse_agent_args cannot use.
 agent_args_error() {
   log_error "$1"
-  log_error "Usage: curl -fsSL ${INSTALL_SCRIPT_URL} | $(sudo_prefix)bash -s -- --agent <manager>:3629 <token> --ca <fingerprint> [--advertise <ip>]"
+  log_error "Usage: curl -fsSL ${INSTALL_SCRIPT_URL} | $(sudo_prefix)bash -s -- --agent <manager>:3629 <token> --ca <fingerprint> [--advertise <ip>] [--name <name>]"
   log_error "       ('sfpanel cluster token --agent' on a manager prints this command, token and fingerprint filled in)"
   exit 1
 }
@@ -906,6 +910,11 @@ run_agent_join() {
   if [ -n "$AGENT_ADVERTISE" ]; then
     set -- "$@" --advertise "$AGENT_ADVERTISE"
   fi
+  # Only when given: this script comes from main, and a release from before
+  # --name refuses an option it does not know.
+  if [ -n "$AGENT_NAME" ]; then
+    set -- "$@" --name "$AGENT_NAME"
+  fi
   set -- "$@" --config "${CONFIG_DIR}/config.yaml"
   if [ "$mode" = "no-restart" ]; then
     set -- "$@" --no-restart
@@ -918,7 +927,7 @@ run_agent_join() {
     else
       log_error "Once the cause is fixed, run the same command again:"
     fi
-    log_error "  curl -fsSL ${INSTALL_SCRIPT_URL} | ${sudo}bash -s -- --agent ${AGENT_MANAGER} <token> --ca ${AGENT_CA}${AGENT_ADVERTISE:+ --advertise ${AGENT_ADVERTISE}}"
+    log_error "  curl -fsSL ${INSTALL_SCRIPT_URL} | ${sudo}bash -s -- --agent ${AGENT_MANAGER} <token> --ca ${AGENT_CA}${AGENT_ADVERTISE:+ --advertise ${AGENT_ADVERTISE}}${AGENT_NAME:+ --name ${AGENT_NAME}}"
     log_error "A token the reason calls used, expired or not found needs a new one: '${sudo}sfpanel cluster token --agent' on a manager."
     exit 1
   fi

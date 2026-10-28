@@ -75,8 +75,12 @@ func startAgent(cfg *config.Config, version string, collect func() (cpu, mem, di
 	// certificate names and its managers dial — never on every interface.
 	// An empty or unspecified address would bind them all, and the panel's
 	// loopback listener would then fail as "address already in use".
-	if ip := net.ParseIP(cfg.Cluster.AdvertiseAddress); ip == nil || ip.IsUnspecified() {
+	ip := net.ParseIP(cfg.Cluster.AdvertiseAddress)
+	if ip == nil || ip.IsUnspecified() {
 		return nil, fmt.Errorf("cluster.advertise_address %q is not an address an agent can listen on: it must be the IP address this server registered with", cfg.Cluster.AdvertiseAddress)
+	}
+	if err := waitForLocalAddress(ip, agentAddressWait, net.InterfaceAddrs); err != nil {
+		return nil, err
 	}
 	srv, err := cluster.NewAgentGRPCServer(tlsMgr, selfPanel(cfg), link.ManagerIDs)
 	if err != nil {
@@ -87,6 +91,39 @@ func startAgent(cfg *config.Config, version string, collect func() (cpu, mem, di
 	}
 	a.link, a.grpc, a.managerHosts = link, srv, link.ManagerHosts
 	return a, nil
+}
+
+// agentAddressWait is how long an agent's boot waits for the address it
+// registered with to come up. An interface that comes up late — tailscale0, a
+// WireGuard link, a slow DHCP lease — made the bind fail and the agent restart
+// every five seconds, which the update watchdog takes for a broken release
+// after ninety. Waiting rather than binding with IP_FREEBIND also lets the
+// panel's certificate, issued after this, name the address.
+var agentAddressWait = 60 * time.Second
+
+// waitForLocalAddress waits up to limit for ip to be one of this host's
+// addresses. A loopback address stands for its whole prefix: Linux binds all
+// of 127.0.0.0/8 on lo, which lists 127.0.0.1/8 alone. Any other counts as
+// itself, not its subnet.
+func waitForLocalAddress(ip net.IP, limit time.Duration, addrs func() ([]net.Addr, error)) error {
+	logged := false
+	for deadline := time.Now().Add(limit); ; time.Sleep(time.Second) {
+		list, err := addrs()
+		if err == nil {
+			for _, a := range list {
+				if n, ok := a.(*net.IPNet); ok && (n.IP.Equal(ip) || n.IP.IsLoopback() && n.Contains(ip)) {
+					return nil
+				}
+			}
+		}
+		if !time.Now().Before(deadline) {
+			return fmt.Errorf("the advertise address %s is not on this server after %v: the agent registered with it, and its managers reach it there", ip, limit)
+		}
+		if !logged {
+			slog.Info("waiting for the advertise address to come up", "component", "agent", "address", ip.String())
+			logged = true
+		}
+	}
 }
 
 // StartLink starts heartbeating to the managers, until ctx ends or Stop. It

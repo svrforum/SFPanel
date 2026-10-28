@@ -5,6 +5,7 @@ import (
 	"crypto/x509"
 	"encoding/pem"
 	"errors"
+	"fmt"
 	"net"
 	"os"
 	"path/filepath"
@@ -359,18 +360,24 @@ func TestAgentJoinRefusesBeforeTheTokenTravels(t *testing.T) {
 	for _, tc := range []struct {
 		name, advertise, pin, reason string
 		noConfigPath                 bool
+		hostname                     string
 	}{
 		{name: "no config file", advertise: "192.0.2.10", pin: pin, noConfigPath: true, reason: "no config file"},
 		{name: "a malformed pin", advertise: "192.0.2.10", pin: "sha256:00", reason: "must be sha256: and 64 hex characters"},
 		{name: "a host name to advertise", advertise: "agent.example", pin: pin, reason: "is not an IP address managers can reach"},
 		{name: "the unspecified address", advertise: "0.0.0.0", pin: pin, reason: "is not an IP address managers can reach"},
 		{name: "the unspecified IPv6 address", advertise: "::", pin: pin, reason: "is not an IP address managers can reach"},
+		// The operator names the server instead.
+		{name: "a host name that is not a node name", advertise: "192.0.2.10", pin: pin, hostname: "web 1", reason: `the node name "web 1" is not one: 1-63 letters, digits, dots, hyphens or underscores, starting with a letter or digit — it is this server's host name: pass --name`},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			e, path := agentJoinTarget(t)
 			before, _ := os.ReadFile(path)
 			if tc.noConfigPath {
 				e.ConfigPath = ""
+			}
+			if tc.hostname != "" {
+				e.hostname = func() (string, error) { return tc.hostname, nil }
 			}
 			calls := f.registers.Load()
 			_, err := e.Execute(f.self, "tok", tc.advertise, tc.pin, panelCAPEM(t))
@@ -498,6 +505,55 @@ func TestAgentJoinNamesAServerWithoutAHostName(t *testing.T) {
 	}
 }
 
+func TestValidNodeName(t *testing.T) {
+	for name, ok := range map[string]bool{
+		"web-1": true, "db.example": true, "a": true, "Host_2": true,
+		"": false, "-web": false, "../etc": false, "a b": false, strings.Repeat("x", 64): false,
+	} {
+		if err := ValidNodeName(name); (err == nil) != ok {
+			t.Errorf("ValidNodeName(%q) = %v", name, err)
+		}
+	}
+}
+
+// Servers cloned from one image share a host name, and a cluster holds each
+// name once: the second could not join. --name gives it its own.
+func TestAgentJoinRegistersUnderTheGivenName(t *testing.T) {
+	mgr, addr, _, pin := realLeader(t)
+	settleRotation(t, mgr)
+	tok, _ := mgr.CreateJoinToken(time.Hour, KindAgent)
+	e, _ := agentJoinTarget(t)
+	e.Name = "web-7"
+	res, err := e.Execute(addr, tok.Token, "192.0.2.10", pin, panelCAPEM(t))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if n := mgr.raft.GetFSM().GetNode(res.NodeID); n == nil || n.Name != "web-7" {
+		t.Fatalf("registered as %+v", n)
+	}
+}
+
+// A panel certificate the agent cannot be reached with — its managers dial
+// the advertise IP, its own gRPC hop dials 127.0.0.1 — registered the agent,
+// spent the token and then failed every request to it. Now the join stops
+// before it registers.
+func TestAgentJoinStopsOnAPanelCertificateItCannotBeReachedWith(t *testing.T) {
+	mgr, addr, _, pin := realLeader(t)
+	settleRotation(t, mgr)
+	tok, _ := mgr.CreateJoinToken(time.Hour, KindAgent)
+	e, _ := agentJoinTarget(t)
+	e.CheckPanelCert = func(advertise string) error { return fmt.Errorf("not valid for 127.0.0.1 nor %s", advertise) }
+	if _, err := e.Execute(addr, tok.Token, "192.0.2.10", pin, panelCAPEM(t)); err == nil || !strings.Contains(err.Error(), "127.0.0.1") {
+		t.Fatalf("got %v", err)
+	}
+	if countKind(mgr.raft.GetFSM().GetState(), KindAgent) != 0 {
+		t.Fatal("the agent was registered")
+	}
+	if _, err := mgr.tokens.Peek(tok.Token); err != nil {
+		t.Fatalf("the token was spent: %v", err)
+	}
+}
+
 // A manager from before agents has no RegisterAgent: the operator is told to
 // upgrade the managers, not shown a bare gRPC code.
 func TestAgentJoinToAManagerFromBeforeAgents(t *testing.T) {
@@ -523,7 +579,7 @@ func TestAgentRefusalMessage(t *testing.T) {
 		ErrTokenKind.Error():         "this is a manager token",
 		ErrNotLeader.Error():         "knows no leader yet",
 		ErrMaxAgentsReached.Error():  "cluster.max_agents",
-		ErrNodeIdentityTaken.Error(): `registers as "agent-host" at 192.0.2.10`,
+		ErrNodeIdentityTaken.Error(): `registers as "agent-host" at 192.0.2.10: pass --name with a name no other node has`,
 	} {
 		if got := agentRefusalMessage(errStr, "agent-host", "192.0.2.10"); !strings.HasPrefix(got, errStr+" — ") || !strings.Contains(got, advice) {
 			t.Errorf("%q: %q", errStr, got)
