@@ -736,7 +736,7 @@ SQLite (WAL 모드, busy_timeout 5000ms, `SetMaxOpenConns(4)`, 추가 프래그�
 | PUT | `/api/v1/fail2ban/jails/:name/config` | Fail2ban jail 설정 변경 |
 | POST | `/api/v1/fail2ban/jails/:name/unban` | Fail2ban IP 차단 해제 |
 
-### Docker 전용 (Docker 사용 가능 시에만 등록)
+### Docker 전용 (Docker 소켓이 없으면 `503 DOCKER_UNAVAILABLE`)
 
 | 메서드 | 경로 | 설명 |
 |--------|------|------|
@@ -961,7 +961,7 @@ curl -fsSL https://raw.githubusercontent.com/svrforum/SFPanel/main/scripts/insta
 
 ## 아키텍처 특징
 
-- **Docker 비의존**: Docker가 없어도 패널 자체는 정상 동작 — Docker 소켓 불가 시 `/docker/*`·compose·`/ws/docker/*` 라우트 전체 미등록
+- **Docker 비의존**: Docker가 없어도 패널 자체는 정상 동작 — Docker 소켓이 없는 동안 `/docker/*`·compose·`/ws/docker/*` 라우트는 `503 DOCKER_UNAVAILABLE`로 답하고, 소켓이 생기면 재시작 없이 연결 (v0.78.9+)
 - **자동 마이그레이션**: 부팅 시 `schema_migrations` 추적 35단계 마이그레이션 적용 (멱등)
 - **health = readiness 프로브** (v0.52.0): `/api/v1/health`가 SQLite ping 실패 시 503 반환 — LB/모니터가 죽은 DB의 패널을 unhealthy로 인지
 - **백그라운드 수집**: 60초 간격 메트릭 히스토리 수집 (SQLite 저장, 24시간 롤링)

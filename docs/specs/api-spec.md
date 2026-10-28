@@ -84,7 +84,7 @@
 
 ### 조건부 라우트 등록
 
-- **Docker 라우트** (`/api/v1/docker/*` 26개): 서버 시작 시 Docker 소켓(`/var/run/docker.sock`) 접속에 성공해야만 등록됩니다. 실패 시 해당 경로는 404를 반환합니다. `/api/v1/packages/docker-status`로 현재 상태 확인 가능.
+- **Docker 라우트** (`/api/v1/docker/*`, `/ws/docker/*`): 모든 노드에 등록됩니다 (v0.78.9+). Docker 소켓(`docker.socket`, 기본 `/var/run/docker.sock`)이 없는 동안에는 `503 DOCKER_UNAVAILABLE`로 답하고, 소켓이 생기면(패키지 화면에서 Docker를 설치하는 등) 재시작 없이 연결합니다. 그 전에는 부팅 때 소켓에 접속하지 못하면 등록되지 않아 404였습니다. `/api/v1/packages/docker-status`로 현재 상태 확인 가능.
 
 ### 클러스터 프록시
 
@@ -1839,7 +1839,7 @@ data: [DONE]
 
 ## Docker API (`/api/v1/docker`)
 
-> Docker 소켓에 연결할 수 없는 경우 이 그룹의 모든 라우트가 등록되지 않습니다.
+> Docker 소켓이 없는 동안에는 이 그룹의 모든 라우트가 `503 DOCKER_UNAVAILABLE`로 답합니다 (v0.78.9+, 위 "조건부 라우트 등록").
 
 ### 컨테이너
 
@@ -4265,7 +4265,7 @@ Codex/Gemini가 쓰는 npm:
 실행 중인 컨테이너에서 사용하는 이미지의 업데이트 가능 여부 확인. Docker Hub의 최신 다이제스트와 로컬 다이제스트를 비교합니다.
 
 - **인증 필요**: 예
-- **Docker 사용 가능 시에만 등록**
+- **Docker**: 소켓이 없으면 `503 DOCKER_UNAVAILABLE`
 
 **Response (200):**
 ```json
@@ -4297,7 +4297,7 @@ Codex/Gemini가 쓰는 npm:
 Docker 네트워크 상세 정보 조회. 연결된 컨테이너 목록, 서브넷, 게이트웨이 정보 포함.
 
 - **인증 필요**: 예
-- **Docker 사용 가능 시에만 등록**
+- **Docker**: 소켓이 없으면 `503 DOCKER_UNAVAILABLE`
 
 **Path Parameters:**
 | 파라미터 | 설명 |
@@ -4350,7 +4350,7 @@ Docker 네트워크 상세 정보 조회. 연결된 컨테이너 목록, 서브�
 Compose 프로젝트 시작 (SSE 스트리밍). 배포 진행 상황을 실시간으로 전달합니다.
 
 - **인증 필요**: 예
-- **Docker 사용 가능 시에만 등록**
+- **Docker**: 소켓이 없으면 `503 DOCKER_UNAVAILABLE`
 - **응답 형식**: `text/event-stream` (표준 JSON 응답이 아님)
 - **배포 직전 재검사**: `/up`과 같은 검사가 적용되며, 거부되면 `phase`가 `"error"`인 이벤트로 해당 경로가 전달됩니다.
 
@@ -4376,7 +4376,7 @@ data: {"phase":"complete","line":"Deployment completed successfully"}
 Compose 설정 파일 검증 (`docker compose config`).
 
 - **인증 필요**: 예
-- **Docker 사용 가능 시에만 등록**
+- **Docker**: 소켓이 없으면 `503 DOCKER_UNAVAILABLE`
 
 **Path Parameters:**
 | 파라미터 | 설명 |
@@ -4413,7 +4413,7 @@ Compose 설정 파일 검증 (`docker compose config`).
 Compose 프로젝트의 서비스 이미지 업데이트 가능 여부 확인.
 
 - **인증 필요**: 예
-- **Docker 사용 가능 시에만 등록**
+- **Docker**: 소켓이 없으면 `503 DOCKER_UNAVAILABLE`
 
 **Path Parameters:**
 | 파라미터 | 설명 |
@@ -4430,7 +4430,7 @@ Compose 프로젝트의 서비스 이미지 업데이트 가능 여부 확인.
 Compose 스택 업데이트 (이미지 풀 + 컨테이너 재생성). 업데이트 전 현재 이미지 정보를 저장하여 롤백을 지원합니다.
 
 - **인증 필요**: 예
-- **Docker 사용 가능 시에만 등록**
+- **Docker**: 소켓이 없으면 `503 DOCKER_UNAVAILABLE`
 - **배포 직전 재검사**: 재생성 단계에서 `/up`과 같은 검사가 적용됩니다. 해석된 설정이 패널 자체 경로를 바인드하면 `COMPOSE_ERROR` (500)로 거부되고 이미지 풀만 끝난 상태로 남습니다.
 
 **Path Parameters:**
@@ -4456,7 +4456,7 @@ Compose 스택 업데이트 (이미지 풀 + 컨테이너 재생성). 업데이�
 Compose 스택 업데이트 (SSE 스트리밍). 풀 및 재생성 진행 상황을 실시간으로 전달합니다.
 
 - **인증 필요**: 예
-- **Docker 사용 가능 시에만 등록**
+- **Docker**: 소켓이 없으면 `503 DOCKER_UNAVAILABLE`
 - **응답 형식**: `text/event-stream` (표준 JSON 응답이 아님)
 - **배포 직전 재검사**: 재생성 단계에서 `/up`과 같은 검사가 적용되며, 거부되면 `phase`가 `"error"`인 이벤트로 전달됩니다.
 
@@ -4480,7 +4480,7 @@ data: {"phase":"complete","line":"Update completed successfully"}
 이전 이미지 버전으로 롤백. `update` 또는 `update-stream` 실행 시 저장된 이전 이미지 정보를 사용합니다.
 
 - **인증 필요**: 예
-- **Docker 사용 가능 시에만 등록**
+- **Docker**: 소켓이 없으면 `503 DOCKER_UNAVAILABLE`
 
 **Path Parameters:**
 | 파라미터 | 설명 |
@@ -4505,7 +4505,7 @@ data: {"phase":"complete","line":"Update completed successfully"}
 프로젝트에 롤백 데이터가 존재하는지 확인.
 
 - **인증 필요**: 예
-- **Docker 사용 가능 시에만 등록**
+- **Docker**: 소켓이 없으면 `503 DOCKER_UNAVAILABLE`
 
 **Path Parameters:**
 | 파라미터 | 설명 |
@@ -5696,7 +5696,7 @@ WireGuard 키페어 생성 (`wg genkey` + `wg pubkey`).
 
 - **인증**: 쿼리 파라미터 `token`
 - **URL 예시**: `ws://host:3628/ws/docker/containers/abc123/logs?token=<JWT>`
-- **Docker 사용 가능 시에만 등록**
+- **Docker**: 소켓이 없으면 업그레이드 전에 `503 DOCKER_UNAVAILABLE`
 
 **서버 -> 클라이언트 메시지:** 텍스트 메시지 (각 줄이 개별 메시지, 개행 포함)
 
@@ -5707,7 +5707,7 @@ WireGuard 키페어 생성 (`wg genkey` + `wg pubkey`).
 
 - **인증**: 쿼리 파라미터 `token`
 - **URL 예시**: `ws://host:3628/ws/docker/containers/abc123/exec?token=<JWT>`
-- **Docker 사용 가능 시에만 등록**
+- **Docker**: 소켓이 없으면 업그레이드 전에 `503 DOCKER_UNAVAILABLE`
 
 **클라이언트 -> 서버:**
 - 일반 텍스트: 쉘 stdin으로 전달
@@ -5760,7 +5760,7 @@ WireGuard 키페어 생성 (`wg genkey` + `wg pubkey`).
 
 ## 전체 엔드포인트 요약
 
-`internal/api/router.go` 기준 등록 라우트 총 320개 (REST/SSE 312 + WebSocket 8, v0.78.0). 이 외에 SSE 스트리밍 엔드포인트는 REST 숫자에 포함됩니다. Docker 소켓 미사용 시 `/api/v1/docker/*` 라우트는 미등록. 실제 등록 라우트는 서버 시작 로그 또는 `internal/api/router.go`에서 확인.
+`internal/api/router.go` 기준 등록 라우트 총 320개 (REST/SSE 312 + WebSocket 8, v0.78.0). 이 외에 SSE 스트리밍 엔드포인트는 REST 숫자에 포함됩니다. Docker 소켓이 없으면 `/api/v1/docker/*` 라우트는 `503 DOCKER_UNAVAILABLE`로 답합니다 (v0.78.9 전에는 등록되지 않았음). 실제 등록 라우트는 서버 시작 로그 또는 `internal/api/router.go`에서 확인.
 
 인증 열의 `내부`는 운영자의 세션이 아니라 노드 간 서명(`X-SFPanel-Internal-Proxy-V2`)이 있는 요청만 받는 라우트입니다.
 
