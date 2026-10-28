@@ -1,12 +1,21 @@
 package compose
 
 import (
+	"bytes"
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
+	"net/http"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/labstack/echo/v4"
+	"github.com/svrforum/SFPanel/internal/api/response"
+	"github.com/svrforum/SFPanel/internal/auth"
+	"github.com/svrforum/SFPanel/internal/docker"
 )
 
 // A risky stack from an agent needs the operator's acknowledgement on the
@@ -42,6 +51,98 @@ func TestAnAgentsAbsoluteBindIsRefused(t *testing.T) {
 	_, _, _, err := restoreData(context.Background(), m, staged, root, t.TempDir(), importPolicy{AgentSource: true})
 	if err == nil || !strings.Contains(err.Error(), "/srv/data") {
 		t.Fatalf("got %v", err)
+	}
+}
+
+// diskComposeDockerScript is docker for an import that runs to `up`:
+// `compose -f <file> config` prints that file as it stands on disk, which is
+// what the resolver reads, and `up` fails, there being no daemon in a test.
+// Every call is logged, so a test sees whether the import reached `up`.
+const diskComposeDockerScript = `#!/bin/sh
+echo "$*" >> "$FAKE_DOCKER_LOG"
+case "$*" in
+  *" up -d") echo "no daemon in a test" >&2; exit 1 ;;
+  "compose -f "*" config") cat "$3" ;;
+esac
+exit 0
+`
+
+// An agent's in-stack binds are restored after its compose file was checked,
+// and a bind may name a file in the stack's directory: one at
+// docker-compose.yml replaced the checked compose, and one at a compose file
+// name the panel reads first went up in place of the file the bundle named.
+// `up` checks the forbidden tier only, so the agent's docker.sock bind reached
+// the target although the operator had acknowledged nothing.
+func TestAnAgentsBindCannotReplaceTheComposeItsCheckPassed(t *testing.T) {
+	benign := "services:\n  web:\n    image: nginx:fake\n"
+	risky := "services:\n  web:\n    image: nginx:fake\n    volumes:\n      - /var/run/docker.sock:/var/run/docker.sock\n"
+	for _, tc := range []struct{ name, composeFile string }{
+		{"over the compose file it named", "docker-compose.yml"},
+		{"beside it, under a name read first", "compose.yaml"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			bin := t.TempDir()
+			logPath := filepath.Join(t.TempDir(), "docker.log")
+			if err := os.WriteFile(filepath.Join(bin, "docker"), []byte(diskComposeDockerScript), 0o755); err != nil {
+				t.Fatal(err)
+			}
+			t.Setenv("PATH", bin+":"+os.Getenv("PATH"))
+			t.Setenv("FAKE_DOCKER_LOG", logPath)
+			auth.SetClusterProxySecret("test-secret")
+			defer auth.SetClusterProxySecret("")
+
+			// The bind's archive holds one file, docker-compose.yml, as an
+			// in-stack bind of that name is packaged.
+			bindData, err := os.ReadFile(imageArchiveOf(t, tarFile("docker-compose.yml", risky)))
+			if err != nil {
+				t.Fatal(err)
+			}
+			bindSum := sha256.Sum256(bindData)
+			m := MigrationManifest{SchemaVersion: 1, StackID: "demo", ComposeFile: tc.composeFile,
+				Binds: []MountSpec{{Host: "/opt/stacks/demo/docker-compose.yml", Kind: "in-stack", Rel: "docker-compose.yml",
+					Copy: true, Archive: "binds/b.tar", Sha256: hex.EncodeToString(bindSum[:])}}}
+			var buf bytes.Buffer
+			bw := NewBundleWriter(&buf)
+			if err := bw.WriteManifest(m); err != nil {
+				t.Fatal(err)
+			}
+			if err := bw.WriteFile("compose/"+tc.composeFile, []byte(benign), 0o600); err != nil {
+				t.Fatal(err)
+			}
+			if err := bw.WriteFile("binds/b.tar", bindData, 0o600); err != nil {
+				t.Fatal(err)
+			}
+			if err := bw.Close(); err != nil {
+				t.Fatal(err)
+			}
+			sum := sha256.Sum256(buf.Bytes())
+			hdr := http.Header{}
+			importPolicy{AgentSource: true}.setHeaders(hdr)
+			headers := map[string]string{
+				auth.InternalProxyHeaderV2: auth.SignProxyRequestV2(http.MethodPost, "/api/v1/docker/compose/migrate-import"),
+				migrationShaHeader:         hex.EncodeToString(sum[:]),
+			}
+			for k := range hdr {
+				headers[k] = hdr.Get(k)
+			}
+
+			stacks := t.TempDir()
+			h := &Handler{Compose: docker.NewComposeManager(stacks, nil), ComposePath: stacks}
+			c, rec := newImportCtx(echo.New(), buf.String(), headers)
+			if err := h.MigrateImport(c); err != nil {
+				t.Fatal(err)
+			}
+			if body := rec.Body.String(); rec.Code != http.StatusBadRequest ||
+				!strings.Contains(body, `"code":"`+response.ErrComposeRisky+`"`) || !strings.Contains(body, "docker.sock") {
+				t.Fatalf("%d %s, want 400 %s naming docker.sock\ndocker was asked:\n%s", rec.Code, body, response.ErrComposeRisky, readFile(t, logPath))
+			}
+			if log := readFile(t, logPath); strings.Contains(log, " up ") {
+				t.Fatalf("the agent's compose went up:\n%s", log)
+			}
+			if _, err := os.Stat(filepath.Join(stacks, "demo")); !os.IsNotExist(err) {
+				t.Fatalf("the refused stack stayed on the target: %v", err)
+			}
+		})
 	}
 }
 

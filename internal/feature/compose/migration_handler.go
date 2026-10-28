@@ -217,6 +217,17 @@ func (h *Handler) MigrateImport(c echo.Context) error {
 		}
 		return response.Fail(c, http.StatusInternalServerError, response.ErrComposeError, response.SanitizeOutput("restore data: "+derr.Error()))
 	}
+	// Check the stack again as `up` will read it. An in-stack bind restores
+	// into the stack's directory and may name a file there — the compose file,
+	// its .env, one an include reads, or a compose file name the panel reads
+	// before the bundle's — and `up` holds the forbidden tier only, so an
+	// agent's risky stack would go up without the operator's acknowledgement.
+	if resolved, rerr := h.Compose.GetResolvedConfigYAML(opCtx, m.StackID); rerr == nil {
+		if verr := checkImportCompose(resolved, policy); verr != nil {
+			h.failedImportData(m.StackID, backup, createdVols, prebaks)
+			return response.Fail(c, http.StatusBadRequest, importComposeCode(resolved), response.SanitizeOutput("resolved compose rejected: "+verr.Error()))
+		}
+	}
 	if _, err := h.Compose.Up(opCtx, m.StackID); err != nil {
 		h.failedImportData(m.StackID, backup, createdVols, prebaks)
 		return response.Fail(c, http.StatusInternalServerError, response.ErrComposeError, response.SanitizeOutput("up: "+err.Error()))
