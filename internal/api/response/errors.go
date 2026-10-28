@@ -444,6 +444,12 @@ const (
 	// ErrClusterAgentInsecure is returned (HTTP 502) when a relay to an agent
 	// would go over plain HTTP: its panel CA is not in replicated state.
 	ErrClusterAgentInsecure = "CLUSTER_AGENT_PANEL_INSECURE"
+	// ErrClusterConvertRefused is returned when a manager is not converted to
+	// an agent, nothing having changed: HTTP 409 for a gate the leader or the
+	// node refuses on (the leader itself, quorum, readiness, the name or
+	// address an agent would need), 502 when the node refused the request.
+	// The message names the reason.
+	ErrClusterConvertRefused = "CLUSTER_CONVERT_REFUSED"
 )
 
 // TLS error codes

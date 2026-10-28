@@ -3,11 +3,15 @@ package main
 import (
 	"context"
 	"net/http"
+	"net/http/httptest"
+	"net/url"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"slices"
+	"strconv"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -286,5 +290,33 @@ func TestSudoPrefix(t *testing.T) {
 	lookPath = func(string) (string, error) { return "/usr/bin/sudo", nil }
 	if got := sudoPrefix(); got != "sudo " {
 		t.Errorf("with sudo: prefix = %q, want %q", got, "sudo ")
+	}
+}
+
+// A conversion answers 202 — the node is on its way out of the cluster by
+// then — and callLocalAPI took every status but 200 for a failure, so
+// 'cluster convert' reported one that had started as failed.
+func TestCallLocalAPITakesEverySuccess(t *testing.T) {
+	var status atomic.Int32
+	panel := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(int(status.Load()))
+		_, _ = w.Write([]byte(`{"success":true,"data":{"message":"m2 is leaving the cluster"}}`))
+	}))
+	t.Cleanup(panel.Close)
+	u, err := url.Parse(panel.URL)
+	if err != nil {
+		t.Fatal(err)
+	}
+	cfg := &config.Config{}
+	cfg.Server.Port, _ = strconv.Atoi(u.Port())
+	cfg.Auth.JWTSecret = strings.Repeat("j", 64)
+	status.Store(http.StatusAccepted)
+	if raw, err := callLocalAPI(cfg, http.MethodPost, "/api/v1/cluster/nodes/m2/convert", nil); err != nil || !strings.Contains(string(raw), "m2 is leaving") {
+		t.Fatalf("202: %s %v", raw, err)
+	}
+	status.Store(http.StatusConflict)
+	if _, err := callLocalAPI(cfg, http.MethodPost, "/api/v1/cluster/nodes/m2/convert", nil); err == nil || !strings.Contains(err.Error(), "409") {
+		t.Fatalf("409: %v", err)
 	}
 }

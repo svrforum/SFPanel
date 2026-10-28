@@ -114,6 +114,8 @@ var expectedManagerOnlyRoutes = func() []string {
 		"POST /api/v1/cluster/disband",
 		"GET /api/v1/cluster/interfaces",
 		"POST /api/v1/cluster/update",
+		"POST /api/v1/cluster/nodes/:id/convert",
+		"POST /api/v1/cluster/become-agent",
 
 		"GET /api/v1/docker/compose/cluster-stacks",
 		"POST /api/v1/docker/compose/:project/migrate/preflight",

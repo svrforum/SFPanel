@@ -25,6 +25,12 @@ func OK(c echo.Context, data interface{}) error {
 	return c.JSON(http.StatusOK, Response{Success: true, Data: data})
 }
 
+// Accepted answers 202 in OK's envelope: what the request started goes on
+// after the answer, which does not wait to say how it ended.
+func Accepted(c echo.Context, data interface{}) error {
+	return c.JSON(http.StatusAccepted, Response{Success: true, Data: data})
+}
+
 func Fail(c echo.Context, status int, code, message string) error {
 	return c.JSON(status, Response{
 		Success: false,

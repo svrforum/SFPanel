@@ -22,6 +22,7 @@ import (
 	"github.com/labstack/echo/v4"
 	"github.com/svrforum/SFPanel/internal/api/middleware"
 	"github.com/svrforum/SFPanel/internal/api/response"
+	"github.com/svrforum/SFPanel/internal/auth"
 	"github.com/svrforum/SFPanel/internal/cluster"
 	pb "github.com/svrforum/SFPanel/internal/cluster/proto"
 	"github.com/svrforum/SFPanel/internal/config"
@@ -93,6 +94,19 @@ type Handler struct {
 
 	// updateRunning admits one cluster update at a time. See ClusterUpdate.
 	updateRunning atomic.Bool
+
+	// convertMu admits one conversion at a time on this leader: two for one
+	// node would each record its intent, and the one the node refused would
+	// take the other's record away. See ConvertNode.
+	convertMu sync.Mutex
+	// callNode sends a request to another node's panel; nil is the manager's
+	// ProxyToNode. Tests replace it.
+	callNode func(ctx context.Context, nodeID, method, path string, body []byte, username string) (int, []byte, error)
+	// becoming is the token of this node's own conversion to an agent once it
+	// has begun, guarded by becomeMu; never cleared, for the process exits
+	// after it. See BecomeAgent.
+	becomeMu sync.Mutex
+	becoming string
 }
 
 func (h *Handler) getManager() *cluster.Manager {
@@ -1380,6 +1394,224 @@ func agentNames(mgr *cluster.Manager) []string {
 	}
 	sort.Strings(names)
 	return names
+}
+
+// becomeAgentRequest is what the leader sends a manager it converts to an
+// agent (BecomeAgent): a token made for that node alone, the cluster CA's
+// fingerprint and the leader's gRPC address, which the node registers with.
+type becomeAgentRequest struct {
+	Token   string `json:"token"`
+	CAPin   string `json:"ca_pin"`
+	Manager string `json:"manager"`
+}
+
+// becomeAgentPath is the node's half of a conversion, which ConvertNode calls.
+const becomeAgentPath = "/api/v1/cluster/become-agent"
+
+// ConvertNode (POST /cluster/nodes/:id/convert) turns a manager into an agent
+// under its own ID, keeping its name and labels. The leader runs every gate,
+// makes a token bound to the node and records what the node is known by
+// (PrepareAgentConversion), then asks the node to go (BecomeAgent). The node
+// answers before it leaves, so 202 says the conversion has begun; it is over
+// when the node registers again as an agent.
+func (h *Handler) ConvertNode(c echo.Context) error {
+	mgr := h.getManager()
+	if mgr == nil {
+		return response.Fail(c, http.StatusBadRequest, response.ErrInvalidRequest, "Cluster not configured")
+	}
+	// The leader holds the tokens and hears every manager's heartbeat.
+	if handled, err := middleware.ProxyToLeader(c, mgr); handled {
+		return err
+	}
+	id := c.Param("id")
+	if id == "" {
+		return response.Fail(c, http.StatusBadRequest, response.ErrInvalidRequest, "Node ID required")
+	}
+	if !h.convertMu.TryLock() {
+		return response.Fail(c, http.StatusConflict, response.ErrClusterConvertRefused, "Another conversion is being started on this leader; try again once it has been answered")
+	}
+	defer h.convertMu.Unlock()
+
+	// What the node comes back to, settled before anything is made for it.
+	caKey, err := mgr.CAPublicKey()
+	if err != nil {
+		return response.Fail(c, http.StatusInternalServerError, response.ErrInternalError, "cluster CA unavailable")
+	}
+	self := mgr.GetNode(mgr.LocalNodeID())
+	if self == nil || self.GRPCAddress == "" {
+		return response.Fail(c, http.StatusInternalServerError, response.ErrInternalError, "this leader's own record is missing its gRPC address")
+	}
+	tok, err := mgr.PrepareAgentConversion(id)
+	if err != nil {
+		switch {
+		case errors.Is(err, cluster.ErrConvertRefused):
+			return response.Fail(c, http.StatusConflict, response.ErrClusterConvertRefused, err.Error())
+		default:
+			return clusterErrResponse(c, err)
+		}
+	}
+	name := id
+	if n := mgr.GetNode(id); n != nil && n.Name != "" {
+		name = n.Name
+	}
+	body, err := json.Marshal(becomeAgentRequest{Token: tok.Token, CAPin: cluster.CAPin(caKey), Manager: self.GRPCAddress})
+	if err != nil {
+		_ = mgr.AbandonAgentConversion(id, tok)
+		return response.Fail(c, http.StatusInternalServerError, response.ErrInternalError, err.Error())
+	}
+	call := h.callNode
+	if call == nil {
+		call = mgr.ProxyToNode
+	}
+	username, _ := c.Get("username").(string)
+	// The token is made: the call is not cut short by a caller that left.
+	ctx, cancel := context.WithTimeout(context.WithoutCancel(c.Request().Context()), 30*time.Second)
+	defer cancel()
+	status, answer, err := call(ctx, id, http.MethodPost, becomeAgentPath, body, username)
+	if err != nil {
+		// No answer: the node may have taken the request and be on its way
+		// out — the answer goes back on the connection its leave makes this
+		// leader drop — and it registers with the token. Taking the token
+		// back would strand it; kept, it admits that node alone.
+		slog.Warn("a node did not answer its conversion to an agent; its token is kept", "component", "cluster", "node_id", id, "error", err)
+		return response.Fail(c, http.StatusBadGateway, response.ErrInternalError, fmt.Sprintf(
+			"%s did not answer (%s): it may be leaving the cluster to join it again as an agent — look for it in the node list in a minute, and if it is still a manager there, convert it again", name, response.SanitizeOutput(err.Error())))
+	}
+	var reply struct {
+		Data struct {
+			Warning string `json:"warning"`
+		} `json:"data"`
+		Error struct {
+			Message string `json:"message"`
+		} `json:"error"`
+		Message string `json:"message"` // Echo's own answers, a 404 among them
+	}
+	_ = json.Unmarshal(answer, &reply)
+	if status != http.StatusAccepted {
+		// The node refused before it changed anything: what was made for it
+		// goes again.
+		if aerr := mgr.AbandonAgentConversion(id, tok); aerr != nil {
+			slog.Warn("a refused conversion was not taken back", "component", "cluster", "node_id", id, "error", aerr)
+		}
+		why := reply.Error.Message
+		if why == "" {
+			why = reply.Message
+		}
+		if why == "" {
+			why = strings.TrimSpace(string(answer))
+		}
+		return response.Fail(c, http.StatusBadGateway, response.ErrClusterConvertRefused, fmt.Sprintf(
+			"%s refused the conversion (HTTP %d): %s", name, status, response.SanitizeOutput(why)))
+	}
+	slog.Info("conversion to an agent started", "component", "cluster", "node_id", id, "name", name)
+	msg := name + " is leaving the cluster and joining it again as an agent"
+	if reply.Data.Warning != "" {
+		msg += ". Warning: " + reply.Data.Warning
+	}
+	return response.Accepted(c, map[string]string{"message": msg, "node_id": id})
+}
+
+// convertToAgent runs this node's conversion once BecomeAgent has answered;
+// tests replace it.
+var convertToAgent = cluster.ConvertToAgent
+
+// BecomeAgent (POST /cluster/become-agent) is a manager's half of its
+// conversion to an agent, which the leader asks for once its gates have
+// passed (ConvertNode), with a becomeAgentRequest. While a refusal still
+// changes nothing it checks what the agent it becomes will need — the address
+// the cluster has for it, its panel's HTTPS — then answers 202, and only then
+// leaves the cluster, removes what a manager keeps, registers under its own
+// ID and restarts (cluster.ConvertToAgent).
+func (h *Handler) BecomeAgent(c echo.Context) error {
+	// The leader's call reaches here signed by this node's own loopback hop;
+	// an operator's session asks for a conversion on the leader instead,
+	// which runs its gates first.
+	if !auth.IsInternalProxyRequest(c.Request()) {
+		return response.Fail(c, http.StatusForbidden, response.ErrPermissionDenied, "A conversion is started on the leader: POST /api/v1/cluster/nodes/<node-id>/convert")
+	}
+	mgr := h.getManager()
+	if mgr == nil {
+		return response.Fail(c, http.StatusBadRequest, response.ErrInvalidRequest, "Cluster not configured")
+	}
+	if h.ConfigPath == "" {
+		return response.Fail(c, http.StatusInternalServerError, response.ErrInternalError, "Config path not available")
+	}
+	var body becomeAgentRequest
+	if err := c.Bind(&body); err != nil || body.Token == "" || body.Manager == "" {
+		return response.Fail(c, http.StatusBadRequest, response.ErrInvalidRequest, "token, ca_pin and manager are required")
+	}
+	pin, err := cluster.NormalizeCAPin(body.CAPin)
+	if err != nil {
+		return response.Fail(c, http.StatusBadRequest, response.ErrInvalidRequest, err.Error())
+	}
+	// Leadership may have moved here since the leader ran its gates, which
+	// counted another leader; a leader's leave would hand it on first.
+	if mgr.IsLeader() {
+		return response.Fail(c, http.StatusConflict, response.ErrClusterConvertRefused, cluster.ErrConvertLeader.Error())
+	}
+
+	h.becomeMu.Lock()
+	defer h.becomeMu.Unlock()
+	switch {
+	case h.becoming == body.Token:
+		// The leader's call is retried once on any error, and the first may
+		// have arrived: it is under way.
+		return response.Accepted(c, map[string]string{"message": "This node's conversion to an agent is under way"})
+	case h.becoming != "":
+		return response.Fail(c, http.StatusConflict, response.ErrClusterConvertRefused, "Another conversion of this node to an agent is under way")
+	}
+
+	// Once it has left, a node that cannot be an agent could only end
+	// standalone. The agent registers at the address the cluster has for this
+	// node — its token is bound to that IP — and listens there itself.
+	h.configMu.Lock()
+	next := *h.Config
+	h.configMu.Unlock()
+	advertise := next.Cluster.AdvertiseAddress
+	if self := mgr.GetNode(mgr.LocalNodeID()); self != nil {
+		if host, _, err := net.SplitHostPort(self.GRPCAddress); err == nil {
+			advertise = host
+		}
+	}
+	if ip := net.ParseIP(advertise); ip == nil {
+		return response.Fail(c, http.StatusBadRequest, response.ErrInvalidRequest, fmt.Sprintf("The cluster has this node at %q, which is not an IP address an agent can register at", advertise))
+	}
+	ln, err := net.Listen("tcp", net.JoinHostPort(advertise, "0"))
+	if err != nil {
+		return response.Fail(c, http.StatusBadRequest, response.ErrInvalidRequest, fmt.Sprintf(
+			"The cluster has this node at %s, which is not an address of this server: an agent listens at the address it registers at; correct it with PATCH /api/v1/cluster/nodes/<node-id>/address first", advertise))
+	}
+	_ = ln.Close()
+	panelCA, _, err := paneltls.PrepareForAgent(&next)
+	if err != nil {
+		return response.Fail(c, http.StatusBadRequest, response.ErrInvalidRequest, response.SanitizeOutput(err.Error()))
+	}
+	check := paneltls.CertCheck(&next)
+	if err := check(advertise); err != nil {
+		return response.Fail(c, http.StatusBadRequest, response.ErrInvalidRequest, response.SanitizeOutput(err.Error()))
+	}
+
+	answer := map[string]string{"message": "This node is leaving the cluster to join it again as an agent"}
+	// Kept: they are the operator's. The leader passes this on. Read before
+	// the conversion starts, which writes the config it reads.
+	if dir := cluster.ManagerBackups(&next); dir != "" {
+		answer["warning"] = fmt.Sprintf("the backups in %s were taken while this node was a manager and hold the cluster's secrets until they are rotated", dir)
+	}
+
+	h.becoming = body.Token
+	req := cluster.ConvertRequest{Token: body.Token, Pin: pin, Manager: body.Manager, Advertise: advertise, PanelCA: panelCA, CheckPanelCert: check}
+	exit, convert := exitProcess, convertToAgent
+	go func() {
+		if err := convert(mgr, &next, h.ConfigPath, h.DB, h.Version, req); err != nil {
+			slog.Error("the conversion to an agent failed", "component", "cluster", "node_id", mgr.LocalNodeID(), "error", err)
+		}
+		// Restart to come up in the new role (CLAUDE.md: Restart=always
+		// starts it again): the router serves one role per boot. After a
+		// failure too — the node is then a standalone panel, or its Raft has
+		// stopped and it comes back as the manager it was.
+		exit(1)
+	}()
+	return response.Accepted(c, answer)
 }
 
 func (h *Handler) ClusterUpdate(c echo.Context) error {

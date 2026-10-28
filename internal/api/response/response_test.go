@@ -60,3 +60,22 @@ func TestRepoWarningsNameEachRepository(t *testing.T) {
 		t.Error("nothing failed, yet there are warnings")
 	}
 }
+
+// A request that starts what its answer does not wait for — a node leaving the
+// cluster to come back as an agent — is answered 202, in OK's envelope.
+func TestAcceptedAnswersInOKsEnvelope(t *testing.T) {
+	rec := httptest.NewRecorder()
+	if err := Accepted(echo.New().NewContext(httptest.NewRequest(http.MethodPost, "/", nil), rec), map[string]string{"message": "leaving"}); err != nil {
+		t.Fatal(err)
+	}
+	var body struct {
+		Success bool              `json:"success"`
+		Data    map[string]string `json:"data"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &body); err != nil {
+		t.Fatal(err)
+	}
+	if rec.Code != http.StatusAccepted || !body.Success || body.Data["message"] != "leaving" {
+		t.Fatalf("got %d %+v", rec.Code, body)
+	}
+}

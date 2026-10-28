@@ -14,6 +14,14 @@ import (
 // cluster at addr — Raft, gRPC and heartbeats included.
 func joinedManager(t *testing.T, addr, token, pin string) *Manager {
 	t.Helper()
+	return joinedManagerAt(t, addr, token, pin, "127.0.0.1")
+}
+
+// joinedManagerAt is joinedManager with the manager at ip, a loopback
+// address: Linux answers on all of 127.0.0.0/8, so a second one keeps it
+// apart from the leader where a cluster holds each address once.
+func joinedManagerAt(t *testing.T, addr, token, pin, ip string) *Manager {
+	t.Helper()
 	dir := t.TempDir()
 	cfg := &config.Config{}
 	cfg.Server.Port = 1
@@ -30,7 +38,7 @@ func joinedManager(t *testing.T, addr, token, pin string) *Manager {
 		if err != nil {
 			return nil, err
 		}
-		if err := gs.Start(fmt.Sprintf("127.0.0.1:%d", c.Cluster.GRPCPort)); err != nil {
+		if err := gs.Start(fmt.Sprintf("%s:%d", ip, c.Cluster.GRPCPort)); err != nil {
 			return nil, err
 		}
 		go func() { <-m.GetHeartbeat().Done(); gs.Stop() }()
@@ -38,7 +46,7 @@ func joinedManager(t *testing.T, addr, token, pin string) *Manager {
 		mgr = m
 		return m, nil
 	}}
-	if _, err := e.Execute(addr, token, "127.0.0.1", pin); err != nil {
+	if _, err := e.Execute(addr, token, ip, pin); err != nil {
 		t.Fatal(err)
 	}
 	t.Cleanup(mgr.Shutdown)

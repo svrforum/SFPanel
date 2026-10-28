@@ -1,10 +1,7 @@
 package main
 
 import (
-	"crypto/tls"
-	"crypto/x509"
 	"encoding/json"
-	"encoding/pem"
 	"errors"
 	"fmt"
 	"io"
@@ -137,15 +134,10 @@ func agentJoin(args []string) {
 	if err != nil {
 		log.Fatalf("Failed to load config: %v", err)
 	}
-	if err := readyForAgentJoin(cfg); err != nil {
-		log.Fatal(err)
-	}
-	panelCA, tlsTurnedOn, err := preparePanelTLSForAgent(cfg)
+	engine, panelCA, tlsTurnedOn, err := prepareAgentJoin(cfg, a)
 	if err != nil {
 		log.Fatal(err)
 	}
-
-	engine := &cluster.AgentJoinEngine{Config: cfg, ConfigPath: a.ConfigPath, Version: version, Name: a.Name, CheckPanelCert: panelCertCheck(cfg)}
 	fmt.Printf("Joining the cluster at %s as an agent...\n", a.Manager)
 	res, err := engine.Execute(a.Manager, a.Token, a.Advertise, a.Pin, panelCA)
 	if err != nil {
@@ -176,6 +168,23 @@ func agentJoin(args []string) {
 	}
 }
 
+// prepareAgentJoin readies this server for `agent join` and returns the
+// engine that runs it, with the CA behind the panel's certificate and whether
+// the panel's TLS was turned on: a server in a cluster, or one with a
+// manager's files, is refused first, and the panel's HTTPS is paneltls's to
+// prepare and to check, as it is for a manager's conversion to an agent.
+func prepareAgentJoin(cfg *config.Config, a agentJoinArgs) (*cluster.AgentJoinEngine, []byte, bool, error) {
+	if err := readyForAgentJoin(cfg); err != nil {
+		return nil, nil, false, err
+	}
+	panelCA, tlsTurnedOn, err := paneltls.PrepareForAgent(cfg)
+	if err != nil {
+		return nil, nil, false, err
+	}
+	engine := &cluster.AgentJoinEngine{Config: cfg, ConfigPath: a.ConfigPath, Version: version, Name: a.Name, CheckPanelCert: paneltls.CertCheck(cfg)}
+	return engine, panelCA, tlsTurnedOn, nil
+}
+
 // readyForAgentJoin refuses a join on a server in a cluster already — an
 // agent config boots as an agent whatever cluster.enabled says (main) — or on
 // one that still holds a cluster manager's files, and removes the state an
@@ -192,18 +201,7 @@ func readyForAgentJoin(cfg *config.Config) error {
 	// A cluster manager's files hold the cluster's keys — the CA key, every
 	// agent's key, the accounts — and an agent joined over them kept them.
 	var leftovers []string
-	for _, p := range []string{
-		filepath.Join(cfg.Cluster.CertDir, "ca.key"),
-		filepath.Join(cfg.Cluster.DataDir, "raft-log.db"),
-		filepath.Join(cfg.Cluster.DataDir, "raft-stable.db"),
-		filepath.Join(cfg.Cluster.DataDir, "snapshots"),
-		filepath.Join(cfg.Cluster.DataDir, "tokens.json"),
-		filepath.Join(cfg.Cluster.DataDir, "proxy-secret.json"),
-		filepath.Join(cfg.Cluster.DataDir, "peers.json"),
-	} {
-		if dirOf := filepath.Dir(p); dirOf == "." || dirOf == "" {
-			continue // cert_dir or data_dir unset
-		}
+	for _, p := range cluster.ManagerFiles(&cfg.Cluster) {
 		if _, err := os.Lstat(p); err == nil {
 			leftovers = append(leftovers, p)
 		}
@@ -219,98 +217,6 @@ func readyForAgentJoin(cfg *config.Config) error {
 		return fmt.Errorf("remove %s, the state of an earlier membership: %w", path, err)
 	}
 	return nil
-}
-
-// preparePanelTLSForAgent readies the HTTPS an agent's panel must serve — its
-// managers relay to it over HTTPS only, and trust the CA the registration
-// carries — and returns that CA. TLS that is off is turned on, managed
-// (changed reports it). An operator's certificate needs ca_file, the CA its
-// managers will trust, and a pair the panel could not start with is refused
-// here: the agent would register, then fail every boot.
-func preparePanelTLSForAgent(cfg *config.Config) (caPEM []byte, changed bool, err error) {
-	t := cfg.Server.TLS
-	changed = !t.Enabled
-	t.Enabled = true
-	if t.Managed() {
-		if _, err := paneltls.New(t.Dir).Ensure(); err != nil {
-			return nil, false, fmt.Errorf("prepare the panel's HTTPS certificate: %w", err)
-		}
-	} else {
-		if t.CAFile == "" {
-			return nil, false, errors.New("an agent's panel must serve HTTPS that managers can verify: set server.tls.ca_file to the CA of your certificate")
-		}
-		for _, f := range []struct{ label, path string }{{"server.tls.cert_file", t.CertFile}, {"server.tls.key_file", t.KeyFile}} {
-			if _, err := os.Stat(f.path); err != nil {
-				return nil, false, fmt.Errorf("%s: %w", f.label, err)
-			}
-		}
-		if _, err := tls.LoadX509KeyPair(t.CertFile, t.KeyFile); err != nil {
-			return nil, false, fmt.Errorf("server.tls.cert_file and key_file do not load as a pair: %w", err)
-		}
-	}
-	// The CA the agent's link reports at every boot, read the same way.
-	next := *cfg
-	next.Server.TLS = t
-	caPEM, err = panelCAReader(&next)()
-	if err != nil {
-		return nil, false, fmt.Errorf("read the panel's CA: %w", err)
-	}
-	cfg.Server.TLS = t
-	return caPEM, changed, nil
-}
-
-// panelCertCheck refuses a panel certificate the agent could not be reached
-// with: its managers dial it at the advertise IP and its own gRPC hop at
-// 127.0.0.1, both verifying against the CA the registration reports. One for
-// other names registered the agent, spent the token and failed every request.
-func panelCertCheck(cfg *config.Config) func(advertise string) error {
-	return func(advertise string) error {
-		t := cfg.Server.TLS
-		certPath, caPath := t.CertFile, t.CAFile
-		if t.Managed() {
-			m := paneltls.New(t.Dir)
-			certPath, caPath = m.ServerCertPath(), m.CACertPath()
-		}
-		certPEM, err := os.ReadFile(certPath)
-		if err != nil {
-			return fmt.Errorf("read the panel's certificate: %w", err)
-		}
-		var leaf *x509.Certificate
-		inter := x509.NewCertPool()
-		for rest := certPEM; ; {
-			var block *pem.Block
-			block, rest = pem.Decode(rest)
-			if block == nil {
-				break
-			}
-			c, err := x509.ParseCertificate(block.Bytes)
-			if err != nil {
-				return fmt.Errorf("parse the panel's certificate: %w", err)
-			}
-			if leaf == nil {
-				leaf = c
-			} else {
-				inter.AddCert(c)
-			}
-		}
-		if leaf == nil {
-			return fmt.Errorf("%s holds no certificate", certPath)
-		}
-		caPEM, err := os.ReadFile(caPath)
-		if err != nil {
-			return fmt.Errorf("read the panel's CA: %w", err)
-		}
-		roots := x509.NewCertPool()
-		if !roots.AppendCertsFromPEM(caPEM) {
-			return fmt.Errorf("%s holds no certificate", caPath)
-		}
-		for _, host := range []string{"127.0.0.1", advertise} {
-			if _, err := leaf.Verify(x509.VerifyOptions{Roots: roots, Intermediates: inter, DNSName: host}); err != nil {
-				return fmt.Errorf("the panel's certificate %s does not verify for %s against %s: %w — the agent could not be reached with it; issue one that names 127.0.0.1 and %s", certPath, host, caPath, err, advertise)
-			}
-		}
-		return nil
-	}
 }
 
 // runSystemctl runs systemctl; tests replace it.

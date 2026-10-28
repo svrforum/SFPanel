@@ -130,7 +130,8 @@ func callLocalAPI(cfg *config.Config, method, path string, body interface{}) ([]
 	if err != nil {
 		return nil, fmt.Errorf("read response: %w", err)
 	}
-	if resp.StatusCode != http.StatusOK {
+	// Any success: a conversion answers 202, the node on its way out by then.
+	if resp.StatusCode/100 != 2 {
 		return nil, fmt.Errorf("server returned %s: %s", resp.Status, string(raw))
 	}
 	return raw, nil
@@ -164,6 +165,8 @@ func clusterCommand(args []string) {
 		clusterToken(args[1:])
 	case "remove":
 		clusterRemove(args[1:])
+	case "convert":
+		clusterConvert(args[1:])
 	case "reissue-cert":
 		clusterReissueCert(args[1:])
 	case "list":
@@ -889,6 +892,31 @@ func clusterRemove(args []string) {
 	fmt.Printf("Node %s removed from cluster.\n", nodeID)
 }
 
+// clusterConvert turns a manager into an agent under its own ID, through the
+// running panel: the leader checks every gate and the node goes on its own,
+// so there is nothing to run offline.
+func clusterConvert(args []string) {
+	cfgPath, rest := parseCfgFlag(args)
+	if len(rest) != 1 {
+		fmt.Println("Usage: sfpanel cluster convert <node-id> [--config PATH]")
+		os.Exit(1)
+	}
+	nodeID := rest[0]
+
+	cfg := loadCfgForCLI(cfgPath)
+	if !cfg.Cluster.Enabled {
+		log.Fatal("Cluster not initialized.")
+	}
+	if !isServerRunning(cfg.Server.Port) {
+		log.Fatal("Local sfpanel server is not running — a conversion runs on the live cluster.")
+	}
+	raw, err := callLocalAPI(cfg, http.MethodPost, "/api/v1/cluster/nodes/"+nodeID+"/convert", nil)
+	if err != nil {
+		log.Fatalf("Convert failed: %v", err)
+	}
+	fmt.Println(string(raw))
+}
+
 func saveConfig(path string, cfg *config.Config) error {
 	data, err := yaml.Marshal(cfg)
 	if err != nil {
@@ -909,6 +937,7 @@ func printClusterHelp() {
 	fmt.Println("  sfpanel cluster list                      List all cluster members with role + health")
 	fmt.Println("  sfpanel cluster leader-transfer NODE_ID   Hand off leadership to NODE_ID (for graceful drains)")
 	fmt.Println("  sfpanel cluster remove NODE_ID            Remove a node")
+	fmt.Println("  sfpanel cluster convert NODE_ID           Turn a manager into an agent, keeping its ID and labels")
 	fmt.Println("  sfpanel cluster leave                     Leave the cluster")
 	fmt.Println("  sfpanel cluster reissue-cert              Re-issue this node's cluster cert (hot reload)")
 	fmt.Println()

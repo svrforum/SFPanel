@@ -43,4 +43,12 @@ var (
 	// (CreateBoundJoinToken) and this is another node or another address,
 	// or a token made for no node asked for a node ID.
 	ErrTokenBinding = errors.New("this join token was not made for this node at this address")
+	// ErrConvertRefused is wrapped by every gate a conversion to an agent
+	// refuses on (ReadyForAgentConversion): nothing has changed, and the
+	// reason after it says what stands in the way.
+	ErrConvertRefused = errors.New("the conversion to an agent was refused")
+	// ErrConvertLeader: the leader runs the conversion, and the managers
+	// left keep their quorum through it.
+	ErrConvertLeader     = errors.New("the leader cannot be converted: hand its leadership to another manager first ('sfpanel cluster leader-transfer <node-id>')")
+	ErrConvertNotManager = errors.New("only a manager is converted: this node is an agent already")
 )

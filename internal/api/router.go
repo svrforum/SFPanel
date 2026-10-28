@@ -384,6 +384,11 @@ func NewRouter(database *sql.DB, auditWriter *sfdb.AsyncWriter, alertManager *fe
 		clusterGroup.GET("/tokens", clusterHandler.ListTokens)
 		clusterGroup.DELETE("/tokens/:id", clusterHandler.RevokeToken)
 		clusterGroup.DELETE("/nodes/:id", clusterHandler.RemoveNode)
+		// A manager becomes an agent under its own ID: the leader's gates and
+		// token (convert), then the node's own half, which only the leader's
+		// signed call reaches (become-agent).
+		clusterGroup.POST("/nodes/:id/convert", clusterHandler.ConvertNode)
+		clusterGroup.POST("/become-agent", clusterHandler.BecomeAgent)
 		clusterGroup.PATCH("/nodes/:id/labels", clusterHandler.UpdateNodeLabels)
 		clusterGroup.PUT("/name", clusterHandler.RenameCluster)
 		clusterGroup.PATCH("/nodes/:id/address", clusterHandler.UpdateNodeAddress)
