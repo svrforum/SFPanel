@@ -97,6 +97,22 @@ func updateOne(env updateEnv, n updateNode, body []byte, target string, emit fun
 		return errors.New(msg)
 	}
 	if upToDate(resp) {
+		// A node from before pinned releases looks the release up itself,
+		// and right after one is published that can still name the version
+		// it runs: the answer is believed only from a node on the target.
+		if !sameVersion(n.Version, target) {
+			vctx, vcancel := context.WithTimeout(context.Background(), 10*time.Second)
+			v, verr := env.Version(vctx, n.ID)
+			vcancel()
+			if verr != nil || !sameVersion(v, target) {
+				msg := fmt.Sprintf("answered up to date but runs v%s: it does not take the release this update pins; update it locally (SSH + install.sh)", strings.TrimPrefix(v, "v"))
+				if verr != nil {
+					msg = "answered up to date, and its version could not be read: " + verr.Error()
+				}
+				say("error", "Update failed: "+msg)
+				return errors.New(msg)
+			}
+		}
 		say("online", "Already up to date")
 		return nil
 	}

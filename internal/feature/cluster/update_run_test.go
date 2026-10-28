@@ -346,3 +346,37 @@ func TestFirstSSEError(t *testing.T) {
 		}
 	}
 }
+
+const upToDateAnswer = `{"success":true,"data":{"status":"up_to_date"}}`
+
+// A node from before pinned releases looks the release up itself, and right
+// after one is published that answer can still name the version it runs: it
+// answers "up to date". Counted as updated, the run ended complete with the
+// node still on its old version.
+func TestAnUpToDateAnswerFromANodeNotOnTheTargetFailed(t *testing.T) {
+	env := &fakeUpdateEnv{leaderFor: -1, trigger: map[string]string{"a1": upToDateAnswer}, versions: map[string]string{"a1": "0.80.0"}}
+	var ev events
+	runUpdatePlan(env, testPlan(), testRelease, "rolling", ev.emit)
+	if env.index("trigger:a3") >= 0 {
+		t.Fatalf("calls %v: the update went on", env.calls)
+	}
+	found := false
+	for _, e := range ev.all {
+		if e["node_id"] == "a1" && e["step"] == "error" && strings.Contains(fmt.Sprint(e["message"]), "answered up to date but runs v0.80.0") {
+			found = true
+		}
+	}
+	if !found {
+		t.Fatalf("no failure reported for a1: %v", ev.all)
+	}
+}
+
+// One that answers up to date and runs the target is online.
+func TestAnUpToDateAnswerOnTheTargetIsOnline(t *testing.T) {
+	env := &fakeUpdateEnv{leaderFor: -1, trigger: map[string]string{"a1": upToDateAnswer}}
+	var ev events
+	runUpdatePlan(env, testPlan(), testRelease, "rolling", ev.emit)
+	if o := ev.overall(); o["overall"] != "complete" {
+		t.Fatalf("final event %v", o)
+	}
+}
