@@ -93,8 +93,8 @@
 | 요청 유형 | 전송 방식 | 타임아웃 |
 |-----------|----------|----------|
 | 일반 REST | gRPC `ClusterService.ProxyRequest` | 30초 |
-| SSE(`-stream` 접미사 또는 `/system/update`, `/appstore/.../install` 등) | HTTP 직접 릴레이 | 5분 (`/cluster/update`와 스택 이관 `/migrate`는 2시간) |
-| 파일 전송(`/files/download`·`/files/upload`·`/system/backup`·`/system/restore`·`/docker/compose/migrate-import`) | HTTP 직접 릴레이 | 30분 |
+| SSE(`-stream` 접미사 또는 `/system/update`, `/appstore/.../install` 등) | HTTP 직접 릴레이 | 5분 (`/cluster/update`, 스택 이관 `/migrate`와 원본 세션 `/migrate-source`는 2시간) |
+| 파일 전송(`/files/download`·`/files/upload`·`/system/backup`·`/system/restore`·`/docker/compose/migrate-import`·`/migrate-source/bundle`) | HTTP 직접 릴레이 | 30분 |
 | WebSocket | `WrapEchoWSHandler` 양방향 프록시 | WS 생명주기 전체 |
 
 `?node=` 요청이 다른 노드로 갈 때 사용자의 자격 증명은 실리지 않습니다. `Authorization`·`Cookie`·`X-CSRF-Token` 헤더와 `?token=`·`?ticket=`(그리고 `?node=`)를 떼어 내고, 운영자는 감사 로그용 `X-SFPanel-Original-User` 헤더로만 전달됩니다. 받는 노드의 인증은 전송 방식에 따라 다릅니다.
@@ -110,6 +110,7 @@
 
 - `/api/v1/auth/*`는 `?node=`가 무엇을 가리키든 브라우저가 접속한 노드가 처리합니다 — 세션·리프레시 행·쿠키가 그 노드의 것입니다.
 - `/api/v1/cluster/*`는 대상이 에이전트이면 중계하지도, 이 매니저가 대신 실행하지도 않고 `409 CLUSTER_ROUTE_NOT_ON_AGENT`로 거부합니다. 노드 목록·상태처럼 클러스터 전체의 것은 `?node=` 없이 매니저에게 묻습니다.
+- 스택 이관의 시작점 `POST /docker/compose/:project/migrate`와 `…/migrate/preflight`는 에이전트로 중계하지 않고, `/auth/*`처럼 요청을 받은 매니저(브라우저가 접속한 매니저)가 실행합니다. 에이전트는 다른 노드로 보낼 수 없으므로(다른 노드의 키가 없고, 어느 노드도 에이전트가 보낸 것을 받지 않음) 그 매니저가 에이전트의 원본 세션(`…/migrate-source`)으로 번들을 받아 대상에 넘깁니다. 이 매니저는 자기 Docker를 쓰지 않으므로 Docker가 없어도 됩니다. 이관의 다른 라우트(`migrate-import`, `migrate/target-info`, 원본 세션)는 다른 라우트처럼 중계됩니다.
 - 에이전트로 서명할 키가 복제 상태에 없거나 에이전트 패널의 CA를 모르면 중계를 보내지 않습니다. 매니저들의 비밀로 대신 서명하거나 평문 HTTP로 내려가지 않습니다.
 - 앱스토어 고급 설치(`POST /appstore/apps/:id/install`, `"advanced": true`)는 매니저가 운영자의 비밀번호를 확인한 뒤에만 중계합니다. 비밀번호는 에이전트로 가지 않습니다: 매니저는 본문에서 `password` 키를 대소문자와 상관없이 모두 지우고, 확인했다는 증명(`X-SFPanel-Step-Up` — 그 에이전트의 키로 만든 HMAC으로, 이 중계 요청의 `X-SFPanel-Internal-Proxy-V2` 헤더와 보내는 본문에 묶임)을 붙입니다. 에이전트는 증명이 없거나 맞지 않는 고급 설치를 `403 INVALID_CREDENTIALS`로 거부합니다 — 증명을 보내지 않는 이전 릴리스의 매니저를 거친 요청이 그렇습니다. 매니저 쪽 거부(`400`·`403`·`429`)는 설치 API 항목을 보세요.
 
@@ -4524,10 +4525,11 @@ data: {"phase":"complete","line":"Update completed successfully"}
 ---
 
 ### POST /api/v1/docker/compose/:project/migrate/preflight
-스택을 다른 노드로 이관하기 전 사전 점검(dry-run). 실제 이관은 하지 않고 차단 사유(`blocks`)와 경고(`warnings`)만 반환합니다. 클러스터가 활성화되어 있어야 합니다 (v0.43.0+).
+스택을 다른 노드로 이관하기 전 사전 점검(dry-run). 실제 이관은 하지 않고 차단 사유(`blocks`)와 경고(`warnings`)만 반환합니다. 클러스터가 활성화되어 있어야 합니다 (v0.43.0+). 스택이 있는 노드를 `?node=`로 지정합니다. 매니저의 스택은 그 매니저가 점검하고, 에이전트의 스택은 요청을 받은 매니저가 점검합니다 — 원본 쪽 사실은 에이전트의 `GET …/migrate-source/info`에서 받습니다(아래 `migrate` 참조).
 
 - **인증 필요**: 예
-- **Docker 사용 가능 시에만 등록**
+- **매니저 전용** — 에이전트에는 이 라우트가 없습니다
+- **Docker**: Docker에 연결할 수 없는 노드(소켓이 없음)는 `503 DOCKER_UNAVAILABLE`. 에이전트의 스택을 점검하는 매니저는 자기 Docker를 쓰지 않으므로 예외입니다
 
 **Path Parameters:**
 | 파라미터 | 설명 |
@@ -4567,34 +4569,51 @@ data: {"phase":"complete","line":"Update completed successfully"}
 |------|------|
 | `same-node` | 소스와 대상이 같은 노드 |
 | `arch-mismatch` | 소스/대상 CPU 아키텍처 불일치 |
-| `insufficient-disk` | 대상 여유 공간이 추정 이관 크기보다 작음 |
-| `port-conflict` | 대상이 스택의 호스트 포트를 이미 사용 중 (disposition이 `clone`이 아닐 때) |
+| `insufficient-disk` | 대상 여유 공간이 추정 이관 크기보다 작음 (스택 루트와 Docker 저장소가 같은 파일시스템이면 합계로, 다르면 스택 파일·바인드 데이터를 스택 루트 쪽으로) |
+| `insufficient-disk-docker` | 대상 Docker 저장소의 여유 공간이 볼륨·이미지 데이터보다 작음 (스택 루트와 다른 파일시스템일 때) |
+| `port-conflict` | 대상이 스택의 호스트 포트를 이미 사용 중. 사전 점검은 disposition을 받지 않으므로 `clone`이어도 차단입니다 |
 | `stack-exists` | 대상에 동일 id 스택이 이미 존재 (`overwriteAcked`로 승인 필요) |
+| `source-version` | 원본 에이전트가 원본 세션이 없는 이전 릴리스(`migrate-source/info`가 404이거나 `session_version`이 없음) — 에이전트를 올려야 합니다. 원본의 사실을 받지 못했으므로 이 차단 하나만 옵니다 |
+| `target-version` | 원본이 에이전트인데 대상이 이관 정책을 모르는 이전 릴리스(`target-info`에 `import_policy`가 없음) — 그런 대상은 에이전트의 번들을 번들의 말대로, 매니저의 규칙으로 받으므로 보내지 않습니다. 대상을 올려야 합니다 |
 
 **경고 코드 (`warnings` — 승인 후 진행 가능):**
 | 코드 | 조건 |
 |------|------|
-| `port-conflict` | `clone` 시 대상이 일부 호스트 포트를 사용 중 — 클론 시작 전 리맵 필요 |
-| `system-bind` | 호스트/시스템 바인드 마운트(예: docker.sock)는 복사되지 않으며 대상에 존재해야 함 |
-| `external-volume` | external 볼륨 데이터는 복사되지 않음 |
+| `system-bind` | 호스트/시스템 바인드 마운트(예: docker.sock, /dev)는 복사되지 않으며 대상에 존재해야 함 |
+| `external-volume` | external 볼륨의 데이터도 복사됨 — 다른 스택과 공유하는 데이터가 중복될 수 있음 |
+| `absolute-bind-write` | 절대 경로 바인드의 데이터가 대상의 같은 절대 경로에 쓰임(보호된 시스템 경로는 건너뜀). 원본이 에이전트이면 대상이 이런 스택을 거부합니다(`migrate-import` 참조) |
+| `large-transfer` | 추정 이관 크기가 5 GiB를 넘음 — 오래 걸릴 수 있음 |
 | `device-required` | 디바이스/GPU 요청 — 대상에 동등 하드웨어 필요 |
-| `target-unreachable` | 대상 노드 조회 실패 — 디스크/포트/아키텍처 점검이 생략됨 |
+| `target-unreachable` | 대상 노드 조회 실패 — 디스크/포트/아키텍처/덮어쓰기 점검이 생략됨. 보고서에는 경고로 오지만 `migrate`는 원본을 멈추기 전에 이 경우를 거부합니다 |
 
 **에러 응답:**
 | 코드 | HTTP 상태 | 조건 |
 |------|-----------|------|
 | `INVALID_NAME` | 400 | 유효하지 않은 프로젝트 id |
+| `INVALID_BODY` | 400 | 잘못된 요청 본문 |
 | `MISSING_FIELDS` | 400 | targetNodeId 누락 |
 | `INTERNAL_ERROR` | 400 | 클러스터 미활성 |
-| `COMPOSE_ERROR` | 400 | compose 설정 해석 실패 |
+| `COMPOSE_ERROR` | 400 | compose 설정 해석 실패. 에이전트의 스택이면 원본에 묻지 못함(`could not query the source node`), 원본이 404가 아닌 오류로 답함(`the source could not report its stack: …` — Docker가 없는 에이전트의 503 등), 원본의 답을 읽지 못함 |
 
 ---
 
 ### POST /api/v1/docker/compose/:project/migrate
-스택을 `targetNodeId` 노드로 **콜드 이관**(SSE 스트리밍). 소스를 정지시켜 일관된 스냅샷을 만든 뒤 번들로 패키징해 대상에 전송하고, 대상이 정상(healthy)으로 확인되면 disposition을 적용합니다. finalize 이전 단계에서 실패하면 소스는 다시 실행 상태로 복구됩니다. 클러스터가 활성화되어 있어야 합니다 (v0.43.0+).
+스택을 `targetNodeId` 노드로 **콜드 이관**(SSE 스트리밍). 소스를 정지시켜 일관된 스냅샷을 만든 뒤 번들로 패키징해 대상에 전송하고, 대상이 정상(healthy)으로 확인되면 disposition을 적용합니다. finalize 이전 단계에서 실패하면 소스는 다시 실행 상태로 복구됩니다. 클러스터가 활성화되어 있어야 합니다 (v0.43.0+). 스택이 있는 노드를 `?node=`로 지정합니다.
+
+- **매니저의 스택**: 그 매니저가 직접 실행하고 번들을 대상에 보냅니다.
+- **에이전트의 스택**: 요청을 받은 매니저가 실행합니다(중개). 에이전트의 원본 세션(`POST …/migrate-source`)을 열어 에이전트가 스택을 멈추고 번들을 만들게 하고, 번들을 디스크에 쓰지 않고 받는 대로 대상의 `migrate-import`로 흘려보낸 뒤, 대상이 어떻게 받았는지(`imported`·`failed`·`unknown`)를 원본에 알립니다. 원본은 그 말에 따라 disposition을 적용하거나 스택을 다시 켜거나 멈춘 채로 둡니다. 이 매니저는 자기 Docker를 쓰지 않습니다. 실패 지점별로 원본이 어떻게 되는지는 `docs/specs/cluster-ops.md`의 "Stack migrations"를 보세요.
+
+진행은 요청과 분리되어 있어 브라우저가 떠나도 끝까지 갑니다.
+
+**원본을 멈추기 전 확인** — 하나라도 걸리면 `error` 이벤트(`pre-flight blocked: …`)로 끝나고 원본은 그대로 돌아갑니다:
+1. 사전 점검(`migrate/preflight`와 같음)에 차단이 없다 — 메시지에 차단 코드(중개면 `<코드>: <이유>`)
+2. 대상에 번들을 보낼 수 있다 — 아는 노드이고, 에이전트 대상이면 패널 CA가 복제 상태에 있어 HTTPS로 닿으며, 대상에 서명할 키가 있다
+3. 대상이 사전 점검에 답했다 — `target-unreachable`은 보고서에서는 경고지만 여기서는 거부입니다(대상의 디스크·포트·기존 스택을 확인하지 못했으므로)
+4. (중개) 원본 에이전트에 HTTPS로 닿고 서명할 수 있다
 
 - **인증 필요**: 예
-- **Docker 사용 가능 시에만 등록**
+- **매니저 전용** — 에이전트에는 이 라우트가 없습니다
+- **Docker**: Docker에 연결할 수 없는 노드(소켓이 없음)는 `503 DOCKER_UNAVAILABLE`. 에이전트의 스택을 중개하는 매니저는 예외입니다
 - **응답 형식**: `text/event-stream` (표준 JSON 응답이 아님)
 
 **Path Parameters:**
@@ -4608,6 +4627,7 @@ data: {"phase":"complete","line":"Update completed successfully"}
   "targetNodeId": "node-b",
   "disposition": "retain",
   "overwriteAcked": false,
+  "acknowledgeRisks": false,
   "rateLimitMbps": 0
 }
 ```
@@ -4616,7 +4636,8 @@ data: {"phase":"complete","line":"Update completed successfully"}
 |------|------|------|------|
 | `targetNodeId` | string | 예 | 이관 대상 노드 ID |
 | `disposition` | string | 예 | 이관 성공 후 소스 처리: `retain` \| `delete` \| `clone` |
-| `overwriteAcked` | boolean | 아니오 | 대상 동일 id 스택 덮어쓰기 승인 (기본 `false`) |
+| `overwriteAcked` | boolean | 아니오 | 대상에 이미 있는 같은 id의 스택·볼륨 덮어쓰기 승인 (기본 `false`). 대상은 이 값을 보내는 매니저의 정책 헤더로 받습니다 |
+| `acknowledgeRisks` | boolean | 아니오 | 운영자가 위험 계층 compose(`privileged`, 호스트 네임스페이스, docker.sock 등)를 승인함 (기본 `false`). 대상은 원본이 에이전트일 때만 이 값을 보며, 승인 없는 그런 스택은 `COMPOSE_RISKY`로 거부합니다(원본은 다시 켜짐). 매니저의 스택은 만들 때 위험 계층을 거쳤으므로 금지 계층만 검사합니다 |
 | `rateLimitMbps` | number | 아니오 | 전송 대역폭 상한(MB/s). 0 또는 미지정 = 무제한. (v0.51.0) |
 
 **disposition 의미:**
@@ -4632,7 +4653,7 @@ data: {"phase":"preflight","message":"Running pre-flight checks...","done":false
 
 data: {"phase":"quiesce","message":"Stopping source stack...","done":false}
 
-data: {"phase":"package","message":"Packaging stack...","done":false}
+data: {"phase":"package","message":"Packaging stack (data + images)...","done":false}
 
 data: {"phase":"transfer","message":"Transferring to target...","done":false}
 
@@ -4641,9 +4662,17 @@ data: {"phase":"finalize","message":"Applying source disposition (retain)...","d
 data: {"phase":"done","message":"Migration complete.","done":true}
 ```
 
-이벤트 필드는 `{phase, message, done}`. 정상 진행 순서: `preflight` → `quiesce` → `package` → `transfer` → `finalize` → 종료 마커 `done`. 실패 시: 패키징/전송 단계 실패는 소스를 복구한 뒤 `rollback` 이벤트(`done:true`)를, 사전 점검 차단이나 그 외 실패는 `error` 이벤트(`done:true`)를 전송합니다.
+이벤트 필드는 `{phase, message, done}`. 정상 진행 순서: `preflight` → `quiesce` → `package` → `transfer` → `finalize` → 종료 마커 `done`. 실패 시: 패키징/전송 단계 실패는 소스를 복구한 뒤 `rollback` 이벤트(`done:true`)를, 사전 점검 차단이나 그 외 실패는 `error` 이벤트(`done:true`)를 전송합니다. 전송 연결이 끊겼는데 대상에서 스택이 돌고 있으면 두 벌이 살아나지 않도록 원본을 멈춘 채 두고 `error`로 끝납니다.
 
 > `transfer` 단계는 진행률 메시지를 주기적으로 전송합니다 — 예: `{"phase":"transfer","message":"Transferring to target... 512 / 2048 MiB (25%)","done":false}`
+
+**중개(에이전트의 스택)의 스트림:** 이벤트 모양은 같습니다. `preflight`·`transfer`와 원본을 멈추기 전의 거부는 매니저가 보내고, `quiesce`·`package`와 마지막의 `finalize`→`done`·`rollback`·`error`는 원본 세션이 보낸 것을 출력 정리(`SanitizeOutput`)만 거쳐 그대로 전달합니다. 원본 세션의 `ready`는 전달하지 않습니다. 전송이 실패하면 매니저가 원인을 끝이 아닌 `transfer` 이벤트(`done:false`)로 먼저 보내고, 원본의 마지막 이벤트가 뒤따릅니다:
+```
+data: {"phase":"transfer","message":"transfer/restore failed: target status Bad Request: {…}","done":false}
+
+data: {"phase":"rollback","message":"transfer/restore failed; source restarted: the manager reports that the target did not take the stack","done":true}
+```
+원본에 결과를 전하지 못하거나 원본의 스트림이 끝을 말하기 전에 끊기면 매니저가 직접 끝냅니다. 대상이 받았으면 `done`(`migrated to target (running); …`), 아니면 `error`입니다. 메시지는 대상에 대해 아는 것과 원본이 결과를 받았는지를 말하고 `— check the source`로 끝납니다 — 결과를 받지 못한 원본은 번들이 통째로 나간 적이 없을 때만 스택을 다시 켜므로, 대상이 받은 경우 원본의 스택은 멈춘 채이고 disposition은 적용되지 않습니다.
 
 **사전 실패 (스트림 시작 전):**
 | 코드 | HTTP 상태 | 조건 |
@@ -4652,14 +4681,15 @@ data: {"phase":"done","message":"Migration complete.","done":true}
 | `INVALID_BODY` | 400 | 잘못된 요청 본문 |
 | `INTERNAL_ERROR` | 400 | 클러스터 미활성 |
 | `MISSING_FIELDS` | 400 | targetNodeId 누락 또는 유효하지 않은 disposition |
+| `ALREADY_EXISTS` | 409 | 이 스택의 이관이 이미 진행 중 (중개면 이 매니저가 같은 에이전트의 같은 스택을 이미 옮기는 중) |
 
 ---
 
 ### GET /api/v1/docker/compose/migrate/target-info
-**클러스터 내부 전용** — 이관 사전 점검 시 소스 노드가 대상 노드의 사실(arch, 여유 공간, 사용 중 포트, 스택 존재 여부)을 조회하기 위해 노드 간(internal-proxy 인증)으로만 호출됩니다. 일반 클라이언트가 직접 호출하면 거부됩니다 (v0.43.0+).
+**클러스터 내부 전용** — 이관 사전 점검 시 이관을 실행하는 매니저가 대상 노드의 사실(arch, 여유 공간, 사용 중 포트, 스택 존재 여부)을 조회하기 위해 노드 간(internal-proxy 인증)으로만 호출됩니다. 일반 클라이언트가 직접 호출하면 거부됩니다 (v0.43.0+).
 
-- **인증**: 내부 프록시 전용 (`X-SFPanel-Internal-Proxy`). 외부 호출 시 403 `PERMISSION_DENIED`.
-- **Docker 사용 가능 시에만 등록**
+- **인증**: 내부 프록시 전용 (`X-SFPanel-Internal-Proxy-V2`, 대상의 키로 서명). 외부 호출 시 403 `PERMISSION_DENIED`.
+- **Docker**: Docker에 연결할 수 없으면(소켓이 없음) `503 DOCKER_UNAVAILABLE`
 
 **Query Parameters:**
 | 파라미터 | 타입 | 필수 | 설명 |
@@ -4677,7 +4707,8 @@ data: {"phase":"done","message":"Migration complete.","done":true}
     "sameDevice": true,
     "portsInUse": [8096],
     "stackExists": false,
-    "stackRunning": false
+    "stackRunning": false,
+    "import_policy": 1
   }
 }
 ```
@@ -4685,16 +4716,33 @@ data: {"phase":"done","message":"Migration complete.","done":true}
 - `dockerFreeBytes`: docker 스토리지 FS의 여유 바이트.
 - `sameDevice`: stacks FS와 docker FS가 동일 디바이스인지 여부.
 - `stackRunning`: 대상에 동일 id 스택이 실행 중인지 여부.
+- `import_policy`: 이 대상이 `migrate-import`의 조건(덮어쓰기, 위험 계층 승인, 원본의 종류)을 보내는 매니저의 정책 헤더에서 받는다는 표시(`1`). 이 필드가 없는 이전 릴리스의 대상에는 에이전트의 스택을 보내지 않습니다(사전 점검의 `target-version` 차단).
 
 ---
 
 ### POST /api/v1/docker/compose/migrate-import
-**클러스터 내부 전용** — 소스 노드가 이관 번들(tar 스트림)을 대상 노드로 푸시하는 바이너리 릴레이 엔드포인트. 운영자가 직접 호출하는 용도가 아닙니다. `X-SFPanel-Migration-Sha256` 요청 헤더의 체크섬으로 번들을 검증한 뒤, compose 안전성 검증(원문 + .env 주입 후 resolved 재검증 — **금지 계층만**: 스택은 소스 노드에서 이미 설치돼 돌아가고 있으므로 위험 계층 승인은 그때 끝난 질문입니다) → 정의 복원 → 이미지 `docker load` + 명명 볼륨/바인드 데이터 복원 → `up` → 헬스체크를 수행하며, 실패 시 부분 복원분을 정리합니다. 덮어쓰기 시 기존 정의(`.migbak`)와 기존 볼륨 데이터를 백업해 두고 실패하면 원복합니다. 동일 스택 동시 import 또는 공유 볼륨 동시 복원은 409로 거부합니다 (v0.43.0+, v0.50.0/v0.51.0).
+**클러스터 내부 전용** — 이관을 실행하는 매니저(원본이 매니저면 그 매니저, 에이전트면 중개하는 매니저)가 이관 번들(tar 스트림)을 대상 노드로 푸시하는 바이너리 릴레이 엔드포인트. 운영자가 직접 호출하는 용도가 아닙니다. `X-SFPanel-Migration-Sha256` 요청 헤더의 체크섬으로 번들을 검증한 뒤, compose 안전성 검증(원문 + .env 주입 후 resolved 재검증) → 정의 복원 → 이미지 `docker load` + 명명 볼륨/바인드 데이터 복원 → `up` → 헬스체크를 수행하며, 실패 시 부분 복원분을 정리합니다. 덮어쓰기 시 기존 정의(`.migbak`)와 기존 볼륨 데이터를 백업해 두고 실패하면 원복합니다. 동일 스택 동시 import 또는 공유 볼륨 동시 복원은 409로 거부합니다 (v0.43.0+, v0.50.0/v0.51.0).
 
-- **인증**: 내부 프록시 전용 (`X-SFPanel-Internal-Proxy`). 외부 호출 시 403 `PERMISSION_DENIED`.
-- **Docker 사용 가능 시에만 등록**
-- **요청 헤더**: `X-SFPanel-Migration-Sha256` (번들 SHA-256 체크섬, 필수)
-- **요청 바디**: 이관 번들 tar 스트림 (바이너리)
+- **인증**: 내부 프록시 전용 (`X-SFPanel-Internal-Proxy-V2`, 대상의 키로 서명). 외부 호출 시 403 `PERMISSION_DENIED`.
+- **Docker**: Docker에 연결할 수 없으면(소켓이 없음) `503 DOCKER_UNAVAILABLE`
+- **요청 헤더**: `X-SFPanel-Migration-Sha256` (번들 SHA-256 체크섬, 필수)와 아래의 정책 헤더
+- **요청 바디**: 이관 번들 tar 스트림 (바이너리, 64 GiB까지). 첫 항목은 `manifest.json`이고 큰 데이터는 `volumes/`·`binds/`·`images/` 아래에 있습니다. 그 밖의 작은 항목(manifest, compose 파일, `.env`, 정의에 딸린 파일)은 하나에 16 MiB, 합쳐서 64 MiB까지입니다
+
+**정책 헤더 (보내는 매니저가 정함):** 번들은 원본의 것이고 원본은 에이전트일 수 있으므로, 대상은 아래 조건을 번들이 아니라 보내는 매니저에게서 받습니다. 서명은 메서드와 경로만 덮지만, 이 요청에 서명할 수 있는 것은 대상의 키를 가진 매니저뿐입니다 — 에이전트는 다른 노드의 키가 없습니다.
+
+| 헤더 | 값 | 의미 |
+|------|----|------|
+| `X-SFPanel-Migration-Policy` | `1` | 정책을 싣는다는 표시. 없으면 정책 이전 릴리스의 매니저가 보낸 것으로 보고, 덮어쓰기는 번들의 `overwrite`를 따르며 위험 계층은 승인된 것으로(스택을 만들 때 거쳤으므로), 원본은 매니저로 봅니다 |
+| `X-SFPanel-Migration-Overwrite` | `true` \| `false` | 대상에 이미 있는 같은 id의 스택·볼륨을 바꿔도 되는지 (운영자의 `overwriteAcked`) |
+| `X-SFPanel-Migration-Ack-Risks` | `true` \| `false` | 운영자가 위험 계층 compose를 승인했는지 (`acknowledgeRisks`) |
+| `X-SFPanel-Migration-Source-Kind` | `manager` \| `agent` | 원본의 종류. `manager`가 아닌 값은 모두 `agent`(더 엄격한 쪽)로 봅니다 |
+
+**모든 원본:** compose는 금지 계층(`/etc/sfpanel`, `/var/lib/sfpanel`, `/root/.ssh`, `/etc/sudoers.d` 바인드)을 거부합니다(`400 COMPOSE_FORBIDDEN`). 매니저의 스택은 만들 때 위험 계층을 거쳤으므로 금지 계층만 검사합니다. 이미지 아카이브는 스택이 쓰는 태그만 설정할 수 있습니다 — `docker load`는 아카이브가 이름 붙인 태그를 모두 설정하므로, 다른 태그를 담은 아카이브는 적재하지 않습니다(다이제스트로 지정한 이미지는 태그가 없어야 함).
+
+**원본이 에이전트일 때 더해지는 규칙** — 에이전트의 root가 이관으로 다른 노드의 root가 되지 않도록:
+- compose의 위험 계층(`privileged`, 호스트 네임스페이스, docker.sock 등)은 `Ack-Risks: true`여야 합니다. 아니면 `400 COMPOSE_RISKY`. 원문과 .env 주입 뒤 resolved 문서를 같은 계층으로 검사합니다.
+- 바인드 데이터는 스택 디렉터리 안으로만 복원합니다. 스택 밖(절대 경로) 바인드가 있는 스택은 그 바인드를 건너뛰지 않고 거부합니다(`500 COMPOSE_ERROR`, `restore data: the stack binds …, outside its own directory …`). 원본이 매니저면 지금처럼 보호된 시스템 경로 밖의 같은 절대 경로에 씁니다.
+- 이미지는 대상에 없는 태그로, 또는 대상이 그 태그로 이미 가진 같은 이미지일 때만 적재합니다(같은 이미지면 적재를 건너뜀). 대상이 그 태그를 다른 이미지로 가지고 있으면 `409 ALREADY_EXISTS` — 그 태그를 쓰는 다른 스택이 다음 재시작에 에이전트의 이미지를 돌리게 되기 때문입니다. 대상에서 태그를 지우거나 바꾼 뒤 다시 시도합니다.
 
 **Response (200):**
 ```json
@@ -4706,6 +4754,110 @@ data: {"phase":"done","message":"Migration complete.","done":true}
   }
 }
 ```
+
+**에러 응답:**
+| 코드 | HTTP 상태 | 조건 |
+|------|-----------|------|
+| `PERMISSION_DENIED` | 403 | 내부 프록시 서명 없음 |
+| `MISSING_FIELDS` | 400 | `X-SFPanel-Migration-Sha256` 없음 |
+| `COMPOSE_ERROR` | 400 | 번들을 읽을 수 없음(`bundle: …` — 체크섬 불일치, 경로 이탈, 크기 상한 초과 등) 또는 번들에 compose 파일이 없음 |
+| `INVALID_NAME` | 400 | 번들의 스택 id가 유효하지 않음 |
+| `COMPOSE_FORBIDDEN` · `COMPOSE_RISKY` | 400 | compose 안전성 검사 거부(위의 계층). 해석할 수 없는 compose는 `COMPOSE_ERROR` |
+| `ALREADY_EXISTS` | 409 | 같은 스택의 import가 진행 중, 공유 볼륨을 다른 이관이 복원 중, 같은 id 스택이 있는데 덮어쓰기 승인이 없음, 에이전트의 이미지 태그를 대상이 다른 이미지로 가짐 |
+| `COMPOSE_ERROR` | 500 | 덮어쓰기 백업·정의 복원 실패, 데이터 복원 실패(`restore data: …` — 이미지 아카이브의 태그, 에이전트 스택의 스택 밖 바인드, 덮어쓰기 승인 없는 기존 볼륨 포함), `up` 실패, 헬스체크 실패. 부분 복원분은 정리됩니다 |
+| `INTERNAL_ERROR` | 500 | 스테이징 디렉터리를 만들 수 없음 |
+
+---
+
+### GET /api/v1/docker/compose/:project/migrate-source/info
+**클러스터 내부 전용** — 원본 세션의 첫 단계. 에이전트의 스택을 중개하는 매니저가 원본을 멈추기 전에, 사전 점검의 원본 쪽 사실을 그 노드에게서 받습니다. 원본 세션의 네 라우트는 모든 노드(에이전트 포함)에 있으며, 자기 스택만 다룹니다. 매니저에서도 운영자의 세션으로는 통과하지 못하고, 각 핸들러가 노드 간 서명을 직접 확인합니다.
+
+- **인증**: 내부 프록시 전용 (`X-SFPanel-Internal-Proxy-V2`). 서명이 없으면 403 `PERMISSION_DENIED` (`migration sessions are cluster-internal only`) — 네 라우트 공통
+- **Docker**: Docker에 연결할 수 없으면(소켓이 없음) `503 DOCKER_UNAVAILABLE` — 네 라우트 공통
+
+**Response (200):**
+```json
+{
+  "success": true,
+  "data": {
+    "session_version": 1,
+    "node_id": "node-a1",
+    "arch": "amd64",
+    "ports": [8096],
+    "has_system_bind": false,
+    "has_external_volume": false,
+    "has_abs_bind": false,
+    "has_device": false,
+    "estimated_bytes": 18874368,
+    "estimated_docker_bytes": 536870912
+  }
+}
+```
+
+| 필드 | 설명 |
+|------|------|
+| `session_version` | 이 노드가 원본 세션을 서비스한다는 표시(`1`). 이 라우트가 없는(404) 이전 릴리스의 에이전트나 이 값이 없는 응답은 사전 점검의 `source-version` 차단이 됩니다 |
+| `node_id`, `arch` | 이 노드의 ID와 CPU 아키텍처 |
+| `ports` | 스택이 쓰는 호스트 포트 |
+| `has_system_bind`, `has_external_volume`, `has_abs_bind`, `has_device` | 사전 점검 경고(`system-bind`, `external-volume`, `absolute-bind-write`, `device-required`)의 근거 |
+| `estimated_bytes`, `estimated_docker_bytes` | 대상의 스택 루트에 놓일 크기(정의 + 바인드 데이터 + 여유)와 Docker 저장소에 놓일 크기(볼륨 + 이미지) |
+
+**에러 응답:** `INVALID_NAME` 400 (유효하지 않은 프로젝트 id), `COMPOSE_ERROR` 400 (스택 설정을 해석할 수 없음).
+
+---
+
+### POST /api/v1/docker/compose/:project/migrate-source
+**클러스터 내부 전용** — 원본 세션(SSE). 매니저가 이끄는 이관의 원본 쪽 절반으로, 지금의 `migrate`처럼 잠금·정지·포장·마무리·되돌리기를 한 핸들러 안에서 합니다. 세션 내내 스택의 이관 잠금을 잡으므로 두 매니저가 같은 스택을 동시에 옮길 수 없습니다. 스택을 멈추고 번들을 만든 뒤 `ready`를 보내고, 매니저가 번들을 가져가(`…/bundle`) 결과를 알릴 때까지(`…/outcome`) 최대 2시간 기다립니다. 정지와 포장은 이 요청을 따라가므로, 매니저가 그 사이 떠나면 포장을 멈추고 원본을 다시 켭니다.
+
+**Request Body:**
+```json
+{
+  "targetNodeId": "node-b",
+  "disposition": "retain",
+  "overwriteAcked": false
+}
+```
+
+`targetNodeId`와 `disposition`은 필수이고 `migrate`와 같은 뜻입니다. `overwriteAcked`는 번들의 manifest에만 기록됩니다 — 대상은 그 값을 매니저의 정책 헤더로 받습니다.
+
+**Response:** SSE 스트림. 이벤트는 `migrate`와 같은 `{phase, message, done}`이고(`quiesce` → `package` → …), 번들이 준비되면 다음을 보냅니다:
+```
+data: {"phase":"ready","session":"5f0c…e9a1","sha256":"9b2d…","bytes":2147483648,"done":false}
+```
+`session`은 이 세션의 ID(16바이트 무작위 값의 hex)로, 번들과 결과 라우트의 `?session=`에 씁니다. 매니저의 결과에 따라 원본이 하는 일과 마지막 이벤트:
+
+| 결과 | 원본 | 마지막 이벤트 |
+|------|------|--------------|
+| `imported` (대상이 스택을 돌림) | disposition 적용 — 매니저가 말한 뒤 스트림을 닫아도 적용함 | `finalize` → `done` |
+| `failed` (대상이 받지 못함) | 스택을 다시 켬 | `rollback` (다시 켜지 못하면 `error`) |
+| `unknown` (대상과의 연결이 끊겼는데 대상에서 스택이 돌고 있음) | 멈춘 채로 둠 | `error` |
+| 없음 (매니저가 떠남, 스트림이 끊김, 이 패널이 멈춤, 2시간 지남) | 번들이 통째로 나간 적이 없으면 다시 켜고(`rollback`), 나갔으면 대상에서 스택이 돌 수 있으므로 멈춘 채로 두고 로그에 남김(`error`) | |
+
+**사전 실패 (스트림 시작 전):** `INVALID_NAME` 400, `INVALID_BODY` 400, `MISSING_FIELDS` 400 (targetNodeId 누락 또는 유효하지 않은 disposition), `ALREADY_EXISTS` 409 (이 스택의 이관이 이미 진행 중).
+
+---
+
+### GET /api/v1/docker/compose/:project/migrate-source/bundle
+**클러스터 내부 전용** — 준비된 세션(`?session=<id>`)의 번들을 `migrate-import`가 받는 그대로 보냅니다: `application/octet-stream`, `Content-Length`, `X-SFPanel-Migration-Sha256` 헤더. 중개하는 매니저는 `ready`가 알린 길이·체크섬과 다르면 대상에 보내지 않고, 받는 대로 대상에 흘려보냅니다(압축 없이 요청 — 패널의 gzip은 길이를 없앱니다). 마지막 바이트까지 연결에 넘기면 세션은 번들이 "통째로 나갔다"고 기록하며, 이것이 결과 없이 끝난 세션이 원본을 다시 켤지를 정합니다.
+
+**에러 응답:** `NOT_FOUND` 404 (그런 세션이 없거나 다른 스택의 세션), `INVALID_REQUEST` 409 (세션이 끝남), `INTERNAL_ERROR` 500 (세션의 번들 파일이 없음).
+
+---
+
+### POST /api/v1/docker/compose/:project/migrate-source/outcome
+**클러스터 내부 전용** — 세션(`?session=<id>`)에 대상이 스택을 어떻게 받았는지 알립니다. 세션마다 한 번만 받으며, 두 번째는 다른 결정으로 받지 않고 거부합니다.
+
+**Request Body:** `{ "result": "imported" }` — `imported` | `failed` | `unknown`
+
+**Response (200):** `{ "result": "imported" }`
+
+**에러 응답:**
+| 코드 | HTTP 상태 | 조건 |
+|------|-----------|------|
+| `INVALID_BODY` | 400 | 잘못된 요청 본문 |
+| `INVALID_VALUE` | 400 | `result`가 세 값 중 하나가 아님 |
+| `NOT_FOUND` | 404 | 그런 세션이 없거나 다른 스택의 세션 |
+| `INVALID_REQUEST` | 409 | 세션이 이미 결과를 받았거나 끝남 |
 
 ---
 
@@ -4784,6 +4936,8 @@ data: {"phase":"done","message":"Migration complete.","done":true}
 | `expires_at` | string | 만료 시각 |
 | `created_by` | string | 발급한 사용자 |
 | `kind` | string | 토큰이 들일 노드의 종류: `manager` 또는 `agent`. 종류가 생기기 전에 만든 토큰은 `manager`. 에이전트 이전 버전의 리더는 보내지 않습니다 |
+
+전환(`POST /cluster/nodes/:id/convert`)과 승격(`…/promote`)이 그 노드에 묶어 만든 토큰(30분)도 이 목록에 나오고 같은 방법으로 폐기됩니다. 묶였다는 것은 목록에 나오지 않습니다. 묶인 토큰은 그 노드 ID로만, 그 노드의 패널·gRPC 주소가 묶인 IP에 있을 때만 쓸 수 있으며, 다른 노드나 다른 주소의 가입은 토큰을 소모하지 않고 `this join token was not made for this node at this address`로 거부됩니다.
 
 ---
 
@@ -4996,6 +5150,136 @@ Raft 리더십을 지정한 노드로 이전. 실행은 리더가 하며, 팔로
 |------|-----------|------|
 | `INVALID_REQUEST` | 400 | 클러스터 미구성 또는 target_node_id 누락 |
 | `INTERNAL_ERROR` | 500 | 리더십 이전 실패 |
+
+---
+
+### POST /api/v1/cluster/nodes/:id/convert
+매니저를 **같은 노드 ID의 에이전트로 전환**합니다. 이름·라벨·가입 시각이 유지됩니다. 실행은 리더가 하며, 다른 매니저에서 요청하면 리더로 전달됩니다. 리더는 관문을 모두 확인한 뒤 그 노드에 묶인 에이전트 토큰(그 노드 ID와 그 노드의 IP에서만, 30분)을 만들고, 노드의 이름·라벨·가입 시각을 복제 상태(`converting/<id>`)에 남긴 다음 그 노드의 `POST /cluster/become-agent`를 부릅니다. 노드는 떠나기 전에 답하므로 `202`는 전환이 시작됐다는 뜻이고, 노드 목록에 그 노드가 에이전트로 다시 나타나면 끝난 것입니다. CLI: `sudo sfpanel cluster convert <node-id>`(서비스가 돌고 있는 매니저에서).
+
+관문(아무것도 바꾸기 전에 모두 확인): 리더가 아닌 매니저일 것, 온라인이고 에이전트를 아는 릴리스일 것, 그 노드 없이도 남은 투표자가 정족수를 이룰 것, 에이전트가 지금 등록될 수 있을 것(프록시 비밀 전환 기록 뒤 5분, 다른 매니저가 모두 온라인이고 에이전트를 아는 릴리스, `cluster.max_agents` 여유), 에이전트로 쓸 이름·주소일 것(유효한 노드 이름, 클러스터가 아는 gRPC 주소가 IP:포트, 다른 노드가 같은 이름이나 IP를 쓰지 않음), 리더가 CA 키를 가질 것. 한 리더는 전환을 한 번에 하나씩 시작합니다. 순서와 실패했을 때는 `docs/specs/cluster-ops.md`의 "Converting a manager to an agent"를 보세요.
+
+- **인증 필요**: 예
+
+**Request Body:** 없음 (빈 POST)
+
+**Response (202):**
+```json
+{
+  "success": true,
+  "data": {
+    "message": "web-02 is leaving the cluster and joining it again as an agent",
+    "node_id": "node-abc123"
+  }
+}
+```
+
+노드에 매니저일 때 만든 예약 백업이 있으면 `message` 끝에 `. Warning: the backups in /var/lib/sfpanel/backups were taken while this node was a manager and hold the cluster's secrets until they are rotated`가 붙습니다.
+
+**에러 응답:**
+| 코드 | HTTP 상태 | 조건 |
+|------|-----------|------|
+| `INVALID_REQUEST` | 400 | 클러스터 미구성 |
+| `INTERNAL_ERROR` | 503 | 리더 없음(선출 중), 또는 전달받은 노드가 그새 리더가 아님 |
+| `NOT_FOUND` | 404 | 그런 노드가 없음 |
+| `CLUSTER_CONVERT_REFUSED` | 409 | 관문 거부(`message`에 이유) 또는 이 리더에서 다른 전환이 시작되는 중. 아무것도 바뀌지 않음 |
+| `CLUSTER_CONVERT_REFUSED` | 502 | 노드가 거부함(`message`에 노드의 이유). 리더는 만든 토큰과 기록을 거둬들임 |
+| `INTERNAL_ERROR` | 502 | 노드가 답하지 않음. 떠나는 중이어서 그 답이 끊겼을 수 있으므로 토큰을 남깁니다(그 노드만, 그 IP에서만 쓸 수 있음). 1분쯤 뒤 노드 목록을 보고, 아직 매니저면 다시 전환 |
+| `INTERNAL_ERROR` | 500 | 클러스터 CA나 리더 자신의 기록을 읽지 못함, 토큰이나 기록을 만들지 못함 |
+
+---
+
+### POST /api/v1/cluster/become-agent
+**클러스터 내부 전용** — 전환되는 매니저 쪽 절반. 리더의 `POST /cluster/nodes/:id/convert`가 부르며, 노드 간 서명이 있는 요청만 받습니다. 운영자의 세션으로 부르면 `403`이고, 전환은 리더에서 시작합니다.
+
+**Request Body:**
+```json
+{
+  "token": "…",
+  "ca_pin": "sha256:…",
+  "manager": "203.0.113.10:3629"
+}
+```
+
+| 필드 | 설명 |
+|------|------|
+| `token` | 리더가 이 노드에 묶어 만든 에이전트 토큰 |
+| `ca_pin` | 클러스터 CA 공개키의 SHA-256 (`sha256:<hex>`) |
+| `manager` | 등록할 리더의 gRPC 주소 |
+
+노드는 거부해도 아무것도 바뀌지 않는 동안 에이전트가 될 준비를 확인합니다: 클러스터가 아는 이 노드의 주소(gRPC 주소의 호스트, 없으면 `cluster.advertise_address`)가 이 서버의 IP인지, 패널 HTTPS를 준비할 수 있는지(꺼져 있으면 `agent join`처럼 관리형 인증서로 켬, 운영자 인증서면 `server.tls.ca_file` 필요), 그 인증서가 127.0.0.1과 그 IP에 대해 검증되는지. 그다음 `202`로 답하고, 그 뒤에 클러스터를 떠나고 → 단독 패널 설정을 저장하고(새 JWT 키) → 매니저 파일과 로컬 `admin` 계정, `config.yaml.bak`·`sfpanel.db.bak`을 지우고 → 같은 ID로 에이전트 등록을 한 뒤 → 재시작합니다(`os.Exit(1)`, systemd의 `Restart=always`가 다시 띄움). 실패해도 재시작하며, 떠나기 전의 실패면 원래의 매니저로, 단독 패널 설정을 저장한 뒤의 실패(지우지 못한 파일, 거부된 등록)면 단독 패널로 돌아옵니다 — 그 서버에서 `agent join`으로 새 노드로 가입합니다.
+
+**Response (202):**
+```json
+{
+  "success": true,
+  "data": {
+    "message": "This node is leaving the cluster to join it again as an agent",
+    "warning": "the backups in /var/lib/sfpanel/backups were taken while this node was a manager and hold the cluster's secrets until they are rotated"
+  }
+}
+```
+
+`warning`은 매니저일 때 만든 예약 백업이 있을 때만 옵니다. 같은 토큰으로 다시 오면(리더의 노드 호출은 오류가 나면 한 번 다시 보냄) `202`와 `This node's conversion to an agent is under way`.
+
+**에러 응답:**
+| 코드 | HTTP 상태 | 조건 |
+|------|-----------|------|
+| `PERMISSION_DENIED` | 403 | 노드 간 서명 없음 |
+| `INVALID_REQUEST` | 400 | 클러스터 미구성; `token`·`manager` 누락 또는 `ca_pin` 형식 오류; 이 노드의 주소가 IP가 아니거나 이 서버의 주소가 아님(먼저 `PATCH /cluster/nodes/<node-id>/address`로 고침); 패널 HTTPS를 준비할 수 없거나 인증서가 검증되지 않음 |
+| `CLUSTER_CONVERT_REFUSED` | 409 | 이 노드가 리더임(관문 뒤 리더가 됨), 또는 다른 토큰으로 전환이 이미 진행 중 |
+| `INTERNAL_ERROR` | 500 | 설정 파일 경로를 모름 |
+
+---
+
+### POST /api/v1/cluster/nodes/:id/promote
+에이전트를 **같은 노드 ID의 매니저로 승격**합니다. 이름·라벨·가입 시각이 유지됩니다. 실행은 리더가 하며, 다른 매니저에서 요청하면 리더로 전달됩니다. 리더는 관문을 확인한 뒤 그 에이전트에 묶인 매니저 토큰(30분)을 만들고 에이전트의 `POST /system/become-manager`를 부릅니다. 에이전트는 가입하기 전에 답하므로 `202`는 승격이 시작됐다는 뜻이고, 노드가 재시작해 매니저로 돌아오면 끝난 것입니다. 매니저가 된 노드는 리더가 그 Raft 포트(클러스터 gRPC 포트 + 1)에 닿고 그 Raft가 따라잡을 때까지 비투표자입니다. CLI: `sudo sfpanel cluster promote <node-id>`(서비스가 돌고 있는 매니저에서).
+
+관문: 에이전트일 것, 온라인일 것, 매니저 자리가 남을 것(32대), 리더가 CA 키를 가질 것, 클러스터가 아는 그 에이전트의 gRPC 주소가 IP:포트일 것(토큰이 그 IP에 묶임). 순서와 실패했을 때, Raft 포트가 닫혀 있을 때는 `docs/specs/cluster-ops.md`의 "Promoting an agent to a manager"를 보세요.
+
+- **인증 필요**: 예
+
+**Request Body:** 없음 (빈 POST)
+
+**Response (202):**
+```json
+{
+  "success": true,
+  "data": {
+    "message": "agent-01 is joining the cluster as a manager under its own ID, and restarts as one",
+    "node_id": "node-a1"
+  }
+}
+```
+
+**에러 응답:**
+| 코드 | HTTP 상태 | 조건 |
+|------|-----------|------|
+| `INVALID_REQUEST` | 400 | 클러스터 미구성 |
+| `INTERNAL_ERROR` | 503 | 리더 없음(선출 중), 또는 전달받은 노드가 그새 리더가 아님 |
+| `NOT_FOUND` | 404 | 그런 노드가 없음 |
+| `CLUSTER_PROMOTE_REFUSED` | 409 | 관문 거부(`message`에 이유). 아무것도 바뀌지 않고 토큰도 만들지 않음 |
+| `CLUSTER_PROMOTE_REFUSED` | 502 | 에이전트가 거부함(`message`에 에이전트의 이유). 토큰은 폐기됨 |
+| `INTERNAL_ERROR` | 502 | 에이전트가 답하지 않음. 토큰은 폐기됩니다 — 요청을 먼저 받아 가입했다면 이미 매니저이고, 아니면 그 토큰으로 가입할 수 없습니다. 1분쯤 뒤 노드 목록을 보고, 아직 에이전트면 다시 승격 |
+| `INTERNAL_ERROR` | 500 | 클러스터 CA나 리더 자신의 기록을 읽지 못함 |
+
+---
+
+### POST /api/v1/system/become-manager
+**에이전트 전용, 클러스터 내부** — 승격되는 에이전트 쪽 절반. 리더의 `POST /cluster/nodes/:id/promote`가 그 에이전트의 키로 서명해 부릅니다. 에이전트는 `/cluster` 라우트를 두지 않으므로 `/system` 아래에 있으며, 매니저와 단독 패널에는 이 라우트가 없습니다. 에이전트의 다른 라우트처럼 매니저가 서명하지 않은 요청은 `401 MISSING_TOKEN`입니다.
+
+**Request Body:** `become-agent`와 같은 `{ "token", "ca_pin", "manager" }` — `token`은 리더가 이 에이전트에 묶어 만든 매니저 토큰입니다.
+
+에이전트는 `202`로 답하기 전에, 될 매니저가 Raft를 묶을 자리 — `cluster.advertise_address`의 Raft 포트(클러스터 gRPC 포트 + 1) — 에서 들을 수 있는지 확인합니다. 그 포트를 다른 것이 쓰면, 리더가 매니저로 기록한 노드가 클러스터 없이 뜨게 되기 때문입니다. 답한 뒤에는 이전 매니저 시절의 파일(`ca.key`, Raft 저장소·스냅샷, `tokens.json`, `proxy-secret.json`, `peers.json`, `peers.info`)을 지우고 → 같은 ID와 이름으로 매니저 가입(리더가 에이전트 기록을 매니저 비투표자로 바꾸고 에이전트 키를 복제 상태에서 지움) → `agent.key`·`agent-state.json`을 지우고 → 재시작합니다(`os.Exit(1)`). 실패해도 재시작하며, 가입 전의 실패나 리더가 거부한 가입이면 원래의 에이전트로 돌아옵니다.
+
+**Response (202):** `{ "message": "This node is joining the cluster as a manager" }` — 같은 토큰으로 다시 오면 `202`와 `This node's promotion to a manager is under way`.
+
+**에러 응답:**
+| 코드 | HTTP 상태 | 조건 |
+|------|-----------|------|
+| `MISSING_TOKEN` | 401 | 매니저의 서명 없음 (에이전트의 모든 라우트와 같음) |
+| `INVALID_REQUEST` | 400 | `token`·`manager` 누락 또는 `ca_pin` 형식 오류; Raft 포트를 advertise 주소에서 열 수 없음 |
+| `CLUSTER_PROMOTE_REFUSED` | 409 | 이 노드가 에이전트가 아님, 또는 다른 토큰으로 승격이 이미 진행 중 |
+| `INTERNAL_ERROR` | 500 | 설정 파일 경로를 모름 |
 
 ---
 
@@ -5478,6 +5762,8 @@ WireGuard 키페어 생성 (`wg genkey` + `wg pubkey`).
 
 `internal/api/router.go` 기준 등록 라우트 총 320개 (REST/SSE 312 + WebSocket 8, v0.78.0). 이 외에 SSE 스트리밍 엔드포인트는 REST 숫자에 포함됩니다. Docker 소켓 미사용 시 `/api/v1/docker/*` 라우트는 미등록. 실제 등록 라우트는 서버 시작 로그 또는 `internal/api/router.go`에서 확인.
 
+인증 열의 `내부`는 운영자의 세션이 아니라 노드 간 서명(`X-SFPanel-Internal-Proxy-V2`)이 있는 요청만 받는 라우트입니다.
+
 ### 인증/설정 (15개)
 
 | 메서드 | 경로 | 인증 | 설명 |
@@ -5504,7 +5790,7 @@ WireGuard 키페어 생성 (`wg genkey` + `wg pubkey`).
 - 모든 POST/PUT/PATCH/DELETE 요청에 `X-CSRF-Token: <sfpanel_csrf 값>` 헤더 필수 (`CSRFProtect` 미들웨어가 검증). 로그인/Setup/Refresh 경로 및 mTLS 클러스터 프록시는 자동 면제.
 - WebSocket 인증은 `/auth/ws-ticket`에서 60초짜리 ticket을 받아 `?ticket=` 쿼리로 사용. 레거시 `?token=` JWT 경로는 한 릴리스(v0.14.0까지) 호환성 유지.
 
-### 시스템 (29개)
+### 시스템 (30개)
 
 | 메서드 | 경로 | 인증 | 설명 |
 |--------|------|------|------|
@@ -5537,6 +5823,7 @@ WireGuard 키페어 생성 (`wg genkey` + `wg pubkey`).
 | POST | `/api/v1/system/services/:name/restart` | O | 서비스 재시작 |
 | POST | `/api/v1/system/services/:name/enable` | O | 서비스 활성화 |
 | POST | `/api/v1/system/services/:name/disable` | O | 서비스 비활성화 |
+| POST | `/api/v1/system/become-manager` | 내부 | 에이전트 전용 — 리더가 부르는 승격의 에이전트 쪽 절반 |
 
 ### 감사 로그 (2개)
 
@@ -5840,7 +6127,7 @@ WireGuard 키페어 생성 (`wg genkey` + `wg pubkey`).
 | POST | `/api/v1/docker/prune/networks` | O | 미사용 네트워크 정리 |
 | POST | `/api/v1/docker/prune/all` | O | 전체 정리 |
 
-### Docker - Compose (20개)
+### Docker - Compose (36개)
 
 | 메서드 | 경로 | 인증 | 설명 |
 |--------|------|------|------|
@@ -5872,6 +6159,14 @@ WireGuard 키페어 생성 (`wg genkey` + `wg pubkey`).
 | PUT | `/api/v1/docker/compose/:project/healthcheck/:service` | O | 서비스 헬스체크 추가/수정 |
 | DELETE | `/api/v1/docker/compose/:project/healthcheck/:service` | O | 서비스 헬스체크 제거 |
 | POST | `/api/v1/docker/compose/:project/healthcheck/:service/test` | O | 서비스 헬스체크 테스트 실행 |
+| POST | `/api/v1/docker/compose/:project/migrate/preflight` | O | 노드 간 스택 이관 사전 점검 (매니저 전용, 에이전트의 스택은 요청을 받은 매니저가 점검) |
+| POST | `/api/v1/docker/compose/:project/migrate` | O | 노드 간 스택 이관 (SSE, 매니저 전용, 에이전트의 스택은 요청을 받은 매니저가 중개) |
+| GET | `/api/v1/docker/compose/migrate/target-info` | 내부 | 대상 노드의 사전 점검 사실 (`import_policy` 포함) |
+| POST | `/api/v1/docker/compose/migrate-import` | 내부 | 이관 번들 수신 (정책 헤더는 보내는 매니저가) |
+| GET | `/api/v1/docker/compose/:project/migrate-source/info` | 내부 | 원본 세션 — 원본 쪽 사전 점검 사실 |
+| POST | `/api/v1/docker/compose/:project/migrate-source` | 내부 | 원본 세션 (SSE) — 정지·포장, `ready`, 결과 대기 |
+| GET | `/api/v1/docker/compose/:project/migrate-source/bundle` | 내부 | 원본 세션의 번들 (`?session=`) |
+| POST | `/api/v1/docker/compose/:project/migrate-source/outcome` | 내부 | 원본 세션에 결과 알림 (`?session=`) |
 
 ### 앱스토어 (6개)
 
@@ -5885,7 +6180,7 @@ WireGuard 키페어 생성 (`wg genkey` + `wg pubkey`).
 | GET | `/api/v1/appstore/installed` | O | 설치된 앱 목록 |
 | POST | `/api/v1/appstore/refresh` | O | 앱스토어 캐시 갱신 |
 
-### 클러스터 (17개)
+### 클러스터 (22개)
 
 | 메서드 | 경로 | 인증 | 설명 |
 |--------|------|------|------|
@@ -5902,6 +6197,9 @@ WireGuard 키페어 생성 (`wg genkey` + `wg pubkey`).
 | POST | `/api/v1/cluster/panel-ca` | O | 노드의 패널 CA를 복제 상태에 등록 (리더 전용, 팔로워가 대신 요청) |
 | GET | `/api/v1/cluster/events` | O | 클러스터 이벤트 로그 |
 | POST | `/api/v1/cluster/leader-transfer` | O | 리더십 이전 |
+| POST | `/api/v1/cluster/nodes/:id/convert` | O | 매니저를 같은 ID의 에이전트로 전환 (202, 리더가 실행) |
+| POST | `/api/v1/cluster/become-agent` | 내부 | 전환의 노드 쪽 절반 (리더가 부름) |
+| POST | `/api/v1/cluster/nodes/:id/promote` | O | 에이전트를 같은 ID의 매니저로 승격 (202, 리더가 실행) |
 | POST | `/api/v1/cluster/init` | O | 클러스터 초기화 (CA 생성, Raft 부트스트랩) |
 | POST | `/api/v1/cluster/join` | O | 기존 클러스터 참가 (pre-flight 검증 포함) |
 | POST | `/api/v1/cluster/leave` | O | 클러스터 탈퇴 (서비스 재시작, quorum 가드 `?force=`) |
@@ -5930,7 +6228,7 @@ WireGuard 키페어 생성 (`wg genkey` + `wg pubkey`).
 - **규칙** (`alert_rules`): `{ id, name, type, condition(JSON), channel_ids(JSON 배열), severity:"info"|"warning"|"critical", cooldown(초), node_scope:"all"|"specific", node_ids(JSON), enabled, evaluated }`. `type`은 호스트형(`cpu`/`memory`/`disk`)이면 `condition={"operator":">","threshold":90}`, 컨테이너형(`container_down`/`container_oom`/`container_restart_loop`/`container_unhealthy`)이면 `condition={"container_pattern":"*","threshold_count":N,"window_seconds":N}`. `container_down`은 요청한 정지(die 전 60초 안에, 마지막 start 뒤에 kill 이벤트가 있는 경우 — docker stop·kill·restart, rm -f, compose stop·down, 패널 버튼)는 알리지 않으며 `condition`에 `"include_intentional_stops":true`가 있으면 그것도 알립니다(#135). `container_restart_loop`은 window 안의 비정상 종료(요청한 정지가 아닌 die) 횟수를 셉니다 — Docker는 재시작 정책으로 되살릴 때 `restart` 이벤트를 보내지 않습니다. 쿨다운은 컨테이너형이면 규칙×컨테이너 단위입니다. 평가되는 타입은 이 7개가 전부이고, 생성·수정은 다른 `type`을 `400 ALERT_RULE_TYPE_NOT_EVALUATED`(details `type`)로 거부합니다. v0.78.19까지는 화면이 `service`/`login`/`package`도 내놓고 서버가 그대로 저장했지만, 그 타입은 아무것도 평가하지 않아 알림이 한 번도 가지 않았습니다(#132). 그렇게 저장된 규칙은 목록에 `evaluated: false`로 나오고 삭제만 됩니다 — 수정은 `enabled`만 바꾸는 것까지 같은 코드로 거부합니다. `container_oom` 규칙은 보낸 `severity`와 상관없이 항상 `critical`로 발송되므로, 저장과 목록도 `critical`입니다(전에는 보낸 값을 저장·표시하고 발송만 `critical`이었음). `node_scope`는 `all` 또는 `specific`이고, `specific`이면 `node_ids`에 노드가 하나 이상 있어야 합니다. 아니면 생성과, 범위를 바꾸는 수정이 `400 INVALID_VALUE`로 거부됩니다 — 클러스터에서는 그런 규칙을 모든 노드가 건너뛰어, 화면에서 노드를 고르지 않고 저장한 규칙이 활성으로 표시된 채 발송되지 않았습니다.
 - **이력** (`alert_history`): `GET`은 `?page=&limit=` 페이지네이션 → `{items[], total, page, limit}`. 각 항목 `{ rule_id, rule_name, type, severity, message, sent_channels(JSON), created_at }`. `DELETE`는 전체 삭제.
 
-### SSE 스트리밍 (11개)
+### SSE 스트리밍 (13개)
 
 위 표들의 라우트 중 `Content-Type: text/event-stream`으로 응답하는 엔드포인트 목록. 자세한 이벤트 스키마는 `docs/specs/websocket-spec.md` 참조.
 
@@ -5947,6 +6245,8 @@ WireGuard 키페어 생성 (`wg genkey` + `wg pubkey`).
 | POST | `/api/v1/packages/install-node` | Node.js/NVM 설치 |
 | POST | `/api/v1/network/tailscale/install` | Tailscale 설치 |
 | POST | `/api/v1/cluster/update` | 클러스터 멀티노드 업데이트 |
+| POST | `/api/v1/docker/compose/:project/migrate` | 노드 간 스택 이관 |
+| POST | `/api/v1/docker/compose/:project/migrate-source` | 이관의 원본 세션 (클러스터 내부) |
 
 ### WebSocket (7개)
 

@@ -113,6 +113,10 @@
   - **네트워크**: 목록, 생성(드라이버 선택: bridge 기본), 삭제, 상세 검사
   - **Docker Compose (Stacks)**: 설정 가능한 스택 루트(`server.stacks_path`, 기본 `/opt/stacks`) 디스크 스캔 기반 프로젝트 관리, Monaco 에디터 YAML 편집, `.env` 편집, `up -d`/`down`(이미지·볼륨 동시 삭제 옵션), 프로젝트 상태, **서비스별 제어**(시작/중지/재시작)와 로그, **스택 업데이트 확인·적용**(`POST /compose/:project/check-updates` → `…/update`/`…/update-stream` SSE)
     - **노드 간 스택 마이그레이션**(클러스터 전용): 대상 노드(`targetNodeId`)로의 콜드 마이그레이션 + 원본 처분(`disposition`: retain/delete/clone). 정의·`.env`·볼륨·바인드 데이터·이미지(save/load)를 콜드 패키징해 이전. **사전 점검**(arch/디스크/포트/덮어쓰기)과 **헬스 게이트**를 통과해야 적용하며, 덮어쓰기 시 정의/볼륨을 백업하고 실패 시 원복. 전송 진행률은 SSE로 스트리밍, **전송 속도 제한**(v0.51.0) 지원
+      - 원본은 사전 점검에 차단이 없고, 대상이 답했으며(`target-unreachable`이면 거부), 대상에 서명하고 닿을 수 있을 때만 멈춘다
+      - 대상은 덮어쓰기·위험 계층 승인(`acknowledgeRisks`)·원본의 종류를 번들이 아니라 보내는 매니저의 정책 헤더(`X-SFPanel-Migration-*`)로 받는다. 대상의 키로 서명된 요청이라 에이전트는 보낼 수 없다
+      - **에이전트의 스택은 매니저가 중개**한다(원본 → 매니저 → 대상): `?node=<에이전트>`의 `/migrate`·`/migrate/preflight`는 요청을 받은 매니저가 실행하고, 에이전트의 원본 세션(`…/migrate-source`, 내부 전용)에서 번들을 디스크 없이 받아 대상에 흘려보낸 뒤 결과(`imported`/`failed`/`unknown`)를 알린다. 결과 없이 끊기면 원본은 번들이 통째로 나간 적이 없을 때만 다시 켠다. 중개하는 매니저는 Docker가 없어도 된다
+      - 에이전트의 번들은 더 엄격하다: 위험 계층 compose는 운영자 승인이 있어야 하고, 바인드는 스택 디렉터리 안만 복원하며(밖이면 거부), 이미지는 대상에 없는 태그나 같은 이미지로만 적재한다. 원본 에이전트와 대상이 이 기능을 아는 릴리스여야 한다(`source-version`·`target-version` 차단). 운영 절차는 `cluster-ops.md`의 "Stack migrations"
   - **리소스 정리(Prune)**: 컨테이너/이미지/볼륨/네트워크 개별 + 전체 일괄
 - **관련 기술**: Docker Go SDK, gorilla/websocket, xterm.js, Monaco Editor, uPlot(컨테이너 히스토리), SQLite `container_metrics_history`/`container_events`(마이그레이션 16·17)
 
@@ -322,7 +326,11 @@
   - **에이전트** (`cluster.role: agent`): Raft 밖의 관리 대상 노드 — 투표·복제 상태·클러스터 JWT 비밀·계정·로그인·SPA 없이 노드 기능 라우트만 서비스하고, 자기 매니저가 그 에이전트의 키(복제 상태 `agent_key/<id>`)로 서명한 요청만 받는다(출발지는 루프백·매니저 주소·`cluster.agent_allowed_sources`). 가입은 `RegisterAgent` RPC — 에이전트가 만든 키의 CSR을 리더가 OU `sfpanel-agent`로 서명: `sfpanel cluster token --agent` → `sfpanel agent join` 또는 `install.sh --agent`. 모든 매니저가 에이전트를 아는 버전이어야 하고, 리더는 프록시 비밀 전환 뒤 5분이 지나야, 최대 `cluster.max_agents`(기본 100)대까지 받는다
     - 일반 요청은 gRPC `ProxyRequest`(에이전트의 gRPC 서버는 자기 매니저 목록의 매니저 인증서만 받고 자기 키로 루프백에 서명), 스트림·파일·WebSocket은 에이전트 패널 HTTPS로 직접 그 에이전트의 키로 서명해 보낸다. 키가 없거나 패널 CA를 모르면 보내지 않으며, 매니저 비밀로 서명한 헤더와 사용자 토큰·쿠키는 어떤 경로로도 에이전트에 가지 않는다
     - 30초마다 리더에 하트비트를 보내고, 응답의 리더 주소는 어느 매니저의 것이든 따르되 매니저 목록은 리더의 응답에서만 받는다(`{data_dir}/agent-state.json`) — 팔로워의 목록은 제거를 늦게 반영할 수 있다. 팔로워에게서는 그가 알려 준 리더 항목 하나만, 에이전트가 그 주소의 매니저를 모를 때 받는다(에이전트가 듣지 못하는 사이 뽑힌 리더에게 닿는 길). 리더를 모르는 매니저(선거 중·고립·자기 업데이트 중인 리더)는 바로 떠나 30초 뒤 다음 매니저로 간다. "제거됨"은 리더만 말하며, 그때 에이전트는 패널의 클러스터 쪽 리스너와 gRPC 서버를 닫고 루프백만 남긴다 → `sfpanel agent reset --yes`로 단독 패널. 운영 절차는 `cluster-ops.md`의 "Agents"
-  - **CLI 명령어**: `sfpanel cluster init/join/leave/status/token/remove/list/leader-transfer/reissue-cert` (`cluster token --agent`는 에이전트 토큰), 에이전트 쪽은 `sfpanel agent join/status/reset`
+  - **매니저 ↔ 에이전트 전환** (리더가 실행, 노드 ID·이름·라벨·가입 시각 유지): 리더는 관문을 모두 확인한 뒤 그 노드 ID와 IP에 묶인 토큰(30분)을 만들어 노드에 건넨다. 묶인 토큰은 그 노드가 그 주소에서만 쓸 수 있다
+    - **전환** (`POST /cluster/nodes/:id/convert`, `sfpanel cluster convert`): 리더가 아닌 매니저만. 관문은 온라인·에이전트를 아는 버전, 남은 투표자의 정족수, 프록시 비밀 전환 정착, 다른 매니저의 준비, 에이전트 자리, 에이전트로 쓸 이름·주소, CA 키. 노드는 떠남 → 단독 설정 저장 → 매니저 파일(`ca.key`, Raft 저장소·스냅샷, `tokens.json`, `proxy-secret.json`, `peers.json`/`peers.info`)과 로컬 `admin`, `.bak` 사본 삭제 → 같은 ID로 에이전트 등록 → 재시작. 떠나기 전 실패는 매니저로 돌아오고, 단독 설정을 저장한 뒤의 실패(지우지 못한 파일, 거부된 등록)는 단독 패널이 되어 그 서버에서 `agent join`(새 노드로). 예약 백업은 지우지 않고 응답·로그로 알린다(클러스터 비밀을 담고 있음)
+    - **승격** (`POST /cluster/nodes/:id/promote`, `sfpanel cluster promote`): 에이전트가 같은 ID로 매니저 가입 → 리더가 기록을 매니저 비투표자로 바꾸고 에이전트 키를 지움 → 재시작. 투표자가 되려면 리더가 그 Raft 포트(gRPC+1)에 닿아야 하며, 닫혀 있으면 비투표자로 남고 리더 로그에 Raft의 오류가 나온다
+    - 새 오류 코드 `CLUSTER_CONVERT_REFUSED`·`CLUSTER_PROMOTE_REFUSED` (관문 409, 노드의 거부 502). 운영 절차는 `cluster-ops.md`의 "Converting a manager to an agent"·"Promoting an agent to a manager"
+  - **CLI 명령어**: `sfpanel cluster init/join/leave/status/token/remove/convert/promote/list/leader-transfer/reissue-cert` (`cluster token --agent`는 에이전트 토큰), 에이전트 쪽은 `sfpanel agent join/status/reset`
   - **웹 UI API**: 클러스터 초기화/참여/탈퇴/해산/업데이트 REST API (~15개 엔드포인트)
 - **패키지 레이아웃**: `internal/cluster/` — `manager.go`, `raft_fsm.go`, `grpc_server.go`, `join.go`, `detect.go`, `tls.go`, `token.go`, `ws_relay.go` 외 다수. proto는 `proto/cluster.proto`, 생성물 `proto/cluster.pb.go` / `proto/cluster_grpc.pb.go`
 - **설정 확장**: `config.yaml`에 `cluster` 섹션 (enabled, name, node_id, node_name, grpc_port, data_dir, cert_dir, advertise_address, raft_tls; 에이전트는 role, managers, agent_allowed_sources, 리더는 max_agents)
@@ -780,6 +788,10 @@ SQLite (WAL 모드, busy_timeout 5000ms, `SetMaxOpenConns(4)`, 추가 프래그�
 | POST | `/api/v1/docker/compose/:project/migrate` | 노드 간 마이그레이션 (SSE) |
 | GET | `/api/v1/docker/compose/migrate/target-info` | 대상 노드 사실 조회 (내부 전용) |
 | POST | `/api/v1/docker/compose/migrate-import` | 마이그레이션 번들 수신 (내부 전용) |
+| GET | `/api/v1/docker/compose/:project/migrate-source/info` | 원본 세션 — 원본 쪽 사전 점검 사실 (내부 전용) |
+| POST | `/api/v1/docker/compose/:project/migrate-source` | 원본 세션 — 정지·포장 후 매니저의 결과를 기다림 (SSE, 내부 전용) |
+| GET | `/api/v1/docker/compose/:project/migrate-source/bundle` | 원본 세션의 번들 (내부 전용) |
+| POST | `/api/v1/docker/compose/:project/migrate-source/outcome` | 원본 세션에 결과 알림 (내부 전용) |
 
 ### WebSocket 엔드포인트 (단발성 ws-ticket 우선 인증, 레거시 `?token=` 폴백)
 
@@ -806,7 +818,7 @@ SQLite (WAL 모드, busy_timeout 5000ms, `SetMaxOpenConns(4)`, 추가 프래그�
 | `POST /api/v1/docker/images/pull` | Docker 이미지 풀 | JSON (Docker API 이벤트 그대로) |
 | `POST /api/v1/docker/compose/:project/up-stream` | Compose 프로젝트 시작 | JSON `{phase, line}` |
 | `POST /api/v1/docker/compose/:project/update-stream` | Compose 스택 풀+재생성 | JSON `{phase, line}` |
-| `POST /api/v1/docker/compose/:project/migrate` | 노드 간 스택 마이그레이션 | JSON `{phase, message, done}` (preflight/quiesce/package/transfer/finalize/done) |
+| `POST /api/v1/docker/compose/:project/migrate` | 노드 간 스택 마이그레이션 (에이전트의 스택은 매니저가 중개) | JSON `{phase, message, done}` (preflight/quiesce/package/transfer/finalize/done) |
 | `POST /api/v1/appstore/apps/:id/install` | 앱스토어 앱 설치 | JSON `{stage, message, done, success}` |
 | `POST /api/v1/packages/install-docker` | Docker 엔진 설치 (get.docker.com) | 평문 라인 + `[DONE]` |
 | `POST /api/v1/packages/install-node` | Node.js/NVM 설치 | 평문 라인 + `[DONE]` |
@@ -979,6 +991,8 @@ SFPanel 바이너리는 서버 실행 외에도 관리 명령을 지원합니다
 | `sfpanel cluster status` | 클러스터 상태 확인 |
 | `sfpanel cluster token [--ttl]` | 참가 토큰 생성 |
 | `sfpanel cluster remove NODE_ID` | 노드 제거 |
+| `sfpanel cluster convert NODE_ID` | 매니저를 같은 ID의 에이전트로 전환 (서비스 실행 중, 리더가 실행) |
+| `sfpanel cluster promote NODE_ID` | 에이전트를 같은 ID의 매니저로 승격 (서비스 실행 중, 리더가 실행) |
 | `sfpanel cluster list` | 클러스터 멤버 목록 (역할 + 헬스) |
 | `sfpanel cluster leader-transfer NODE_ID` | 리더십 이전 (graceful drain용) |
 | `sfpanel cluster reissue-cert` | 노드 인증서 무중단 재발급 (핫 리로드) |

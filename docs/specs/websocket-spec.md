@@ -702,7 +702,7 @@ go func() {
 
 ## Server-Sent Events (SSE) 스트리밍
 
-WebSocket 외에 **단방향 진행률 푸시** 용도로 SSE 엔드포인트 12개가 존재한다. REST API와 달리 `Content-Type: text/event-stream`을 반환하고, 장시간 실행되는 명령(설치, 업데이트, 이미지 풀 등)의 출력을 라인 단위로 스트리밍한다.
+WebSocket 외에 **단방향 진행률 푸시** 용도로 SSE 엔드포인트 13개가 존재한다. REST API와 달리 `Content-Type: text/event-stream`을 반환하고, 장시간 실행되는 명령(설치, 업데이트, 이미지 풀 등)의 출력을 라인 단위로 스트리밍한다.
 
 ### 인증
 
@@ -730,7 +730,8 @@ WebSocket 외에 **단방향 진행률 푸시** 용도로 SSE 엔드포인트 12
 | `/api/v1/packages/install-node` | POST | Node.js/NVM 설치 | 평문 라인, 종료 시 `[DONE]` |
 | `/api/v1/network/tailscale/install` | POST | Tailscale 설치 (공식 install.sh) | 평문 라인, 종료 시 `[DONE]` |
 | `/api/v1/cluster/update` | POST | 클러스터 멀티노드 업데이트 오케스트레이션 (에이전트 물결 → 다른 매니저 한 대씩 → 리더) | JSON — 시작 `{"overall":"started","mode","total_nodes","waves","target"}`, 물결마다 `{"wave","waves","nodes"}`, 노드마다 `{node_id, node_name, step, message}` (step: `skipped` / `updating` / `waiting` / `online` / `transfer` / `error`), 끝 `{"overall":"complete","updated","failed","leader_restarting"}` 또는 `{"overall":"error","message",...}` |
-| `/api/v1/docker/compose/:project/migrate` | POST | 스택 노드 간 콜드 이관 (소스 정지 → 패키징 → 전송 → disposition) | JSON `{phase, message, done}` — phase: `preflight` / `quiesce` / `package` / `transfer` / `finalize` / 종료 `done`; 실패 시 `rollback`(소스 복구 후) 또는 `error` |
+| `/api/v1/docker/compose/:project/migrate` | POST | 스택 노드 간 콜드 이관 (소스 정지 → 패키징 → 전송 → disposition). 에이전트의 스택은 요청을 받은 매니저가 중개 | JSON `{phase, message, done}` — phase: `preflight` / `quiesce` / `package` / `transfer` / `finalize` / 종료 `done`; 실패 시 `rollback`(소스 복구 후) 또는 `error` |
+| `/api/v1/docker/compose/:project/migrate-source` | POST | **클러스터 내부 전용** — 매니저가 이끄는 이관의 원본 세션 (정지 → 포장 → `ready` → 매니저의 결과를 기다림 → disposition 또는 되돌리기) | `/migrate`와 같은 JSON, 번들이 준비되면 `{"phase":"ready","session","sha256","bytes","done":false}` |
 
 ### 메시지 예시
 
@@ -787,7 +788,7 @@ data: {"phase":"preflight","message":"Running pre-flight checks...","done":false
 
 data: {"phase":"quiesce","message":"Stopping source stack...","done":false}
 
-data: {"phase":"package","message":"Packaging stack...","done":false}
+data: {"phase":"package","message":"Packaging stack (data + images)...","done":false}
 
 data: {"phase":"transfer","message":"Transferring to target...","done":false}
 
@@ -800,11 +801,25 @@ data: {"phase":"done","message":"Migration complete.","done":true}
 
 `transfer` 단계는 진행률 갱신을 위해 위 예시처럼 증분 이벤트를 반복 전송한다: `data: {"phase":"transfer","message":"Transferring to target... 512 / 2048 MiB (25%)","done":false}`.
 
-실패 시 패키징/전송 단계는 소스를 복구한 뒤 `{"phase":"rollback",...,"done":true}`를, 사전 점검 차단이나 그 외 실패는 `{"phase":"error",...,"done":true}`를 마지막으로 전송한다. 요청 본문은 `{"targetNodeId","disposition","overwriteAcked","rateLimitMbps"}` (REST 스펙의 `POST /docker/compose/:project/migrate` 참조). `rateLimitMbps` (선택) — 전송 대역폭 상한(MiB/s), 0/미지정 시 무제한 (v0.51.0).
+실패 시 패키징/전송 단계는 소스를 복구한 뒤 `{"phase":"rollback",...,"done":true}`를, 사전 점검 차단이나 그 외 실패는 `{"phase":"error",...,"done":true}`를 마지막으로 전송한다. 원본은 사전 점검에 차단이 없고, 대상이 사전 점검에 답했으며(`target-unreachable`이면 거부), 대상에 보낼 수 있을 때만 멈춘다 — 아니면 `pre-flight blocked: …` `error`로 끝나고 원본은 그대로 돈다. 요청 본문은 `{"targetNodeId","disposition","overwriteAcked","acknowledgeRisks","rateLimitMbps"}` (REST 스펙의 `POST /docker/compose/:project/migrate` 참조). `acknowledgeRisks` (선택) — 위험 계층 compose에 대한 운영자의 승인으로, 대상은 원본이 에이전트일 때만 본다. `rateLimitMbps` (선택) — 전송 대역폭 상한(MiB/s), 0/미지정 시 무제한 (v0.51.0).
+
+**에이전트의 스택**(`?node=<에이전트>`)은 요청을 받은 매니저가 실행하고, 스트림도 그 매니저의 것이다. 매니저는 `preflight`·`transfer`와 정지 전 거부를 보내고, 원본 세션의 `quiesce`·`package`와 마지막 `finalize`→`done`·`rollback`·`error`를 출력 정리만 거쳐 그대로 전달한다(`ready`는 전달하지 않음). 전송이 실패하면 원인을 끝이 아닌 `transfer` 이벤트로 먼저 보내고 원본의 마지막 이벤트가 뒤따른다:
+```
+data: {"phase":"transfer","message":"transfer/restore failed: target status Bad Request: {…}","done":false}
+
+data: {"phase":"rollback","message":"transfer/restore failed; source restarted: the manager reports that the target did not take the stack","done":true}
+```
+원본에 결과를 전하지 못하거나 원본의 스트림이 끝을 말하기 전에 끊기면 매니저가 직접 `done`(대상이 받았을 때, `migrated to target (running); …`) 또는 `error`로 끝내며, 메시지는 `— check the source`로 끝난다.
+
+`/api/v1/docker/compose/:project/migrate-source` (원본 세션, 클러스터 내부 전용): 본문 `{"targetNodeId","disposition","overwriteAcked"}`. 정지·포장 이벤트 뒤 번들이 준비되면 다음을 보내고, 매니저가 `…/migrate-source/bundle?session=`으로 번들을 가져가 `…/migrate-source/outcome?session=`(`imported`·`failed`·`unknown`)으로 결과를 알릴 때까지 최대 2시간 기다린다:
+```
+data: {"phase":"ready","session":"5f0c…e9a1","sha256":"9b2d…","bytes":2147483648,"done":false}
+```
+결과가 `imported`면 disposition을 적용해 `done`으로, `failed`면 스택을 다시 켜 `rollback`으로, `unknown`이면 멈춘 채 `error`로 끝난다. 결과 없이 스트림이 끝나거나 2시간이 지나면 번들이 통째로 나간 적이 없을 때만 다시 켜고, 나갔으면 대상에서 스택이 돌 수 있으므로 멈춘 채 `error`로 끝난다(REST 스펙의 `POST /docker/compose/:project/migrate-source` 참조).
 
 ### 클러스터 프록시
 
-SSE 엔드포인트에 `?node=X`가 오면 `ClusterProxyMiddleware`가 gRPC 프록시 대신 **HTTP 직접 릴레이**로 처리한다 (스트리밍 특성 때문에 gRPC 단일-응답 모델이 맞지 않음). 타임아웃 5분, `/cluster/update`와 스택 이관(`/migrate`)은 2시간 — 모든 물결과 매니저를 거치는 클러스터 업데이트와 큰 이관은 5분을 넘긴다 (`config.yaml` 조정 불가, 코드에 고정 — `proxy.go`의 `relayWindowFor`). 릴레이 식별은 경로의 `-stream` 접미사 또는 `/system/update`, `/appstore/.../install` 같은 화이트리스트.
+SSE 엔드포인트에 `?node=X`가 오면 `ClusterProxyMiddleware`가 gRPC 프록시 대신 **HTTP 직접 릴레이**로 처리한다 (스트리밍 특성 때문에 gRPC 단일-응답 모델이 맞지 않음). 타임아웃 5분, `/cluster/update`와 스택 이관(`/migrate`, 원본 세션 `/migrate-source`)은 2시간 — 모든 물결과 매니저를 거치는 클러스터 업데이트와 큰 이관은 5분을 넘기고, 원본 세션은 전송이 끝날 때까지 결과를 기다린다 (`config.yaml` 조정 불가, 코드에 고정 — `proxy.go`의 `relayWindowFor`). 릴레이 식별은 경로의 `-stream` 접미사 또는 `/system/update`, `/appstore/.../install` 같은 화이트리스트. 예외로 `?node=`가 에이전트인 `/migrate`(와 `/migrate/preflight`)는 중계하지 않고 요청을 받은 매니저가 실행한다 — 에이전트는 다른 노드로 보낼 수 없으므로 매니저가 그 스택을 중개한다.
 
 ### 프론트엔드 소비
 

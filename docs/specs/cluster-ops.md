@@ -40,6 +40,19 @@ leader with `sfpanel cluster token`. The file holds the HMAC secret plus the
 token map; protect it like any other cluster credential. If the file is
 corrupted or deleted, all pending invites become invalid.
 
+A conversion or a promotion (below) hands its node a token bound to that
+node: it admits that node ID only, with the node's panel and gRPC addresses
+on the IP the cluster has for it, and lasts 30 minutes. Whoever else holds it
+can join neither as another node nor from another address — the leader
+answers `this join token was not made for this node at this address` — and
+the refusal does not spend it. An unbound token brings no node back under an
+ID the cluster knows: an agent registering with one cannot ask for an ID,
+and a manager joining with one under an ID in use is refused. Bound tokens
+are listed and revoked like any other, and live only on the leader that made
+them. The binding is two fields of the token in `tokens.json`; a leader from
+before them drops both when it loads the file, and the token then admits any
+node of its kind.
+
 ---
 
 ## Joining a manager
@@ -259,7 +272,8 @@ no login or setup screen and no web UI. It serves the node routes — system,
 files, Docker, logs, terminal and the rest — and only to requests one of its
 managers signed with that agent's own key. Operators reach it from a
 manager's panel by selecting the node (`?node=<agent-id>`); cluster
-management (`/cluster/*`) stays on the managers.
+management (`/cluster/*`) stays on the managers, and a manager carries the
+agent's stacks when they move to another node (§ Stack migrations).
 
 What an agent holds is no credential anywhere else: its certificate
 (OU `sfpanel-agent`) gets it nothing on a manager's gRPC port but its own
@@ -331,16 +345,16 @@ curl -fsSL https://raw.githubusercontent.com/svrforum/SFPanel/main/scripts/insta
   operator certificate has to name both, or the join stops and says so.
 - A server that still holds a cluster manager's files is refused: `ca.key`
   in `cluster.cert_dir`, or `raft-log.db`, `raft-stable.db`, `snapshots`,
-  `tokens.json`, `proxy-secret.json` or `peers.json` in `cluster.data_dir`.
-  They hold the cluster's keys, which an agent joined over them would keep.
-  Remove what the refusal lists, then join again.
+  `tokens.json`, `proxy-secret.json`, `peers.json` or `peers.info` in
+  `cluster.data_dir`. They hold the cluster's keys, which an agent joined
+  over them would keep. Remove what the refusal lists, then join again.
 
 ### Ports
 
 | From → to | TCP port | Carries |
 |---|---|---|
 | Managers → agent | 3629 (`cluster.grpc_port`) | Requests, over gRPC with mTLS |
-| Managers → agent | 3628 (`server.port`) | Event streams, file transfers, terminals and other WebSockets, stack migration pushes — panel HTTPS |
+| Managers → agent | 3628 (`server.port`) | Event streams, file transfers, terminals and other WebSockets, stack migrations (a manager pushes stacks to the agent, and pulls the agent's own from it) — panel HTTPS |
 | Agent → managers | 3629 | Registration, heartbeats and panel-CA reports, to the leader; the other managers are tried when it cannot be reached |
 
 An agent needs no Raft port (3630), on either side.
@@ -464,6 +478,280 @@ against it, and a relay that could only go in clear is not sent
 (`CLUSTER_AGENT_PANEL_INSECURE`). With an operator certificate
 (`server.tls.cert_file` and `key_file`), `server.tls.ca_file` has to name its
 CA.
+
+---
+
+## Stack migrations
+
+A stack moves to another node cold. The source stops it and packages its
+definition, `.env`, volumes, bind data and images into one bundle; the target
+restores the bundle, starts the stack and waits for it to be healthy; only
+then does the source apply its disposition — `retain` leaves it stopped,
+`delete` removes it, `clone` starts it again. The operator runs
+`POST /api/v1/docker/compose/<project>/migrate/preflight` and then
+`…/migrate`, with `?node=` naming the node the stack is on (`api-spec.md`).
+
+- **A stack on a manager** is migrated by that manager, which sends the
+  bundle to the target itself; from another manager, the request is relayed
+  to it like any other.
+- **A stack on an agent** is carried by the manager the request comes to —
+  the one the browser is connected to — since an agent holds no other node's
+  key and no node takes anything from it. `/migrate` and `/migrate/preflight`
+  sent with `?node=<agent>` are not relayed: they run on that manager, as
+  `/auth/*` does. It drives the agent's migration session (below): the agent
+  stops and packages its stack, the manager pulls the bundle over the
+  agent's panel HTTPS and pushes it to the target as it arrives, writing none
+  of it to disk, and then tells the agent how the target took it. The Docker
+  work is the source's and the target's, so a manager without Docker carries
+  an agent's stack all the same.
+
+Either way the run is detached from the browser: closing the tab does not
+stop it.
+
+**Nothing stops before the target is checked.** The source stops only once
+the pre-flight has no block, the target has answered it, and the migrating
+manager can push to it: it knows the node, can reach an agent target over
+HTTPS (its panel CA is in replicated state) and holds the key it signs for it
+with. A target that did not answer the pre-flight (`target-unreachable`) is
+refused rather than gone on with, as its disk, ports and existing stacks went
+unchecked. Carrying an agent's stack, the manager must also reach that agent
+the same way. Each refusal ends the stream with `pre-flight blocked: …` and
+leaves the source running.
+
+**The target takes the import's terms from the sending manager**, never from
+the bundle, which is the source's: whether to replace a stack or a volume it
+already has (the operator's overwrite acknowledgement), whether the operator
+acknowledged a risky compose file, and whether the bundle came from an agent.
+They travel as headers of the import request (`X-SFPanel-Migration-*`),
+which only a manager can send: the request is signed with the target's key,
+and an agent holds no other node's. A bundle's own overwrite flag counts only
+when no such header came, from a manager on a release from before them.
+
+**An agent's bundle meets stricter rules**, so that root on an agent does not
+become root on the node its stack moves to:
+
+- A compose file in the risky tier — `privileged`, host namespaces, the
+  Docker socket and the like — needs the operator's acknowledgement,
+  `"acknowledgeRisks": true` in the migration's body, or the target refuses
+  it (`COMPOSE_RISKY`). A manager's stack is checked for the forbidden tier
+  only, as before: it passed the risky tier when it was created. The
+  forbidden tier — binds of `/etc/sfpanel`, `/var/lib/sfpanel`, `/root/.ssh`
+  or `/etc/sudoers.d` — is refused for every source.
+- Bind data is restored into the stack's own directory only, and a stack
+  that binds a path outside it is refused. A manager's absolute binds are
+  still written to the same paths on the target, outside the protected
+  system trees.
+- An image loads only under a tag the target does not have, or over the same
+  image. A tag the target holds as another image is refused (`409`): the
+  stacks that use it would run the agent's image at their next restart.
+
+For every source, an image archive may set only the tag the stack runs
+(`docker load` sets every tag an archive names), and a bundle's small entries
+— manifest, compose file, `.env` and the other definition files — may not
+exceed 64 MiB together.
+
+**Mixed versions.** Carrying an agent's stack needs both ends on a release
+that knows how. An agent from before migration sessions is a `source-version`
+block, and a target that states no import policy — it would take the agent's
+bundle on the bundle's word, by a manager's rules — is a `target-version`
+block. The pre-flight reports both before anything stops. A manager's stack
+still goes to an older target, which reads the bundle's overwrite flag as
+before.
+
+### The source's session
+
+Every node, an agent too, serves a migration of its own stacks as a session
+that a manager drives, on four node-to-node routes under
+`/api/v1/docker/compose/<project>/migrate-source` that take only a manager's
+signature (`api-spec.md`). The session holds the stack's migration lock —
+two managers cannot carry the same stack at once — stops and packages the
+stack, announces the bundle, and waits up to two hours for the manager's word
+on how the target took it:
+
+- `imported`: the target runs the stack. The source applies the disposition.
+- `failed`: the target refused the bundle or could not bring the stack up.
+  The source starts its stack again.
+- `unknown`: the connection to the target broke, and the target was running
+  the stack when asked, before its import had answered. The source leaves its
+  stack stopped.
+
+Without a word — the manager went away, its stream broke, this panel stopped,
+or the two hours passed — the source starts its stack again only if the
+bundle never went out whole. Once every byte has been handed to the manager's
+connection, the stack may be running on the target, and two live copies are
+worse than a stopped one: the source leaves its stack stopped and logs an
+error. In both stopped cases, check the target, then start or remove the
+source.
+
+If the manager cannot hand the source its word, or the source's stream ends
+before it says how it finished, the manager ends the operator's stream with
+what it knows: `done` when the target took the stack — a source that never
+got the word leaves its stack stopped and its disposition unapplied — and
+`error` otherwise. Both messages end with "check the source".
+
+---
+
+## Converting a manager to an agent
+
+`POST /api/v1/cluster/nodes/<node-id>/convert`, or
+`sudo sfpanel cluster convert <node-id>` on a manager whose service is
+running, turns a manager into an agent under its own node ID, with its name,
+labels and join time. Alert rules scoped to nodes and the audit log name a
+node by its ID, so they go on pointing at it, and its local database stays as
+it was but for the admin account. Any manager takes the request to the
+leader, which runs it.
+
+**Gates.** Nothing changes until every one of these holds; a refusal is
+`409 CLUSTER_CONVERT_REFUSED` with the reason.
+
+- The node is a manager other than the leader, online, on a release that
+  knows agents. Hand a leader's role to another manager first
+  (`sudo sfpanel cluster leader-transfer <node-id>`); a one-manager cluster
+  has nothing to convert.
+- The voters left keep their quorum without it, counted by heartbeat as a
+  leave's guard counts them. A two-manager cluster can convert its follower:
+  the leader alone is a quorum of one.
+- An agent could register now: five minutes have passed since the leader
+  recorded the switch of the internal proxy secret, every other manager is
+  online on a release that knows agents, and there is room for another agent
+  (`cluster.max_agents`).
+- The agent's identity is free: the node's name is one an agent may have
+  (1–63 letters, digits, dots, hyphens or underscores, starting with a letter
+  or digit), the cluster has the node at an IP and a port, and no other node
+  has that name or IP. Nodes cannot be renamed, so a manager that fails here
+  — one of two servers cloned under one host name, say — leaves the cluster
+  (`sfpanel cluster leave`) and joins with `sfpanel agent join --name`, as a
+  new node.
+- The leader can sign certificates: it holds the CA key, on disk or in
+  replicated state.
+
+A leader starts one conversion at a time.
+
+**Steps.**
+
+1. The leader makes an agent token bound to the node, records the node's
+   name, labels and join time in replicated state, and asks the node to go
+   (`POST /api/v1/cluster/become-agent`, which takes only a call signed node
+   to node).
+2. While a refusal still changes nothing, the node checks what the agent it
+   becomes needs. The address the cluster has for it must be an IP of this
+   server, since an agent listens where it registers; correct a wrong one
+   with `PATCH /api/v1/cluster/nodes/<node-id>/address`. Its panel must serve
+   HTTPS that verifies for 127.0.0.1 and that IP: HTTPS that was off is
+   turned on with the managed certificate, as `agent join` does, and an
+   operator certificate needs `server.tls.ca_file`. Then the node answers,
+   and the leader answers the operator `202`: the conversion has begun.
+3. The node leaves the cluster, and the leader removes its record and its
+   Raft membership.
+4. It saves its config as a standalone panel's, with a JWT key of its own.
+5. It removes what a manager keeps and an agent must not hold: `ca.key` in
+   `cluster.cert_dir`; `raft-log.db`, `raft-stable.db`, `snapshots`,
+   `tokens.json`, `proxy-secret.json`, `peers.json` and `peers.info` in
+   `cluster.data_dir`; the local `admin` account; and the `config.yaml.bak`
+   and `sfpanel.db.bak` an update leaves.
+6. It registers as an agent under its own ID with the token, and the leader
+   gives the new record the name, labels and join time it recorded.
+7. It restarts as an agent (`Restart=always` starts it again).
+
+It is over when the node list shows the node as an agent. The node may be the
+one the browser is connected to — the CLI on that node needs it — but the
+browser's session ends with the restart, as an agent has no login or UI:
+carry on from another manager.
+
+**When it fails.**
+
+- A gate refuses: nothing has been made or changed.
+- The node refuses (`502 CLUSTER_CONVERT_REFUSED`, with its reason): nothing
+  has changed, and the leader takes back the token and the record it made.
+- The node does not answer the leader (`502 INTERNAL_ERROR`): it may have
+  taken the request and be on its way out — its leave drops the connection
+  the answer would come back on — so the token is kept, and admits that node
+  alone, at its IP. Look for the node in the node list a minute later, and if
+  it is still a manager there, convert it again.
+- The leave fails: nothing else changes on the node, which restarts as the
+  manager it was. Its log says why.
+- A step after the standalone config is saved fails — a file that will not
+  go, or a registration the leader refuses (a leader elected since the
+  conversion began does not have its token): the node restarts as a
+  standalone panel, and its log names what failed. Remove any file it names,
+  then join it with `sudo sfpanel agent join` and a token from
+  `sudo sfpanel cluster token --agent`. It comes back as a new node, with a
+  new ID and without its labels. The conversion removed the local account
+  before it registered, so until that join the panel's first-run setup is
+  open from loopback and private networks, as on a fresh install.
+
+**Backups.** The scheduled backups beside the database
+(`/var/lib/sfpanel/backups`) are the operator's and stay where they are; when
+there are any, the answer's message ends with a warning, and the node logs
+one. Those taken while the node was a manager hold the cluster's JWT key and
+admin account, usable until the cluster's secrets are rotated — which SFPanel
+cannot do yet — and the agent refuses to restore them (§ Backups and agents).
+Move them off the node, or delete them.
+
+---
+
+## Promoting an agent to a manager
+
+`POST /api/v1/cluster/nodes/<node-id>/promote`, or
+`sudo sfpanel cluster promote <node-id>` on a manager whose service is
+running, turns an agent into a manager under its own node ID, with its name,
+labels and join time. Any manager takes the request to the leader.
+
+**Gates.** The node is an agent and online, as it joins again itself; the
+cluster has room for another manager (32); the leader can sign certificates;
+and the cluster has the agent at an IP and a port, which the token is bound
+to. A refusal is `409 CLUSTER_PROMOTE_REFUSED`, nothing having changed.
+
+**Steps.**
+
+1. The leader makes a manager token bound to the agent and asks it to join
+   (`POST /api/v1/system/become-manager`, signed with the agent's key: an
+   agent serves no `/cluster` route).
+2. The agent checks that it can listen on its Raft port — the cluster gRPC
+   port + 1, 3630 by default — at its advertise address, where the manager it
+   becomes binds it, and answers `202`: the promotion has begun.
+3. It removes whatever an earlier membership as a manager left — `ca.key`,
+   the Raft stores and snapshots, `tokens.json`, `proxy-secret.json`,
+   `peers.json` and `peers.info` — while it is still an agent and uses none
+   of them. One that will not go stops the promotion there.
+4. It joins as a manager under its own ID and name, at its config's
+   `advertise_address`. The leader turns the agent's record into a manager's,
+   a Raft non-voter, keeping its name, labels and join time, and deletes the
+   agent's key from replicated state, as the managers sign for a manager
+   with their own secret; its panel CA stays. The join writes the manager's
+   certificate, its config — no role or manager list, the cluster's JWT key —
+   and the cluster's admin account.
+5. It removes `agent.key` and `agent-state.json`.
+6. It restarts as a manager, with the login and web UI a manager has.
+
+The agent restarts whatever the outcome, and one whose join the leader
+refused comes back as the agent it was. The token is revoked whenever the
+agent refuses (`502 CLUSTER_PROMOTE_REFUSED`) or does not answer
+(`502 INTERNAL_ERROR`): an agent that took the request and joined first is a
+manager by then, and one that did not can no longer join with it. Look in the
+node list a minute later, and promote it again if it is still an agent. The
+token is bound to the IP the cluster has for the agent, so an agent whose
+`advertise_address` differs from it — one changed by hand — is refused at
+the join and stays an agent.
+
+**Becoming a voter.** A promoted manager is a Raft non-voter until its Raft
+has caught up, as any joining manager is (§ Joining a manager), and that
+needs its Raft port reachable from the leader. An agent needs no Raft port
+(§ Ports), so a firewall in front of one may well close it. Until it is
+open, the node stays a non-voter, and the leader's log shows Raft's own
+errors for its Raft address (`failed to heartbeat to`,
+`failed to appendEntries to`). Its Raft never hears from the leader, so the
+node sends no manager heartbeat either, and the leader counts it among the
+managers not ready for agents: agent registrations and conversions are
+refused, naming it, until the port is open or the node is removed. Convert
+or promote one node at a time, and let each come back before the next.
+
+**A join that the leader admitted and the server could not finish** — the
+leader's answer failed the CA pin, or a file could not be written — leaves
+the leader listing a manager the server is not. Remove the node on a manager
+(`sudo sfpanel cluster remove <node-id>`); on the server,
+`sudo sfpanel agent reset --yes` makes it a standalone panel, which can then
+join again.
 
 ---
 
