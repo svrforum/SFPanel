@@ -2,6 +2,7 @@ package cluster
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log/slog"
 	"net"
@@ -347,11 +348,27 @@ func (rn *RaftNode) RemoveServer(nodeID string) error {
 		return ErrNotLeader
 	}
 
-	f := rn.raft.RemoveServer(
-		raft.ServerID(nodeID),
-		0, 30*time.Second,
-	)
-	return f.Error()
+	return afterTransferSettles(func() error {
+		return rn.raft.RemoveServer(raft.ServerID(nodeID), 0, 30*time.Second).Error()
+	})
+}
+
+// transferSettle bounds how long a step waits for an earlier leadership
+// transfer to clear. Raft answers a timed-out transfer before it clears its
+// in-progress mark, and refuses a transfer or a configuration change asked
+// for in between: the next candidate after one that is down, or a leave's own
+// removal after its transfer failed.
+const transferSettle = time.Second
+
+func afterTransferSettles(step func() error) error {
+	deadline := time.Now().Add(transferSettle)
+	for {
+		err := step()
+		if !errors.Is(err, raft.ErrLeadershipTransferInProgress) || !time.Now().Before(deadline) {
+			return err
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
 }
 
 // AppliedIndex is the index of the last entry applied to this node's FSM.
@@ -447,8 +464,9 @@ func (rn *RaftNode) TransferLeadership(targetNodeID string) error {
 		return ErrNodeNotFound
 	}
 
-	f := rn.raft.LeadershipTransferToServer(raft.ServerID(targetNodeID), targetAddr)
-	return f.Error()
+	return afterTransferSettles(func() error {
+		return rn.raft.LeadershipTransferToServer(raft.ServerID(targetNodeID), targetAddr).Error()
+	})
 }
 
 // Shutdown cleanly stops the Raft node with a timeout, and closes its stores
