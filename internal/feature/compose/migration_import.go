@@ -81,7 +81,7 @@ type volPrebak struct {
 // never the manifest's. Returns the docker volumes it FRESHLY created and the
 // pre-existing volumes it backed up (both for failure cleanup), plus any
 // skipped-bind warnings.
-func restoreData(ctx context.Context, m MigrationManifest, staged map[string]string, composeRoot, prebakDir string, overwrite bool) (created []string, prebaks []volPrebak, warnings []string, err error) {
+func restoreData(ctx context.Context, m MigrationManifest, staged map[string]string, composeRoot, prebakDir string, policy importPolicy) (created []string, prebaks []volPrebak, warnings []string, err error) {
 	stackDir := filepath.Join(composeRoot, m.StackID)
 
 	// Gate every manifest identifier that reaches a docker argv (the manifest
@@ -108,6 +108,23 @@ func restoreData(ctx context.Context, m MigrationManifest, staged map[string]str
 		if cerr := checkImageArchive(path, im.Ref); cerr != nil {
 			return created, prebaks, warnings, cerr
 		}
+		if policy.AgentSource {
+			// An existing tag is other stacks' too: loading an agent's image
+			// over it would run that image under them at their next restart. So
+			// an agent's image loads only when the target lacks the tag, or
+			// already holds it as the same image.
+			if have, ok := imageIDFor(ctx, im.Ref); ok {
+				want, aerr := imageArchiveID(path)
+				if aerr != nil {
+					return created, prebaks, warnings, aerr
+				}
+				if want != have {
+					return created, prebaks, warnings, fmt.Errorf("this node already has %s as another image: a migration from an agent loads images under new tags only: %w", im.Ref, errImageTagTaken)
+				}
+				_ = os.Remove(path)
+				continue // the same image: nothing to load
+			}
+		}
 		if lerr := loadImageFromFile(ctx, path); lerr != nil {
 			return created, prebaks, warnings, lerr
 		}
@@ -133,7 +150,7 @@ func restoreData(ctx context.Context, m MigrationManifest, staged map[string]str
 			// A pre-existing volume (another stack/tenant, an external shared
 			// volume, or an orphan) must NOT be silently overlaid. Require an
 			// explicit overwrite ack, then wipe it so the restore is an exact copy.
-			if !overwrite {
+			if !policy.Overwrite {
 				return created, prebaks, warnings, fmt.Errorf("target volume %q already exists; ack overwrite to replace it", v.Docker)
 			}
 			// Back up the prior contents BEFORE the irreversible clearVolume, so a
@@ -182,6 +199,13 @@ func restoreData(ctx context.Context, m MigrationManifest, staged map[string]str
 			// descendant); clear any leftover so the restore is exact.
 			_ = os.RemoveAll(targetBind)
 		} else { // abs (system binds were never marked Copy)
+			if policy.AgentSource {
+				// An absolute bind writes the agent's files as root wherever the
+				// deny list does not name — /srv, /mnt, /data, most of /opt. An
+				// agent's migration restores data into the stack's own directory
+				// only; an abs bind is refused outright, not skipped with a warning.
+				return created, prebaks, warnings, fmt.Errorf("the stack binds %s, outside its own directory: a migration from an agent restores data into the stack's directory only", b.Host)
+			}
 			if !absBindRestorable(b.Host) {
 				warnings = append(warnings, "skipped restoring bind to protected path "+b.Host)
 				continue

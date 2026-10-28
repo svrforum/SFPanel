@@ -3,6 +3,7 @@ package compose
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log/slog"
 	"net/http"
@@ -41,6 +42,35 @@ var maxMigrationBundleBytes int64 = 64 << 30 // 64 GiB
 // alnum rejects "."/"..", plus an explicit ".." guard for defense in depth).
 func validProjectID(id string) bool {
 	return validStackID.MatchString(id) && !strings.Contains(id, "..")
+}
+
+// checkImportCompose is an import's compose check. A manager's stack was
+// checked when it was created and keeps the forbidden tier only, as before; an
+// agent's compose file is the agent's word, so the risky tier needs the
+// operator's acknowledgement, given on the manager that sent the import.
+func checkImportCompose(content string, p importPolicy) error {
+	report, err := composex.Analyze(content)
+	if err != nil {
+		return err
+	}
+	return report.Error(!p.AgentSource || p.AckRisks)
+}
+
+// importComposeCode classifies a rejected import's compose for the response,
+// matching CreateProject: the forbidden tier (the panel's own secrets) is
+// COMPOSE_FORBIDDEN, the risky tier COMPOSE_RISKY. Content that will not parse
+// is neither tier — it keeps the generic compose-error code. checkImportCompose
+// returns only the joined message, so this re-reads the report; it runs on the
+// rejection path only.
+func importComposeCode(content string) string {
+	report, err := composex.Analyze(content)
+	if err != nil {
+		return response.ErrComposeError
+	}
+	if len(report.Forbidden) > 0 {
+		return response.ErrComposeForbidden
+	}
+	return response.ErrComposeRisky
 }
 
 // MigrateImport (POST /docker/compose/migrate-import) receives a migration
@@ -87,11 +117,11 @@ func (h *Handler) MigrateImport(c echo.Context) error {
 	if !ok {
 		return response.Fail(c, http.StatusBadRequest, response.ErrComposeError, "bundle missing compose file")
 	}
-	// Forbidden tier only, and deliberately no acknowledgement: an import copies
-	// a stack that already exists and is already running on the source node, so
-	// the risk question was answered when it was created there.
-	if err := composex.ValidateAdvancedCompose(string(composeData)); err != nil {
-		return response.Fail(c, http.StatusBadRequest, response.ErrComposeError, response.SanitizeOutput(err.Error()))
+	// A manager's stack was checked when it was created, so the forbidden tier
+	// is enough; an agent's compose file is the agent's word, so the risky tier
+	// needs the operator's acknowledgement (carried in the policy).
+	if err := checkImportCompose(string(composeData), policy); err != nil {
+		return response.Fail(c, http.StatusBadRequest, importComposeCode(string(composeData)), response.SanitizeOutput(err.Error()))
 	}
 
 	// Serialize restores that touch the SAME docker volume, BEFORE any destructive
@@ -149,22 +179,21 @@ func (h *Handler) MigrateImport(c echo.Context) error {
 	defer cancel()
 
 	// Re-validate the RESOLVED compose (after .env interpolation). The raw-text
-	// ValidateAdvancedCompose above can be bypassed by a hostile/edited .env that
-	// injects a forbidden bind via ${VAR} substitution, and the target's `up`
-	// re-resolves with that .env. Best-effort: if the config can't be resolved
-	// here, `up` would surface the same error, so fall back to the raw check
-	// rather than failing on a transient resolve error. Forbidden tier only, for
-	// the same reason as the raw check above — the stack is already running on
-	// the source node.
+	// check above can be bypassed by a hostile/edited .env that injects a
+	// forbidden bind via ${VAR} substitution, and the target's `up` re-resolves
+	// with that .env. Best-effort: if the config can't be resolved here, `up`
+	// would surface the same error, so fall back to the raw check rather than
+	// failing on a transient resolve error. Same tiers as the raw check — the
+	// risky tier only when the source is an agent and the operator has not acked.
 	if resolved, rerr := h.Compose.GetResolvedConfigYAML(opCtx, m.StackID); rerr == nil {
-		if verr := composex.ValidateAdvancedCompose(resolved); verr != nil {
+		if verr := checkImportCompose(resolved, policy); verr != nil {
 			_ = os.RemoveAll(stackDir)
 			if backup != "" {
 				if err := os.Rename(backup, stackDir); err != nil {
 					slog.Error("resolved-compose reject: restoring prior definition from backup failed", "component", "compose", "stack", m.StackID, "error", err)
 				}
 			}
-			return response.Fail(c, http.StatusBadRequest, response.ErrComposeError, response.SanitizeOutput("resolved compose rejected: "+verr.Error()))
+			return response.Fail(c, http.StatusBadRequest, importComposeCode(resolved), response.SanitizeOutput("resolved compose rejected: "+verr.Error()))
 		}
 	}
 
@@ -173,12 +202,18 @@ func (h *Handler) MigrateImport(c echo.Context) error {
 	// what makes the source `delete` disposition safe.
 	// staging holds the received bundle; reuse it as the prebak dir so a pre-existing
 	// volume can be archived aside before an overwrite clearVolume wipes it.
-	createdVols, prebaks, warns, derr := restoreData(opCtx, m, staged, h.ComposePath, staging, policy.Overwrite)
+	createdVols, prebaks, warns, derr := restoreData(opCtx, m, staged, h.ComposePath, staging, policy)
 	for _, w := range warns {
 		slog.Warn("migrate import: "+w, "component", "compose", "stack", m.StackID)
 	}
 	if derr != nil {
 		h.failedImportData(m.StackID, backup, createdVols, prebaks)
+		// An agent's image whose tag the target already holds as a different
+		// image is something the operator can fix (remove or rename the tag), so
+		// it answers 409 rather than the 500 of an internal restore failure.
+		if errors.Is(derr, errImageTagTaken) {
+			return response.Fail(c, http.StatusConflict, response.ErrAlreadyExists, response.SanitizeOutput(derr.Error()))
+		}
 		return response.Fail(c, http.StatusInternalServerError, response.ErrComposeError, response.SanitizeOutput("restore data: "+derr.Error()))
 	}
 	if _, err := h.Compose.Up(opCtx, m.StackID); err != nil {

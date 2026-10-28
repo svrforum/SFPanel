@@ -194,7 +194,7 @@ func TestRestoreDataLoadsNoArchiveThatSetsAnotherTag(t *testing.T) {
 	logPath := withFakeDocker(t)
 	m := MigrationManifest{StackID: "demo", Images: []ImageSpec{{Ref: "nginx:fake", Archive: "images/i.tar"}}}
 	staged := map[string]string{"images/i.tar": dockerSaveTar(t, "postgres:16")}
-	_, _, _, err := restoreData(context.Background(), m, staged, t.TempDir(), t.TempDir(), false)
+	_, _, _, err := restoreData(context.Background(), m, staged, t.TempDir(), t.TempDir(), importPolicy{})
 	if err == nil || !strings.Contains(err.Error(), "postgres:16") {
 		t.Fatalf("got %v", err)
 	}

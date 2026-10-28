@@ -420,6 +420,65 @@ func checkImageArchive(archivePath, ref string) error {
 	return nil
 }
 
+// errImageTagTaken marks an agent's image whose tag the target already holds as
+// a different image. The operator can fix it (remove or rename the tag), so the
+// handler answers 409 rather than the 500 of an internal restore failure.
+var errImageTagTaken = errors.New("image tag already taken by another image")
+
+// imageIDFor returns the image ID this node holds for ref, and whether it holds
+// the tag at all. A tag the node does not have (inspect fails) is ("", false).
+// The ID is "sha256:<hex>", as docker reports it — the form imageArchiveID
+// normalizes to, so the two compare directly.
+func imageIDFor(ctx context.Context, ref string) (string, bool) {
+	out, err := exec.CommandContext(ctx, "docker", "image", "inspect", "--format", "{{.Id}}", ref).Output()
+	if err != nil {
+		return "", false
+	}
+	id := strings.TrimSpace(string(out))
+	if id == "" {
+		return "", false
+	}
+	return id, true
+}
+
+// imageArchiveID reads the image ID a `docker save` archive carries: the Config
+// path in its manifest.json, which is "<id>.json" (the classic image store) or
+// "blobs/sha256/<id>" (an OCI layout, which docker save writes since Docker
+// 25). The result is normalized to "sha256:<id>" to match what `docker image
+// inspect --format {{.Id}}` prints. The archive is the source's, so manifest.json
+// is read the way imageArchiveTags reads it — at the path it lands on disk.
+func imageArchiveID(archivePath string) (string, error) {
+	f, err := os.Open(archivePath)
+	if err != nil {
+		return "", err
+	}
+	defer func() { _ = f.Close() }()
+	tr := tar.NewReader(f)
+	for {
+		hdr, err := tr.Next()
+		if err == io.EOF {
+			break
+		}
+		if err != nil {
+			return "", fmt.Errorf("read the image archive: %w", err)
+		}
+		if strings.TrimPrefix(path.Clean("/"+hdr.Name), "/") != "manifest.json" {
+			continue
+		}
+		var entries []struct{ Config string }
+		if err := json.NewDecoder(io.LimitReader(tr, 1<<20)).Decode(&entries); err != nil {
+			return "", fmt.Errorf("read the image archive's manifest.json: %w", err)
+		}
+		if len(entries) == 0 || entries[0].Config == "" {
+			return "", errors.New("the image archive names no config")
+		}
+		// "<id>.json" (classic store) or "blobs/sha256/<id>" (OCI layout).
+		id := strings.TrimSuffix(path.Base(entries[0].Config), ".json")
+		return "sha256:" + id, nil
+	}
+	return "", errors.New("the image archive has no manifest.json")
+}
+
 // normalizeImageRef writes ref as docker save and docker load name an image:
 // with the tag docker takes for a name without one (nginx is nginx:latest),
 // and in the short form (docker.io/library/nginx:1.25 is nginx:1.25). A ref

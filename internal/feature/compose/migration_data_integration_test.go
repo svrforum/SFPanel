@@ -133,12 +133,12 @@ func TestRestoreDataVolumeOverwriteGate(t *testing.T) {
 		"sh", "-c", "echo OLD > /d/marker.txt; echo OLD > /d/only-old.txt").Run()
 
 	// Without overwrite ack → refuse (no silent overlay).
-	if _, _, _, err := restoreData(ctx, m, staged, t.TempDir(), t.TempDir(), false); err == nil {
+	if _, _, _, err := restoreData(ctx, m, staged, t.TempDir(), t.TempDir(), importPolicy{}); err == nil {
 		t.Fatal("pre-existing volume without overwrite ack must be refused")
 	}
 
 	// With overwrite ack → EXACT replica (stale only-old.txt gone, marker=NEW).
-	if _, _, _, err := restoreData(ctx, m, staged, t.TempDir(), t.TempDir(), true); err != nil {
+	if _, _, _, err := restoreData(ctx, m, staged, t.TempDir(), t.TempDir(), importPolicy{Overwrite: true}); err != nil {
 		t.Fatalf("overwrite restore: %v", err)
 	}
 	out, err := exec.CommandContext(ctx, "docker", "run", "--rm", "--network", "none", "-v", tgt+":/d", migrationHelperImage,
@@ -185,7 +185,7 @@ func TestRestoreDataPrebakRestoresPriorVolume(t *testing.T) {
 		"sh", "-c", "echo PRIOR > /d/marker.txt; echo PRIOR > /d/only-prior.txt").Run()
 
 	prebakDir := t.TempDir()
-	_, prebaks, _, err := restoreData(ctx, m, staged, t.TempDir(), prebakDir, true)
+	_, prebaks, _, err := restoreData(ctx, m, staged, t.TempDir(), prebakDir, importPolicy{Overwrite: true})
 	if err != nil {
 		t.Fatalf("restore: %v", err)
 	}
