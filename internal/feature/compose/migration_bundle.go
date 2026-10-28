@@ -19,6 +19,11 @@ const manifestEntry = "manifest.json"
 // non-data entry is sized to OOM the receiver before the stream sha is checked.
 const maxSmallEntryBytes = 16 << 20 // 16 MiB
 
+// maxSmallEntriesTotal caps the sum of a bundle's small entries (manifest,
+// compose, .env, extra files): every one is held in memory until the import is
+// done, and the per-entry cap alone leaves their number unbounded.
+const maxSmallEntriesTotal = 64 << 20 // 64 MiB
+
 // readSmallEntry reads an in-memory bundle entry, refusing anything over the cap.
 func readSmallEntry(r io.Reader) ([]byte, error) {
 	data, err := io.ReadAll(io.LimitReader(r, maxSmallEntryBytes+1))
@@ -144,6 +149,17 @@ func (b *BundleReader) ReadAll(destRoot string) (MigrationManifest, map[string][
 	var m MigrationManifest
 	var entryShas map[string]string
 	haveManifest := false
+	var smallBytes int64 // the small entries read so far, manifest.json included
+	readSmall := func(r io.Reader) ([]byte, error) {
+		data, err := readSmallEntry(r)
+		if err != nil {
+			return nil, err
+		}
+		if smallBytes += int64(len(data)); smallBytes > maxSmallEntriesTotal {
+			return nil, fmt.Errorf("the bundle's small entries exceed %d MiB", maxSmallEntriesTotal>>20)
+		}
+		return data, nil
+	}
 	for {
 		hdr, err := tr.Next()
 		if err == io.EOF {
@@ -159,7 +175,7 @@ func (b *BundleReader) ReadAll(destRoot string) (MigrationManifest, map[string][
 			return m, nil, nil, err
 		}
 		if hdr.Name == manifestEntry {
-			data, err := readSmallEntry(tr)
+			data, err := readSmall(tr)
 			if err != nil {
 				return m, nil, nil, err
 			}
@@ -192,7 +208,7 @@ func (b *BundleReader) ReadAll(destRoot string) (MigrationManifest, map[string][
 			staged[hdr.Name] = dst
 			continue
 		}
-		data, err := readSmallEntry(tr)
+		data, err := readSmall(tr)
 		if err != nil {
 			return m, nil, nil, err
 		}

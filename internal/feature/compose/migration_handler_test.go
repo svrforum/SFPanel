@@ -2,6 +2,7 @@ package compose
 
 import (
 	"context"
+	"encoding/json"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -71,6 +72,28 @@ func TestMigrateImportRejectsOversizeBundle(t *testing.T) {
 	_ = h.MigrateImport(c)
 	if rec.Code != http.StatusBadRequest {
 		t.Fatalf("want 400 for oversize bundle, got %d", rec.Code)
+	}
+}
+
+// The target says it takes an import's policy from the sending manager: a
+// migration from an agent may go only to a target that does.
+func TestMigrateTargetInfoStatesTheImportPolicy(t *testing.T) {
+	withFakeDocker(t) // target-info asks docker where it stores images
+	auth.SetClusterProxySecret("test-secret")
+	defer auth.SetClusterProxySecret("")
+	h := &Handler{ComposePath: t.TempDir()}
+	const path = "/api/v1/docker/compose/migrate/target-info"
+	req := httptest.NewRequest(http.MethodGet, path, nil)
+	req.Header.Set(auth.InternalProxyHeaderV2, auth.SignProxyRequestV2(http.MethodGet, path))
+	rec := httptest.NewRecorder()
+	if err := h.MigrateTargetInfo(echo.New().NewContext(req, rec)); err != nil {
+		t.Fatal(err)
+	}
+	var got struct {
+		Data map[string]any `json:"data"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &got); err != nil || got.Data["import_policy"] != float64(1) {
+		t.Fatalf("import_policy = %v (%v): %d %s", got.Data["import_policy"], err, rec.Code, rec.Body)
 	}
 }
 

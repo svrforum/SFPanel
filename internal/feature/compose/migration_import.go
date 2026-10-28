@@ -77,10 +77,11 @@ type volPrebak struct {
 // data archive was already sha256-verified by the bundle reader, so a clean
 // return means the target holds intact data (which is what makes the source
 // `delete` disposition safe). prebakDir is where pre-existing volumes are backed
-// up before an overwrite wipes them. Returns the docker volumes it FRESHLY
-// created and the pre-existing volumes it backed up (both for failure cleanup),
-// plus any skipped-bind warnings.
-func restoreData(ctx context.Context, m MigrationManifest, staged map[string]string, composeRoot, prebakDir string) (created []string, prebaks []volPrebak, warnings []string, err error) {
+// up before an overwrite wipes them; overwrite is the sending manager's word,
+// never the manifest's. Returns the docker volumes it FRESHLY created and the
+// pre-existing volumes it backed up (both for failure cleanup), plus any
+// skipped-bind warnings.
+func restoreData(ctx context.Context, m MigrationManifest, staged map[string]string, composeRoot, prebakDir string, overwrite bool) (created []string, prebaks []volPrebak, warnings []string, err error) {
 	stackDir := filepath.Join(composeRoot, m.StackID)
 
 	// Gate every manifest identifier that reaches a docker argv (the manifest
@@ -103,6 +104,9 @@ func restoreData(ctx context.Context, m MigrationManifest, staged map[string]str
 		path, ok := staged[im.Archive]
 		if !ok {
 			return created, prebaks, warnings, fmt.Errorf("image archive %q missing from bundle", im.Archive)
+		}
+		if cerr := checkImageArchive(path, im.Ref); cerr != nil {
+			return created, prebaks, warnings, cerr
 		}
 		if lerr := loadImageFromFile(ctx, path); lerr != nil {
 			return created, prebaks, warnings, lerr
@@ -129,7 +133,7 @@ func restoreData(ctx context.Context, m MigrationManifest, staged map[string]str
 			// A pre-existing volume (another stack/tenant, an external shared
 			// volume, or an orphan) must NOT be silently overlaid. Require an
 			// explicit overwrite ack, then wipe it so the restore is an exact copy.
-			if !m.Overwrite {
+			if !overwrite {
 				return created, prebaks, warnings, fmt.Errorf("target volume %q already exists; ack overwrite to replace it", v.Docker)
 			}
 			// Back up the prior contents BEFORE the irreversible clearVolume, so a

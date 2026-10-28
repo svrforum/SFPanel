@@ -48,7 +48,9 @@ func validProjectID(id string) bool {
 // its checksum, runs the compose safety validator, restores the stack
 // definition, brings it up, and waits for health. Any failure after files are
 // written tears the partial stack back down. Reachable only node-to-node
-// (internal-proxy auth) — never by an external client.
+// (internal-proxy auth) — never by an external client. Whether to replace
+// what exists here is the sending manager's word (importPolicyFrom), not the
+// bundle's: the bundle is the source's, and a source may be an agent.
 func (h *Handler) MigrateImport(c echo.Context) error {
 	if !auth.IsInternalProxyRequest(c.Request()) {
 		return response.Fail(c, http.StatusForbidden, response.ErrPermissionDenied, "migrate-import is cluster-internal only")
@@ -72,6 +74,7 @@ func (h *Handler) MigrateImport(c echo.Context) error {
 	if !validStackID.MatchString(m.StackID) {
 		return response.Fail(c, http.StatusBadRequest, response.ErrInvalidName, "invalid stack id in bundle")
 	}
+	policy := importPolicyFrom(c.Request().Header, m)
 
 	// Serialize imports of the same stack so two concurrent pushes can't race on
 	// the same dir/project (one's failure cleanup wiping the other's healthy stack).
@@ -112,13 +115,14 @@ func (h *Handler) MigrateImport(c echo.Context) error {
 	defer h.releaseVolumes(acquiredVols)
 
 	// Overwrite safety: if a stack with this id already exists, refuse unless the
-	// source acked overwrite. On overwrite, move the prior tenant aside (backup)
-	// so a failed import can restore it AND its named volumes are NOT removed on
-	// cleanup — a failed import must never destroy pre-existing target data.
+	// operator acked overwrite on the sending manager. On overwrite, move the
+	// prior tenant aside (backup) so a failed import can restore it AND its named
+	// volumes are NOT removed on cleanup — a failed import must never destroy
+	// pre-existing target data.
 	stackDir := filepath.Join(h.ComposePath, m.StackID)
 	backup := ""
 	if _, statErr := os.Stat(stackDir); statErr == nil {
-		if !m.Overwrite {
+		if !policy.Overwrite {
 			return response.Fail(c, http.StatusConflict, response.ErrAlreadyExists, "a stack with this id already exists on the target")
 		}
 		backup = stackDir + ".migbak"
@@ -169,7 +173,7 @@ func (h *Handler) MigrateImport(c echo.Context) error {
 	// what makes the source `delete` disposition safe.
 	// staging holds the received bundle; reuse it as the prebak dir so a pre-existing
 	// volume can be archived aside before an overwrite clearVolume wipes it.
-	createdVols, prebaks, warns, derr := restoreData(opCtx, m, staged, h.ComposePath, staging)
+	createdVols, prebaks, warns, derr := restoreData(opCtx, m, staged, h.ComposePath, staging, policy.Overwrite)
 	for _, w := range warns {
 		slog.Warn("migrate import: "+w, "component", "compose", "stack", m.StackID)
 	}
@@ -189,7 +193,7 @@ func (h *Handler) MigrateImport(c echo.Context) error {
 		_ = os.RemoveAll(backup) // success: the prior definition is intentionally replaced
 	}
 	slog.Info("stack migration import complete", "component", "compose", "stack", m.StackID,
-		"source", m.Source.NodeID, "overwrite", m.Overwrite)
+		"source", m.Source.NodeID, "overwrite", policy.Overwrite)
 	return response.OK(c, map[string]string{"status": "ok", "stackId": m.StackID})
 }
 
@@ -325,6 +329,10 @@ type migrateTargetInfo struct {
 	PortsInUse      []int  `json:"portsInUse"`
 	StackExists     bool   `json:"stackExists"`
 	StackRunning    bool   `json:"stackRunning"` // a stack with this id has a running container here
+	// ImportPolicy says this target takes an import's policy from the sending
+	// manager (importPolicyFrom); a migration from an agent requires that. A
+	// target from before policies answers without it.
+	ImportPolicy int `json:"import_policy"`
 }
 
 // targetStackRunning best-effort asks the target node whether the stack is
@@ -388,7 +396,7 @@ func (h *Handler) MigrateTargetInfo(c echo.Context) error {
 	if stackID != "" && !validProjectID(stackID) {
 		return response.Fail(c, http.StatusBadRequest, response.ErrInvalidName, "invalid stackId")
 	}
-	info := migrateTargetInfo{Arch: runtime.GOARCH}
+	info := migrateTargetInfo{Arch: runtime.GOARCH, ImportPolicy: 1}
 	if u, err := disk.Usage(h.ComposePath); err == nil {
 		info.FreeBytes = int64(u.Free)
 	}

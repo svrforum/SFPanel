@@ -5,6 +5,7 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -14,6 +15,8 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+
+	"github.com/distribution/reference"
 )
 
 // tarMemberSafe reports whether a tar entry name can be extracted without
@@ -210,9 +213,12 @@ func archiveBindToFile(ctx context.Context, hostPath, dstPath string) (int64, st
 }
 
 // archiveImageToFile streams `docker save <ref>` into dstPath. Always save/load
-// (no registry dependency) per the operator's choice.
+// (no registry dependency) per the operator's choice. A ref with no tag is
+// saved as the :latest the stack runs: `docker save nginx` would carry every
+// nginx tag this node has, the target would refuse the archive for them
+// (checkImageArchive), and a target before that check would set them all.
 func archiveImageToFile(ctx context.Context, ref, dstPath string) (int64, string, error) {
-	return runStreamToFile(ctx, dstPath, "docker", "save", ref)
+	return runStreamToFile(ctx, dstPath, "docker", "save", normalizeImageRef(ref))
 }
 
 // parseLeadingBytes pulls the integer at the start of `du -sb` output ("1234\t/v").
@@ -291,6 +297,139 @@ func loadImageFromFile(ctx context.Context, archivePath string) error {
 		return fmt.Errorf("docker load: %w: %s", err, strings.TrimSpace(string(out)))
 	}
 	return nil
+}
+
+// imageArchiveTags reads the tags a `docker save` archive has docker load set:
+// manifest.json's RepoTags, which the classic image store sets, and the image
+// names in index.json, which the containerd image store sets instead when the
+// archive is an OCI layout (docker save writes one since Docker 25). The
+// archive is the source's, so it is read whole, the way load reads it. Load
+// unpacks it to disk first, where a later entry at a path replaces an earlier
+// one and a path through a link lands where the link points; either could put
+// a manifest.json behind the one read here. So a second manifest.json or
+// index.json, one that is not a regular file, and an entry written through a
+// link are refused.
+func imageArchiveTags(archivePath string) ([]string, error) {
+	f, err := os.Open(archivePath)
+	if err != nil {
+		return nil, err
+	}
+	defer func() { _ = f.Close() }()
+	var tags []string
+	seen := map[string]bool{}  // manifest.json and index.json, once each
+	links := map[string]bool{} // where the archive has put a link
+	tr := tar.NewReader(f)
+	for {
+		hdr, err := tr.Next()
+		if err == io.EOF {
+			break
+		}
+		if err != nil {
+			return nil, fmt.Errorf("read the image archive: %w", err)
+		}
+		// Where the entry lands: ./manifest.json, /manifest.json and
+		// a/../manifest.json are all manifest.json.
+		name := strings.TrimPrefix(path.Clean("/"+hdr.Name), "/")
+		for dir := path.Dir(name); dir != "."; dir = path.Dir(dir) {
+			if links[dir] {
+				return nil, fmt.Errorf("the image archive writes %s through a link", hdr.Name)
+			}
+		}
+		if hdr.Typeflag == tar.TypeSymlink || hdr.Typeflag == tar.TypeLink {
+			links[name] = true
+		} else {
+			delete(links, name) // the entry replaces the link
+		}
+		if name != "manifest.json" && name != "index.json" {
+			continue
+		}
+		if seen[name] {
+			return nil, fmt.Errorf("the image archive has more than one %s", name)
+		}
+		seen[name] = true
+		if hdr.Typeflag != tar.TypeReg {
+			return nil, fmt.Errorf("the image archive's %s is not a regular file", name)
+		}
+		names, err := imageArchiveNames(name, io.LimitReader(tr, 1<<20))
+		if err != nil {
+			return nil, fmt.Errorf("read the image archive's %s: %w", name, err)
+		}
+		tags = append(tags, names...)
+	}
+	if !seen["manifest.json"] {
+		return nil, errors.New("the image archive has no manifest.json")
+	}
+	return tags, nil
+}
+
+// imageArchiveNames reads the names in an image archive's manifest.json (its
+// RepoTags) or index.json (for each image, the name containerd gives it:
+// io.containerd.image.name, or else org.opencontainers.image.ref.name).
+func imageArchiveNames(name string, r io.Reader) ([]string, error) {
+	var names []string
+	if name == "manifest.json" {
+		var entries []struct{ RepoTags []string }
+		if err := json.NewDecoder(r).Decode(&entries); err != nil {
+			return nil, err
+		}
+		for _, e := range entries {
+			names = append(names, e.RepoTags...)
+		}
+		return names, nil
+	}
+	var index struct {
+		Manifests []struct {
+			Annotations map[string]string `json:"annotations"`
+		} `json:"manifests"`
+	}
+	if err := json.NewDecoder(r).Decode(&index); err != nil {
+		return nil, err
+	}
+	for _, m := range index.Manifests {
+		if n := m.Annotations["io.containerd.image.name"]; n != "" {
+			names = append(names, n)
+		} else if n := m.Annotations["org.opencontainers.image.ref.name"]; n != "" {
+			names = append(names, n)
+		}
+	}
+	return names, nil
+}
+
+// checkImageArchive refuses an image archive that would set any tag but ref:
+// docker load sets every tag the archive names, whatever the manifest says the
+// image is. A ref by digest is saved with no tag and loads with none.
+func checkImageArchive(archivePath, ref string) error {
+	tags, err := imageArchiveTags(archivePath)
+	if err != nil {
+		return err
+	}
+	if strings.Contains(ref, "@") {
+		if len(tags) > 0 {
+			return fmt.Errorf("the image archive for %s sets the tags %v: an image by digest loads with none", ref, tags)
+		}
+		return nil
+	}
+	want := normalizeImageRef(ref)
+	refused := len(tags) == 0
+	for _, tag := range tags {
+		refused = refused || normalizeImageRef(tag) != want
+	}
+	if refused {
+		return fmt.Errorf("the image archive for %s sets the tags %v: it may set %s only", ref, tags, want)
+	}
+	return nil
+}
+
+// normalizeImageRef writes ref as docker save and docker load name an image:
+// with the tag docker takes for a name without one (nginx is nginx:latest),
+// and in the short form (docker.io/library/nginx:1.25 is nginx:1.25). A ref
+// docker cannot parse is left as it is; load refuses such a name.
+func normalizeImageRef(ref string) string {
+	named, err := reference.ParseNormalizedNamed(ref)
+	if err != nil {
+		return ref
+	}
+	return reference.FamiliarString(reference.TagNameOnly(named))
 }
 
 // volumeExists reports whether a named docker volume already exists.

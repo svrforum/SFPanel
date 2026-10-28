@@ -33,3 +33,18 @@ func (p importPolicy) setHeaders(h http.Header) {
 	}
 	h.Set(migrationSourceKindHeader, kind)
 }
+
+// importPolicyFrom reads the policy the sending manager stated. A sender from
+// before policies states none; it is a manager — agents existed only once
+// every manager knew them — and its bundle's word on overwrite stands, with
+// risks taken as answered when the stack was created, as they were.
+func importPolicyFrom(h http.Header, m MigrationManifest) importPolicy {
+	if h.Get(migrationPolicyHeader) == "" {
+		return importPolicy{Overwrite: m.Overwrite, AckRisks: true}
+	}
+	return importPolicy{
+		Overwrite:   h.Get(migrationOverwriteHeader) == "true",
+		AckRisks:    h.Get(migrationAckRisksHeader) == "true",
+		AgentSource: h.Get(migrationSourceKindHeader) != "manager", // anything else is the stricter case
+	}
+}
