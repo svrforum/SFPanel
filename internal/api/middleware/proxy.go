@@ -551,6 +551,7 @@ func relaySSE(c echo.Context, targetNode *cluster.Node, mgr *cluster.Manager) er
 // ClusterProxyMiddleware intercepts requests with ?node=X and forwards them
 // to the target node via gRPC. If no node param or local node, passes through.
 // SSE streaming endpoints are relayed via direct HTTP for real-time output.
+// A migration of a stack on an agent runs here (isMigrateEntry).
 //
 // The manager is resolved dynamically via getMgr on every request so that
 // late activation (a node that started standalone and later initialized
@@ -592,6 +593,13 @@ func ClusterProxyMiddleware(getMgr func() *cluster.Manager, stepUp func(echo.Con
 			if !targetNode.IsManager() && agentRouteRefused(c.Request().URL.Path) {
 				return response.Fail(c, http.StatusConflict, response.ErrClusterRouteNotOnAgent,
 					"cluster management runs on managers; an agent has no cluster routes")
+			}
+			// An agent cannot send to another node — it holds no other node's
+			// key, and other nodes take nothing from it — so a manager carries
+			// its stack: the migration runs here, with the agent as its source.
+			if !targetNode.IsManager() && isMigrateEntry(c.Request().URL.Path) {
+				c.Set(migrateSourceKey, targetNode.ID)
+				return next(c)
 			}
 
 			// Don't pre-refuse on heartbeat status. Even the leader's view goes
@@ -642,6 +650,25 @@ func ClusterProxyMiddleware(getMgr func() *cluster.Manager, stepUp func(echo.Con
 // this manager must not run it in the agent's place.
 func agentRouteRefused(path string) bool {
 	return strings.HasPrefix(path, "/api/v1/cluster/")
+}
+
+// migrateSourceKey is where a request that migrates an agent's stack names
+// that agent for the compose handler: compose.MigrateSourceKey, the same
+// string, as this package imports no feature package.
+const migrateSourceKey = "sfpanel.migrateSource"
+
+// isMigrateEntry reports whether path starts a stack migration or its
+// pre-flight — /api/v1/docker/compose/<project>/migrate[/preflight] — which
+// for a stack on an agent runs on this manager. The routes the agent serves
+// itself (migrate-import, target-info, its session's) are relayed like any
+// other.
+func isMigrateEntry(path string) bool {
+	rest, ok := strings.CutPrefix(path, "/api/v1/docker/compose/")
+	if !ok {
+		return false
+	}
+	project, tail, ok := strings.Cut(rest, "/")
+	return ok && project != "" && (tail == "migrate" || tail == "migrate/preflight")
 }
 
 // maxInstallBody matches the app store's own cap on an install request.

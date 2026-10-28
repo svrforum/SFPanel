@@ -20,6 +20,7 @@ import (
 	"github.com/svrforum/SFPanel/internal/auth"
 	"github.com/svrforum/SFPanel/internal/cluster"
 	"github.com/svrforum/SFPanel/internal/config"
+	featureCompose "github.com/svrforum/SFPanel/internal/feature/compose"
 )
 
 // When the key for an agent cannot be had, the relay stops before anything
@@ -274,6 +275,51 @@ func TestRelaysToAnAgent(t *testing.T) {
 	expect("gRPC, the agent answers 401", status, code, http.StatusBadGateway, response.ErrClusterAgentAuthFailed)
 	if ranHere {
 		t.Fatal("a request for an agent ran on the manager")
+	}
+
+	// A migration of an agent's stack is not sent to the agent, which can
+	// send nothing on: it runs here, on the manager that carries the stack,
+	// and the compose handler learns which agent the stack is on. What the
+	// agent serves itself — the import a manager pushes to it — is still
+	// relayed, and so is a migration whose stack is on another manager.
+	secure.mu.Lock()
+	secure.status = http.StatusOK
+	secure.mu.Unlock()
+	managerPanel := newAgentPanel(false)
+	defer managerPanel.Close()
+	v, _ := json.Marshal(cluster.Node{ID: "m2", Name: "m2", Kind: cluster.KindManager, APIAddress: managerPanel.Listener.Addr().String(), GRPCAddress: grpcAddr})
+	if err := mgr.GetRaft().Apply(cluster.Command{Type: cluster.CmdAddNode, Value: v}, 5*time.Second); err != nil {
+		t.Fatal(err)
+	}
+	var source any
+	h = ClusterProxyMiddleware(func() *cluster.Manager { return mgr }, nil)(func(c echo.Context) error {
+		ranHere = true
+		source = c.Get(featureCompose.MigrateSourceKey)
+		return c.NoContent(http.StatusTeapot)
+	})
+	for _, path := range []string{"/api/v1/docker/compose/demo/migrate", "/api/v1/docker/compose/demo/migrate/preflight"} {
+		ranHere, source = false, nil
+		before, _ := secure.seen()
+		if status, _, _ := relay(http.MethodPost, path+"?node=a-tls"); status != http.StatusTeapot || !ranHere || source != "a-tls" {
+			t.Fatalf("%s for an agent's stack: %d, ran here %v, source %v", path, status, ranHere, source)
+		}
+		if hits, _ := secure.seen(); hits != before {
+			t.Fatalf("%s for an agent's stack was relayed to the agent", path)
+		}
+	}
+	for _, tc := range []struct {
+		target string
+		panel  *agentPanel
+	}{
+		{"/api/v1/docker/compose/migrate-import?node=a-tls", secure},
+		{"/api/v1/docker/compose/demo/migrate?node=m2", managerPanel},
+	} {
+		ranHere = false
+		before, _ := tc.panel.seen()
+		relay(http.MethodPost, tc.target)
+		if hits, _ := tc.panel.seen(); ranHere || hits != before+1 {
+			t.Fatalf("%s: ran here %v, relayed %d times", tc.target, ranHere, hits-before)
+		}
 	}
 }
 

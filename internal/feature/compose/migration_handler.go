@@ -20,6 +20,7 @@ import (
 	"github.com/shirou/gopsutil/v4/disk"
 	"github.com/svrforum/SFPanel/internal/api/response"
 	"github.com/svrforum/SFPanel/internal/auth"
+	"github.com/svrforum/SFPanel/internal/cluster"
 	"github.com/svrforum/SFPanel/internal/composex"
 )
 
@@ -550,31 +551,43 @@ func (h *Handler) gatherPreflight(ctx context.Context, project, targetNodeID, us
 	in.OverwriteAcked = overwriteAcked
 	in.Disposition = DispositionRetain // preflight is disposition-agnostic for blocking; clone relaxation handled at migrate time
 
-	// Target facts via the cross-node info endpoint. A 200 with an unparseable
-	// body (version skew, truncation) must NOT masquerade as a clean pass — it
-	// gets the same target-unreachable warning so the operator isn't shown a
-	// falsely-green report with arch/disk/port/overwrite checks silently skipped.
-	path := "/api/v1/docker/compose/migrate/target-info?stackId=" + url.QueryEscape(project)
-	status, body, perr := mgr.ProxyToNode(ctx, targetNodeID, http.MethodGet, path, nil, username)
-	var jerr error
-	if perr == nil && status == http.StatusOK {
-		var wrapper struct {
-			Data migrateTargetInfo `json:"data"`
-		}
-		if jerr = json.Unmarshal(body, &wrapper); jerr == nil {
-			in.TargetArch = wrapper.Data.Arch
-			in.TargetFreeBytes = wrapper.Data.FreeBytes
-			in.TargetDockerFreeBytes = wrapper.Data.DockerFreeBytes
-			in.TargetSameDevice = wrapper.Data.SameDevice
-			in.TargetPortsInUse = wrapper.Data.PortsInUse
-			in.TargetStackExists = wrapper.Data.StackExists
-		}
-	}
+	_, reached := addTargetFacts(ctx, mgr, &in, project, username)
 	report := BuildPreflightReport(in)
-	if perr != nil || status != http.StatusOK || jerr != nil {
-		report.Warnings = append(report.Warnings, PreflightFinding{Code: "target-unreachable", Message: "could not query the target node; disk/port/arch/overwrite checks were skipped"})
+	if !reached {
+		report.Warnings = append(report.Warnings, targetUnreachable)
 	}
 	return report, nil
+}
+
+// targetUnreachable is a pre-flight's warning that the target's half is
+// missing; Migrate stops nothing on it.
+var targetUnreachable = PreflightFinding{Code: "target-unreachable", Message: "could not query the target node; disk/port/arch/overwrite checks were skipped"}
+
+// addTargetFacts asks in's target for its half of a pre-flight, over the
+// cluster channel, and adds it to in; reached says whether there was one. A
+// 200 with an unparseable body (version skew, truncation) is none: it must
+// NOT masquerade as a clean pass, so the caller warns rather than show a
+// falsely-green report with arch/disk/port/overwrite checks silently skipped.
+func addTargetFacts(ctx context.Context, mgr *cluster.Manager, in *PreflightInput, project, username string) (info migrateTargetInfo, reached bool) {
+	path := "/api/v1/docker/compose/migrate/target-info?stackId=" + url.QueryEscape(project)
+	status, body, err := mgr.ProxyToNode(ctx, in.TargetNodeID, http.MethodGet, path, nil, username)
+	if err != nil || status != http.StatusOK {
+		return migrateTargetInfo{}, false
+	}
+	var wrapper struct {
+		Data migrateTargetInfo `json:"data"`
+	}
+	if json.Unmarshal(body, &wrapper) != nil {
+		return migrateTargetInfo{}, false
+	}
+	info = wrapper.Data
+	in.TargetArch = info.Arch
+	in.TargetFreeBytes = info.FreeBytes
+	in.TargetDockerFreeBytes = info.DockerFreeBytes
+	in.TargetSameDevice = info.SameDevice
+	in.TargetPortsInUse = info.PortsInUse
+	in.TargetStackExists = info.StackExists
+	return info, true
 }
 
 // MigratePreflight (POST /docker/compose/:project/migrate/preflight) runs on the
@@ -599,11 +612,29 @@ func (h *Handler) MigratePreflight(c echo.Context) error {
 	}
 
 	username, _ := c.Get("username").(string)
-	report, err := h.gatherPreflight(c.Request().Context(), project, req.TargetNodeID, username, req.OverwriteAcked)
+	var report PreflightReport
+	var err error
+	if src, _ := c.Get(MigrateSourceKey).(string); src != "" {
+		// The stack is on an agent, which this manager carries it for.
+		report, err = h.brokeredPreflight(c.Request().Context(), src, project, req.TargetNodeID, username, req.OverwriteAcked)
+	} else {
+		report, err = h.gatherPreflight(c.Request().Context(), project, req.TargetNodeID, username, req.OverwriteAcked)
+	}
 	if err != nil {
 		return response.Fail(c, http.StatusBadRequest, response.ErrComposeError, response.SanitizeOutput(err.Error()))
 	}
 	return response.OK(c, report)
+}
+
+// migrateRequest is the body of a migration (Migrate).
+type migrateRequest struct {
+	TargetNodeID   string `json:"targetNodeId"`
+	Disposition    string `json:"disposition"`
+	OverwriteAcked bool   `json:"overwriteAcked"`
+	// AcknowledgeRisks is the operator's word on a risky compose file,
+	// sent to the target in the import policy.
+	AcknowledgeRisks bool    `json:"acknowledgeRisks"`
+	RateLimitMbps    float64 `json:"rateLimitMbps"` // transfer cap in MiB/s; <=0 = unlimited
 }
 
 // Migrate (POST /docker/compose/:project/migrate, SSE) cold-migrates a stack to
@@ -611,21 +642,14 @@ func (h *Handler) MigratePreflight(c echo.Context) error {
 // "acknowledgeRisks"}. Streams phase events. Nothing is stopped until the
 // target is known to be reachable and signable. The source is restored to
 // running on any failure before finalize; the source is only destroyed (delete
-// disposition) AFTER the target reports healthy.
+// disposition) AFTER the target reports healthy. A stack on an agent is
+// carried by this manager instead (brokeredMigrate), with the same events.
 func (h *Handler) Migrate(c echo.Context) error {
 	project := c.Param("project")
 	if !validProjectID(project) {
 		return response.Fail(c, http.StatusBadRequest, response.ErrInvalidName, "invalid project id")
 	}
-	var req struct {
-		TargetNodeID   string `json:"targetNodeId"`
-		Disposition    string `json:"disposition"`
-		OverwriteAcked bool   `json:"overwriteAcked"`
-		// AcknowledgeRisks is the operator's word on a risky compose file,
-		// sent to the target in the import policy.
-		AcknowledgeRisks bool    `json:"acknowledgeRisks"`
-		RateLimitMbps    float64 `json:"rateLimitMbps"` // transfer cap in MiB/s; <=0 = unlimited
-	}
+	var req migrateRequest
 	if err := c.Bind(&req); err != nil {
 		return response.Fail(c, http.StatusBadRequest, response.ErrInvalidBody, "invalid request body")
 	}
@@ -640,6 +664,9 @@ func (h *Handler) Migrate(c echo.Context) error {
 	}
 	if req.TargetNodeID == "" || !disp.Valid() {
 		return response.Fail(c, http.StatusBadRequest, response.ErrMissingFields, "targetNodeId and a valid disposition are required")
+	}
+	if src, _ := c.Get(MigrateSourceKey).(string); src != "" {
+		return h.brokeredMigrate(c, mgr, src, project, req, disp, rateBytes)
 	}
 
 	// Serialize migrations of the same stack — a second concurrent run could race
@@ -699,16 +726,9 @@ func (h *Handler) Migrate(c echo.Context) error {
 
 	// 4. transfer — stream the bundle to the target; it restores + ups + healthchecks.
 	send(PhaseTransfer, "Transferring to target...", false)
-	onProg := func(sent, total int64) {
-		msg := fmt.Sprintf("Transferring to target... %d / %d MiB", sent>>20, total>>20)
-		if total > 0 {
-			msg += fmt.Sprintf(" (%d%%)", sent*100/total)
-		}
-		send(PhaseTransfer, msg, false)
-	}
 	// The source is this manager, so AgentSource stays false.
 	policy := importPolicy{Overwrite: req.OverwriteAcked, AckRisks: req.AcknowledgeRisks}
-	status, body, terr := h.pushBundleFileToTarget(opCtx, req.TargetNodeID, username, bundleFile, sha, policy, onProg, rateBytes)
+	status, body, terr := h.pushBundleFileToTarget(opCtx, req.TargetNodeID, username, bundleFile, sha, policy, transferProgress(send), rateBytes)
 	if terr != nil || status != http.StatusOK {
 		// On a CONNECTION error the target detaches its restore+up from the dropped
 		// connection, so the stack may actually be running there. Probe before
@@ -744,8 +764,8 @@ func (h *Handler) Migrate(c echo.Context) error {
 // migrationStream starts a migration's event stream on c and returns its
 // writer of {phase, message, done} events. Durable audit trail: every terminal
 // outcome is also logged with the full who/what/where (the request-level audit
-// middleware records only the call).
-func migrationStream(c echo.Context, project, target, disposition, username string) func(phase, msg string, done bool) {
+// middleware records only the call); attrs add to that line.
+func migrationStream(c echo.Context, project, target, disposition, username string, attrs ...slog.Attr) func(phase, msg string, done bool) {
 	c.Response().Header().Set("Content-Type", "text/event-stream")
 	c.Response().Header().Set("Cache-Control", "no-cache")
 	c.Response().Header().Set("Connection", "keep-alive")
@@ -756,12 +776,23 @@ func migrationStream(c echo.Context, project, target, disposition, username stri
 			if phase == PhaseError {
 				lvl = slog.LevelWarn
 			}
-			slog.LogAttrs(context.Background(), lvl, "stack migration "+phase,
+			slog.LogAttrs(context.Background(), lvl, "stack migration "+phase, append([]slog.Attr{
 				slog.String("component", "compose"), slog.String("stack", project),
 				slog.String("target", target), slog.String("disposition", disposition),
-				slog.String("user", username), slog.String("detail", msg))
+				slog.String("user", username), slog.String("detail", msg)}, attrs...)...)
 		}
 		writeMigrationEvent(c, map[string]any{"phase": phase, "message": msg, "done": done})
+	}
+}
+
+// transferProgress reports a transfer's progress on a migration's stream.
+func transferProgress(send func(phase, msg string, done bool)) func(sent, total int64) {
+	return func(sent, total int64) {
+		msg := fmt.Sprintf("Transferring to target... %d / %d MiB", sent>>20, total>>20)
+		if total > 0 {
+			msg += fmt.Sprintf(" (%d%%)", sent*100/total)
+		}
+		send(PhaseTransfer, msg, false)
 	}
 }
 

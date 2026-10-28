@@ -679,6 +679,11 @@ func NewRouter(database *sql.DB, auditWriter *sfdb.AsyncWriter, alertManager *fe
 	// Docker installed later serves them without a restart.
 	requireDocker := func(next echo.HandlerFunc) echo.HandlerFunc {
 		return func(c echo.Context) error {
+			// A migration this manager carries for a stack on an agent runs
+			// no docker here: the source's and the target's do the work.
+			if src, _ := c.Get(featureCompose.MigrateSourceKey).(string); src != "" {
+				return next(c)
+			}
 			if dockerConn.Client() == nil {
 				return response.Fail(c, http.StatusServiceUnavailable, response.ErrDockerUnavailable,
 					"Docker is not available on this node. Install it from Packages, or check that the daemon is running.")
