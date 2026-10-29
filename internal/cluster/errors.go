@@ -60,4 +60,9 @@ var (
 	// the leader could not reach the Raft port the agent held open for it.
 	// Surfaced to the operator via "join rejected: …" in the agent's log.
 	ErrRaftPortUnreachable = errors.New("the leader cannot reach this node's Raft port, the cluster gRPC port + 1, which a manager needs open to the other managers: open it to them, then promote the node again")
+	// ErrCAKeyMismatch: a CA certificate and a key that are not one pair —
+	// what a CA swapped by hand in one file and not the other leaves
+	// (ParseCAPair). Taken as a pair, they fail every signature later, deep
+	// in x509.
+	ErrCAKeyMismatch = errors.New("the CA key is not the CA certificate's: every certificate signed with the pair would be refused")
 )

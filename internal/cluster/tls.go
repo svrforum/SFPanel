@@ -44,41 +44,118 @@ func NewTLSManager(certDir string) *TLSManager {
 	return &TLSManager{certDir: certDir}
 }
 
-// InitCA generates a self-signed CA for the cluster.
-func (t *TLSManager) InitCA(clusterName string) error {
-	if err := os.MkdirAll(t.certDir, 0700); err != nil {
-		return fmt.Errorf("create cert dir: %w", err)
-	}
+// certBackdate is how far before its issue a certificate is valid. Peers'
+// clocks run apart — the leader warns at twenty seconds (clockSkewWarn) — and
+// a certificate stamped "now" is refused, until the peer's clock catches up,
+// by a peer whose clock runs behind; a rotation issues every certificate in
+// the cluster within minutes.
+const certBackdate = time.Hour
 
-	caKey, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
+// CAPair is a CA certificate and its private key, parsed and checked to
+// belong together.
+type CAPair struct {
+	Cert            *x509.Certificate
+	Key             *ecdsa.PrivateKey
+	CertPEM, KeyPEM []byte
+}
+
+// Pin is the CA's fingerprint, the one join commands carry (CAPin).
+func (p *CAPair) Pin() string { return CAPin(p.Cert.RawSubjectPublicKeyInfo) }
+
+// GenerateCA makes a cluster CA in memory: ECDSA P-256, a random 128-bit
+// serial, valid from certBackdate before now for ten years. cn names it; a
+// rotation's next CA carries the date, so that it and the one it replaces
+// read apart in logs and in tools.
+func GenerateCA(cn string, now time.Time) (*CAPair, error) {
+	key, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
 	if err != nil {
-		return fmt.Errorf("generate CA key: %w", err)
+		return nil, fmt.Errorf("generate CA key: %w", err)
 	}
-
-	template := &x509.Certificate{
-		SerialNumber: big.NewInt(1),
-		Subject: pkix.Name{
-			Organization: []string{"SFPanel Cluster"},
-			CommonName:   fmt.Sprintf("SFPanel CA - %s", clusterName),
-		},
-		NotBefore:             time.Now(),
-		NotAfter:              time.Now().Add(10 * 365 * 24 * time.Hour),
+	serial, err := rand.Int(rand.Reader, new(big.Int).Lsh(big.NewInt(1), 128))
+	if err != nil {
+		return nil, fmt.Errorf("generate CA serial: %w", err)
+	}
+	tmpl := &x509.Certificate{
+		SerialNumber:          serial,
+		Subject:               pkix.Name{Organization: []string{"SFPanel Cluster"}, CommonName: cn},
+		NotBefore:             now.Add(-certBackdate),
+		NotAfter:              now.Add(10 * 365 * 24 * time.Hour),
 		KeyUsage:              x509.KeyUsageCertSign | x509.KeyUsageCRLSign,
 		BasicConstraintsValid: true,
 		IsCA:                  true,
 		MaxPathLen:            1,
 	}
-
-	caCertDER, err := x509.CreateCertificate(rand.Reader, template, template, &caKey.PublicKey, caKey)
+	der, err := x509.CreateCertificate(rand.Reader, tmpl, tmpl, &key.PublicKey, key)
 	if err != nil {
-		return fmt.Errorf("create CA cert: %w", err)
+		return nil, fmt.Errorf("create CA cert: %w", err)
+	}
+	keyDER, err := x509.MarshalECPrivateKey(key)
+	if err != nil {
+		return nil, fmt.Errorf("marshal CA key: %w", err)
+	}
+	return ParseCAPair(pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: der}),
+		pem.EncodeToMemory(&pem.Block{Type: "EC PRIVATE KEY", Bytes: keyDER}))
+}
+
+// ParseCAPair parses a CA certificate and its key — the first certificate in
+// certPEM, which may go on to hold other CAs, and the first PEM block of
+// keyPEM — and checks the key is the certificate's. CertPEM and KeyPEM are
+// those two blocks alone.
+func ParseCAPair(certPEM, keyPEM []byte) (*CAPair, error) {
+	var certBlock *pem.Block
+	for rest := certPEM; certBlock == nil; {
+		var block *pem.Block
+		block, rest = pem.Decode(rest)
+		if block == nil {
+			return nil, errors.New("no certificate in the CA cert PEM")
+		}
+		if block.Type == "CERTIFICATE" {
+			certBlock = block
+		}
+	}
+	cert, err := x509.ParseCertificate(certBlock.Bytes)
+	if err != nil {
+		return nil, fmt.Errorf("parse CA cert: %w", err)
+	}
+	if !cert.IsCA {
+		return nil, errors.New("the CA cert is not a CA certificate")
+	}
+	keyBlock, _ := pem.Decode(keyPEM)
+	if keyBlock == nil {
+		return nil, errors.New("failed to decode CA key PEM")
+	}
+	key, err := x509.ParseECPrivateKey(keyBlock.Bytes)
+	if err != nil {
+		return nil, fmt.Errorf("parse CA key: %w", err)
+	}
+	if !key.PublicKey.Equal(cert.PublicKey) {
+		return nil, ErrCAKeyMismatch
+	}
+	return &CAPair{
+		Cert:    cert,
+		Key:     key,
+		CertPEM: pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: certBlock.Bytes}),
+		KeyPEM:  pem.EncodeToMemory(&pem.Block{Type: "EC PRIVATE KEY", Bytes: keyBlock.Bytes}),
+	}, nil
+}
+
+// InitCA generates a self-signed CA for the cluster and writes it to ca.crt
+// and ca.key.
+func (t *TLSManager) InitCA(clusterName string) error {
+	if err := os.MkdirAll(t.certDir, 0700); err != nil {
+		return fmt.Errorf("create cert dir: %w", err)
 	}
 
-	if err := writePEM(filepath.Join(t.certDir, "ca.crt"), "CERTIFICATE", caCertDER); err != nil {
+	ca, err := GenerateCA(fmt.Sprintf("SFPanel CA - %s", clusterName), time.Now())
+	if err != nil {
 		return err
 	}
 
-	caKeyDER, err := x509.MarshalECPrivateKey(caKey)
+	if err := writePEM(filepath.Join(t.certDir, "ca.crt"), "CERTIFICATE", ca.Cert.Raw); err != nil {
+		return err
+	}
+
+	caKeyDER, err := x509.MarshalECPrivateKey(ca.Key)
 	if err != nil {
 		return fmt.Errorf("marshal CA key: %w", err)
 	}
@@ -114,14 +191,23 @@ func CertRole(cert *x509.Certificate) string {
 	return role
 }
 
-// IssueNodeCert creates a TLS certificate signed by the cluster CA for a node
-// in the given role (CertRoleManager or CertRoleAgent).
+// IssueNodeCert is IssueNodeCertBy with the cluster CA on this node's disk.
 func (t *TLSManager) IssueNodeCert(nodeID string, addresses []string, role string) (certPEM, keyPEM []byte, err error) {
+	ca, err := t.diskCA()
+	if err != nil {
+		return nil, nil, err
+	}
+	return IssueNodeCertBy(ca, nodeID, addresses, role)
+}
+
+// IssueNodeCertBy creates a key and a TLS certificate for it, signed by ca,
+// for a node in the given role (CertRoleManager or CertRoleAgent).
+func IssueNodeCertBy(ca *CAPair, nodeID string, addresses []string, role string) (certPEM, keyPEM []byte, err error) {
 	nodeKey, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
 	if err != nil {
 		return nil, nil, fmt.Errorf("generate node key: %w", err)
 	}
-	certPEM, err = t.signNodeCert(nodeID, addresses, role, &nodeKey.PublicKey)
+	certPEM, err = signNodeCertBy(ca, nodeID, addresses, role, &nodeKey.PublicKey)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -137,11 +223,23 @@ func (t *TLSManager) IssueNodeCert(nodeID string, addresses []string, role strin
 	return certPEM, keyPEM, nil
 }
 
-// ReissueNodeCert re-signs this node's certificate for role, keeping its key.
-// node.key is not touched and node.crt is replaced in one rename, so a crash,
-// or the one-minute reload in getNodeCert, sees the old certificate or the
-// new one — each matching the key on disk.
+// ReissueNodeCert is ReissueNodeCertBy with the cluster CA on this node's
+// disk.
 func (t *TLSManager) ReissueNodeCert(nodeID string, addresses []string, role string) error {
+	ca, err := t.diskCA()
+	if err != nil {
+		return err
+	}
+	return t.ReissueNodeCertBy(ca, nodeID, addresses, role)
+}
+
+// ReissueNodeCertBy re-signs this node's certificate with ca, for role,
+// keeping its key. node.key is not touched and node.crt is replaced in one
+// rename, its data synced first, so a crash, or the one-minute reload in
+// getNodeCert, sees the old certificate or the new one — each matching the
+// key on disk. A CA rotation relies on the file it leaves when the node next
+// boots.
+func (t *TLSManager) ReissueNodeCertBy(ca *CAPair, nodeID string, addresses []string, role string) error {
 	keyPEM, err := os.ReadFile(filepath.Join(t.certDir, "node.key"))
 	if err != nil {
 		return fmt.Errorf("read node key: %w", err)
@@ -154,34 +252,32 @@ func (t *TLSManager) ReissueNodeCert(nodeID string, addresses []string, role str
 	if err != nil {
 		return fmt.Errorf("parse node key: %w", err)
 	}
-	certPEM, err := t.signNodeCert(nodeID, addresses, role, &key.PublicKey)
+	certPEM, err := signNodeCertBy(ca, nodeID, addresses, role, &key.PublicKey)
 	if err != nil {
 		return err
 	}
-	tmp, err := os.CreateTemp(t.certDir, "node.crt.*.tmp") // 0600
-	if err != nil {
-		return fmt.Errorf("create temp node cert: %w", err)
-	}
-	defer func() { _ = os.Remove(tmp.Name()) }() // no-op once the rename consumes it
-	if _, err := tmp.Write(certPEM); err != nil {
-		tmp.Close()
-		return fmt.Errorf("write node cert: %w", err)
-	}
-	if err := tmp.Close(); err != nil {
-		return fmt.Errorf("close temp node cert: %w", err)
-	}
-	return os.Rename(tmp.Name(), filepath.Join(t.certDir, "node.crt"))
+	return replaceFile(filepath.Join(t.certDir, "node.crt"), certPEM)
 }
 
-// SignNodeCSR signs a node certificate for the key in a certificate request.
-// Only the key comes from the request: the leader sets CN, role and SANs, so
-// a joining node cannot ask for a manager's name or another node's address.
+// SignNodeCSR is SignNodeCSRBy with the cluster CA on this node's disk.
 func (t *TLSManager) SignNodeCSR(nodeID string, addresses []string, role string, csrDER []byte) ([]byte, error) {
+	ca, err := t.diskCA()
+	if err != nil {
+		return nil, err
+	}
+	return SignNodeCSRBy(ca, nodeID, addresses, role, csrDER)
+}
+
+// SignNodeCSRBy signs, with ca, a node certificate for the key in a
+// certificate request. Only the key comes from the request: the leader sets
+// CN, role and SANs, so a joining node cannot ask for a manager's name or
+// another node's address.
+func SignNodeCSRBy(ca *CAPair, nodeID string, addresses []string, role string, csrDER []byte) ([]byte, error) {
 	pub, err := csrPublicKey(csrDER)
 	if err != nil {
 		return nil, err
 	}
-	return t.signNodeCert(nodeID, addresses, role, pub)
+	return signNodeCertBy(ca, nodeID, addresses, role, pub)
 }
 
 // csrPublicKey returns the key a certificate request asks a certificate for,
@@ -203,14 +299,10 @@ func csrPublicKey(csrDER []byte) (*ecdsa.PublicKey, error) {
 	return pub, nil
 }
 
-// signNodeCert signs a node certificate for pub with the cluster CA.
-func (t *TLSManager) signNodeCert(nodeID string, addresses []string, role string, pub *ecdsa.PublicKey) ([]byte, error) {
+// signNodeCertBy signs a node certificate for pub with ca.
+func signNodeCertBy(ca *CAPair, nodeID string, addresses []string, role string, pub *ecdsa.PublicKey) ([]byte, error) {
 	if role != CertRoleManager && role != CertRoleAgent {
 		return nil, fmt.Errorf("unknown certificate role %q", role)
-	}
-	caCert, caKey, err := t.loadCA()
-	if err != nil {
-		return nil, fmt.Errorf("load CA: %w", err)
 	}
 
 	// This error used to be discarded: a nil serial turns into an opaque x509
@@ -227,7 +319,7 @@ func (t *TLSManager) signNodeCert(nodeID string, addresses []string, role string
 			OrganizationalUnit: []string{role},
 			CommonName:         nodeID,
 		},
-		NotBefore: time.Now(),
+		NotBefore: time.Now().Add(-certBackdate),
 		NotAfter:  time.Now().Add(5 * 365 * 24 * time.Hour),
 		KeyUsage:  x509.KeyUsageDigitalSignature | x509.KeyUsageKeyEncipherment,
 		ExtKeyUsage: []x509.ExtKeyUsage{
@@ -244,7 +336,7 @@ func (t *TLSManager) signNodeCert(nodeID string, addresses []string, role string
 		}
 	}
 
-	certDER, err := x509.CreateCertificate(rand.Reader, template, caCert, pub, caKey)
+	certDER, err := x509.CreateCertificate(rand.Reader, template, ca.Cert, pub, ca.Key)
 	if err != nil {
 		return nil, fmt.Errorf("create node cert: %w", err)
 	}
@@ -534,34 +626,84 @@ func (t *TLSManager) LoadAgentKey() (string, error) {
 	return key, nil
 }
 
-func (t *TLSManager) loadCA() (*x509.Certificate, *ecdsa.PrivateKey, error) {
+// diskCA is the CA pair on this node's disk: the first certificate in ca.crt
+// and the key in ca.key. A key that is not that certificate's is refused
+// here (ErrCAKeyMismatch), before anything is signed with it.
+func (t *TLSManager) diskCA() (*CAPair, error) {
 	certPEM, err := os.ReadFile(filepath.Join(t.certDir, "ca.crt"))
 	if err != nil {
-		return nil, nil, err
+		return nil, fmt.Errorf("load CA: %w", err)
 	}
-	block, _ := pem.Decode(certPEM)
-	if block == nil {
-		return nil, nil, fmt.Errorf("failed to decode CA cert PEM")
-	}
-	cert, err := x509.ParseCertificate(block.Bytes)
-	if err != nil {
-		return nil, nil, err
-	}
-
 	keyPEM, err := os.ReadFile(filepath.Join(t.certDir, "ca.key"))
 	if err != nil {
-		return nil, nil, err
+		return nil, fmt.Errorf("load CA: %w", err)
 	}
-	keyBlock, _ := pem.Decode(keyPEM)
-	if keyBlock == nil {
-		return nil, nil, fmt.Errorf("failed to decode CA key PEM")
+	ca, err := ParseCAPair(certPEM, keyPEM)
+	if err != nil {
+		return nil, fmt.Errorf("load CA: %w", err)
 	}
-	key, err := x509.ParseECPrivateKey(keyBlock.Bytes)
+	return ca, nil
+}
+
+// loadCA is diskCA's certificate and key.
+func (t *TLSManager) loadCA() (*x509.Certificate, *ecdsa.PrivateKey, error) {
+	ca, err := t.diskCA()
 	if err != nil {
 		return nil, nil, err
 	}
+	return ca.Cert, ca.Key, nil
+}
 
-	return cert, key, nil
+// certificatesIn parses a PEM bundle that must hold certificates and nothing
+// else, at least one: a bundle another node sends is refused whole, not
+// trusted in part. A block pemCertificates would skip — not a certificate,
+// with headers, or not parsing — is an error here, so a bundle this accepts
+// is trusted whole once written to ca.crt.
+func certificatesIn(pemBytes []byte) ([]*x509.Certificate, error) {
+	var certs []*x509.Certificate
+	for len(pemBytes) > 0 {
+		var block *pem.Block
+		block, pemBytes = pem.Decode(pemBytes)
+		if block == nil {
+			break
+		}
+		if block.Type != "CERTIFICATE" || len(block.Headers) != 0 {
+			return nil, errors.New("the bundle holds a PEM block that is not a certificate")
+		}
+		cert, err := x509.ParseCertificate(block.Bytes)
+		if err != nil {
+			return nil, fmt.Errorf("parse certificate in the bundle: %w", err)
+		}
+		certs = append(certs, cert)
+	}
+	if len(certs) == 0 {
+		return nil, errors.New("the bundle holds no certificate")
+	}
+	return certs, nil
+}
+
+// pemCertificates returns the certificates in a PEM bundle the way
+// x509.CertPool.AppendCertsFromPEM takes them: a block that is not a
+// certificate, has headers or does not parse is skipped. It is for this
+// node's own ca.crt, which the CA pool (loadCAPool) has always read that way.
+func pemCertificates(pemBytes []byte) []*x509.Certificate {
+	var certs []*x509.Certificate
+	for len(pemBytes) > 0 {
+		var block *pem.Block
+		block, pemBytes = pem.Decode(pemBytes)
+		if block == nil {
+			break
+		}
+		if block.Type != "CERTIFICATE" || len(block.Headers) != 0 {
+			continue
+		}
+		cert, err := x509.ParseCertificate(block.Bytes)
+		if err != nil {
+			continue
+		}
+		certs = append(certs, cert)
+	}
+	return certs
 }
 
 func writePEM(path, blockType string, data []byte) error {
