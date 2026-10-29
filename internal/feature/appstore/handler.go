@@ -8,6 +8,7 @@ import (
 	"database/sql"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"log/slog"
@@ -457,13 +458,21 @@ func sendSSE(w io.Writer, flusher http.Flusher, event sseEvent) {
 // middleware layer, so unlimited password guessing against this endpoint
 // is no faster than against /auth/login.
 func (h *Handler) verifyAdvancedReAuth(c echo.Context, password string) error {
+	// A refusal is written and then returned as errReAuthRefused, which stops
+	// the install: response.Fail's own error is nil once it has written.
+	refuse := func(status int, code, message string) error {
+		if err := response.Fail(c, status, code, message); err != nil {
+			return err
+		}
+		return errReAuthRefused
+	}
 	username, _ := c.Get("username").(string)
 	if username == "" {
 		slog.Warn("advanced install missing authenticated username", "component", "appstore")
-		return response.Fail(c, http.StatusUnauthorized, response.ErrInvalidCredentials, "Re-authentication required for advanced install")
+		return refuse(http.StatusUnauthorized, response.ErrInvalidCredentials, "Re-authentication required for advanced install")
 	}
 	if password == "" {
-		return response.Fail(c, http.StatusBadRequest, response.ErrMissingFields,
+		return refuse(http.StatusBadRequest, response.ErrMissingFields,
 			"Password is required for advanced install")
 	}
 	var hash string
@@ -471,17 +480,20 @@ func (h *Handler) verifyAdvancedReAuth(c echo.Context, password string) error {
 	if err != nil {
 		slog.Warn("advanced install: failed to load admin row",
 			"component", "appstore", "username", username, "error", err)
-		return response.Fail(c, http.StatusUnauthorized, response.ErrInvalidCredentials,
+		return refuse(http.StatusUnauthorized, response.ErrInvalidCredentials,
 			"Re-authentication required for advanced install")
 	}
 	if !auth.CheckPassword(password, hash) {
 		slog.Warn("advanced install: bad password",
 			"component", "appstore", "username", username, "remote_ip", c.RealIP())
-		return response.Fail(c, http.StatusUnauthorized, response.ErrInvalidPassword,
+		return refuse(http.StatusUnauthorized, response.ErrInvalidPassword,
 			"Incorrect password")
 	}
 	return nil
 }
+
+// errReAuthRefused says verifyAdvancedReAuth has written its refusal.
+var errReAuthRefused = errors.New("advanced install: re-authentication refused")
 
 // ---------------------------------------------------------------------------
 // Endpoints

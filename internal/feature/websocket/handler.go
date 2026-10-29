@@ -97,7 +97,9 @@ func startWSKeepalive(ctx context.Context, ws *websocket.Conn, writer *safeWSWri
 // (preferred — JWT never lands in the URL/access log) or, for back-compat
 // with older JS clients, via the ?token= JWT path. Internal cluster proxy
 // requests authenticated by mTLS bypass both. Returns the authenticated
-// username on success so the caller can attribute/audit the session.
+// username on success so the caller can attribute/audit the session. A
+// refusal writes the 401 and returns auth.ErrUnauthenticatedWS, which the
+// caller returns before it upgrades.
 func AuthenticateWS(c echo.Context, jwtSecret string) (string, error) {
 	if auth.IsInternalProxyRequest(c.Request()) {
 		// Internal cluster forward: the originating node authenticated the
@@ -108,7 +110,12 @@ func AuthenticateWS(c echo.Context, jwtSecret string) (string, error) {
 	if user := auth.AuthenticateWSRequest(c.Request(), jwtSecret); user != "" {
 		return user, nil
 	}
-	return "", c.JSON(http.StatusUnauthorized, map[string]string{"error": "unauthorized"})
+	// c.JSON's error is nil once the 401 is written: returned as the refusal,
+	// it let every caller upgrade behind it.
+	if err := c.JSON(http.StatusUnauthorized, map[string]string{"error": "unauthorized"}); err != nil {
+		return "", err
+	}
+	return "", auth.ErrUnauthenticatedWS
 }
 
 // MetricsWS handles WebSocket connections for real-time metrics streaming.
