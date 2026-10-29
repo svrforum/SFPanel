@@ -60,6 +60,7 @@ func startAgent(cfg *config.Config, version string, collect func() (cpu, mem, di
 		Interval:  30 * time.Second,
 		Collect:   collect,
 		PanelCA:   panelCA,
+		Advertise: cfg.Cluster.AdvertiseAddress,
 	}, cfg.Cluster.Managers)
 	if err != nil {
 		return nil, err

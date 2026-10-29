@@ -417,6 +417,25 @@ func (s *GRPCServer) ReportPanelCA(ctx context.Context, req *pb.ReportPanelCAReq
 	return &pb.ReportPanelCAResponse{Success: true}, nil
 }
 
+// RenewCertificate signs the calling agent a certificate from the CA a
+// rotation signs with now (HandleRenewCertificate). The node is the caller's
+// verified certificate, never a request field; a follower answers with the
+// leader's address, where the agent asks again.
+func (s *GRPCServer) RenewCertificate(ctx context.Context, req *pb.RenewCertificateRequest) (*pb.RenewCertificateResponse, error) {
+	leaf := peerLeaf(ctx)
+	if leaf == nil {
+		return nil, status.Error(codes.Unauthenticated, "client certificate required for this method")
+	}
+	if !s.manager.IsLeader() {
+		return &pb.RenewCertificateResponse{Error: ErrNotLeader.Error(), LeaderGrpcAddress: s.manager.GetRaft().LeaderGRPCAddress()}, nil
+	}
+	cert, bundle, err := s.manager.HandleRenewCertificate(leaf, req.Csr, req.Proof, time.Now())
+	if err != nil {
+		return &pb.RenewCertificateResponse{Error: err.Error()}, nil
+	}
+	return &pb.RenewCertificateResponse{Success: true, NodeCert: cert, CaBundle: bundle}, nil
+}
+
 // PreFlight validates a join token without consuming it.
 //
 // The CA key goes back whatever the token says. A joiner asks with no token

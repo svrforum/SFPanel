@@ -1,8 +1,12 @@
 package cluster
 
 import (
+	"bytes"
 	"context"
+	"crypto/rand"
+	"crypto/x509"
 	"encoding/json"
+	"encoding/pem"
 	"errors"
 	"fmt"
 	"log/slog"
@@ -35,6 +39,9 @@ type AgentState struct {
 	// Removed is set once the leader has said the agent is not a member. It
 	// stays set until `sfpanel agent reset`: nothing here undoes it.
 	Removed bool `json:"removed,omitempty"`
+	// CASeq is the seq of the last CA rotation hint taken; a lower one is
+	// older (an older release ignores the field).
+	CASeq uint64 `json:"ca_seq,omitempty"`
 }
 
 // LoadAgentState reads the state at path. Before the first save there is no
@@ -107,6 +114,9 @@ type AgentLinkConfig struct {
 	Interval  time.Duration                                   // between pings, and before retrying; 30s in production
 	Collect   func() (cpu, mem, disk float64, containers int) // nil: pings carry no metrics
 	PanelCA   func() ([]byte, error)                          // nil: nothing to report
+	// Advertise is the IP the agent registered at, which a renewed
+	// certificate must name: managers dial it.
+	Advertise string
 }
 
 // AgentLink is an agent's tie to its managers. It heartbeats to the leader,
@@ -123,6 +133,13 @@ type AgentLink struct {
 	mu        sync.Mutex // guards state and onRemoved
 	state     *AgentState
 	onRemoved func()
+
+	// renew hands the sender the CA a pong's hint wants the agent's
+	// certificate from: the receive goroutine makes no call. caWarned is the
+	// last reason a hint was not taken, which only receive goroutines read
+	// and write, one session after another.
+	renew    chan string
+	caWarned string
 }
 
 // NewAgentLink loads the agent's state, from seed if none is saved yet.
@@ -131,7 +148,7 @@ func NewAgentLink(cfg AgentLinkConfig, seed []config.ManagerRef) (*AgentLink, er
 	if err != nil {
 		return nil, err
 	}
-	return &AgentLink{AgentLinkConfig: cfg, state: st}, nil
+	return &AgentLink{AgentLinkConfig: cfg, state: st, renew: make(chan string, 1)}, nil
 }
 
 // SetOnRemoved sets what runs once the leader has removed the agent, after
@@ -227,6 +244,7 @@ func removedByLeader(err error) bool {
 const (
 	warnHeartbeat = "heartbeat to a manager failed"
 	warnReport    = "could not report the panel CA to the leader"
+	warnRenew     = "could not renew the certificate for a CA rotation"
 )
 
 var (
@@ -238,13 +256,22 @@ var (
 	// no leader: in an election, cut off from the others, or a leader whose
 	// Raft has stopped for its own update.
 	errNoLeaderKnown = errors.New("this manager knows no leader right now")
+	// errCAHintOutlivesConnection ends a session on which the leader's CA
+	// hint leaves out the CA the connection verified the leader by. A
+	// connection keeps the certificate the leader showed when it was made,
+	// and the leader may have moved its own since: refused on this
+	// connection for as long as it lasts, the hint would leave a rotation
+	// waiting on this agent for good. A new connection shows the leader's
+	// certificate as it is now.
+	errCAHintOutlivesConnection = errors.New("the leader's CA hint leaves out the CA this connection verified it by")
 )
 
 // linkRun is what one Run remembers from attempt to attempt.
 type linkRun struct {
-	reported bool              // the panel CA has reached the leader
-	current  string            // the manager the agent last stayed with
-	warned   map[string]string // the error last logged, per warning and manager
+	reported  bool              // the panel CA has reached the leader
+	current   string            // the manager the agent last stayed with
+	warned    map[string]string // the error last logged, per warning and manager
+	lastRenew time.Time         // the last renewal asked for, whatever came of it
 }
 
 // warn logs err only when it is not what was last logged for the same
@@ -275,6 +302,7 @@ const (
 	endRedirected                // a follower named the leader elsewhere
 	endRemoved                   // the leader said the agent is not a member
 	endStopped                   // ctx ended
+	endRenewed                   // the certificate was renewed: a new connection shows it
 )
 
 type attemptEnd struct {
@@ -306,8 +334,9 @@ func (l *AgentLink) interval() time.Duration {
 // already removed it returns at once.
 //
 // Each attempt goes to one manager, the leader first. A follower that names
-// the leader elsewhere is left at once for it; any other failure moves on to
-// the next manager after an Interval.
+// the leader elsewhere is left at once for it, and so is a session that
+// renewed the certificate, for a new connection that presents it; any other
+// failure moves on to the next manager after an Interval.
 func (l *AgentLink) Run(ctx context.Context) {
 	if l.Removed() {
 		return
@@ -331,7 +360,7 @@ func (l *AgentLink) Run(ctx context.Context) {
 		case endRemoved:
 			l.markRemoved(target)
 			return
-		case endRedirected:
+		case endRedirected, endRenewed:
 			// The pong saved the leader's address; nextTargets puts it first.
 			next = 0
 		default:
@@ -404,9 +433,14 @@ func (l *AgentLink) reportPanelCA(ctx context.Context, client *GRPCClient) error
 // reads the pongs — they must be read, or they fill the stream's flow-control
 // window and both ends wedge (the drain in StartLocalMetrics) — and it ends
 // the session: on a stream error, or when a follower names the leader
-// elsewhere; a manager that names no leader ends it too (errNoLeaderKnown).
-// What it saw is how the session ended, because a failed Send says only
-// io.EOF.
+// elsewhere; a manager that names no leader ends it too (errNoLeaderKnown),
+// and so does a leader's CA hint that leaves out the CA this connection
+// verified it by (errCAHintOutlivesConnection). What it saw is how the
+// session ended, because a failed Send says only io.EOF. The sender renews
+// the agent's certificate when the leader's CA hint asks for it, at most
+// once per renewalInterval, and then ends the session itself (endRenewed):
+// the leader goes by the certificate a connection presented, so the new one
+// is shown on a new connection.
 func (l *AgentLink) heartbeat(ctx context.Context, r *linkRun, client *GRPCClient, target string) attemptEnd {
 	sctx, cancel := context.WithCancel(ctx)
 	defer cancel()
@@ -414,6 +448,9 @@ func (l *AgentLink) heartbeat(ctx context.Context, r *linkRun, client *GRPCClien
 	if err != nil {
 		return classify(ctx, err)
 	}
+	// The CA this connection verified the manager's certificate by, which a
+	// CA hint that came on it must keep (applyCAHint).
+	root := peerRootPin(stream.Context())
 
 	stayed := make(chan struct{}) // closed at the first pong that is not a redirect
 	ended := make(chan attemptEnd, 1)
@@ -430,7 +467,10 @@ func (l *AgentLink) heartbeat(ctx context.Context, r *linkRun, client *GRPCClien
 				end = classify(ctx, err)
 				return
 			}
-			l.applyPong(pong)
+			if err := l.applyPong(pong, root); err != nil {
+				end = attemptEnd{endFailed, err}
+				return
+			}
 			switch {
 			case !pong.FromLeader && pong.LeaderGrpcAddress != "" && pong.LeaderGrpcAddress != target:
 				end = attemptEnd{kind: endRedirected}
@@ -451,6 +491,7 @@ func (l *AgentLink) heartbeat(ctx context.Context, r *linkRun, client *GRPCClien
 	ticker := time.NewTicker(l.interval())
 	defer ticker.Stop()
 	stayedCh := stayed
+	renewed := false
 	if stream.Send(l.ping()) == nil {
 	loop:
 		for {
@@ -464,14 +505,36 @@ func (l *AgentLink) heartbeat(ctx context.Context, r *linkRun, client *GRPCClien
 				if stream.Send(l.ping()) != nil {
 					break loop
 				}
+			case pin := <-l.renew:
+				if time.Since(r.lastRenew) < renewalInterval {
+					continue
+				}
+				r.lastRenew = time.Now()
+				if err := l.renewCertificate(sctx, client, pin); err != nil {
+					r.warn(warnRenew, target, err)
+					continue
+				}
+				delete(r.warned, warnRenew+"|"+target)
+				renewed = true
+				break loop
 			}
 		}
 	}
-	return <-ended
+	// A renewal leaves the stream up: cancel ends it, and its receive
+	// goroutine with it.
+	cancel()
+	end := <-ended
+	if renewed {
+		return attemptEnd{kind: endRenewed}
+	}
+	return end
 }
 
+// ping says, besides the metrics, that the agent follows a CA rotation and
+// which CAs it trusts: what the rotation's steps wait for.
 func (l *AgentLink) ping() *pb.HeartbeatPing {
-	p := &pb.HeartbeatPing{NodeId: l.NodeID, Version: l.Version, Timestamp: time.Now().Unix()}
+	p := &pb.HeartbeatPing{NodeId: l.NodeID, Version: l.Version, Timestamp: time.Now().Unix(),
+		Capabilities: []string{CapCARotation}, CaTrustPins: l.TLS.TrustPins()}
 	if l.Collect != nil {
 		cpu, mem, disk, containers := l.Collect()
 		p.CpuPercent, p.MemoryPercent, p.DiskPercent, p.ContainerCount = cpu, mem, disk, int32(containers)
@@ -491,7 +554,13 @@ func (l *AgentLink) ping() *pb.HeartbeatPing {
 // agent has no manager at that address: a leader elected while the agent was
 // not listening is reachable only once the agent accepts it, and only its
 // own pong carries the list, which then replaces the agent's.
-func (l *AgentLink) applyPong(p *pb.HeartbeatPong) {
+//
+// A CA rotation's hint is the leader's alone as well (applyCAHint): a
+// follower's view of the rotation may lag, and one partitioned away could
+// bring back a CA the rotation dropped, or drop the one it keeps. root is
+// the CA the connection the pong came on verified the manager by; an error
+// ends the session (errCAHintOutlivesConnection).
+func (l *AgentLink) applyPong(p *pb.HeartbeatPong, root string) error {
 	err := l.update(func(s *AgentState) bool {
 		changed := false
 		if p.LeaderGrpcAddress != "" && p.LeaderGrpcAddress != s.Leader {
@@ -513,6 +582,177 @@ func (l *AgentLink) applyPong(p *pb.HeartbeatPong) {
 	if err != nil {
 		slog.Warn("could not save the agent state", "component", "agent", "path", l.StatePath, "error", err)
 	}
+	if p.FromLeader && p.Ca != nil {
+		return l.applyCAHint(p.Ca, root)
+	}
+	return nil
+}
+
+// applyCAHint takes the leader's word on the cluster CAs: the CAs to trust,
+// the one ca.crt starts with first, and the CA the agent's certificate must
+// come from. A hint is taken once, when its seq is above the one taken last
+// — a lagging view shows an older step — and only whole: certificates and
+// nothing else, every one a CA, within maxCABundleBytes, and with root, the
+// CA this very connection verified the manager by. Written without it, the
+// bundle would cut the agent off from that manager at its next dial; it is
+// asked for again on a new connection instead (errCAHintOutlivesConnection,
+// which this returns). ca.crt is written before its CAs are trusted and the
+// seq saved, so a restart in any step comes back trusting what the agent
+// trusted.
+//
+// Every hint of the leader's step then hands the sender a renewal when the
+// CA it names is trusted and is not the one the agent's certificate comes
+// from; the sender asks at most once per renewalInterval, so a renewal that
+// failed is asked for again. It runs on the receive goroutine, which makes no
+// call: pongs left unread meanwhile would wedge the stream (heartbeat); a
+// hint not taken for any other reason is logged when the reason changes.
+func (l *AgentLink) applyCAHint(h *pb.ClusterCA, root string) error {
+	l.mu.Lock()
+	taken := l.state.CASeq
+	l.mu.Unlock()
+	switch {
+	case h.Seq < taken:
+		l.noteCAHint(h, fmt.Errorf("its step %d is older than the step %d taken", h.Seq, taken))
+		return nil
+	case h.Seq > taken:
+		if err := l.takeCAHint(h, root); errors.Is(err, errCAHintOutlivesConnection) {
+			return err
+		} else if err != nil {
+			l.noteCAHint(h, err)
+			return nil
+		}
+		l.caWarned = ""
+	}
+	pin := h.SignPin
+	if pin == "" || pin == l.TLS.ServedCertCAPin() || !slices.Contains(l.TLS.TrustPins(), pin) {
+		return nil
+	}
+	// Never blocks the receive goroutine; a pin still waiting is replaced,
+	// as only the newest matters.
+	select {
+	case <-l.renew:
+	default:
+	}
+	select {
+	case l.renew <- pin:
+	default:
+	}
+	return nil
+}
+
+// takeCAHint checks the bundle of h and makes it this agent's trust: ca.crt,
+// then the CAs trusted, then the seq taken.
+func (l *AgentLink) takeCAHint(h *pb.ClusterCA, root string) error {
+	if len(h.Bundle) > maxCABundleBytes {
+		return fmt.Errorf("its bundle is larger than %d KiB", maxCABundleBytes>>10)
+	}
+	certs, err := certificatesIn(h.Bundle)
+	if err != nil {
+		return err
+	}
+	var trust []byte
+	pins := make([]string, 0, len(certs))
+	for _, cert := range certs {
+		if !cert.IsCA {
+			return fmt.Errorf("its bundle holds %q, which is not a CA", cert.Subject.CommonName)
+		}
+		pins = append(pins, CAPin(cert.RawSubjectPublicKeyInfo))
+		// Written as parsed: what pem.Decode skips around a block is not
+		// trust and does not go to ca.crt.
+		trust = append(trust, pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: cert.Raw})...)
+	}
+	if root == "" || !slices.Contains(pins, root) {
+		return fmt.Errorf("%w (%s); trying a new connection", errCAHintOutlivesConnection, root)
+	}
+	if onDisk, err := l.TLS.LoadCACert(); err != nil || !bytes.Equal(onDisk, trust) {
+		if err := l.TLS.SaveCACert(trust); err != nil {
+			return fmt.Errorf("write ca.crt: %w", err)
+		}
+	}
+	if !slices.Equal(l.TLS.TrustPins(), pins) {
+		if err := l.TLS.ReloadCAPool(); err != nil {
+			return fmt.Errorf("trust ca.crt: %w", err)
+		}
+	}
+	if err := l.update(func(s *AgentState) bool {
+		if s.CASeq >= h.Seq {
+			return false
+		}
+		s.CASeq = h.Seq
+		return true
+	}); err != nil {
+		// Taken all the same: the seq is in memory, and after a restart the
+		// same hint is taken again, as nothing differs.
+		slog.Warn("could not save the agent state", "component", "agent", "path", l.StatePath, "error", err)
+	}
+	slog.Info("the agent trusts the cluster CAs the leader named", "component", "agent", "seq", h.Seq, "cas", len(certs))
+	return nil
+}
+
+// noteCAHint warns why a hint of the leader's was not taken, once while the
+// reason stays the same: every pong of a step carries the hint. Receive
+// goroutine only.
+func (l *AgentLink) noteCAHint(h *pb.ClusterCA, err error) {
+	if err.Error() == l.caWarned {
+		return
+	}
+	l.caWarned = err.Error()
+	slog.Warn("did not take the leader's CA hint", "component", "agent", "seq", h.Seq, "error", err)
+}
+
+// renewCertificate asks the leader, through client, for this agent's
+// certificate from pin, and installs it. The certificate the leader signs
+// must come from pin, the CA the hint named, and the agent trusts it
+// already: one from another CA means the rotation moved on since the hint,
+// and the next hint says where. A follower names the leader, which is asked
+// once more there. A manager that answers Unimplemented runs a release from
+// before CA rotations, not from before agents: the certificate stays as it
+// is, and the agent asks again later.
+func (l *AgentLink) renewCertificate(ctx context.Context, client *GRPCClient, pin string) error {
+	key, err := l.TLS.nodeKey()
+	if err != nil {
+		return err
+	}
+	// For the key the agent has: only node.crt changes (installRenewedCert).
+	csr, err := x509.CreateCertificateRequest(rand.Reader, &x509.CertificateRequest{}, key)
+	if err != nil {
+		return fmt.Errorf("make the certificate request: %w", err)
+	}
+	agentKey, err := l.TLS.LoadAgentKey()
+	if err != nil {
+		return err
+	}
+	req := &pb.RenewCertificateRequest{Csr: csr, Proof: renewalProof(agentKey, l.NodeID, csr)}
+	resp, err := client.RenewCertificate(ctx, req)
+	if err == nil && !resp.Success && resp.Error == ErrNotLeader.Error() && resp.LeaderGrpcAddress != "" {
+		leader, derr := DialManager(resp.LeaderGrpcAddress, l.TLS, l.ManagerIDs)
+		if derr != nil {
+			return derr
+		}
+		defer leader.Close()
+		resp, err = leader.RenewCertificate(ctx, req)
+	}
+	if status.Code(err) == codes.Unimplemented {
+		return errors.New("this manager cannot renew certificates; the certificate stays as it is")
+	}
+	if err != nil {
+		return err
+	}
+	if !resp.Success {
+		return fmt.Errorf("refused: %s", resp.Error)
+	}
+	leaf, err := parseCertificatePEM(resp.NodeCert)
+	if err != nil {
+		return err
+	}
+	if l.TLS.trustedIssuerPin(leaf) != pin {
+		return fmt.Errorf("the leader's certificate is not from %s, the CA its hint named", pin)
+	}
+	if err := l.TLS.installRenewedCert(resp.NodeCert, l.NodeID, l.Advertise); err != nil {
+		return err
+	}
+	slog.Info("the agent's certificate moved to the CA a CA rotation signs with", "component", "agent", "ca", pin)
+	return nil
 }
 
 // namedLeader is the entry in p's manager list for the leader p names.

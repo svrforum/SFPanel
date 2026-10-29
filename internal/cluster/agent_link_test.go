@@ -43,6 +43,9 @@ func registeredAgent(t *testing.T, mgr *Manager) (*RegisterAgentResult, *TLSMana
 	if err := tm.SaveNodeCert(res.NodeCert, pem.EncodeToMemory(&pem.Block{Type: "EC PRIVATE KEY", Bytes: keyDER})); err != nil {
 		t.Fatal(err)
 	}
+	if err := tm.SaveAgentKey(res.AgentKey); err != nil {
+		t.Fatal(err)
+	}
 	return res, tm
 }
 
@@ -51,7 +54,7 @@ func runLink(t *testing.T, mgr *Manager, addr string, res *RegisterAgentResult, 
 	link, err := NewAgentLink(AgentLinkConfig{
 		NodeID: res.NodeID, TLS: tm, StatePath: filepath.Join(t.TempDir(), "agent-state.json"), Version: "test",
 		Interval: 100 * time.Millisecond, Collect: func() (float64, float64, float64, int) { return 1, 2, 3, 4 },
-		PanelCA: panelCA,
+		PanelCA: panelCA, Advertise: "192.0.2.10",
 	}, []config.ManagerRef{{ID: mgr.LocalNodeID(), GRPCAddress: addr}})
 	if err != nil {
 		t.Fatal(err)
@@ -147,14 +150,17 @@ func TestNextTargets(t *testing.T) {
 
 // fakeManager is a manager's gRPC listener whose answers to an agent's
 // heartbeat come from pong: a pong to send, or an error that ends the stream.
-// report answers ReportPanelCA (nil: Unimplemented). self is its address.
+// report answers ReportPanelCA and renew RenewCertificate (nil:
+// Unimplemented). self is its address.
 type fakeManager struct {
 	pb.UnimplementedClusterServiceServer
 	self    string
 	pong    func(self string) (*pb.HeartbeatPong, error)
 	report  func() (*pb.ReportPanelCAResponse, error)
+	renew   func(*pb.RenewCertificateRequest) (*pb.RenewCertificateResponse, error)
 	streams atomic.Int32
 	reports atomic.Int32
+	renews  atomic.Int32
 }
 
 func (f *fakeManager) AgentHeartbeat(stream pb.ClusterService_AgentHeartbeatServer) error {
@@ -179,6 +185,14 @@ func (f *fakeManager) ReportPanelCA(ctx context.Context, req *pb.ReportPanelCARe
 		return f.UnimplementedClusterServiceServer.ReportPanelCA(ctx, req)
 	}
 	return f.report()
+}
+
+func (f *fakeManager) RenewCertificate(ctx context.Context, req *pb.RenewCertificateRequest) (*pb.RenewCertificateResponse, error) {
+	f.renews.Add(1)
+	if f.renew == nil {
+		return f.UnimplementedClusterServiceServer.RenewCertificate(ctx, req)
+	}
+	return f.renew(req)
 }
 
 // startFakeManager serves f under the certificate in tm.
@@ -206,6 +220,7 @@ func startLink(t *testing.T, tm *TLSManager, nodeID string, seed []config.Manage
 	link, err := NewAgentLink(AgentLinkConfig{
 		NodeID: nodeID, TLS: tm, StatePath: filepath.Join(t.TempDir(), "agent-state.json"), Version: "test",
 		Interval: 100 * time.Millisecond, Collect: func() (float64, float64, float64, int) { return 0, 0, 0, 0 },
+		Advertise: "127.0.0.1",
 	}, seed)
 	if err != nil {
 		t.Fatal(err)

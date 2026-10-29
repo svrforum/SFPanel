@@ -124,6 +124,11 @@ type Manager struct {
 	// — and guards caWaiting, whom the rotation last said it waits for.
 	caRotateMu sync.Mutex
 	caWaiting  string
+	// renewMu runs agents' certificate renewals one at a time and guards
+	// renewedAt, when this leader last renewed each agent's certificate
+	// (HandleRenewCertificate).
+	renewMu   sync.Mutex
+	renewedAt map[string]time.Time
 	// hbReconnect asks the heartbeat for a new connection
 	// (reconnectHeartbeat): one signal waits, and a second is the same one.
 	hbReconnect chan struct{}

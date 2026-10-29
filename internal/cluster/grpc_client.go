@@ -173,6 +173,14 @@ func (c *GRPCClient) ReportPanelCA(ctx context.Context, req *pb.ReportPanelCAReq
 	return c.client.ReportPanelCA(ctx, req)
 }
 
+// RenewCertificate asks the leader for this agent's certificate from the CA a
+// CA rotation signs with now.
+func (c *GRPCClient) RenewCertificate(ctx context.Context, req *pb.RenewCertificateRequest) (*pb.RenewCertificateResponse, error) {
+	ctx, cancel := context.WithTimeout(ctx, 30*time.Second)
+	defer cancel()
+	return c.client.RenewCertificate(ctx, req)
+}
+
 // OpenAgentHeartbeat opens an agent's heartbeat stream to a manager, which
 // lasts until ctx ends or the stream fails. Its pongs must be read: unread,
 // they fill the stream's flow-control window and both ends wedge (see the

@@ -76,4 +76,10 @@ var (
 	// ErrCARotationPastReturn: a CA rotation is past the point it can be undone.
 	ErrCARotationPastReturn = errors.New("the next CA is the cluster's already: a rotation cannot be undone past that point — start another one to move again")
 	ErrNoCARotation         = errors.New("no CA rotation is in progress")
+	// RenewCertificate's refusals (HandleRenewCertificate), which an agent
+	// logs as the reason its certificate stays as it is.
+	ErrNoRenewalDue   = errors.New("no certificate renewal is due: the cluster is not moving certificates to another CA")
+	ErrRenewalProof   = errors.New("the renewal is not signed with this agent's own key")
+	ErrRenewalKey     = errors.New("a renewal is for the key of the certificate the agent presents")
+	ErrRenewalTooSoon = errors.New("this agent's certificate was renewed less than a minute ago")
 )
