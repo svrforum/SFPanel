@@ -237,6 +237,14 @@ func (m *Manager) MaybeRotateProxySecret() error {
 	if m.raft == nil || !m.raft.IsLeader() {
 		return ErrNotLeader
 	}
+	// A leader of a new term applies its predecessors' entries only after it
+	// has committed one of its own: until then its FSM can lack what the
+	// cluster committed — after a restart, everything since the last
+	// snapshot — and "there is none, so seed one" replaced a committed
+	// secret. The next tick tries again.
+	if !m.raft.caughtUpLeader(2 * time.Second) {
+		return nil
+	}
 	fsm := m.raft.GetFSM()
 	if v, _ := fsm.GetConfigValue(configKeyProxyRotatedAt); v != "" {
 		return nil

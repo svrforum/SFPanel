@@ -1283,7 +1283,8 @@ func (m *Manager) GetTLS() *TLSManager {
 
 // SeedClusterCA copies this node's on-disk CA cert+key into the replicated FSM
 // config so any node that later becomes leader can materialize the key and sign
-// joining nodes' certs. Leader-only (the writes are Raft Applies). No-op when the
+// joining nodes' certs. Leader-only (the writes are Raft Applies). Only once this
+// leader's FSM has caught up in its term (caughtUpLeader). No-op when the
 // FSM already carries the key, or when this node has no CA key on disk (e.g. a
 // leader that itself never founded the CA — nothing to seed).
 //
@@ -1292,6 +1293,13 @@ func (m *Manager) GetTLS() *TLSManager {
 // fix. Idempotent, so both callers are safe.
 func (m *Manager) SeedClusterCA() error {
 	if m.raft == nil || !m.raft.IsLeader() {
+		return ErrNotLeader
+	}
+	// As in MaybeRotateProxySecret: a leader that has not caught up may see
+	// no CA in the FSM and seed the one on its disk over a rotated one.
+	// caughtUpLeader waits for the replay; false means leadership was lost,
+	// or the barrier could not even be queued within the timeout.
+	if !m.raft.caughtUpLeader(2 * time.Second) {
 		return ErrNotLeader
 	}
 	// Guard on BOTH keys. Guarding on the key alone meant a cluster whose key
