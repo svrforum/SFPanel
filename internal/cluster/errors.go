@@ -71,4 +71,9 @@ var (
 	ErrRotationRefused = errors.New("the rotation was refused")
 	// ErrRotationWaiting is followed by the nodes the rotation waits for.
 	ErrRotationWaiting = errors.New("a rotation waits for every node it changes to be online and run a version that follows it")
+	// ErrCARotationInProgress: refused while the cluster CA is being replaced.
+	ErrCARotationInProgress = errors.New("the cluster CA is being replaced: joins, registrations, conversions, promotions and updates wait until it has finished — see 'sfpanel cluster rotate status'")
+	// ErrCARotationPastReturn: a CA rotation is past the point it can be undone.
+	ErrCARotationPastReturn = errors.New("the next CA is the cluster's already: a rotation cannot be undone past that point — start another one to move again")
+	ErrNoCARotation         = errors.New("no CA rotation is in progress")
 )
