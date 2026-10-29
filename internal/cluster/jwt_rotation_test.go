@@ -106,6 +106,31 @@ func TestRotateJWTKeyAppliesTheNewKey(t *testing.T) {
 	}
 }
 
+// A record that does not parse leaves the plain key, as generation 0, below
+// what every manager runs: a rotation over it would answer that every session
+// ended while no manager applied its generation, and joiners were handed a
+// key the others never ran. It is refused, and nothing is written.
+func TestRotateJWTKeyRefusesARecordThatDoesNotParse(t *testing.T) {
+	mgr, a := jwtLeader(t)
+	for i := 0; i < 3; i++ {
+		if _, err := mgr.RotateJWTKey(); err != nil {
+			t.Fatal(err)
+		}
+	}
+	waitFor(t, "the leader to run generation 3", func() bool { return mgr.JWTGeneration() == 3 })
+	if err := mgr.SetConfig(configKeyJWTKey, "{"); err != nil {
+		t.Fatal(err)
+	}
+	plain, _ := mgr.raft.GetFSM().GetConfigValue(configKeyJWTSecret)
+	if gen, err := mgr.RotateJWTKey(); !errors.Is(err, ErrRotationRefused) || !strings.Contains(err.Error(), "the cluster's JWT key record does not parse") {
+		t.Fatalf("a rotation over a record that does not parse: generation %d, %v", gen, err)
+	}
+	record, _ := mgr.raft.GetFSM().GetConfigValue(configKeyJWTKey)
+	if after, _ := mgr.raft.GetFSM().GetConfigValue(configKeyJWTSecret); record != "{" || after != plain || len(a.all()) != 3 {
+		t.Fatal("a refused rotation changed something")
+	}
+}
+
 // The leader's own sessions end too: with nothing wired to apply the key, it
 // would go on running the retired one.
 func TestRotateJWTKeyNeedsTheLeaderToApplyItToo(t *testing.T) {

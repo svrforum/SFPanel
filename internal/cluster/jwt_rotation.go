@@ -117,6 +117,13 @@ func (m *Manager) RotateJWTKey() (int64, error) {
 		return 0, fmt.Errorf("%w: this manager cannot apply a new JWT key", ErrRotationRefused)
 	}
 	cur, _ := clusterJWTKey(state)
+	// A record that does not parse leaves the plain key as generation 0,
+	// below what every manager runs: the next generation would be applied by
+	// none of them, the answer would say every session ended, and joiners
+	// would be handed a key the others never run.
+	if state.Config[configKeyJWTKey] != "" && cur.Generation == 0 {
+		return 0, fmt.Errorf("%w: the cluster's JWT key record does not parse", ErrRotationRefused)
+	}
 	next := JWTKey{Generation: cur.Generation + 1, Secret: config.NewSecret(), RotatedAt: time.Now().UTC()}
 	data, err := json.Marshal(next)
 	if err != nil {
