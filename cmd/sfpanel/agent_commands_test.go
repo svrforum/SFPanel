@@ -2,6 +2,8 @@ package main
 
 import (
 	"bytes"
+	"crypto/x509"
+	"encoding/pem"
 	"errors"
 	"net/http"
 	"net/http/httptest"
@@ -13,6 +15,7 @@ import (
 	"strings"
 	"sync/atomic"
 	"testing"
+	"time"
 
 	"gopkg.in/yaml.v3"
 
@@ -381,6 +384,22 @@ func TestAgentStatus(t *testing.T) {
 	if err := tm.SaveNodeCert(certPEM, keyPEM); err != nil {
 		t.Fatal(err)
 	}
+	caPEM, err := ca.LoadCACert()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := tm.SaveCACert(caPEM); err != nil {
+		t.Fatal(err)
+	}
+	block, _ := pem.Decode(caPEM)
+	if block == nil {
+		t.Fatal("ca.crt is not PEM")
+	}
+	caCert, err := x509.ParseCertificate(block.Bytes)
+	if err != nil {
+		t.Fatal(err)
+	}
+	pin := cluster.CAPin(caCert.RawSubjectPublicKeyInfo)
 	key := strings.Repeat("5c", 32)
 	if err := tm.SaveAgentKey(key); err != nil {
 		t.Fatal(err)
@@ -400,10 +419,34 @@ func TestAgentStatus(t *testing.T) {
 
 	got := status()
 	for _, want := range []string{"Cluster: test-cluster", "Node ID: agent-1", "Advertise: 192.0.2.10", "  m1  192.0.2.1:3629", "Removed: no",
-		"valid until " + leaf.NotAfter.Format("2006-01-02"), "Agent key: present", "(version 9.9.9)"} {
+		"valid until " + leaf.NotAfter.Format("2006-01-02"), "Agent key: present", "(version 9.9.9)",
+		"Trusted CAs: " + pin, "from CA " + pin} {
 		if !strings.Contains(got, want) {
 			t.Fatalf("no %q in:\n%s", want, got)
 		}
+	}
+
+	// In a CA rotation the agent trusts two CAs, and its certificate names
+	// the one that signed it, whichever comes first; one from a CA it no
+	// longer trusts is said to be.
+	other, err := cluster.GenerateCA("other", time.Now())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := tm.SaveCACert(append(append([]byte{}, other.CertPEM...), caPEM...)); err != nil {
+		t.Fatal(err)
+	}
+	if got := status(); !strings.Contains(got, "Trusted CAs: "+other.Pin()+", "+pin+"\n") || !strings.Contains(got, "from CA "+pin) {
+		t.Fatalf("trusting two CAs:\n%s", got)
+	}
+	if err := tm.SaveCACert(other.CertPEM); err != nil {
+		t.Fatal(err)
+	}
+	if got := status(); !strings.Contains(got, "Trusted CAs: "+other.Pin()+"\n") || !strings.Contains(got, "from a CA this agent does not trust") {
+		t.Fatalf("a certificate from a CA no longer trusted:\n%s", got)
+	}
+	if err := tm.SaveCACert(caPEM); err != nil {
+		t.Fatal(err)
 	}
 
 	// What the leader last said wins over the registration.

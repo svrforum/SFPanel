@@ -461,6 +461,11 @@ const (
 	// a node that cannot follow, one offline, a rotation already running, or
 	// past the point a CA rotation can be undone. The message names it.
 	ErrClusterRotationRefused = "CLUSTER_ROTATION_REFUSED"
+	// ErrClusterCARotating is returned (HTTP 409) for an operation refused
+	// because the cluster CA is being replaced: a join token, whose
+	// fingerprint would name a CA the rotation is about to change, or a
+	// cluster update, which restarts nodes under it.
+	ErrClusterCARotating = "CLUSTER_CA_ROTATING"
 )
 
 // TLS error codes

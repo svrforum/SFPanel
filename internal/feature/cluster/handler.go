@@ -50,6 +50,8 @@ func clusterErrResponse(c echo.Context, err error) error {
 		return response.Fail(c, http.StatusBadRequest, response.ErrClusterTokenKind, err.Error())
 	case errors.Is(err, cluster.ErrTokenNotFound), errors.Is(err, cluster.ErrTokenExpired), errors.Is(err, cluster.ErrTokenUsed):
 		return response.Fail(c, http.StatusUnauthorized, response.ErrInvalidToken, err.Error())
+	case errors.Is(err, cluster.ErrCARotationInProgress):
+		return response.Fail(c, http.StatusConflict, response.ErrClusterCARotating, err.Error())
 	default:
 		return response.Fail(c, http.StatusInternalServerError, response.ErrInternalError, err.Error())
 	}
@@ -102,6 +104,10 @@ type Handler struct {
 
 	// updateRunning admits one cluster update at a time. See ClusterUpdate.
 	updateRunning atomic.Bool
+	// startMu makes a cluster update's start and a CA rotation's each one
+	// step with its check on the other, as each refuses while the other
+	// runs. See ClusterUpdate and RotateCA.
+	startMu sync.Mutex
 
 	// convertMu admits one conversion at a time on this leader: two for one
 	// node would each record its intent, and the one the node refused would
@@ -790,6 +796,11 @@ func (h *Handler) CreateToken(c echo.Context) error {
 	// FSM-write — only leader can mint tokens. Followers auto-forward.
 	if handled, err := middleware.ProxyToLeader(c, mgr); handled {
 		return err
+	}
+	// Not while the cluster CA is being replaced: the token's fingerprint
+	// would name a CA the rotation is about to change.
+	if mgr.CARotationActive() {
+		return response.Fail(c, http.StatusConflict, response.ErrClusterCARotating, cluster.ErrCARotationInProgress.Error())
 	}
 
 	// A body that cannot be read is refused, not taken for the default: it
@@ -1763,10 +1774,22 @@ func (h *Handler) ClusterUpdate(c echo.Context) error {
 		req.Mode = "rolling"
 	}
 
+	// Not while the cluster CA is being replaced: an update restarts nodes,
+	// and a node restarted mid-rotation comes back on whatever its disk held.
 	// One at a time. The orchestration outlives the request that started it,
 	// so closing the tab no longer ends it — and a second click would
-	// otherwise start a second one alongside.
-	if !h.updateRunning.CompareAndSwap(false, true) {
+	// otherwise start a second one alongside. The check and the claim are one
+	// step under startMu, as a CA rotation's check and start are: an update
+	// and a rotation arriving together would each pass their check before
+	// the other began.
+	h.startMu.Lock()
+	rotating := mgr.CARotationActive()
+	claimed := !rotating && h.updateRunning.CompareAndSwap(false, true)
+	h.startMu.Unlock()
+	switch {
+	case rotating:
+		return response.Fail(c, http.StatusConflict, response.ErrClusterCARotating, cluster.ErrCARotationInProgress.Error())
+	case !claimed:
 		return response.Fail(c, http.StatusConflict, response.ErrUpdateInProgress, "A cluster update is already running")
 	}
 

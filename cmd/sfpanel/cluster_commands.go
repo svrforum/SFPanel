@@ -6,6 +6,7 @@ import (
 	"crypto/rand"
 	"encoding/hex"
 	"encoding/json"
+	"encoding/pem"
 	"errors"
 	"fmt"
 	"io"
@@ -208,7 +209,9 @@ func clusterRefusal(args []string) string {
 // the local CA. The running sfpanel process picks up the new cert on the
 // next handshake (bounded by TLSManager.certReloadDebounce = 1 min) — no
 // service restart is required. Only the node running this command is
-// rotated; run it once per node that needs a fresh cert.
+// rotated; run it once per node that needs a fresh cert. Refused while a
+// CA rotation is under way: it signs with ca.crt's first CA, which may be
+// the one the rotation moves away from.
 func clusterReissueCert(args []string) {
 	cfgPath, _ := parseCfgFlag(args)
 	cfg := loadCfgForCLI(cfgPath)
@@ -223,10 +226,13 @@ func clusterReissueCert(args []string) {
 	certDir := cfg.Cluster.CertDir
 	tls := cluster.NewTLSManager(certDir)
 	if !tls.HasCA() {
-		log.Fatalf("CA cert not found under %s. This node is not the leader of a standalone-issued CA; only the leader can reissue with the cluster CA on disk. If you are a follower, ask the leader to reissue and redistribute.", certDir)
+		log.Fatalf("CA cert not found under %s: this node holds no cluster CA.", certDir)
+	}
+	if caRotationOnDisk(certDir) {
+		log.Fatal("A cluster CA rotation is in progress on this node (ca.crt holds two CAs): finish or abort it first — 'sfpanel cluster rotate status'")
 	}
 	if !tls.HasCAKey() {
-		log.Fatalf("CA private key (ca.key) not found under %s (ca.crt is present but ca.key is not). Reissuing signs against the CA key, which only a node that holds it has. If you are a follower, ask the leader — which holds the CA key — to reissue and redistribute.", certDir)
+		log.Fatalf("CA private key (ca.key) not found under %s: a manager writes it when it first signs a certificate; run this on a manager that holds it.", certDir)
 	}
 
 	advertise := cfg.Cluster.AdvertiseAddress
@@ -950,23 +956,38 @@ func clusterPromote(args []string) {
 }
 
 // rotateCall is the request a 'sfpanel cluster rotate' asks the running
-// panel for.
+// panel for, with body nil when it sends none.
 type rotateCall struct {
 	method, path string
+	body         map[string]string
 }
 
 // rotateRequest is the panel request 'sfpanel cluster rotate <what>' makes;
-// anything else is answered with the usage.
+// anything else is answered with the usage. A phase timeout that is not a
+// duration is refused here, before the panel is asked.
 func rotateRequest(args []string) (rotateCall, error) {
-	if len(args) == 1 && args[0] == "jwt" {
+	switch {
+	case len(args) == 1 && args[0] == "jwt":
 		return rotateCall{method: http.MethodPost, path: "/api/v1/cluster/rotate/jwt"}, nil
+	case len(args) == 1 && args[0] == "ca":
+		return rotateCall{method: http.MethodPost, path: "/api/v1/cluster/rotate/ca"}, nil
+	case len(args) == 3 && args[0] == "ca" && args[1] == "--phase-timeout":
+		if _, err := time.ParseDuration(args[2]); err != nil {
+			return rotateCall{}, fmt.Errorf("--phase-timeout must be a duration, such as 30m: %w", err)
+		}
+		return rotateCall{method: http.MethodPost, path: "/api/v1/cluster/rotate/ca", body: map[string]string{"phase_timeout": args[2]}}, nil
+	case len(args) == 1 && args[0] == "abort":
+		return rotateCall{method: http.MethodPost, path: "/api/v1/cluster/rotate/ca/abort"}, nil
+	case len(args) == 1 && args[0] == "status":
+		return rotateCall{method: http.MethodGet, path: "/api/v1/cluster/rotation"}, nil
 	}
-	return rotateCall{}, errors.New("usage: sfpanel cluster rotate jwt")
+	return rotateCall{}, errors.New("usage: sfpanel cluster rotate jwt | ca [--phase-timeout D] | abort | status")
 }
 
 // clusterRotate replaces one of the cluster's secrets through the running
 // panel, as clusterConvert does a conversion: the leader checks that every
-// node can follow, and every node follows on its own.
+// node can follow, and every node follows on its own. It also stops a CA
+// rotation, and shows where each node stands in one.
 func clusterRotate(args []string) {
 	cfgPath, rest := parseCfgFlag(args)
 	req, err := rotateRequest(rest)
@@ -982,14 +1003,38 @@ func clusterRotate(args []string) {
 	if !isServerRunning(cfg.Server.Port) {
 		log.Fatal("Local sfpanel server is not running — a rotation runs on the live cluster.")
 	}
-	raw, err := callLocalAPI(cfg, req.method, req.path, nil)
+	// A nil map held in the interface would still be sent, as "null".
+	var body interface{}
+	if req.body != nil {
+		body = req.body
+	}
+	raw, err := callLocalAPI(cfg, req.method, req.path, body)
 	if err != nil {
 		log.Fatalf("Rotate failed: %v", err)
 	}
 	fmt.Println(string(raw))
-	if rest[0] == "jwt" {
+	switch rest[0] {
+	case "jwt":
 		fmt.Println("Every session on every manager has ended: sign in again.")
+	case "ca":
+		fmt.Println("Follow it with: sfpanel cluster rotate status")
 	}
+}
+
+// caRotationOnDisk reports whether ca.crt under certDir holds more than one
+// CA: a node trusts two only while a CA rotation is under way.
+func caRotationOnDisk(certDir string) bool {
+	data, err := cluster.NewTLSManager(certDir).LoadCACert()
+	if err != nil {
+		return false
+	}
+	n := 0
+	for block, rest := pem.Decode(data); block != nil; block, rest = pem.Decode(rest) {
+		if block.Type == "CERTIFICATE" {
+			n++
+		}
+	}
+	return n >= 2
 }
 
 func saveConfig(path string, cfg *config.Config) error {
@@ -1017,6 +1062,10 @@ func printClusterHelp() {
 	fmt.Println("  sfpanel cluster leave                     Leave the cluster")
 	fmt.Println("  sfpanel cluster reissue-cert              Re-issue this node's cluster cert (hot reload)")
 	fmt.Println("  sfpanel cluster rotate jwt                Replace the cluster's JWT key (everyone signs in again)")
+	fmt.Println("  sfpanel cluster rotate ca [--phase-timeout D]")
+	fmt.Println("                                            Replace the cluster CA (each step waits for every node)")
+	fmt.Println("  sfpanel cluster rotate abort              Stop a CA rotation before its point of no return")
+	fmt.Println("  sfpanel cluster rotate status             Where each node stands in a rotation")
 	fmt.Println()
 	fmt.Println("All subcommands accept --config PATH to select a config file")
 	fmt.Println("(default: /etc/sfpanel/config.yaml).")

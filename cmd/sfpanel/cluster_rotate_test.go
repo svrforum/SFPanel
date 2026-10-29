@@ -5,9 +5,12 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"testing"
+	"time"
 
+	"github.com/svrforum/SFPanel/internal/cluster"
 	"github.com/svrforum/SFPanel/internal/config"
 	"gopkg.in/yaml.v3"
 )
@@ -21,6 +24,42 @@ func TestRotateRequest(t *testing.T) {
 		if _, err := rotateRequest(bad); err == nil {
 			t.Fatalf("%v was taken", bad)
 		}
+	}
+	for args, want := range map[string]rotateCall{
+		"ca":                     {method: http.MethodPost, path: "/api/v1/cluster/rotate/ca"},
+		"ca --phase-timeout 10m": {method: http.MethodPost, path: "/api/v1/cluster/rotate/ca", body: map[string]string{"phase_timeout": "10m"}},
+		"abort":                  {method: http.MethodPost, path: "/api/v1/cluster/rotate/ca/abort"},
+		"status":                 {method: http.MethodGet, path: "/api/v1/cluster/rotation"},
+	} {
+		got, err := rotateRequest(strings.Fields(args))
+		if err != nil || got.method != want.method || got.path != want.path || !reflect.DeepEqual(got.body, want.body) {
+			t.Fatalf("%s: %+v %v", args, got, err)
+		}
+	}
+	if _, err := rotateRequest([]string{"ca", "--phase-timeout", "soon"}); err == nil {
+		t.Fatal("a timeout that is not a duration was taken")
+	}
+}
+
+// reissue-cert signs with ca.crt's first CA and a new key, the manager role
+// only: in a CA rotation it would put this node back on the CA the rotation
+// moves away from. Two CAs in ca.crt are the sign of one in progress.
+func TestReissueCertKnowsACARotationFromCACrt(t *testing.T) {
+	dir := t.TempDir()
+	a := cluster.NewTLSManager(filepath.Join(dir, "a"))
+	if err := a.InitCA("c"); err != nil {
+		t.Fatal(err)
+	}
+	if caRotationOnDisk(filepath.Join(dir, "a")) {
+		t.Fatal("one CA read as a rotation")
+	}
+	next, _ := cluster.GenerateCA("next", time.Now())
+	cur, _ := a.LoadCACert()
+	if err := a.SaveCACert(append(append([]byte{}, cur...), next.CertPEM...)); err != nil {
+		t.Fatal(err)
+	}
+	if !caRotationOnDisk(filepath.Join(dir, "a")) {
+		t.Fatal("two CAs not read as a rotation")
 	}
 }
 

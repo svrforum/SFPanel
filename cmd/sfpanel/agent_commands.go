@@ -1,7 +1,9 @@
 package main
 
 import (
+	"crypto/x509"
 	"encoding/json"
+	"encoding/pem"
 	"errors"
 	"fmt"
 	"io"
@@ -301,13 +303,25 @@ func writeAgentStatus(w io.Writer, cfg *config.Config) {
 	}
 
 	tm := cluster.NewTLSManager(c.CertDir)
+	// By pin, as join commands name a CA: two while a CA rotation is under
+	// way, and the certificate names the one that signed it.
+	cas, err := trustedCAs(tm)
+	if err != nil {
+		fmt.Fprintf(w, "Trusted CAs: %v\n", err)
+	} else {
+		pins := make([]string, 0, len(cas))
+		for _, ca := range cas {
+			pins = append(pins, cluster.CAPin(ca.RawSubjectPublicKeyInfo))
+		}
+		fmt.Fprintf(w, "Trusted CAs: %s\n", strings.Join(pins, ", "))
+	}
 	switch leaf, err := tm.NodeCertLeaf(); {
 	case err != nil:
 		fmt.Fprintf(w, "Certificate: %v\n", err)
 	case time.Now().After(leaf.NotAfter):
-		fmt.Fprintf(w, "Certificate: expired %s\n", leaf.NotAfter.Format("2006-01-02"))
+		fmt.Fprintf(w, "Certificate: expired %s, %s\n", leaf.NotAfter.Format("2006-01-02"), certIssuer(leaf, cas))
 	default:
-		fmt.Fprintf(w, "Certificate: valid until %s\n", leaf.NotAfter.Format("2006-01-02"))
+		fmt.Fprintf(w, "Certificate: valid until %s, %s\n", leaf.NotAfter.Format("2006-01-02"), certIssuer(leaf, cas))
 	}
 	// Whether the key is there; never the key.
 	if _, err := tm.LoadAgentKey(); err != nil {
@@ -316,6 +330,40 @@ func writeAgentStatus(w io.Writer, cfg *config.Config) {
 		fmt.Fprintln(w, "Agent key: present")
 	}
 	fmt.Fprintf(w, "Panel: %s\n", panelHealth(cfg))
+}
+
+// trustedCAs are the CAs in the agent's ca.crt, taken as its trust pool
+// takes them: a block that is not a certificate, has headers or does not
+// parse is skipped. A ca.crt that cannot be read, or holds no certificate the
+// pool would take, is an error.
+func trustedCAs(tm *cluster.TLSManager) ([]*x509.Certificate, error) {
+	data, err := tm.LoadCACert()
+	if err != nil {
+		return nil, err
+	}
+	var cas []*x509.Certificate
+	for block, rest := pem.Decode(data); block != nil; block, rest = pem.Decode(rest) {
+		if block.Type != "CERTIFICATE" || len(block.Headers) != 0 {
+			continue
+		}
+		if ca, err := x509.ParseCertificate(block.Bytes); err == nil {
+			cas = append(cas, ca)
+		}
+	}
+	if len(cas) == 0 {
+		return nil, errors.New("ca.crt holds no certificate")
+	}
+	return cas, nil
+}
+
+// certIssuer names the CA among cas that signed leaf.
+func certIssuer(leaf *x509.Certificate, cas []*x509.Certificate) string {
+	for _, ca := range cas {
+		if leaf.CheckSignatureFrom(ca) == nil {
+			return "from CA " + cluster.CAPin(ca.RawSubjectPublicKeyInfo)
+		}
+	}
+	return "from a CA this agent does not trust"
 }
 
 // panelHealth asks the panel's public health route over loopback, which a

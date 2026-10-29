@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"time"
 
 	"github.com/labstack/echo/v4"
 	"github.com/svrforum/SFPanel/internal/api/middleware"
@@ -106,4 +107,102 @@ func (h *Handler) RotateJWT(c echo.Context) error {
 		"generation": gen,
 		"message":    "The cluster has a new JWT key: every session has ended, this one included — sign in again",
 	})
+}
+
+// RotateCA (POST /cluster/rotate/ca) starts replacing the cluster CA: the
+// leader makes the next CA, and every node moves to it a step at a time,
+// each step waiting for every node — GET /cluster/rotation follows it. The
+// body may say how long the trust and reissue phases may each take before
+// the rotation goes back ({"phase_timeout":"30m"}; none: 30 minutes). A
+// follower forwards it to the leader. Refused (409), nothing having changed,
+// while a node cannot follow, a rotation is under way, the proxy secret is
+// switching or a cluster update runs.
+func (h *Handler) RotateCA(c echo.Context) error {
+	mgr := h.getManager()
+	if mgr == nil {
+		return response.Fail(c, http.StatusBadRequest, response.ErrInvalidRequest, "Cluster not configured")
+	}
+	if handled, err := middleware.ProxyToLeader(c, mgr); handled {
+		return err
+	}
+	var body struct {
+		PhaseTimeout string `json:"phase_timeout"`
+	}
+	if err := c.Bind(&body); err != nil {
+		return response.Fail(c, http.StatusBadRequest, response.ErrInvalidRequest, "Invalid request body")
+	}
+	var phaseTimeout time.Duration
+	if body.PhaseTimeout != "" {
+		d, err := time.ParseDuration(body.PhaseTimeout)
+		if err != nil {
+			return response.Fail(c, http.StatusBadRequest, response.ErrInvalidRequest, "phase_timeout must be a duration, such as 30m")
+		}
+		phaseTimeout = d
+	}
+	// Not during a cluster update: it restarts nodes, and a node restarted
+	// mid-rotation comes back on whatever its disk held. The check and the
+	// start are one step under startMu, as an update's check and claim are:
+	// an update and a rotation arriving together would each pass their check
+	// before the other began.
+	h.startMu.Lock()
+	defer h.startMu.Unlock()
+	if h.updateRunning.Load() {
+		return response.Fail(c, http.StatusConflict, response.ErrUpdateInProgress, "A cluster update is running: start the CA rotation once it has finished")
+	}
+	rot, err := mgr.StartCARotation(phaseTimeout)
+	switch {
+	case errors.Is(err, cluster.ErrRotationRefused), errors.Is(err, cluster.ErrCARotationInProgress), errors.Is(err, cluster.ErrProxyRotationPending):
+		return response.Fail(c, http.StatusConflict, response.ErrClusterRotationRefused, err.Error())
+	case err != nil:
+		return clusterErrResponse(c, err)
+	}
+	return response.Accepted(c, map[string]interface{}{
+		"rotation": rot,
+		"message":  "The cluster CA is being replaced: follow it with GET /api/v1/cluster/rotation",
+	})
+}
+
+// AbortCARotation (POST /cluster/rotate/ca/abort) stops the CA rotation and
+// keeps the current CA: every node goes back to it a step at a time, as it
+// came, and GET /cluster/rotation follows that too. A follower forwards it to
+// the leader. Refused (409) once the next CA is the cluster's — a node may
+// have dropped the old one, and another rotation is the way back — with no
+// rotation to stop, and on one going back already.
+func (h *Handler) AbortCARotation(c echo.Context) error {
+	mgr := h.getManager()
+	if mgr == nil {
+		return response.Fail(c, http.StatusBadRequest, response.ErrInvalidRequest, "Cluster not configured")
+	}
+	if handled, err := middleware.ProxyToLeader(c, mgr); handled {
+		return err
+	}
+	rot, err := mgr.AbortCARotation()
+	switch {
+	case errors.Is(err, cluster.ErrCARotationPastReturn), errors.Is(err, cluster.ErrNoCARotation), errors.Is(err, cluster.ErrCARotationInProgress):
+		return response.Fail(c, http.StatusConflict, response.ErrClusterRotationRefused, err.Error())
+	case err != nil:
+		return clusterErrResponse(c, err)
+	}
+	return response.Accepted(c, map[string]interface{}{
+		"rotation": rot,
+		"message":  "The CA rotation goes back to the current CA: follow it with GET /api/v1/cluster/rotation",
+	})
+}
+
+// GetRotation (GET /cluster/rotation) is where the cluster stands in its
+// secret rotations, node by node — generations and fingerprints, never a
+// key. A follower asks the leader, which alone hears every node.
+func (h *Handler) GetRotation(c echo.Context) error {
+	mgr := h.getManager()
+	if mgr == nil {
+		return response.Fail(c, http.StatusBadRequest, response.ErrInvalidRequest, "Cluster not configured")
+	}
+	if handled, err := middleware.ProxyToLeader(c, mgr); handled {
+		return err
+	}
+	st, err := mgr.RotationStatus()
+	if err != nil {
+		return clusterErrResponse(c, err)
+	}
+	return response.OK(c, st)
 }
