@@ -32,14 +32,22 @@ func StepUpProofWith(key, proxyHeader string, body []byte) string {
 	return hex.EncodeToString(mac.Sum(nil))
 }
 
-// VerifyStepUpProof checks proof with this node's signing secret — on an
-// agent its own key, which only its managers hold.
+// VerifyStepUpProof checks proof with each secret this node accepts — on an
+// agent its own keys, which only its managers hold: two while it moves to a
+// new one (cluster.AgentKeys), when a manager may have signed with either.
+// The proof is bound to the request's internal-proxy header, which is
+// single-use, so taking any of them weakens nothing.
 func VerifyStepUpProof(proxyHeader string, body []byte, proof string) bool {
 	proxySecretsMu.RLock()
-	key := proxySignSecret
+	accept := proxyAcceptSecrets
 	proxySecretsMu.RUnlock()
-	if key == "" || proxyHeader == "" || proof == "" {
+	if proxyHeader == "" || proof == "" {
 		return false
 	}
-	return hmac.Equal([]byte(proof), []byte(StepUpProofWith(key, proxyHeader, body)))
+	for _, key := range accept {
+		if key != "" && hmac.Equal([]byte(proof), []byte(StepUpProofWith(key, proxyHeader, body))) {
+			return true
+		}
+	}
+	return false
 }

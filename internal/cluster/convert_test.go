@@ -466,13 +466,15 @@ func TestAnAgentPromotesToAManager(t *testing.T) {
 		t.Fatal(err)
 	}
 	cfg := loadTestConfig(t, path) // the agent's config.yaml as the join wrote it
-	// What an earlier membership as a manager left, and the agent link's state.
+	// What an earlier membership as a manager left, the agent link's state
+	// and a key rotation's.
 	stale := filepath.Join(cfg.Cluster.DataDir, "raft-log.db")
 	state := filepath.Join(cfg.Cluster.DataDir, "agent-state.json")
 	if err := os.MkdirAll(cfg.Cluster.DataDir, 0o700); err != nil {
 		t.Fatal(err)
 	}
-	for _, p := range []string{stale, state} {
+	rotation := filepath.Join(cfg.Cluster.CertDir, AgentKeyFile)
+	for _, p := range []string{stale, state, rotation} {
 		if err := os.WriteFile(p, []byte("stale"), 0o600); err != nil {
 			t.Fatal(err)
 		}
@@ -500,7 +502,7 @@ func TestAnAgentPromotesToAManager(t *testing.T) {
 	if saved.Cluster.NodeName != "agent-host" {
 		t.Fatalf("saved as %q", saved.Cluster.NodeName)
 	}
-	for _, f := range []string{filepath.Join(cfg.Cluster.CertDir, "agent.key"), stale, state} {
+	for _, f := range []string{filepath.Join(cfg.Cluster.CertDir, "agent.key"), stale, state, rotation} {
 		if _, err := os.Lstat(f); err == nil {
 			t.Errorf("%s stayed", f)
 		}

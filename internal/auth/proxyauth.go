@@ -51,9 +51,9 @@ const nonceCacheTTL = 2 * proxyClockSkew
 
 var (
 	// proxySignSecret signs outbound internal requests; proxyAcceptSecrets
-	// are every secret an inbound header may be signed with. Two while the
-	// cluster moves off the CA-derived secret (cluster.Manager.ApplyProxySecrets),
-	// one otherwise, none when not clustered.
+	// are every secret an inbound header may be signed with. More than one
+	// while a secret moves to the next (cluster.Manager.ApplyProxySecrets, and
+	// on an agent cluster.AgentKeys), one otherwise, none when not clustered.
 	proxySignSecret    string
 	proxyAcceptSecrets []string
 	proxySecretsMu     sync.RWMutex

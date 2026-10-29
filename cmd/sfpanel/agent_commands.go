@@ -479,7 +479,7 @@ func agentReset(cfg *config.Config, cfgPath string) error {
 func agentResetFiles(cfg *config.Config) []string {
 	var paths []string
 	if dir := cfg.Cluster.CertDir; dir != "" {
-		for _, f := range []string{"ca.crt", "node.crt", "node.key", "agent.key"} {
+		for _, f := range []string{"ca.crt", "node.crt", "node.key", "agent.key", cluster.AgentKeyFile} {
 			paths = append(paths, filepath.Join(dir, f))
 		}
 	}

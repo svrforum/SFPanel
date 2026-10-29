@@ -30,3 +30,19 @@ func TestStepUpProofBindsItsRequest(t *testing.T) {
 		t.Error("no key here: accepted")
 	}
 }
+
+// While an agent moves to a new key its managers may sign with either, and a
+// step-up made with either goes through; once the old key is gone, so is its
+// word.
+func TestStepUpProofTakesEveryKeyTheAgentAccepts(t *testing.T) {
+	t.Cleanup(func() { SetProxySecrets("", nil) })
+	header, body := "1700000000000:aa:bb", []byte(`{"advanced":true}`)
+	SetProxySecrets("new-key", []string{"new-key", "old-key"})
+	if !VerifyStepUpProof(header, body, StepUpProofWith("old-key", header, body)) {
+		t.Fatal("a step-up made with a key the agent still accepts was refused")
+	}
+	SetProxySecrets("new-key", []string{"new-key"})
+	if VerifyStepUpProof(header, body, StepUpProofWith("old-key", header, body)) {
+		t.Fatal("a step-up made with a key the agent no longer accepts went through")
+	}
+}

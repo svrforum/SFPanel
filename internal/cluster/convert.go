@@ -413,11 +413,12 @@ func (m *Manager) AbandonManagerPromotion(tok *JoinToken) error {
 
 // agentOwnFiles are the files an agent keeps that a manager has no use
 // for: its internal-proxy key, which the leader removes from replicated state
-// when it makes the node a manager, and its link's state.
+// when it makes the node a manager, the state of a key rotation, and its
+// link's state.
 func agentOwnFiles(c *config.ClusterConfig) []string {
 	var files []string
 	if c.CertDir != "" {
-		files = append(files, filepath.Join(c.CertDir, "agent.key"))
+		files = append(files, filepath.Join(c.CertDir, "agent.key"), filepath.Join(c.CertDir, AgentKeyFile))
 	}
 	if c.DataDir != "" {
 		files = append(files, filepath.Join(c.DataDir, AgentStateFile))

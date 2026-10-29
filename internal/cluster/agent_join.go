@@ -420,6 +420,11 @@ func writeAgentFiles(tm *TLSManager, resp *pb.RegisterAgentResponse, keyPEM []by
 	if err := tm.SaveNodeCert(resp.NodeCert, keyPEM); err != nil {
 		return written, err
 	}
+	// A key a join hands out is no rotation's; one an earlier membership
+	// left would name another identity's generation.
+	if err := os.Remove(filepath.Join(tm.certDir, AgentKeyFile)); err != nil && !errors.Is(err, os.ErrNotExist) {
+		return written, fmt.Errorf("remove an earlier key rotation: %w", err)
+	}
 	written = append(written, "agent.key")
 	return written, tm.SaveAgentKey(resp.AgentKey)
 }

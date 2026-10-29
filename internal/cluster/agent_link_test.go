@@ -150,17 +150,19 @@ func TestNextTargets(t *testing.T) {
 
 // fakeManager is a manager's gRPC listener whose answers to an agent's
 // heartbeat come from pong: a pong to send, or an error that ends the stream.
-// report answers ReportPanelCA and renew RenewCertificate (nil:
-// Unimplemented). self is its address.
+// report answers ReportPanelCA, renew RenewCertificate and rekey
+// RotateAgentKey (nil: Unimplemented). self is its address.
 type fakeManager struct {
 	pb.UnimplementedClusterServiceServer
 	self    string
 	pong    func(self string) (*pb.HeartbeatPong, error)
 	report  func() (*pb.ReportPanelCAResponse, error)
 	renew   func(*pb.RenewCertificateRequest) (*pb.RenewCertificateResponse, error)
+	rekey   func(*pb.RotateAgentKeyRequest) (*pb.RotateAgentKeyResponse, error) // nil: Unimplemented
 	streams atomic.Int32
 	reports atomic.Int32
 	renews  atomic.Int32
+	rekeys  atomic.Int32
 }
 
 func (f *fakeManager) AgentHeartbeat(stream pb.ClusterService_AgentHeartbeatServer) error {
@@ -193,6 +195,14 @@ func (f *fakeManager) RenewCertificate(ctx context.Context, req *pb.RenewCertifi
 		return f.UnimplementedClusterServiceServer.RenewCertificate(ctx, req)
 	}
 	return f.renew(req)
+}
+
+func (f *fakeManager) RotateAgentKey(ctx context.Context, req *pb.RotateAgentKeyRequest) (*pb.RotateAgentKeyResponse, error) {
+	f.rekeys.Add(1)
+	if f.rekey == nil {
+		return f.UnimplementedClusterServiceServer.RotateAgentKey(ctx, req)
+	}
+	return f.rekey(req)
 }
 
 // startFakeManager serves f under the certificate in tm.

@@ -117,6 +117,9 @@ type AgentLinkConfig struct {
 	// Advertise is the IP the agent registered at, which a renewed
 	// certificate must name: managers dial it.
 	Advertise string
+	// Keys are the agent's internal-proxy keys; nil: the link takes no part
+	// in a key rotation and does not say it can.
+	Keys *AgentKeys
 }
 
 // AgentLink is an agent's tie to its managers. It heartbeats to the leader,
@@ -140,6 +143,9 @@ type AgentLink struct {
 	// and write, one session after another.
 	renew    chan string
 	caWarned string
+	// rekey hands the sender the leader's word on an agent key rotation, for
+	// the same reason.
+	rekey chan *pb.AgentKeyHint
 }
 
 // NewAgentLink loads the agent's state, from seed if none is saved yet.
@@ -148,7 +154,7 @@ func NewAgentLink(cfg AgentLinkConfig, seed []config.ManagerRef) (*AgentLink, er
 	if err != nil {
 		return nil, err
 	}
-	return &AgentLink{AgentLinkConfig: cfg, state: st, renew: make(chan string, 1)}, nil
+	return &AgentLink{AgentLinkConfig: cfg, state: st, renew: make(chan string, 1), rekey: make(chan *pb.AgentKeyHint, 1)}, nil
 }
 
 // SetOnRemoved sets what runs once the leader has removed the agent, after
@@ -245,6 +251,7 @@ const (
 	warnHeartbeat = "heartbeat to a manager failed"
 	warnReport    = "could not report the panel CA to the leader"
 	warnRenew     = "could not renew the certificate for a CA rotation"
+	warnRekey     = "could not move to the agent's new key"
 )
 
 var (
@@ -264,6 +271,10 @@ var (
 	// waiting on this agent for good. A new connection shows the leader's
 	// certificate as it is now.
 	errCAHintOutlivesConnection = errors.New("the leader's CA hint leaves out the CA this connection verified it by")
+	// errAgentKeyNotHeld is a leader saying its managers sign for this agent
+	// with a key the agent does not hold: nothing they relay to it gets in
+	// until it joins again.
+	errAgentKeyNotHeld = errors.New("the managers sign for this agent with a key it does not hold; run 'sfpanel agent reset' and join again")
 )
 
 // linkRun is what one Run remembers from attempt to attempt.
@@ -272,6 +283,7 @@ type linkRun struct {
 	current   string            // the manager the agent last stayed with
 	warned    map[string]string // the error last logged, per warning and manager
 	lastRenew time.Time         // the last renewal asked for, whatever came of it
+	lastRekey time.Time         // the last key rotation step asked for, whatever came of it
 }
 
 // warn logs err only when it is not what was last logged for the same
@@ -440,7 +452,10 @@ func (l *AgentLink) reportPanelCA(ctx context.Context, client *GRPCClient) error
 // the agent's certificate when the leader's CA hint asks for it, at most
 // once per renewalInterval, and then ends the session itself (endRenewed):
 // the leader goes by the certificate a connection presented, so the new one
-// is shown on a new connection.
+// is shown on a new connection. It also moves the agent to a new key when the
+// leader's key hint names a newer generation, at most once per
+// renewalInterval; the session stays, as the key has nothing to do with the
+// connection.
 func (l *AgentLink) heartbeat(ctx context.Context, r *linkRun, client *GRPCClient, target string) attemptEnd {
 	sctx, cancel := context.WithCancel(ctx)
 	defer cancel()
@@ -517,6 +532,16 @@ func (l *AgentLink) heartbeat(ctx context.Context, r *linkRun, client *GRPCClien
 				delete(r.warned, warnRenew+"|"+target)
 				renewed = true
 				break loop
+			case h := <-l.rekey:
+				if !l.Keys.Due(h.Generation) || time.Since(r.lastRekey) < renewalInterval {
+					continue
+				}
+				r.lastRekey = time.Now()
+				if err := l.rotateKey(sctx, client, h); err != nil {
+					r.warn(warnRekey, target, err)
+					continue
+				}
+				delete(r.warned, warnRekey+"|"+target)
 			}
 		}
 	}
@@ -531,10 +556,16 @@ func (l *AgentLink) heartbeat(ctx context.Context, r *linkRun, client *GRPCClien
 }
 
 // ping says, besides the metrics, that the agent follows a CA rotation and
-// which CAs it trusts: what the rotation's steps wait for.
+// which CAs it trusts: what the rotation's steps wait for. With its keys it
+// says it follows an agent key rotation too, which the leader's start waits
+// for.
 func (l *AgentLink) ping() *pb.HeartbeatPing {
+	caps := []string{CapCARotation}
+	if l.Keys != nil {
+		caps = append(caps, CapAgentKeyRotation)
+	}
 	p := &pb.HeartbeatPing{NodeId: l.NodeID, Version: l.Version, Timestamp: time.Now().Unix(),
-		Capabilities: []string{CapCARotation}, CaTrustPins: l.TLS.TrustPins()}
+		Capabilities: caps, CaTrustPins: l.TLS.TrustPins()}
 	if l.Collect != nil {
 		cpu, mem, disk, containers := l.Collect()
 		p.CpuPercent, p.MemoryPercent, p.DiskPercent, p.ContainerCount = cpu, mem, disk, int32(containers)
@@ -559,7 +590,8 @@ func (l *AgentLink) ping() *pb.HeartbeatPing {
 // follower's view of the rotation may lag, and one partitioned away could
 // bring back a CA the rotation dropped, or drop the one it keeps. root is
 // the CA the connection the pong came on verified the manager by; an error
-// ends the session (errCAHintOutlivesConnection).
+// ends the session (errCAHintOutlivesConnection). So is an agent key
+// rotation's: a follower may not know the rotation, or the agent's switch.
 func (l *AgentLink) applyPong(p *pb.HeartbeatPong, root string) error {
 	err := l.update(func(s *AgentState) bool {
 		changed := false
@@ -582,10 +614,112 @@ func (l *AgentLink) applyPong(p *pb.HeartbeatPong, root string) error {
 	if err != nil {
 		slog.Warn("could not save the agent state", "component", "agent", "path", l.StatePath, "error", err)
 	}
+	if p.FromLeader && p.AgentKey != nil && l.Keys != nil {
+		l.offerKeyHint(p.AgentKey)
+	}
 	if p.FromLeader && p.Ca != nil {
 		return l.applyCAHint(p.Ca, root)
 	}
 	return nil
+}
+
+// offerKeyHint hands the sender the leader's word on a key rotation. The
+// receive goroutine makes no call (the heartbeat wedge, cluster CLAUDE.md);
+// a hint still waiting is replaced, as only the newest matters.
+func (l *AgentLink) offerKeyHint(h *pb.AgentKeyHint) {
+	select {
+	case <-l.rekey:
+	default:
+	}
+	select {
+	case l.rekey <- h:
+	default:
+	}
+}
+
+// rotateKey takes the agent through one agent key rotation, by h, the
+// leader's hint, asking the leader through client. G is the generation of
+// agent.key, N' that of the key the agent took and has not switched to:
+//
+//   - h's generation N ≤ G: nothing to do.
+//   - N' = N and the managers sign with it (h.Current): the agent lost the
+//     answer to its confirm, and switches.
+//   - N' = N, not current: it confirms with the new key, then switches.
+//   - N' ≠ N, not current: it fetches its key with the one it holds, takes
+//     it, confirms with it and switches.
+//   - N' ≠ N and current: the managers sign with a key the agent never took
+//     (errAgentKeyNotHeld).
+//
+// A fetch that answers no key, only that the managers switched, is that last
+// case too.
+func (l *AgentLink) rotateKey(ctx context.Context, client *GRPCClient, h *pb.AgentKeyHint) error {
+	current, held := l.Keys.Current()
+	next, pending := l.Keys.Pending()
+	n := h.Generation
+	switch {
+	case n <= held:
+		return nil
+	case next != "" && pending == n && h.Current:
+		return l.switchKey(n)
+	case next == "" || pending != n:
+		if h.Current {
+			return errAgentKeyNotHeld
+		}
+		resp, err := l.callRotateAgentKey(ctx, client, &pb.RotateAgentKeyRequest{Generation: n, Proof: agentKeyProof(current, "fetch", l.NodeID, n)})
+		if err != nil {
+			return err
+		}
+		if resp.AgentKey == "" {
+			return errAgentKeyNotHeld
+		}
+		if err := l.Keys.Take(resp.AgentKey, n); err != nil {
+			return err
+		}
+		slog.Info("the agent took its next key", "component", "agent", "generation", n)
+		next = resp.AgentKey
+	}
+	resp, err := l.callRotateAgentKey(ctx, client, &pb.RotateAgentKeyRequest{Generation: n, Proof: agentKeyProof(next, "confirm", l.NodeID, n), Confirm: true})
+	if err != nil {
+		return err
+	}
+	if !resp.Switched {
+		return fmt.Errorf("the leader took the confirm of generation %d but did not move the managers to the key", n)
+	}
+	return l.switchKey(n)
+}
+
+func (l *AgentLink) switchKey(generation int64) error {
+	if err := l.Keys.Switch(generation, time.Now()); err != nil {
+		return err
+	}
+	slog.Info("the agent moved to its new key", "component", "agent", "generation", generation)
+	return nil
+}
+
+// callRotateAgentKey asks for req through client or, when client's manager is
+// a follower, from the leader it names. A manager that answers Unimplemented
+// runs a release from before agent key rotations, not from before agents:
+// the key stays as it is, and the agent asks again later.
+func (l *AgentLink) callRotateAgentKey(ctx context.Context, client *GRPCClient, req *pb.RotateAgentKeyRequest) (*pb.RotateAgentKeyResponse, error) {
+	resp, err := client.RotateAgentKey(ctx, req)
+	if err == nil && !resp.Success && resp.Error == ErrNotLeader.Error() && resp.LeaderGrpcAddress != "" {
+		leader, derr := DialManager(resp.LeaderGrpcAddress, l.TLS, l.ManagerIDs)
+		if derr != nil {
+			return nil, derr
+		}
+		defer leader.Close()
+		resp, err = leader.RotateAgentKey(ctx, req)
+	}
+	if status.Code(err) == codes.Unimplemented {
+		return nil, errors.New("this manager cannot rotate agent keys; the key stays as it is")
+	}
+	if err != nil {
+		return nil, err
+	}
+	if !resp.Success {
+		return nil, fmt.Errorf("refused: %s", resp.Error)
+	}
+	return resp, nil
 }
 
 // applyCAHint takes the leader's word on the cluster CAs: the CAs to trust,

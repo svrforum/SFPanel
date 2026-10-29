@@ -43,14 +43,15 @@ func startAgent(cfg *config.Config, version string, collect func() (cpu, mem, di
 		return nil, err
 	}
 	tlsMgr := cluster.NewTLSManager(cfg.Cluster.CertDir)
-	key, err := tlsMgr.LoadAgentKey()
+	keys, err := cluster.LoadAgentKeys(tlsMgr, auth.SetProxySecrets)
 	if err != nil {
 		return nil, err
 	}
-	// The one key of this node's internal requests: the managers sign with it
-	// what they relay here, and the gRPC server's loopback hop signs with it
-	// what they proxy. Nothing signed with any other key gets in.
-	auth.SetProxySecrets(key, []string{key})
+	// The one key of this node's internal requests — two while it moves to a
+	// new one (cluster.AgentKeys): the managers sign with it what they relay
+	// here, and the gRPC server's loopback hop signs with it what they proxy.
+	// Nothing signed with any other key gets in.
+	keys.Install(time.Now())
 
 	link, err := cluster.NewAgentLink(cluster.AgentLinkConfig{
 		NodeID:    cfg.Cluster.NodeID,
@@ -61,6 +62,7 @@ func startAgent(cfg *config.Config, version string, collect func() (cpu, mem, di
 		Collect:   collect,
 		PanelCA:   panelCA,
 		Advertise: cfg.Cluster.AdvertiseAddress,
+		Keys:      keys,
 	}, cfg.Cluster.Managers)
 	if err != nil {
 		return nil, err

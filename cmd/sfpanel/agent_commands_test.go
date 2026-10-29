@@ -116,7 +116,7 @@ func agentResetTarget(t *testing.T) (*config.Config, string) {
 	if err := os.MkdirAll(certDir, 0o700); err != nil {
 		t.Fatal(err)
 	}
-	for _, f := range []string{"ca.crt", "node.crt", "node.key", "agent.key"} {
+	for _, f := range []string{"ca.crt", "node.crt", "node.key", "agent.key", cluster.AgentKeyFile} {
 		if err := os.WriteFile(filepath.Join(certDir, f), []byte("x"), 0o600); err != nil {
 			t.Fatal(err)
 		}
@@ -146,7 +146,7 @@ func agentFilesLeft(cfg *config.Config) []string {
 
 func TestAgentReset(t *testing.T) {
 	cfg, path := agentResetTarget(t)
-	if left := agentFilesLeft(cfg); len(left) != 5 {
+	if left := agentFilesLeft(cfg); len(left) != 6 {
 		t.Fatalf("the fixture has %v", left)
 	}
 	calls := stubSystemctl(t, true)
@@ -190,7 +190,7 @@ func TestAgentResetRefusesWhatIsNotAnAgent(t *testing.T) {
 	if err := agentReset(cfg, path); err == nil || !strings.Contains(err.Error(), "not an agent but a cluster manager") {
 		t.Fatalf("a manager: %v", err)
 	}
-	if left := agentFilesLeft(cfg); len(left) != 5 {
+	if left := agentFilesLeft(cfg); len(left) != 6 {
 		t.Fatalf("removed files: %v left", left)
 	}
 	if _, err := os.Stat(path); !errors.Is(err, os.ErrNotExist) {
@@ -212,7 +212,7 @@ func TestAgentResetSavesTheConfigFirst(t *testing.T) {
 	if err == nil || !strings.Contains(err.Error(), "save the config") {
 		t.Fatalf("got %v", err)
 	}
-	if left := agentFilesLeft(cfg); len(left) != 5 {
+	if left := agentFilesLeft(cfg); len(left) != 6 {
 		t.Fatalf("removed files the agent boots from: %v left", left)
 	}
 	if !cfg.Cluster.IsAgent() || len(*calls) != 0 {
@@ -233,7 +233,7 @@ func TestAgentResetPlan(t *testing.T) {
 	if !strings.Contains(plan, path) || strings.Contains(plan, "cluster remove") {
 		t.Fatalf("plan for a removed agent:\n%s", plan)
 	}
-	if left := agentFilesLeft(cfg); len(left) != 5 {
+	if left := agentFilesLeft(cfg); len(left) != 6 {
 		t.Fatalf("the plan removed files: %v left", left)
 	}
 	if err := (&cluster.AgentState{Managers: cfg.Cluster.Managers}).Save(agentStatePath(cfg)); err != nil {
