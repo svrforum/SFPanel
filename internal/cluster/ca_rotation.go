@@ -214,8 +214,9 @@ func namedCA(state ClusterState, certKey, keyKey, pin string) (*CAPair, error) {
 type caNode struct {
 	ID, Name, Version                   string
 	Manager, HeardFrom, Online, Capable bool
-	Trusts                              []string // pins
-	CertCA                              string   // pin of the CA behind the certificate its connection presented
+	Trusts                              []string  // pins
+	CertCA                              string    // pin of the CA behind the certificate its connection presented
+	HeardAt                             time.Time // when that heartbeat came
 }
 
 // caStep is the leader's decision at a rotation step (nextCAStep).
@@ -238,7 +239,12 @@ type caStep struct {
 //     certificate from the next CA: it catches up from the leader's pong when
 //     it is back, and waiting for it would hold joins up with no way back;
 //   - rollback: every node's connection presented a certificate from the
-//     current CA again, before the next CA is dropped;
+//     current CA again, before the next CA is dropped, on a heartbeat heard
+//     since the phase began. Before the reissue every certificate came from
+//     the current CA, so a node's last heartbeat from then says so of a node
+//     renewed from the next CA since, whose new connection is still to come:
+//     dropped on it, an agent is refused everywhere, and the drop renews
+//     nothing;
 //   - drop: every manager, and every agent online, says it trusts the
 //     current CA alone; an agent away holds a certificate from it, and
 //     catches up the same way.
@@ -254,6 +260,7 @@ func nextCAStep(r CARotation, nodes []caNode, now time.Time) caStep {
 		ready           func(caNode) bool
 		why             string
 		agentsOnline    bool // an agent counts only while online
+		heardSince      bool // a heartbeat from before the phase began counts for nothing
 	)
 	switch r.Phase {
 	case CAPhaseTrust:
@@ -268,7 +275,7 @@ func nextCAStep(r CARotation, nodes []caNode, now time.Time) caStep {
 		next, agentsOnline, why = CAPhaseDone, true, "still trusts the old CA"
 		ready = func(n caNode) bool { return slices.Equal(n.Trusts, []string{r.NextPin}) }
 	case CAPhaseRollback:
-		next, why = CAPhaseDrop, "still presents a certificate from the next CA"
+		next, heardSince, why = CAPhaseDrop, true, "still presents a certificate from the next CA"
 		ready = func(n caNode) bool { return n.CertCA == r.OldPin }
 	case CAPhaseDrop:
 		next, agentsOnline, why = CAPhaseAborted, true, "still trusts the next CA"
@@ -294,6 +301,8 @@ func nextCAStep(r CARotation, nodes []caNode, now time.Time) caStep {
 			waiting = append(waiting, name+" (offline)")
 		case !n.Capable:
 			waiting = append(waiting, fmt.Sprintf("%s (%s)", name, n.Version))
+		case heardSince && !n.HeardAt.After(r.PhaseAt):
+			waiting = append(waiting, fmt.Sprintf("%s (not heard from since the %s phase began)", name, r.Phase))
 		case !ready(n):
 			waiting = append(waiting, fmt.Sprintf("%s (%s)", name, why))
 		}

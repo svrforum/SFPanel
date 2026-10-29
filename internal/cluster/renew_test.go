@@ -9,6 +9,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -195,6 +196,41 @@ func TestRenewCertificateFollowsTheWayBack(t *testing.T) {
 	if _, _, err := mgr.HandleRenewCertificate(leaf, csr, proof, time.Now().Add(2*renewalInterval)); !errors.Is(err, ErrNoRenewalDue) {
 		t.Fatalf("in the drop phase: %v", err)
 	}
+}
+
+// The way back goes by heartbeats heard since it began. Before the reissue
+// every certificate came from the current CA, so an agent's last heartbeat
+// from then says so of an agent the leader has since renewed from the next
+// CA, whose connection showing that is still to come: the next CA dropped on
+// it, the agent is refused everywhere, and the drop renews nothing.
+func TestTheWayBackGoesByHeartbeatsSinceItBegan(t *testing.T) {
+	mgr, _, _, _ := realLeader(t)
+	stopsApplyingCAAtEnd(t, mgr)
+	res, tm := registeredAgent(t, mgr)
+	oldPin := mgr.GetTLS().TrustPins()[0]
+	// Its last heartbeat: trusting both CAs, presenting the current one's
+	// certificate.
+	rot := rotateWithAgentTo(t, mgr, res.NodeID, CAPhaseReissue)
+	leaf, _ := tm.NodeCertLeaf()
+	csr := csrFor(t, nodeKeyOf(t, tm))
+	agentKey, _ := mgr.raft.GetFSM().GetConfigValue(AgentKeyConfigKey(res.NodeID))
+	if _, _, err := mgr.HandleRenewCertificate(leaf, csr, renewalProof(agentKey, res.NodeID, csr), time.Now()); err != nil {
+		t.Fatal(err)
+	}
+	if back, err := mgr.AbortCARotation(); err != nil || back.Phase != CAPhaseRollback {
+		t.Fatalf("abort: %+v %v", back, err)
+	}
+	waitFor(t, "the leader's certificate back on the current CA", func() bool { return mgr.GetTLS().ServedCertCAPin() == oldPin })
+	if err := mgr.advanceCARotation(time.Now()); err != nil || caRecord(t, mgr).Phase != CAPhaseRollback {
+		t.Fatalf("dropped the next CA on a heartbeat from before the way back (%v): phase %s", err, caRecord(t, mgr).Phase)
+	}
+	step := nextCAStep(caRecord(t, mgr), mgr.caNodes(mgr.raft.GetFSM().GetState()), time.Now())
+	if want := "agent-host (not heard from since the rollback phase began)"; !slices.Contains(step.Waiting, want) {
+		t.Fatalf("the way back waits for %q, not %q", step.Waiting, want)
+	}
+	mgr.GetHeartbeat().RecordHeartbeat(&NodeMetrics{NodeID: res.NodeID, Version: "test", Capabilities: []string{CapCARotation},
+		CATrustPins: []string{oldPin, rot.NextPin}, CertCAPin: oldPin})
+	advanceTo(t, mgr, time.Now(), CAPhaseDrop)
 }
 
 // A renewed certificate is installed only when it is this agent's in all the

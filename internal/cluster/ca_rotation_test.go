@@ -14,9 +14,11 @@ func TestNextCAStep(t *testing.T) {
 	rec := func(p CAPhase) CARotation {
 		return CARotation{Phase: p, OldPin: old, NextPin: next, PhaseAt: at, PhaseTimeout: int64((30 * time.Minute).Seconds())}
 	}
+	// Heard from since the phase began, unless said otherwise.
 	node := func(id string, manager bool, trusts []string, certCA string) caNode {
-		return caNode{ID: id, Name: id, Version: "test", Manager: manager, HeardFrom: true, Online: true, Capable: true, Trusts: trusts, CertCA: certCA}
+		return caNode{ID: id, Name: id, Version: "test", Manager: manager, HeardFrom: true, Online: true, Capable: true, Trusts: trusts, CertCA: certCA, HeardAt: at.Add(time.Second)}
 	}
+	heardBefore := func(n caNode) caNode { n.HeardAt = at.Add(-time.Minute); return n }
 	offline := func(n caNode) caNode { n.Online = false; return n }
 	older := func(n caNode) caNode { n.Capable, n.Version = false, "0.79.0"; return n }
 	unheard := func(n caNode) caNode { n.HeardFrom, n.Online = false, false; return n }
@@ -44,6 +46,7 @@ func TestNextCAStep(t *testing.T) {
 		{"promote never rolls back", rec(CAPhasePromote), []caNode{node("m2", true, both, next)}, at.Add(48 * time.Hour), "", "m2 (still trusts the old CA)"},
 		{"rollback waits for every certificate to come back", rec(CAPhaseRollback), []caNode{node("a1", false, both, next)}, late, "", "a1 (still presents a certificate from the next CA)"},
 		{"rollback ends in the drop", rec(CAPhaseRollback), []caNode{node("a1", false, both, old)}, soon, CAPhaseDrop, ""},
+		{"rollback goes by heartbeats heard since it began", rec(CAPhaseRollback), []caNode{heardBefore(node("a1", false, both, old))}, soon, "", "a1 (not heard from since the rollback phase began)"},
 		{"the drop waits for the managers", rec(CAPhaseDrop), []caNode{node("m2", true, both, old)}, late, "", "m2 (still trusts the next CA)"},
 		{"the drop ends the rotation", rec(CAPhaseDrop), []caNode{node("m2", true, onlyOld, old), offline(node("a1", false, both, old))}, soon, CAPhaseAborted, ""},
 		// Every manager counts where an agent away does not, whether this

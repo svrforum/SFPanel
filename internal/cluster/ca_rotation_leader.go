@@ -249,21 +249,23 @@ func (m *Manager) CARotationActive() bool {
 }
 
 // caNodes is what this leader knows of every node for a rotation step: each
-// one's last heartbeat — which CA it says it trusts, and which signed the
-// certificate its connection presented — and itself from its own files.
+// one's last heartbeat — which CA it says it trusts, which signed the
+// certificate its connection presented, and when it came — and itself from
+// its own files, as of now.
 func (m *Manager) caNodes(state ClusterState) []caNode {
 	health := m.heartbeat.CheckHealth()
+	seen := m.heartbeat.GetLastSeen()
 	nodes := make([]caNode, 0, len(state.Nodes))
 	for id, n := range state.Nodes {
 		node := caNode{ID: id, Name: n.Name, Manager: n.IsManager()}
 		switch met := m.heartbeat.GetMetrics(id); {
 		case id == m.nodeID:
 			node.Version, node.HeardFrom, node.Online, node.Capable = m.version, true, true, true
-			node.Trusts, node.CertCA = m.tls.TrustPins(), m.tls.ServedCertCAPin()
+			node.Trusts, node.CertCA, node.HeardAt = m.tls.TrustPins(), m.tls.ServedCertCAPin(), time.Now()
 		case met != nil:
 			node.Version, node.HeardFrom, node.Online = met.Version, true, health[id] == StatusOnline
 			node.Capable = slices.Contains(met.Capabilities, CapCARotation)
-			node.Trusts, node.CertCA = met.CATrustPins, met.CertCAPin
+			node.Trusts, node.CertCA, node.HeardAt = met.CATrustPins, met.CertCAPin, seen[id]
 		}
 		nodes = append(nodes, node)
 	}
