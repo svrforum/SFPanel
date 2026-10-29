@@ -284,20 +284,24 @@ func (e *JoinEngine) Execute(leaderAddr, token, advertiseAddr, pin string) (*Joi
 
 	// The config carries the cluster's key from here so the file saved below
 	// has it; the running panel switches to it only once the join commits.
-	priorSecret := e.Config.Auth.JWTSecret
+	// Its generation comes with it: one kept from an earlier cluster would
+	// stand above every rotation of this one. A leader older than the field
+	// sends 0.
+	priorAuth := e.Config.Auth
 	if resp.JwtSecret != "" {
 		e.Config.Auth.JWTSecret = resp.JwtSecret
+		e.Config.Auth.JWTGeneration = resp.JwtGeneration
 	}
 
 	// Step 4: Save config atomically
 	if e.ConfigPath != "" {
 		data, err := yaml.Marshal(e.Config)
 		if err != nil {
-			e.rollbackJoin(certDir, originalConfig, priorSecret)
+			e.rollbackJoin(certDir, originalConfig, priorAuth)
 			return nil, fmt.Errorf("failed to marshal config: %w", err)
 		}
 		if err := config.AtomicWriteFile(e.ConfigPath, data, 0600); err != nil {
-			e.rollbackJoin(certDir, originalConfig, priorSecret)
+			e.rollbackJoin(certDir, originalConfig, priorAuth)
 			return nil, fmt.Errorf("failed to save config: %w", err)
 		}
 	}
@@ -308,7 +312,7 @@ func (e *JoinEngine) Execute(leaderAddr, token, advertiseAddr, pin string) (*Joi
 		e.Config.Cluster.APIPort = e.Config.Server.Port
 		mgr, err = e.OnActivate(e.Config, e.ConfigPath, nil)
 		if err != nil {
-			e.rollbackJoin(certDir, originalConfig, priorSecret)
+			e.rollbackJoin(certDir, originalConfig, priorAuth)
 			return nil, fmt.Errorf("live activation failed: %w", err)
 		}
 	}
@@ -341,10 +345,10 @@ func (e *JoinEngine) Execute(leaderAddr, token, advertiseAddr, pin string) (*Joi
 }
 
 // rollbackJoin cleans up certs and restores original config on failure —
-// on disk, and the token key in memory, which the join had already replaced
-// with the cluster's and which cluster init would otherwise hand to a new
-// cluster as this node's own.
-func (e *JoinEngine) rollbackJoin(certDir string, originalConfig []byte, priorSecret string) {
+// on disk, and the token key and its generation in memory, which the join had
+// already replaced with the cluster's and which cluster init would otherwise
+// hand to a new cluster as this node's own.
+func (e *JoinEngine) rollbackJoin(certDir string, originalConfig []byte, prior config.AuthConfig) {
 	if err := os.RemoveAll(certDir); err != nil {
 		slog.Warn("join rollback: failed to remove cert dir",
 			"component", "cluster", "dir", certDir, "error", err)
@@ -359,7 +363,7 @@ func (e *JoinEngine) rollbackJoin(certDir string, originalConfig []byte, priorSe
 		}
 	}
 	e.Config.Cluster.Enabled = false
-	e.Config.Auth.JWTSecret = priorSecret
+	e.Config.Auth = prior
 	slog.Warn("join rolled back", "component", "cluster")
 }
 

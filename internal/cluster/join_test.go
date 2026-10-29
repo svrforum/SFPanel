@@ -47,15 +47,19 @@ func TestJoinEngine_Rollback_ConfigSaveFailure(t *testing.T) {
 	auth.SetJWTSecret("old-secret")
 	defer auth.SetJWTSecret("")
 	cfg.Auth.JWTSecret = "cluster-secret"
+	cfg.Auth.JWTGeneration = 4
 
 	// Verify rollbackJoin cleans up certs and restores config
 	originalConfig, _ := os.ReadFile(configPath)
-	engine.rollbackJoin(certDir, originalConfig, "old-secret")
+	engine.rollbackJoin(certDir, originalConfig, config.AuthConfig{JWTSecret: "old-secret", TokenExpiry: "24h"})
 
 	// The key in memory goes back too: cluster init would otherwise hand the
 	// abandoned cluster's key to a new cluster as this node's own.
 	if cfg.Auth.JWTSecret != "old-secret" {
 		t.Errorf("rollback left the config key at %q, want the node's own", cfg.Auth.JWTSecret)
+	}
+	if cfg.Auth.JWTGeneration != 0 {
+		t.Errorf("rollback left the key's generation at %d, want the node's own", cfg.Auth.JWTGeneration)
 	}
 	// And a failed join never published the cluster's key to the running panel.
 	if got := auth.JWTSecret(); got != "old-secret" {

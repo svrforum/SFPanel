@@ -76,6 +76,10 @@ type DatabaseConfig struct {
 type AuthConfig struct {
 	JWTSecret   string `yaml:"jwt_secret"`
 	TokenExpiry string `yaml:"token_expiry"`
+	// JWTGeneration is, on a manager, the generation of the cluster's key
+	// jwt_secret holds (cluster.JWTKey): a key the cluster replicated with a
+	// higher one replaces it. Written with the key, in one file write.
+	JWTGeneration int64 `yaml:"jwt_generation,omitempty"`
 }
 
 type DockerConfig struct {

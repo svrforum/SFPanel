@@ -96,6 +96,17 @@ type Manager struct {
 	floor             proxySecretFloor
 	proxySecretSeen   string
 	proxySecretSeenAt time.Time
+
+	// The cluster JWT key as this manager runs it (jwt_rotation.go). jwtMu
+	// orders the applies and guards jwtApply; whether an applier is wired and
+	// the generation this node runs are read without it — by the heartbeat,
+	// while an apply that ends sessions holds it. jwtRotateMu runs the
+	// leader's rotations one at a time.
+	jwtMu         sync.Mutex
+	jwtApply      func(JWTKey) error
+	jwtApplierSet atomic.Bool
+	jwtRunning    atomic.Int64
+	jwtRotateMu   sync.Mutex
 }
 
 // SetVersion sets the panel version for heartbeat reporting.
@@ -378,10 +389,12 @@ func (m *Manager) watchLeader() {
 				}
 			}
 			m.ApplyProxySecrets()
+			m.ApplyJWTKey()
 			if isLeader {
 				if err := m.MaybeRotateProxySecret(); err != nil && !errors.Is(err, ErrNotLeader) {
 					slog.Warn("internal proxy secret rotation step failed", "component", "cluster", "error", err)
 				}
+				m.repairJWTMirror()
 			}
 			// Rising edge → (re)seed the CA into the replicated FSM. This is the
 			// self-healing migration path for existing clusters: seeding requires
@@ -950,7 +963,8 @@ func (m *Manager) GetJWTAndAdminFull() (jwtSecret, adminUser, adminPassHash, adm
 		return "", "", "", ""
 	}
 	state := m.raft.GetFSM().GetState()
-	jwtSecret = state.Config["jwt_secret"]
+	k, _ := clusterJWTKey(state)
+	jwtSecret = k.Secret
 
 	// Return the first (primary) admin account
 	for _, acct := range state.Accounts {
@@ -1934,7 +1948,7 @@ func (m *Manager) StartLocalMetrics(collector MetricsCollector) {
 				}
 
 				if grpcStream != nil {
-					err := grpcStream.Send(&pb.HeartbeatPing{
+					ping := &pb.HeartbeatPing{
 						NodeId:         m.nodeID,
 						CpuPercent:     cpu,
 						MemoryPercent:  mem,
@@ -1946,7 +1960,13 @@ func (m *Manager) StartLocalMetrics(collector MetricsCollector) {
 						// The leader promotes this node only once it shows
 						// its Raft has caught up (promotionReady).
 						RaftAppliedIndex: proto.Uint64(m.raft.AppliedIndex()),
-					})
+					}
+					// The JWT key generation this manager runs, reported
+					// only once something applies a new one.
+					if m.jwtApplierSet.Load() {
+						ping.JwtGeneration = proto.Int64(m.jwtRunning.Load())
+					}
+					err := grpcStream.Send(ping)
 					if err != nil {
 						slog.Warn("heartbeat send failed", "component", "cluster", "error", err)
 						closeStream()

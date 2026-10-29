@@ -65,4 +65,10 @@ var (
 	// (ParseCAPair). Taken as a pair, they fail every signature later, deep
 	// in x509.
 	ErrCAKeyMismatch = errors.New("the CA key is not the CA certificate's: every certificate signed with the pair would be refused")
+	// ErrRotationRefused is wrapped by every refusal of a secret rotation's
+	// start: nothing has changed, and the reason after it says what stands
+	// in the way.
+	ErrRotationRefused = errors.New("the rotation was refused")
+	// ErrRotationWaiting is followed by the nodes the rotation waits for.
+	ErrRotationWaiting = errors.New("a rotation waits for every node it changes to be online and run a version that follows it")
 )

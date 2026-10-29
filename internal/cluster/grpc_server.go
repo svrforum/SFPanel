@@ -360,6 +360,11 @@ func (s *GRPCServer) Join(ctx context.Context, req *pb.JoinRequest) (*pb.JoinRes
 	}
 
 	state := s.manager.GetRaft().GetFSM().GetState()
+	// The generation is read before the key (GetJWTAndAdminFull reads the
+	// FSM again): with a rotation between the two reads, the joiner gets the
+	// new key under the old generation and applies it once more, rather than
+	// a retired key under the new one, which it would never replace.
+	jwtKey, _ := clusterJWTKey(state)
 	jwtSecret, adminUser, adminPassHash, adminTOTPSecret := s.manager.GetJWTAndAdminFull()
 
 	return &pb.JoinResponse{
@@ -370,6 +375,7 @@ func (s *GRPCServer) Join(ctx context.Context, req *pb.JoinRequest) (*pb.JoinRes
 		NodeKey:           nodeKey,
 		Peers:             pbPeers,
 		JwtSecret:         jwtSecret,
+		JwtGeneration:     jwtKey.Generation,
 		AdminUsername:     adminUser,
 		AdminPasswordHash: adminPassHash,
 		AdminTotpSecret:   adminTOTPSecret,

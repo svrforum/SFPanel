@@ -82,10 +82,19 @@ const CapAgents = "agents-v1"
 // CapAgents on its heartbeat. One that has not been heard from may be down,
 // and come back running a release from before agents.
 func (m *Manager) managersNotReadyForAgents(state ClusterState) []string {
+	return m.nodesNotReady(state, CapAgents, false)
+}
+
+// nodesNotReady names the nodes an operation that needs capability waits
+// for, each with why: every node but this leader — the managers, and the
+// agents too when agents is set — must have been heard from, be online and
+// report capability on its heartbeat. One not heard from may be down, and
+// come back running a release that cannot follow.
+func (m *Manager) nodesNotReady(state ClusterState, capability string, agents bool) []string {
 	health := m.heartbeat.CheckHealth()
 	var waiting []string
 	for id, n := range state.Nodes {
-		if id == m.nodeID || !n.IsManager() {
+		if id == m.nodeID || (!agents && !n.IsManager()) {
 			continue
 		}
 		name := n.Name
@@ -98,7 +107,7 @@ func (m *Manager) managersNotReadyForAgents(state ClusterState) []string {
 			waiting = append(waiting, name+" (not heard from)")
 		case health[id] != StatusOnline:
 			waiting = append(waiting, name+" (offline)")
-		case !slices.Contains(met.Capabilities, CapAgents):
+		case !slices.Contains(met.Capabilities, capability):
 			waiting = append(waiting, fmt.Sprintf("%s (%s)", name, met.Version))
 		}
 	}
