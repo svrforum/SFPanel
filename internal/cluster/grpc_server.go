@@ -289,7 +289,9 @@ func NewGRPCServer(mgr *Manager, localPort int, local LocalPanel) (*GRPCServer, 
 		return nil, fmt.Errorf("load TLS config: %w", err)
 	}
 
-	creds := credentials.NewTLS(tlsConfig)
+	// Each connection is tracked, and closed once the CA that verified it is
+	// no longer trusted (conn_trust.go).
+	creds := mgr.GetTLS().serverCreds(tlsConfig)
 
 	s := &GRPCServer{
 		manager:   mgr,

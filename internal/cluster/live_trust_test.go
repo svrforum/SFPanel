@@ -4,8 +4,10 @@ import (
 	"bytes"
 	"context"
 	"crypto/tls"
+	"crypto/x509"
 	"io"
 	"net"
+	"os"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -243,4 +245,123 @@ func TestTrustPinsFollowCACrt(t *testing.T) {
 	if got := tm.TrustPins(); len(got) != 2 {
 		t.Fatalf("a bad ca.crt changed the trust: %v", got)
 	}
+}
+
+// trustBothPEM adds the CA certPEM to what tm trusts, as trustBoth does.
+func trustBothPEM(t *testing.T, tm *TLSManager, certPEM []byte) {
+	t.Helper()
+	cur, err := tm.LoadCACert()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := tm.SaveCACert(append(append([]byte{}, cur...), certPEM...)); err != nil {
+		t.Fatal(err)
+	}
+	if err := tm.ReloadCAPool(); err != nil {
+		t.Fatal(err)
+	}
+}
+
+// A connection is verified once, when it is made. When the trust narrows,
+// the Raft listener ends each connection a CA it no longer trusts verified,
+// and keeps those under a CA it still trusts: left open, one made under a
+// CA a rotation retired — by whoever kept that CA's key — was served until
+// it broke, and the Raft transport does not say which member speaks.
+func TestNarrowedTrustEndsTheRaftConnectionsItNoLongerVerifies(t *testing.T) {
+	_, server := setupCertDir(t)
+	layer, err := newTLSStreamLayer(server, "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { layer.Close() })
+	go func() {
+		for {
+			conn, err := layer.Accept()
+			if err != nil {
+				return
+			}
+			go func() { defer conn.Close(); _, _ = io.Copy(conn, conn) }()
+		}
+	}()
+	next := nextCA(t)
+	trustBoth(t, server, next)
+	dial := func(tm *TLSManager) net.Conn {
+		cfg, err := tm.ClientTLSConfig()
+		if err != nil {
+			t.Fatal(err)
+		}
+		conn, err := tls.Dial("tcp", layer.Addr().String(), cfg)
+		if err != nil {
+			t.Fatal(err)
+		}
+		t.Cleanup(func() { conn.Close() })
+		return conn
+	}
+	echo := func(conn net.Conn) error {
+		_ = conn.SetDeadline(time.Now().Add(2 * time.Second))
+		if _, err := conn.Write([]byte("ok")); err != nil {
+			return err
+		}
+		_, err := io.ReadFull(conn, make([]byte, 2))
+		return err
+	}
+	underOld := dial(tlsWithRole(t, server, "node-2", CertRoleManager))
+	underNext := dial(underNextCA(t, server, next, "node-3", CertRoleManager))
+	for _, conn := range []net.Conn{underOld, underNext} {
+		if err := echo(conn); err != nil {
+			t.Fatal(err)
+		}
+	}
+	// As at promote: the next CA alone.
+	if err := server.SaveCACert(next.CertPEM); err != nil {
+		t.Fatal(err)
+	}
+	if err := server.ReloadCAPool(); err != nil {
+		t.Fatal(err)
+	}
+	if err := echo(underOld); err == nil || os.IsTimeout(err) {
+		t.Fatalf("the connection the old CA verified is still served: %v", err)
+	}
+	if err := echo(underNext); err != nil {
+		t.Fatalf("the connection the next CA verified ended too: %v", err)
+	}
+}
+
+// A handshake that began before the trust narrowed was verified against the
+// CAs of that moment, and finishes after ReloadCAPool has closed what it
+// knew of: it is refused once it is done, not tracked under the CA dropped.
+func TestAHandshakeFromBeforeTheTrustNarrowedIsRefused(t *testing.T) {
+	_, tm := setupCertDir(t)
+	leaf, err := tlsWithRole(t, tm, "node-2", CertRoleManager).NodeCertLeaf()
+	if err != nil {
+		t.Fatal(err)
+	}
+	chains, err := leaf.Verify(x509.VerifyOptions{Roots: mustPool(t, tm), KeyUsages: []x509.ExtKeyUsage{x509.ExtKeyUsageAny}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	next := nextCA(t)
+	if err := tm.SaveCACert(next.CertPEM); err != nil {
+		t.Fatal(err)
+	}
+	if err := tm.ReloadCAPool(); err != nil {
+		t.Fatal(err)
+	}
+	raw, peer := net.Pipe()
+	defer peer.Close()
+	if err := tm.trackConn(raw, chains); err == nil || !strings.Contains(err.Error(), "is no longer trusted") {
+		t.Fatalf("a connection the dropped CA verified: %v", err)
+	}
+	if len(tm.conns) != 0 {
+		t.Fatal("it was tracked")
+	}
+}
+
+func mustPool(t *testing.T, tm *TLSManager) *x509.CertPool {
+	t.Helper()
+	pool, err := tm.loadCAPool()
+	if err != nil {
+		t.Fatal(err)
+	}
+	return pool
 }

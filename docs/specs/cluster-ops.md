@@ -275,8 +275,17 @@ itself:
   all the same, but the rotation does not reach that port; `rotate status`
   shows `raft_tls`.
 - The old CA's key stays in the managers' Raft logs and snapshots until Raft
-  compacts them. Once no node trusts that CA, nothing it signs is accepted
-  anywhere.
+  compacts them. Once no node trusts that CA, no node accepts a new
+  connection made with a certificate it signs.
+- **Connections made under the old CA end with it.** A connection is
+  verified once, when it is made. When a node stops trusting a CA — every
+  node at promote, and at the drop on the way back — it closes every
+  connection its gRPC port and its Raft port accepted under that CA, however
+  long ago it was made. Members reconnect at once with the certificate they
+  hold now; a call in flight on such a connection fails. A node does not
+  close the connections it dialed itself: the peer at the other end closes
+  one it no longer trusts, and the rest, dialed to a member's address, last
+  until they next reconnect.
 
 ### In what order
 

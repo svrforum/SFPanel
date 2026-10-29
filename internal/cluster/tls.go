@@ -41,6 +41,13 @@ type TLSManager struct {
 	// and a CertPool has no lock of its own.
 	caPool  *x509.CertPool
 	caCerts []*x509.Certificate
+
+	// conns are the connections this node's listeners accepted, each with
+	// the pin of the CA that verified it, which ReloadCAPool closes once
+	// that CA is no longer trusted (conn_trust.go). trackConn reads the
+	// trust under connMu, so nothing takes connMu while holding mu.
+	connMu sync.Mutex
+	conns  map[net.Conn]string
 }
 
 // certReloadDebounce caps how often getNodeCert stats the filesystem.
@@ -413,13 +420,20 @@ func (t *TLSManager) loadCAPool() (*x509.CertPool, error) {
 }
 
 // ReloadCAPool reads ca.crt again, for the next handshake of every listener
-// and dialer. A ca.crt that cannot be read, or holds no certificate, is an
-// error and the trust stays as it was: a node that trusted nothing would
-// reach no peer, and so hear of no fix.
+// and dialer, and closes the connections its listeners accepted under a CA
+// it no longer holds. A ca.crt that cannot be read, or holds no certificate,
+// is an error and the trust stays as it was: a node that trusted nothing
+// would reach no peer, and so hear of no fix.
 func (t *TLSManager) ReloadCAPool() error {
 	t.mu.Lock()
-	defer t.mu.Unlock()
-	return t.readCAPoolLocked()
+	err := t.readCAPoolLocked()
+	cas := t.caCerts
+	t.mu.Unlock()
+	if err != nil {
+		return err
+	}
+	t.closeUntrustedConns(cas)
+	return nil
 }
 
 // readCAPoolLocked replaces caPool and caCerts with ca.crt's certificates,

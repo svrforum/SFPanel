@@ -11,7 +11,6 @@ import (
 
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
-	"google.golang.org/grpc/credentials"
 	"google.golang.org/grpc/keepalive"
 	"google.golang.org/grpc/status"
 
@@ -40,7 +39,9 @@ func NewAgentGRPCServer(tlsMgr *TLSManager, local LocalPanel, managerIDs func() 
 
 	s := &AgentGRPCServer{local: local, managerIDs: managerIDs}
 	s.server = grpc.NewServer(
-		grpc.Creds(credentials.NewTLS(cfg)),
+		// Closes a connection once the CA that verified it is no longer
+		// trusted, as a manager's listener does.
+		grpc.Creds(tlsMgr.serverCreds(cfg)),
 		grpc.UnaryInterceptor(s.authorizeUnary),
 		grpc.StreamInterceptor(s.authorizeStream),
 		// The policy of a manager's listener (NewGRPCServer): gRPC's default

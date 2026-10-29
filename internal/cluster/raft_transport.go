@@ -18,10 +18,17 @@ type tlsStreamLayer struct {
 	// client builds the dialing side's config for each connection, so a new
 	// Raft connection verifies its peer against what this node trusts now.
 	client func() (*tls.Config, error)
+	// tm tracks each connection accepted, which it closes once the CA that
+	// verified it is no longer trusted (conn_trust.go).
+	tm *TLSManager
 }
 
 func (t *tlsStreamLayer) Accept() (net.Conn, error) {
-	return t.listener.Accept()
+	conn, err := t.listener.Accept()
+	if err != nil {
+		return nil, err
+	}
+	return &raftConn{Conn: conn.(*tls.Conn), tm: t.tm}, nil // a tls.Listen listener's
 }
 
 func (t *tlsStreamLayer) Close() error {
@@ -56,33 +63,42 @@ func newRaftTransport(cfg RaftConfig, addr *net.TCPAddr) (raft.Transport, error)
 		return t, nil
 	}
 
+	stream, err := newTLSStreamLayer(cfg.TLS, cfg.BindAddr)
+	if err != nil {
+		return nil, err
+	}
+	transport := raft.NewNetworkTransport(stream, 3, 10*time.Second, os.Stderr)
+	slog.Info("Raft transport using TLS encryption", "component", "cluster")
+	return transport, nil
+}
+
+// newTLSStreamLayer listens on bindAddr for the Raft transport, under tm's
+// TLS.
+func newTLSStreamLayer(tm *TLSManager, bindAddr string) (*tlsStreamLayer, error) {
 	// Raft-specific server config: requires a verified client cert. The gRPC
 	// port's VerifyClientCertIfGiven (for PreFlight/Join) is compensated by
 	// interceptors there; the raw Raft stream has no such layer.
-	serverTLS, err := cfg.TLS.RaftServerTLSConfig()
+	serverTLS, err := tm.RaftServerTLSConfig()
 	if err != nil {
 		return nil, fmt.Errorf("raft server TLS: %w", err)
 	}
 
 	// Built here only for its error, which then comes now rather than at the
 	// first dial; every dial builds its own (tlsStreamLayer.client).
-	if _, err := cfg.TLS.ClientTLSConfig(); err != nil {
+	if _, err := tm.ClientTLSConfig(); err != nil {
 		return nil, fmt.Errorf("raft client TLS: %w", err)
 	}
 
 	// Create TLS listener
-	listener, err := tls.Listen("tcp", cfg.BindAddr, serverTLS)
+	listener, err := tls.Listen("tcp", bindAddr, serverTLS)
 	if err != nil {
 		return nil, fmt.Errorf("raft TLS listen: %w", err)
 	}
 
-	stream := &tlsStreamLayer{
+	return &tlsStreamLayer{
 		listener: listener,
 		addr:     listener.Addr(),
-		client:   cfg.TLS.ClientTLSConfig,
-	}
-
-	transport := raft.NewNetworkTransport(stream, 3, 10*time.Second, os.Stderr)
-	slog.Info("Raft transport using TLS encryption", "component", "cluster")
-	return transport, nil
+		client:   tm.ClientTLSConfig,
+		tm:       tm,
+	}, nil
 }

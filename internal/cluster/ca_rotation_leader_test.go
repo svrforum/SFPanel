@@ -4,11 +4,15 @@ import (
 	"bytes"
 	"context"
 	"errors"
+	"net"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
 
 	pb "github.com/svrforum/SFPanel/internal/cluster/proto"
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
 )
 
 // caLeader is a one-manager cluster — gRPC up, CA seeded — whose proxy
@@ -444,4 +448,51 @@ func TestACARotationSaysWhomItWaitsForOnceAndNoKey(t *testing.T) {
 			t.Fatalf("the logs carry %q:\n%s", secret, out)
 		}
 	}
+}
+
+// A connection made under the CA a rotation retires ends with it. Whoever
+// kept the old CA's key could mint a manager's certificate and open one
+// before the rotation, and keepalives hold it: verified once when it was made,
+// it went on reaching ProxyRequest — any panel API as any user — past done.
+func TestAConnectionMadeUnderTheOldCAEndsWithIt(t *testing.T) {
+	mgr := caLeader(t)
+	addr := net.JoinHostPort("127.0.0.1", strconv.Itoa(mgr.config.GRPCPort))
+	oldPin := mgr.GetTLS().TrustPins()[0]
+	kept := tlsWithRole(t, mgr.GetTLS(), mgr.LocalNodeID(), CertRoleManager)
+	c, err := DialNode(addr, kept)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer c.Close()
+	proxy := func() error {
+		_, err := c.ProxyRequest(context.Background(), &pb.APIRequest{Method: "GET", Path: "/api/v1/system/info"})
+		return err
+	}
+	if err := proxy(); err != nil {
+		t.Fatalf("before the rotation: %v", err)
+	}
+
+	rot, err := mgr.StartCARotation(0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// It trusts both CAs from here, so a new connection of its is refused
+	// for its certificate, not for the server's.
+	nextCert, _ := mgr.raft.GetFSM().GetConfigValue(configKeyCANextCert)
+	trustBothPEM(t, kept, []byte(nextCert))
+	now := time.Now()
+	waitFor(t, "the leader to trust both CAs", func() bool { return len(mgr.GetTLS().TrustPins()) == 2 })
+	reportA1(mgr, []string{oldPin, rot.NextPin}, oldPin)
+	advanceTo(t, mgr, now, CAPhaseReissue)
+	waitFor(t, "the leader's certificate from the next CA", func() bool { return mgr.GetTLS().ServedCertCAPin() == rot.NextPin })
+	reportA1(mgr, []string{oldPin, rot.NextPin}, rot.NextPin)
+	advanceTo(t, mgr, now, CAPhasePromote)
+	waitFor(t, "the leader to drop the old CA", onlyTrusts(mgr, rot.NextPin))
+	reportA1(mgr, []string{rot.NextPin}, rot.NextPin)
+	advanceTo(t, mgr, now, CAPhaseDone)
+
+	waitFor(t, "the connection made under the old CA to end", func() bool {
+		err := proxy()
+		return status.Code(err) == codes.Unavailable && strings.Contains(err.Error(), "unknown certificate authority")
+	})
 }

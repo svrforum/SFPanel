@@ -212,3 +212,53 @@ func TestDialManagerChecksTheServer(t *testing.T) {
 		}
 	}
 }
+
+// The agent's listener ends a manager's connection that a CA it has stopped
+// trusting verified, as a manager's listener does
+// (TestAConnectionMadeUnderTheOldCAEndsWithIt).
+func TestTheAgentListenerEndsTheConnectionsItNoLongerTrusts(t *testing.T) {
+	t.Cleanup(func() { auth.SetProxySecrets("", nil) })
+	auth.SetProxySecrets("agent-key", []string{"agent-key"})
+	panel := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_, _ = w.Write([]byte(`{"success":true}`))
+	}))
+	defer panel.Close()
+	_, ca := setupCertDir(t)
+	agentTLS := tlsWithRole(t, ca, "agent-1", CertRoleAgent)
+	srv, err := NewAgentGRPCServer(agentTLS, panelAt{panel.URL}, func() []string { return []string{"m1"} })
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := srv.Start("127.0.0.1:0"); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(srv.Stop)
+	next := nextCA(t)
+	// It trusts both CAs, so a new connection of its is refused for its
+	// certificate, not for the agent's.
+	m1 := tlsWithRole(t, ca, "m1", CertRoleManager)
+	trustBoth(t, m1, next)
+	c, err := DialNode(srv.Addr(), m1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer c.Close()
+	proxy := func() error {
+		_, err := c.ProxyRequest(context.Background(), &pb.APIRequest{Method: "GET", Path: "/api/v1/system/info"})
+		return err
+	}
+	if err := proxy(); err != nil {
+		t.Fatal(err)
+	}
+	// As at promote: the agent trusts the next CA alone.
+	if err := agentTLS.SaveCACert(next.CertPEM); err != nil {
+		t.Fatal(err)
+	}
+	if err := agentTLS.ReloadCAPool(); err != nil {
+		t.Fatal(err)
+	}
+	waitFor(t, "the connection the old CA verified to end", func() bool {
+		err := proxy()
+		return status.Code(err) == codes.Unavailable && strings.Contains(err.Error(), "unknown certificate authority")
+	})
+}
