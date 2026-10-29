@@ -41,6 +41,7 @@ const (
 	methodLeave      = "/sfpanel.cluster.ClusterService/Leave"
 	methodGetMetrics = "/sfpanel.cluster.ClusterService/GetMetrics"
 	methodSubscribe  = "/sfpanel.cluster.ClusterService/Subscribe"
+	methodRenew      = "/sfpanel.cluster.ClusterService/RenewCertificate"
 )
 
 func TestAuthorizeCaller(t *testing.T) {
@@ -70,6 +71,10 @@ func TestAuthorizeCaller(t *testing.T) {
 		{"an agent may not leave through Raft", methodLeave, "a1", CertRoleAgent, codes.PermissionDenied, "may not call"},
 		{"a manager reads metrics", methodGetMetrics, "m1", CertRoleManager, codes.OK, ""},
 		{"a manager leaves", methodLeave, "m0", "", codes.OK, ""},
+		{"an agent renews its certificate", methodRenew, "a1", CertRoleAgent, codes.OK, ""},
+		{"a manager may not renew through an agent's RPC", methodRenew, "m1", CertRoleManager, codes.PermissionDenied, "may not call"},
+		{"an agent ID with a manager certificate may not renew", methodRenew, "a1", CertRoleManager, codes.PermissionDenied, "may not call"},
+		{"a stranger may not renew", methodRenew, "x9", CertRoleAgent, codes.PermissionDenied, "not a member"},
 		{"an unlisted method is refused", "/sfpanel.cluster.ClusterService/Shiny", "m1", CertRoleManager, codes.PermissionDenied, "not open to cluster members"},
 	}
 	for _, tc := range cases {

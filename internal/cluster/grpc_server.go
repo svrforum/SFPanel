@@ -158,6 +158,21 @@ func peerLeaf(ctx context.Context) *x509.Certificate {
 	return tlsInfo.State.VerifiedChains[0][0]
 }
 
+// peerRootPin is the CAPin of the CA at the root of the caller's verified
+// chain — which CA signed the certificate this connection presented — or "".
+func peerRootPin(ctx context.Context) string {
+	p, ok := peer.FromContext(ctx)
+	if !ok {
+		return ""
+	}
+	info, ok := p.AuthInfo.(credentials.TLSInfo)
+	if !ok || len(info.State.VerifiedChains) == 0 || len(info.State.VerifiedChains[0]) == 0 {
+		return ""
+	}
+	chain := info.State.VerifiedChains[0]
+	return CAPin(chain[len(chain)-1].RawSubjectPublicKeyInfo)
+}
+
 // extractPeerCN returns the CommonName of the verified client leaf, or "".
 // Node certs are issued with CN == node ID (IssueNodeCert), so the CN is the
 // transport-level node identity.
@@ -182,13 +197,14 @@ const (
 // added later stays closed until someone decides who may call it.
 // PreFlight, Join and RegisterAgent never reach it (unauthenticatedMethods).
 var methodPolicy = map[string]callerPolicy{
-	"/sfpanel.cluster.ClusterService/Heartbeat":      callerManager,
-	"/sfpanel.cluster.ClusterService/AgentHeartbeat": callerAgent,
-	"/sfpanel.cluster.ClusterService/Leave":          callerManager, // for itself only: see Leave
-	"/sfpanel.cluster.ClusterService/GetMetrics":     callerManager,
-	"/sfpanel.cluster.ClusterService/Subscribe":      callerManager,
-	"/sfpanel.cluster.ClusterService/ProxyRequest":   callerManager,
-	"/sfpanel.cluster.ClusterService/ReportPanelCA":  callerMember, // for itself only: see ReportPanelCA
+	"/sfpanel.cluster.ClusterService/Heartbeat":        callerManager,
+	"/sfpanel.cluster.ClusterService/AgentHeartbeat":   callerAgent,
+	"/sfpanel.cluster.ClusterService/Leave":            callerManager, // for itself only: see Leave
+	"/sfpanel.cluster.ClusterService/GetMetrics":       callerManager,
+	"/sfpanel.cluster.ClusterService/Subscribe":        callerManager,
+	"/sfpanel.cluster.ClusterService/ProxyRequest":     callerManager,
+	"/sfpanel.cluster.ClusterService/ReportPanelCA":    callerMember, // for itself only: see ReportPanelCA
+	"/sfpanel.cluster.ClusterService/RenewCertificate": callerAgent,  // for itself only: see RenewCertificate
 }
 
 // authorizeCaller checks the verified peer certificate against methodPolicy.
@@ -470,6 +486,11 @@ func (s *GRPCServer) serveHeartbeat(stream grpc.BidiStreamingServer[pb.Heartbeat
 	if peerCN == "" {
 		return status.Error(codes.Unauthenticated, "heartbeat requires a verified client certificate")
 	}
+	// Which CA signed the certificate this stream's connection presented —
+	// what a CA rotation's leader goes by. A node that moves its certificate
+	// to another CA reconnects to show the new one (ApplyClusterCA, the
+	// agent's renewal).
+	certCA := peerRootPin(stream.Context())
 
 	// Single goroutine for receiving — the runHeartbeatRecvLoop helper also
 	// drops out on stream.Context().Done() so it doesn't leak when this
@@ -519,6 +540,9 @@ func (s *GRPCServer) serveHeartbeat(stream grpc.BidiStreamingServer[pb.Heartbeat
 				Version:        result.ping.Version,
 				Timestamp:      result.ping.Timestamp,
 				Capabilities:   result.ping.Capabilities,
+				JWTGeneration:  result.ping.JwtGeneration,
+				CATrustPins:    result.ping.CaTrustPins,
+				CertCAPin:      certCA,
 			})
 			// The ping's time is the sender's clock, in seconds — a manager's
 			// and an agent's alike.

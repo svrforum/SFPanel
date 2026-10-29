@@ -19,16 +19,17 @@ import (
 const _ = grpc.SupportPackageIsVersion9
 
 const (
-	ClusterService_PreFlight_FullMethodName      = "/sfpanel.cluster.ClusterService/PreFlight"
-	ClusterService_Join_FullMethodName           = "/sfpanel.cluster.ClusterService/Join"
-	ClusterService_Leave_FullMethodName          = "/sfpanel.cluster.ClusterService/Leave"
-	ClusterService_Heartbeat_FullMethodName      = "/sfpanel.cluster.ClusterService/Heartbeat"
-	ClusterService_ProxyRequest_FullMethodName   = "/sfpanel.cluster.ClusterService/ProxyRequest"
-	ClusterService_GetMetrics_FullMethodName     = "/sfpanel.cluster.ClusterService/GetMetrics"
-	ClusterService_Subscribe_FullMethodName      = "/sfpanel.cluster.ClusterService/Subscribe"
-	ClusterService_RegisterAgent_FullMethodName  = "/sfpanel.cluster.ClusterService/RegisterAgent"
-	ClusterService_ReportPanelCA_FullMethodName  = "/sfpanel.cluster.ClusterService/ReportPanelCA"
-	ClusterService_AgentHeartbeat_FullMethodName = "/sfpanel.cluster.ClusterService/AgentHeartbeat"
+	ClusterService_PreFlight_FullMethodName        = "/sfpanel.cluster.ClusterService/PreFlight"
+	ClusterService_Join_FullMethodName             = "/sfpanel.cluster.ClusterService/Join"
+	ClusterService_Leave_FullMethodName            = "/sfpanel.cluster.ClusterService/Leave"
+	ClusterService_Heartbeat_FullMethodName        = "/sfpanel.cluster.ClusterService/Heartbeat"
+	ClusterService_ProxyRequest_FullMethodName     = "/sfpanel.cluster.ClusterService/ProxyRequest"
+	ClusterService_GetMetrics_FullMethodName       = "/sfpanel.cluster.ClusterService/GetMetrics"
+	ClusterService_Subscribe_FullMethodName        = "/sfpanel.cluster.ClusterService/Subscribe"
+	ClusterService_RegisterAgent_FullMethodName    = "/sfpanel.cluster.ClusterService/RegisterAgent"
+	ClusterService_ReportPanelCA_FullMethodName    = "/sfpanel.cluster.ClusterService/ReportPanelCA"
+	ClusterService_AgentHeartbeat_FullMethodName   = "/sfpanel.cluster.ClusterService/AgentHeartbeat"
+	ClusterService_RenewCertificate_FullMethodName = "/sfpanel.cluster.ClusterService/RenewCertificate"
 )
 
 // ClusterServiceClient is the client API for ClusterService service.
@@ -55,6 +56,10 @@ type ClusterServiceClient interface {
 	// answers this one Unimplemented, where its Heartbeat makes every node
 	// that pings it a Raft voter.
 	AgentHeartbeat(ctx context.Context, opts ...grpc.CallOption) (grpc.BidiStreamingClient[HeartbeatPing, HeartbeatPong], error)
+	// An agent asks the leader for a certificate from the CA a CA rotation
+	// moves it to (the pong's ca.sign_pin), over its current mTLS: the node
+	// is the caller's certificate, never a request field.
+	RenewCertificate(ctx context.Context, in *RenewCertificateRequest, opts ...grpc.CallOption) (*RenewCertificateResponse, error)
 }
 
 type clusterServiceClient struct {
@@ -180,6 +185,16 @@ func (c *clusterServiceClient) AgentHeartbeat(ctx context.Context, opts ...grpc.
 // This type alias is provided for backwards compatibility with existing code that references the prior non-generic stream type by name.
 type ClusterService_AgentHeartbeatClient = grpc.BidiStreamingClient[HeartbeatPing, HeartbeatPong]
 
+func (c *clusterServiceClient) RenewCertificate(ctx context.Context, in *RenewCertificateRequest, opts ...grpc.CallOption) (*RenewCertificateResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(RenewCertificateResponse)
+	err := c.cc.Invoke(ctx, ClusterService_RenewCertificate_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 // ClusterServiceServer is the server API for ClusterService service.
 // All implementations must embed UnimplementedClusterServiceServer
 // for forward compatibility.
@@ -204,6 +219,10 @@ type ClusterServiceServer interface {
 	// answers this one Unimplemented, where its Heartbeat makes every node
 	// that pings it a Raft voter.
 	AgentHeartbeat(grpc.BidiStreamingServer[HeartbeatPing, HeartbeatPong]) error
+	// An agent asks the leader for a certificate from the CA a CA rotation
+	// moves it to (the pong's ca.sign_pin), over its current mTLS: the node
+	// is the caller's certificate, never a request field.
+	RenewCertificate(context.Context, *RenewCertificateRequest) (*RenewCertificateResponse, error)
 	mustEmbedUnimplementedClusterServiceServer()
 }
 
@@ -243,6 +262,9 @@ func (UnimplementedClusterServiceServer) ReportPanelCA(context.Context, *ReportP
 }
 func (UnimplementedClusterServiceServer) AgentHeartbeat(grpc.BidiStreamingServer[HeartbeatPing, HeartbeatPong]) error {
 	return status.Error(codes.Unimplemented, "method AgentHeartbeat not implemented")
+}
+func (UnimplementedClusterServiceServer) RenewCertificate(context.Context, *RenewCertificateRequest) (*RenewCertificateResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method RenewCertificate not implemented")
 }
 func (UnimplementedClusterServiceServer) mustEmbedUnimplementedClusterServiceServer() {}
 func (UnimplementedClusterServiceServer) testEmbeddedByValue()                        {}
@@ -416,6 +438,24 @@ func _ClusterService_AgentHeartbeat_Handler(srv interface{}, stream grpc.ServerS
 // This type alias is provided for backwards compatibility with existing code that references the prior non-generic stream type by name.
 type ClusterService_AgentHeartbeatServer = grpc.BidiStreamingServer[HeartbeatPing, HeartbeatPong]
 
+func _ClusterService_RenewCertificate_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(RenewCertificateRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(ClusterServiceServer).RenewCertificate(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: ClusterService_RenewCertificate_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(ClusterServiceServer).RenewCertificate(ctx, req.(*RenewCertificateRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 // ClusterService_ServiceDesc is the grpc.ServiceDesc for ClusterService service.
 // It's only intended for direct use with grpc.RegisterService,
 // and not to be introspected or modified (even as a copy)
@@ -450,6 +490,10 @@ var ClusterService_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "ReportPanelCA",
 			Handler:    _ClusterService_ReportPanelCA_Handler,
+		},
+		{
+			MethodName: "RenewCertificate",
+			Handler:    _ClusterService_RenewCertificate_Handler,
 		},
 	},
 	Streams: []grpc.StreamDesc{

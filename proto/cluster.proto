@@ -23,6 +23,10 @@ service ClusterService {
     // answers this one Unimplemented, where its Heartbeat makes every node
     // that pings it a Raft voter.
     rpc AgentHeartbeat(stream HeartbeatPing) returns (stream HeartbeatPong);
+    // An agent asks the leader for a certificate from the CA a CA rotation
+    // moves it to (the pong's ca.sign_pin), over its current mTLS: the node
+    // is the caller's certificate, never a request field.
+    rpc RenewCertificate(RenewCertificateRequest) returns (RenewCertificateResponse);
 }
 
 message PreFlightRequest {
@@ -70,6 +74,8 @@ message JoinResponse {
     // local DB is in sync before the FSM replication catches up. Empty if
     // the admin account doesn't have 2FA enabled.
     string admin_totp_secret = 12;
+    // The generation of jwt_secret: a manager that joins runs it from the start.
+    int64  jwt_generation = 13;
 }
 
 message LeaveRequest {
@@ -97,6 +103,11 @@ message HeartbeatPing {
     // a node whose Raft port the leader cannot reach heartbeats over gRPC all
     // the same, and as a voter it would cost the cluster its quorum.
     optional uint64 raft_applied_index = 9;
+    // The generation of the cluster's JWT key a manager runs (ApplyJWTKey).
+    optional int64 jwt_generation = 10;
+    // The CAs this node trusts now, as CAPin fingerprints. A CA rotation moves
+    // on only once every node trusts what the next step needs.
+    repeated string ca_trust_pins = 11;
 }
 
 message HeartbeatPong {
@@ -109,6 +120,17 @@ message HeartbeatPong {
     string leader_grpc_address = 3;
     repeated NodeInfo managers = 4;
     bool   from_leader = 5;
+    // The cluster CA as an agent must hold it, from a leader whose FSM has
+    // caught up. Absent with no rotation, from a follower, and from a leader
+    // older than the field: the agent keeps what it has.
+    ClusterCA ca = 6;
+}
+
+// ClusterCA is what the leader tells an agent of a CA rotation.
+message ClusterCA {
+    bytes  bundle = 1;    // PEM: the CAs to trust, the one ca.crt starts with first
+    string sign_pin = 2;  // CAPin of the CA the agent's certificate must come from
+    uint64 seq = 3;       // the rotation record's seq: a hint with a lower one is older
 }
 
 message APIRequest {
@@ -195,4 +217,17 @@ message ReportPanelCAResponse {
     bool   success = 1;
     string error = 2;
     string leader_grpc_address = 3;
+}
+
+message RenewCertificateRequest {
+    bytes  csr = 1;    // DER PKCS#10 for the key of the certificate the agent presents
+    string proof = 2;  // hex HMAC-SHA256 with the agent's own key over its ID and the CSR
+}
+
+message RenewCertificateResponse {
+    bool   success = 1;
+    string error = 2;
+    bytes  node_cert = 3;            // PEM, from the CA the rotation signs with now
+    bytes  ca_bundle = 4;            // PEM, the CAs to trust now (as the pong's)
+    string leader_grpc_address = 5;  // set when the answering manager is not the leader
 }

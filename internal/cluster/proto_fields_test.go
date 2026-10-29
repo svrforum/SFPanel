@@ -31,3 +31,18 @@ func TestProtoCarriesAgentRegistration(t *testing.T) {
 		t.Fatal("agent registration fields did not round-trip")
 	}
 }
+
+// The wire a rotation adds: what a ping reports, the CA hint on the pong,
+// the renewal, and the generation a join answer carries.
+func TestProtoCarriesRotations(t *testing.T) {
+	gen := int64(3)
+	ping := &pb.HeartbeatPing{JwtGeneration: &gen, CaTrustPins: []string{"sha256:a"}}
+	pong := &pb.HeartbeatPong{Ca: &pb.ClusterCA{Bundle: []byte{1}, SignPin: "sha256:b", Seq: 7}}
+	req := &pb.RenewCertificateRequest{Csr: []byte{2}, Proof: "p"}
+	resp := &pb.RenewCertificateResponse{Success: true, NodeCert: []byte{3}, CaBundle: []byte{4}, LeaderGrpcAddress: "192.0.2.1:3629"}
+	join := &pb.JoinResponse{JwtGeneration: 5}
+	if ping.GetJwtGeneration() != 3 || len(ping.GetCaTrustPins()) != 1 || pong.GetCa().GetSeq() != 7 || req.GetProof() != "p" ||
+		resp.GetCaBundle() == nil || join.GetJwtGeneration() != 5 {
+		t.Fatal("rotation fields did not round-trip")
+	}
+}

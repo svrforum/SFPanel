@@ -101,6 +101,14 @@ type NodeMetrics struct {
 	Timestamp      int64   `json:"timestamp"`
 	// Capabilities the node reported on its heartbeat (CapProxySecret).
 	Capabilities []string `json:"capabilities,omitempty"`
+	// What a rotation goes by, kept for its steps and its status and not
+	// shown with the metrics: the JWT generation a manager runs (nil: not
+	// reported — a release from before rotations), the CAs the node says it
+	// trusts, and the CA behind the certificate its heartbeat connection
+	// presented, which the leader saw itself.
+	JWTGeneration *int64   `json:"-"`
+	CATrustPins   []string `json:"-"`
+	CertCAPin     string   `json:"-"`
 }
 
 // ClusterOverview aggregates metrics from all nodes.
