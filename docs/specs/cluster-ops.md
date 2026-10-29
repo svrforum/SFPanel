@@ -212,7 +212,9 @@ accepts: a rotation cut off half-way breaks no relay, terminal or stream.
   rotation, and no online agent on a release that does not — the refusal
   names it and its version. Update it first.
 - **Started again,** a rotation replaces the last one: an agent that has not
-  confirmed takes the new rotation's key.
+  confirmed takes the new rotation's key. One whose confirm the leader took
+  but whose answer it never got moves to the key it confirmed first, then to
+  the new one.
 - `agent.key` is always the key the managers sign with, as far as the agent
   knows; the key on its way is in `agent-key-rotation.json`. An agent rolled
   back to an older release reads `agent.key` alone and keeps working, on its

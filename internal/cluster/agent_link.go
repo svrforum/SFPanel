@@ -646,7 +646,11 @@ func (l *AgentLink) offerKeyHint(h *pb.AgentKeyHint) {
 //     answer to its confirm, and switches.
 //   - N' = N, not current: it confirms with the new key, then switches.
 //   - N' ≠ N, not current: it fetches its key with the one it holds, takes
-//     it, confirms with it and switches.
+//     it, confirms with it and switches. A fetch refused for its proof, with
+//     N' < N, is asked again with the key of N': the leader took the
+//     agent's confirm of N' and the answer never came — or it stopped
+//     between moving the managers to that key and recording it — so the
+//     managers sign with that key, and the agent switches to it first.
 //   - N' ≠ N and current: the managers sign with a key the agent never took
 //     (errAgentKeyNotHeld).
 //
@@ -666,6 +670,14 @@ func (l *AgentLink) rotateKey(ctx context.Context, client *GRPCClient, h *pb.Age
 			return errAgentKeyNotHeld
 		}
 		resp, err := l.callRotateAgentKey(ctx, client, &pb.RotateAgentKeyRequest{Generation: n, Proof: agentKeyProof(current, "fetch", l.NodeID, n)})
+		if errors.Is(err, ErrAgentKeyProof) && next != "" && pending < n {
+			resp, err = l.callRotateAgentKey(ctx, client, &pb.RotateAgentKeyRequest{Generation: n, Proof: agentKeyProof(next, "fetch", l.NodeID, n)})
+			if err == nil {
+				if err := l.switchKey(pending); err != nil {
+					return err
+				}
+			}
+		}
 		if err != nil {
 			return err
 		}
@@ -715,6 +727,10 @@ func (l *AgentLink) callRotateAgentKey(ctx context.Context, client *GRPCClient, 
 	}
 	if err != nil {
 		return nil, err
+	}
+	if !resp.Success && resp.Error == ErrAgentKeyProof.Error() {
+		// rotateKey asks again with the key the managers may sign with.
+		return nil, fmt.Errorf("refused: %w", ErrAgentKeyProof)
 	}
 	if !resp.Success {
 		return nil, fmt.Errorf("refused: %s", resp.Error)

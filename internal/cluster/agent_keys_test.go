@@ -286,6 +286,18 @@ func TestRotateKeyFollowsTheHint(t *testing.T) {
 		{"a refusal", false, &pb.AgentKeyHint{Generation: 1}, func(*pb.RotateAgentKeyRequest) (*pb.RotateAgentKeyResponse, error) {
 			return &pb.RotateAgentKeyResponse{Error: "no"}, nil
 		}, []string{fetch}, "refused: no", "k1"},
+		// The leader took the confirm of k2, and the answer never came: the
+		// managers sign with k2 when the next rotation starts, so k1 proves
+		// nothing, k2 proves the fetch, and the agent moves to k2 first.
+		{"the confirm's answer lost before another rotation", true, &pb.AgentKeyHint{Generation: 2}, func(req *pb.RotateAgentKeyRequest) (*pb.RotateAgentKeyResponse, error) {
+			switch req.Proof {
+			case agentKeyProof("k2", "fetch", "agent-1", 2):
+				return &pb.RotateAgentKeyResponse{Success: true, AgentKey: "k3"}, nil
+			case agentKeyProof("k3", "confirm", "agent-1", 2):
+				return &pb.RotateAgentKeyResponse{Success: true, Switched: true}, nil
+			}
+			return &pb.RotateAgentKeyResponse{Error: ErrAgentKeyProof.Error()}, nil
+		}, []string{agentKeyProof("k1", "fetch", "agent-1", 2), agentKeyProof("k2", "fetch", "agent-1", 2), agentKeyProof("k3", "confirm", "agent-1", 2)}, "", "k3"},
 	} {
 		t.Run(c.name, func(t *testing.T) {
 			var mu sync.Mutex
@@ -328,5 +340,59 @@ func TestRotateKeyFollowsTheHint(t *testing.T) {
 				t.Fatalf("ends on %q", key)
 			}
 		})
+	}
+}
+
+// An agent whose confirm the leader took but whose answer it never got holds
+// agent.key as it was and the key it confirmed as its next, while the
+// managers sign with the latter. A rotation started after that refused its
+// fetch, proved with agent.key, for good: the agent went on accepting the key
+// the rotation meant to retire, and could prove no certificate renewal
+// either. It proves the fetch with the key it confirmed, and moves to that
+// key before it takes the new one.
+func TestAConfirmWhoseAnswerWasLostDoesNotStrandTheAgent(t *testing.T) {
+	mgr, addr, _, _ := realLeader(t)
+	res, tm := registeredAgent(t, mgr)
+	in := &installed{}
+	keys, err := LoadAgentKeys(tm, in.set)
+	if err != nil {
+		t.Fatal(err)
+	}
+	keys.Install(time.Now())
+	leaf, _ := tm.NodeCertLeaf()
+	gen, err := mgr.StartAgentKeyRotation()
+	if err != nil {
+		t.Fatal(err)
+	}
+	issued, _, err := mgr.HandleRotateAgentKey(leaf, gen, agentKeyProof(res.AgentKey, "fetch", res.NodeID, gen), false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := keys.Take(issued, gen); err != nil {
+		t.Fatal(err)
+	}
+	if _, switched, err := mgr.HandleRotateAgentKey(leaf, gen, agentKeyProof(issued, "confirm", res.NodeID, gen), true); err != nil || !switched {
+		t.Fatalf("confirm: %v %v", switched, err)
+	}
+	// The answer never reached the agent.
+	next, err := mgr.StartAgentKeyRotation()
+	if err != nil {
+		t.Fatal(err)
+	}
+	link := &AgentLink{AgentLinkConfig: AgentLinkConfig{NodeID: res.NodeID, TLS: tm, Keys: keys}}
+	client, err := DialManager(addr, tm, func() []string { return []string{mgr.LocalNodeID()} })
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer client.Close()
+	if err := link.rotateKey(t.Context(), client, mgr.agentKeyHint(res.NodeID)); err != nil {
+		t.Fatalf("the next rotation: %v", err)
+	}
+	key, g := keys.Current()
+	if g != next || key != agentKeyIn(mgr, res.NodeID) {
+		t.Fatalf("the agent is on generation %d, %s the key the managers sign with", g, map[bool]string{true: "with", false: "not with"}[key == agentKeyIn(mgr, res.NodeID)])
+	}
+	if _, accept := in.get(); slices.Contains(accept, res.AgentKey) {
+		t.Fatal("the agent still accepts the key it registered with")
 	}
 }
