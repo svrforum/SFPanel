@@ -119,8 +119,8 @@ func normalisePanelAuthority(apiAddr string, port int) string {
 
 // peerTLSPool caches parsed per-peer trust pools. Parsing a PEM on every
 // relayed request would be wasteful, and the cluster mTLS pool next door cannot
-// be reused: it is documented as "loaded lazily, never invalidated", whereas
-// this set changes whenever a node joins, leaves, or turns TLS on.
+// be reused: it is ca.crt's, read again on a CA rotation (ReloadCAPool),
+// whereas this set changes whenever a node joins, leaves, or turns TLS on.
 var peerTLSPool sync.Map // nodeID -> peerPoolEntry
 
 type peerPoolEntry struct {

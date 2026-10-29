@@ -33,15 +33,10 @@ type AgentGRPCServer struct {
 // NewAgentGRPCServer builds the listener. managerIDs is asked on every call,
 // so a manager the agent stops listing is refused from its next request on.
 func NewAgentGRPCServer(tlsMgr *TLSManager, local LocalPanel, managerIDs func() []string) (*AgentGRPCServer, error) {
-	cfg, err := tlsMgr.ServerTLSConfig()
+	cfg, err := tlsMgr.AgentServerTLSConfig()
 	if err != nil {
 		return nil, fmt.Errorf("load TLS config: %w", err)
 	}
-	cfg = cfg.Clone()
-	// A manager's listener lets a caller without a certificate reach
-	// PreFlight, Join and RegisterAgent. An agent serves none of them, so its
-	// handshake refuses such a caller before any method is looked at.
-	cfg.ClientAuth = tls.RequireAndVerifyClientCert
 
 	s := &AgentGRPCServer{local: local, managerIDs: managerIDs}
 	s.server = grpc.NewServer(
@@ -140,29 +135,36 @@ func (s *AgentGRPCServer) Stop() {
 // server must hold a manager's certificate under a name the agent lists, or an
 // agent at that address could pose as this agent's manager.
 func DialManager(address string, tlsMgr *TLSManager, managerIDs func() []string) (*GRPCClient, error) {
-	cfg, err := tlsMgr.ClientTLSConfig()
+	build := func() (*tls.Config, error) {
+		cfg, err := tlsMgr.ClientTLSConfig()
+		if err != nil {
+			return nil, err
+		}
+		cfg = cfg.Clone()
+		// Called on every handshake, after the chain has been verified against
+		// the cluster CA (RootCAs).
+		cfg.VerifyConnection = func(cs tls.ConnectionState) error {
+			if len(cs.PeerCertificates) == 0 {
+				return errors.New("the server presented no certificate")
+			}
+			leaf := cs.PeerCertificates[0]
+			if CertRole(leaf) != CertRoleManager {
+				return fmt.Errorf("%s is not a manager", leaf.Subject.CommonName)
+			}
+			if !slices.Contains(managerIDs(), leaf.Subject.CommonName) {
+				return fmt.Errorf("%s is not one of this agent's managers", leaf.Subject.CommonName)
+			}
+			return nil
+		}
+		return cfg, nil
+	}
+	creds, err := liveClientCreds(build)
 	if err != nil {
 		return nil, fmt.Errorf("client TLS: %w", err)
 	}
-	cfg = cfg.Clone()
-	// Called on every handshake, after the chain has been verified against
-	// the cluster CA (RootCAs).
-	cfg.VerifyConnection = func(cs tls.ConnectionState) error {
-		if len(cs.PeerCertificates) == 0 {
-			return errors.New("the server presented no certificate")
-		}
-		leaf := cs.PeerCertificates[0]
-		if CertRole(leaf) != CertRoleManager {
-			return fmt.Errorf("%s is not a manager", leaf.Subject.CommonName)
-		}
-		if !slices.Contains(managerIDs(), leaf.Subject.CommonName) {
-			return fmt.Errorf("%s is not one of this agent's managers", leaf.Subject.CommonName)
-		}
-		return nil
-	}
 
 	conn, err := grpc.NewClient(address,
-		grpc.WithTransportCredentials(credentials.NewTLS(cfg)),
+		grpc.WithTransportCredentials(creds),
 		clusterKeepaliveDialOption(),
 	)
 	if err != nil {

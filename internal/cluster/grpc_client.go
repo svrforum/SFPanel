@@ -5,6 +5,7 @@ import (
 	"crypto/tls"
 	"fmt"
 	"log/slog"
+	"net"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -40,15 +41,48 @@ func clusterKeepaliveDialOption() grpc.DialOption {
 	})
 }
 
+// liveTLS is gRPC transport credentials whose client TLS config is built
+// anew for each handshake from what this node trusts then. A ClientConn keeps
+// its credentials for life and reconnects with them — the pool's, kept while
+// in use, and a heartbeat's — so a config built once went on trusting what
+// the node trusted when it first dialled, and could not reach a peer whose
+// certificate a rotated CA signed.
+type liveTLS struct {
+	credentials.TransportCredentials // Info, ServerHandshake, OverrideServerName
+	build                            func() (*tls.Config, error)
+}
+
+// liveClientCreds builds the config once, so that an error in it comes at
+// the dial, and then again for every handshake.
+func liveClientCreds(build func() (*tls.Config, error)) (credentials.TransportCredentials, error) {
+	cfg, err := build()
+	if err != nil {
+		return nil, err
+	}
+	return &liveTLS{TransportCredentials: credentials.NewTLS(cfg), build: build}, nil
+}
+
+func (c *liveTLS) ClientHandshake(ctx context.Context, authority string, raw net.Conn) (net.Conn, credentials.AuthInfo, error) {
+	cfg, err := c.build()
+	if err != nil {
+		return nil, nil, err
+	}
+	return credentials.NewTLS(cfg).ClientHandshake(ctx, authority, raw)
+}
+
+func (c *liveTLS) Clone() credentials.TransportCredentials {
+	return &liveTLS{TransportCredentials: c.TransportCredentials.Clone(), build: c.build}
+}
+
 // DialNode connects to a peer node with mTLS.
 func DialNode(address string, tlsMgr *TLSManager) (*GRPCClient, error) {
-	tlsConfig, err := tlsMgr.ClientTLSConfig()
+	creds, err := liveClientCreds(tlsMgr.ClientTLSConfig)
 	if err != nil {
 		return nil, fmt.Errorf("client TLS: %w", err)
 	}
 
 	conn, err := grpc.NewClient(address,
-		grpc.WithTransportCredentials(credentials.NewTLS(tlsConfig)),
+		grpc.WithTransportCredentials(creds),
 		clusterKeepaliveDialOption(),
 	)
 	if err != nil {

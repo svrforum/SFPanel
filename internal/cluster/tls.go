@@ -23,9 +23,9 @@ import (
 //
 // Node certs are hot-reloaded on disk change (checked at most once per
 // certReloadDebounce) so a rotation script can overwrite node.crt/key
-// atomically without restarting the process. The CA pool is loaded once —
-// rotating the cluster CA still requires a coordinated restart across all
-// nodes because every peer must trust the new CA simultaneously.
+// atomically without restarting the process. The CAs it trusts are ca.crt's,
+// read again by ReloadCAPool: a CA rotation (ca_rotation.go) changes them on a
+// running node, and the next handshake of every listener and dialer uses them.
 type TLSManager struct {
 	certDir string
 
@@ -33,7 +33,14 @@ type TLSManager struct {
 	cachedCert   *tls.Certificate
 	cachedMtime  time.Time
 	lastStatTime time.Time
-	cachedCAPool *x509.CertPool // loaded lazily, never invalidated
+	// caPool and caCerts are the CAs this node trusts — every certificate in
+	// ca.crt, in the file's order — loaded at first use and again by
+	// ReloadCAPool; every handshake reads them anew (serverConfig, liveTLS),
+	// so a CA rotation takes effect without a restart. Both are replaced
+	// whole, never changed in place: a handshake may still hold the old pool,
+	// and a CertPool has no lock of its own.
+	caPool  *x509.CertPool
+	caCerts []*x509.Certificate
 }
 
 // certReloadDebounce caps how often getNodeCert stats the filesystem.
@@ -366,11 +373,12 @@ func (t *TLSManager) SaveNodeCert(certPEM, keyPEM []byte) error {
 // as sha256(ca.crt), so a world-readable CA lets any non-root local process
 // recompute the secret and forge X-SFPanel-Internal-Proxy headers. Keep all
 // cluster trust material root-only.
+//
+// Through a temporary file, synced, and a rename: a CA rotation rewrites it
+// on a running node, whose handshakes, pins and signatures read it, and a
+// boot stops on a truncated one.
 func (t *TLSManager) SaveCACert(caPEM []byte) error {
-	if err := os.MkdirAll(t.certDir, 0700); err != nil {
-		return fmt.Errorf("create cert dir: %w", err)
-	}
-	return os.WriteFile(filepath.Join(t.certDir, "ca.crt"), caPEM, 0600)
+	return replaceFile(filepath.Join(t.certDir, "ca.crt"), caPEM)
 }
 
 // LoadCACert reads the CA certificate.
@@ -391,24 +399,84 @@ func (t *TLSManager) NodeCertLeaf() (*x509.Certificate, error) {
 	return x509.ParseCertificate(block.Bytes)
 }
 
-// loadCAPool returns the cluster CA pool, loaded once per process. CA
-// rotation intentionally requires a coordinated restart.
+// loadCAPool returns the pool of the CAs this node trusts, reading ca.crt at
+// first use; ReloadCAPool reads it again.
 func (t *TLSManager) loadCAPool() (*x509.CertPool, error) {
 	t.mu.Lock()
 	defer t.mu.Unlock()
-	if t.cachedCAPool != nil {
-		return t.cachedCAPool, nil
+	if t.caPool == nil {
+		if err := t.readCAPoolLocked(); err != nil {
+			return nil, err
+		}
 	}
+	return t.caPool, nil
+}
+
+// ReloadCAPool reads ca.crt again, for the next handshake of every listener
+// and dialer. A ca.crt that cannot be read, or holds no certificate, is an
+// error and the trust stays as it was: a node that trusted nothing would
+// reach no peer, and so hear of no fix.
+func (t *TLSManager) ReloadCAPool() error {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	return t.readCAPoolLocked()
+}
+
+// readCAPoolLocked replaces caPool and caCerts with ca.crt's certificates,
+// taken as leniently as x509.CertPool.AppendCertsFromPEM always took them
+// here (pemCertificates), and leaves both as they were when it fails. t.mu
+// is held.
+func (t *TLSManager) readCAPoolLocked() error {
 	caCertPEM, err := os.ReadFile(filepath.Join(t.certDir, "ca.crt"))
 	if err != nil {
-		return nil, fmt.Errorf("load CA cert: %w", err)
+		return fmt.Errorf("load CA cert: %w", err)
+	}
+	certs := pemCertificates(caCertPEM)
+	if len(certs) == 0 {
+		return fmt.Errorf("CA cert PEM did not contain any usable certificates")
 	}
 	pool := x509.NewCertPool()
-	if !pool.AppendCertsFromPEM(caCertPEM) {
-		return nil, fmt.Errorf("CA cert PEM did not contain any usable certificates")
+	for _, cert := range certs {
+		pool.AddCert(cert)
 	}
-	t.cachedCAPool = pool
-	return pool, nil
+	t.caPool, t.caCerts = pool, certs
+	return nil
+}
+
+// trustedCAs is caCerts, read at first use like the pool; nil when ca.crt
+// cannot be read.
+func (t *TLSManager) trustedCAs() []*x509.Certificate {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	if t.caPool == nil && t.readCAPoolLocked() != nil {
+		return nil
+	}
+	return t.caCerts
+}
+
+// TrustPins is the CAPin of each CA this node trusts, in ca.crt's order.
+func (t *TLSManager) TrustPins() []string {
+	cas := t.trustedCAs()
+	pins := make([]string, 0, len(cas))
+	for _, ca := range cas {
+		pins = append(pins, CAPin(ca.RawSubjectPublicKeyInfo))
+	}
+	return pins
+}
+
+// ServedCertCAPin is the CAPin of the trusted CA that signed the certificate
+// this node presents now, "" if none did.
+func (t *TLSManager) ServedCertCAPin() string {
+	cert, err := t.getNodeCert()
+	if err != nil || cert.Leaf == nil {
+		return ""
+	}
+	for _, ca := range t.trustedCAs() {
+		if cert.Leaf.CheckSignatureFrom(ca) == nil {
+			return CAPin(ca.RawSubjectPublicKeyInfo)
+		}
+	}
+	return ""
 }
 
 // getNodeCert returns the current node cert, reloading from disk when the
@@ -465,15 +533,48 @@ func (t *TLSManager) getNodeCert() (*tls.Certificate, error) {
 	return t.cachedCert, nil
 }
 
-// ServerTLSConfig builds a TLS config for the gRPC server.
-//
-// The returned config uses GetCertificate so each TLS handshake picks up
-// the latest node cert on disk (bounded by certReloadDebounce). This lets
-// operators rotate certs without restarting the process — write the new
-// node.crt/node.key atomically and the next handshake presents them.
-func (t *TLSManager) ServerTLSConfig() (*tls.Config, error) {
-	pool, err := t.loadCAPool()
+// ReloadNodeCert loads node.crt and node.key for the next handshake now,
+// past certReloadDebounce: a node that has just moved its certificate to
+// another CA presents it at once, and the leader goes by what each node
+// presents. A pair that does not load is an error, and the certificate
+// presented stays as it was.
+func (t *TLSManager) ReloadNodeCert() error {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+
+	certPath := filepath.Join(t.certDir, "node.crt")
+	keyPath := filepath.Join(t.certDir, "node.key")
+
+	// Stat before loading, as getNodeCert does: a write in between then
+	// shows as a newer mtime at its next stat rather than hiding behind this
+	// one.
+	info, err := os.Stat(certPath)
 	if err != nil {
+		return fmt.Errorf("stat node cert: %w", err)
+	}
+	newest := info.ModTime()
+	if keyInfo, keyErr := os.Stat(keyPath); keyErr == nil && keyInfo.ModTime().After(newest) {
+		newest = keyInfo.ModTime()
+	}
+	cert, err := tls.LoadX509KeyPair(certPath, keyPath)
+	if err != nil {
+		return fmt.Errorf("load node cert: %w", err)
+	}
+	t.cachedCert = &cert
+	t.cachedMtime = newest
+	t.lastStatTime = time.Now()
+	return nil
+}
+
+// serverConfig is a listener's TLS config. The CAs it verifies clients
+// against are the ones this node trusts at each handshake
+// (GetConfigForClient), so a CA rotation reaches a running listener; the
+// listener's own client-auth rule and check stay on every handshake. The
+// config returned holds the same values for callers that read them; a change
+// made to it reaches no handshake, which is why each listener's rule is a
+// parameter here rather than set on the result.
+func (t *TLSManager) serverConfig(clientAuth tls.ClientAuthType, verify func([][]byte, [][]*x509.Certificate) error) (*tls.Config, error) {
+	if _, err := t.loadCAPool(); err != nil {
 		return nil, err
 	}
 	// Validate the cert is loadable up front so callers get a useful error
@@ -481,14 +582,44 @@ func (t *TLSManager) ServerTLSConfig() (*tls.Config, error) {
 	if _, err := t.getNodeCert(); err != nil {
 		return nil, err
 	}
-	return &tls.Config{
-		GetCertificate: func(_ *tls.ClientHelloInfo) (*tls.Certificate, error) {
-			return t.getNodeCert()
-		},
-		ClientCAs:  pool,
-		ClientAuth: tls.VerifyClientCertIfGiven, // established nodes present certs (verified); joining nodes present none (allowed for PreFlight/Join)
-		MinVersion: tls.VersionTLS13,
-	}, nil
+	build := func(*tls.ClientHelloInfo) (*tls.Config, error) {
+		pool, err := t.loadCAPool()
+		if err != nil {
+			return nil, err
+		}
+		return &tls.Config{
+			GetCertificate:        func(*tls.ClientHelloInfo) (*tls.Certificate, error) { return t.getNodeCert() },
+			ClientCAs:             pool,
+			ClientAuth:            clientAuth,
+			VerifyPeerCertificate: verify,
+			MinVersion:            tls.VersionTLS13,
+		}, nil
+	}
+	// The pool is loaded by now and never unloaded, so this build cannot fail.
+	cfg, _ := build(nil)
+	cfg.GetConfigForClient = build
+	return cfg, nil
+}
+
+// ServerTLSConfig builds a TLS config for the gRPC server.
+//
+// The returned config uses GetCertificate so each TLS handshake picks up
+// the latest node cert on disk (bounded by certReloadDebounce). This lets
+// operators rotate certs without restarting the process — write the new
+// node.crt/node.key atomically and the next handshake presents them.
+func (t *TLSManager) ServerTLSConfig() (*tls.Config, error) {
+	// Established nodes present certs (verified); joining nodes present none
+	// (allowed for PreFlight/Join).
+	return t.serverConfig(tls.VerifyClientCertIfGiven, nil)
+}
+
+// AgentServerTLSConfig builds the TLS config for an agent's gRPC listener:
+// ServerTLSConfig's, with a client certificate required. A manager's listener
+// lets a caller without a certificate reach PreFlight, Join and
+// RegisterAgent. An agent serves none of them, so its handshake refuses such
+// a caller before any method is looked at.
+func (t *TLSManager) AgentServerTLSConfig() (*tls.Config, error) {
+	return t.serverConfig(tls.RequireAndVerifyClientCert, nil)
 }
 
 // RaftServerTLSConfig builds a TLS config for the Raft transport listener
@@ -499,29 +630,28 @@ func (t *TLSManager) ServerTLSConfig() (*tls.Config, error) {
 // cert-less connections — so the PreFlight/Join allowance baked into
 // VerifyClientCertIfGiven must not apply here.
 func (t *TLSManager) RaftServerTLSConfig() (*tls.Config, error) {
-	cfg, err := t.ServerTLSConfig()
-	if err != nil {
-		return nil, err
+	return t.serverConfig(tls.RequireAndVerifyClientCert, refuseAgentChains)
+}
+
+// refuseAgentChains is the Raft listener's check. Chains are verified against
+// the cluster CA by now. An agent's certificate is signed by the same CA, and
+// the Raft transport does not authenticate which member speaks: an agent let
+// in here could claim leadership with a higher term.
+func refuseAgentChains(_ [][]byte, chains [][]*x509.Certificate) error {
+	if len(chains) == 0 || len(chains[0]) == 0 {
+		return errors.New("no verified client certificate")
 	}
-	cfg.ClientAuth = tls.RequireAndVerifyClientCert
-	// Chains are verified against the cluster CA by now. An agent's
-	// certificate is signed by the same CA, and the Raft transport does not
-	// authenticate which member speaks: an agent let in here could claim
-	// leadership with a higher term.
-	cfg.VerifyPeerCertificate = func(_ [][]byte, chains [][]*x509.Certificate) error {
-		if len(chains) == 0 || len(chains[0]) == 0 {
-			return errors.New("no verified client certificate")
-		}
-		if CertRole(chains[0][0]) == CertRoleAgent {
-			return errors.New("an agent certificate may not use the Raft transport")
-		}
-		return nil
+	if CertRole(chains[0][0]) == CertRoleAgent {
+		return errors.New("an agent certificate may not use the Raft transport")
 	}
-	return cfg, nil
+	return nil
 }
 
 // ClientTLSConfig builds a TLS config for gRPC client connections.
 // Uses GetClientCertificate for the same rotation semantics as the server.
+// It verifies servers against the CAs trusted when it is built, so a dialer
+// that reconnects builds it again for each connection (liveTLS,
+// tlsStreamLayer).
 func (t *TLSManager) ClientTLSConfig() (*tls.Config, error) {
 	pool, err := t.loadCAPool()
 	if err != nil {
@@ -560,7 +690,7 @@ func (t *TLSManager) HasCAKey() bool {
 // perms match InitCA/SaveNodeCert — the CA key is the cluster's root signing
 // material and must never be readable by non-root processes.
 //
-// Written atomically (temp + rename), unlike SaveCACert: ensureCAKey can call
+// Written atomically (temp + rename): ensureCAKey can call
 // this concurrently from parallel HandleJoin goroutines on a freshly-promoted
 // leader, and loadCA reads ca.key without a lock. A plain truncating write would
 // let a concurrent reader observe a half-written key and fail with a spurious

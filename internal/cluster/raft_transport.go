@@ -15,7 +15,9 @@ import (
 type tlsStreamLayer struct {
 	listener net.Listener
 	addr     net.Addr
-	tlsConf  *tls.Config
+	// client builds the dialing side's config for each connection, so a new
+	// Raft connection verifies its peer against what this node trusts now.
+	client func() (*tls.Config, error)
 }
 
 func (t *tlsStreamLayer) Accept() (net.Conn, error) {
@@ -31,8 +33,12 @@ func (t *tlsStreamLayer) Addr() net.Addr {
 }
 
 func (t *tlsStreamLayer) Dial(address raft.ServerAddress, timeout time.Duration) (net.Conn, error) {
+	cfg, err := t.client()
+	if err != nil {
+		return nil, err
+	}
 	dialer := &net.Dialer{Timeout: timeout}
-	conn, err := tls.DialWithDialer(dialer, "tcp", string(address), t.tlsConf)
+	conn, err := tls.DialWithDialer(dialer, "tcp", string(address), cfg)
 	if err != nil {
 		return nil, err
 	}
@@ -58,8 +64,9 @@ func newRaftTransport(cfg RaftConfig, addr *net.TCPAddr) (raft.Transport, error)
 		return nil, fmt.Errorf("raft server TLS: %w", err)
 	}
 
-	clientTLS, err := cfg.TLS.ClientTLSConfig()
-	if err != nil {
+	// Built here only for its error, which then comes now rather than at the
+	// first dial; every dial builds its own (tlsStreamLayer.client).
+	if _, err := cfg.TLS.ClientTLSConfig(); err != nil {
 		return nil, fmt.Errorf("raft client TLS: %w", err)
 	}
 
@@ -72,7 +79,7 @@ func newRaftTransport(cfg RaftConfig, addr *net.TCPAddr) (raft.Transport, error)
 	stream := &tlsStreamLayer{
 		listener: listener,
 		addr:     listener.Addr(),
-		tlsConf:  clientTLS,
+		client:   cfg.TLS.ClientTLSConfig,
 	}
 
 	transport := raft.NewNetworkTransport(stream, 3, 10*time.Second, os.Stderr)
