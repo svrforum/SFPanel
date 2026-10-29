@@ -20,6 +20,7 @@ import (
 
 	"github.com/svrforum/SFPanel/internal/cluster"
 	"github.com/svrforum/SFPanel/internal/config"
+	"github.com/svrforum/SFPanel/internal/db"
 	"github.com/svrforum/SFPanel/internal/paneltls"
 )
 
@@ -140,6 +141,9 @@ func agentJoin(args []string) {
 	if err != nil {
 		log.Fatal(err)
 	}
+	if engine.DB != nil {
+		defer engine.DB.Close()
+	}
 	fmt.Printf("Joining the cluster at %s as an agent...\n", a.Manager)
 	res, err := engine.Execute(a.Manager, a.Token, a.Advertise, a.Pin, panelCA)
 	if err != nil {
@@ -184,6 +188,14 @@ func prepareAgentJoin(cfg *config.Config, a agentJoinArgs) (*cluster.AgentJoinEn
 		return nil, nil, false, err
 	}
 	engine := &cluster.AgentJoinEngine{Config: cfg, ConfigPath: a.ConfigPath, Version: version, Name: a.Name, CheckPanelCert: paneltls.CertCheck(cfg)}
+	// With the database the join removes the local admin account, as a
+	// conversion's does: an agent has no login, and the account of a server
+	// that was a manager is the cluster admin's.
+	if database, err := db.Open(cfg.Database.Path); err != nil {
+		log.Printf("Warning: failed to open the database; the local admin account is left as is: %v", err)
+	} else {
+		engine.DB = database
+	}
 	return engine, panelCA, tlsTurnedOn, nil
 }
 

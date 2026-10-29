@@ -555,6 +555,11 @@ curl -fsSL https://raw.githubusercontent.com/svrforum/SFPanel/main/scripts/insta
   (`agent.key`, 0600) under `cluster.cert_dir` — removing the key rotation's
   state an earlier membership left there (`agent-key-rotation.json`) — and
   restarts a running sfpanel, which comes back as an agent.
+- Once the config names the server an agent, the join removes the panel's
+  local `admin` account: an agent has no login, and on a server that was a
+  manager — after `cluster leave`, or a conversion that stopped short — the
+  account is the cluster admin's, its password hash, TOTP seed and recovery
+  codes with it. A join that stops before then leaves it.
 - Before the token travels, the join checks that the panel's certificate
   verifies against the panel's CA for the advertise IP, where the managers
   reach the panel, and for 127.0.0.1, where the agent's own gRPC server
@@ -652,7 +657,9 @@ node; the leader watches the managers' pings the same way.
    rotation's state (`agent-key-rotation.json`) and the link's state are
    deleted, and a running service restarts. Without `--yes` it
    only lists what it would do. The installer's `uninstall` runs the reset
-   itself.
+   itself. The panel has no admin account then — the join removed it — so
+   it asks for one as a fresh install does, from loopback or a private
+   network: create it straight away.
 
 An agent cannot take itself out of the cluster: a reset on its own leaves its
 record on the managers, and the command says how to remove it.
@@ -864,17 +871,22 @@ A leader starts one conversion at a time.
    turned on with the managed certificate, as `agent join` does, and an
    operator certificate needs `server.tls.ca_file`. Then the node answers,
    and the leader answers the operator `202`: the conversion has begun.
-3. The node leaves the cluster, and the leader removes its record and its
+3. The node makes the cluster's admin account its local one — password, 2FA
+   and recovery codes — as a leave does: from the leave on, a stop leaves a
+   standalone panel, which signs in with that account.
+4. The node leaves the cluster, and the leader removes its record and its
    Raft membership.
-4. It saves its config as a standalone panel's, with a JWT key of its own.
-5. It removes what a manager keeps and an agent must not hold: `ca.key` in
-   `cluster.cert_dir`; `raft-log.db`, `raft-stable.db`, `snapshots`,
-   `tokens.json`, `proxy-secret.json`, `ca-rotation.json`, `peers.json` and
-   `peers.info` in `cluster.data_dir`; the local `admin` account; and the
+5. It saves its config as a standalone panel's, with a JWT key of its own.
+6. It removes what a manager keeps and an agent must not hold: `ca.key`, and
+   its own `node.crt` and `node.key` — a manager's certificate, which leaving
+   does not revoke — in `cluster.cert_dir`; `raft-log.db`, `raft-stable.db`,
+   `snapshots`, `tokens.json`, `proxy-secret.json`, `ca-rotation.json`,
+   `peers.json` and `peers.info` in `cluster.data_dir`; and the
    `config.yaml.bak` and `sfpanel.db.bak` an update leaves.
-6. It registers as an agent under its own ID with the token, and the leader
-   gives the new record the name, labels and join time it recorded.
-7. It restarts as an agent (`Restart=always` starts it again).
+7. It registers as an agent under its own ID with the token, and the leader
+   gives the new record the name, labels and join time it recorded. Then it
+   removes the local `admin` account: an agent has no login.
+8. It restarts as an agent (`Restart=always` starts it again).
 
 It is over when the node list shows the node as an agent. The node may be the
 one the browser is connected to — the CLI on that node needs it — but the
@@ -891,17 +903,19 @@ carry on from another manager.
   the answer would come back on — so the token is kept, and admits that node
   alone, at its IP. Look for the node in the node list a minute later, and if
   it is still a manager there, convert it again.
-- The leave fails: nothing else changes on the node, which restarts as the
-  manager it was. Its log says why.
+- The node cannot make the cluster's account its own, or the leave fails:
+  nothing else changes on the node, which restarts as the manager it was. Its
+  log says why.
 - A step after the standalone config is saved fails — a file that will not
   go, or a registration the leader refuses (a leader elected since the
   conversion began does not have its token): the node restarts as a
-  standalone panel, and its log names what failed. Remove any file it names,
-  then join it with `sudo sfpanel agent join` and a token from
-  `sudo sfpanel cluster token --agent`. It comes back as a new node, with a
-  new ID and without its labels. The conversion removed the local account
-  before it registered, so until that join the panel's first-run setup is
-  open from loopback and private networks, as on a fresh install.
+  standalone panel, as a leave leaves one. Sign in to it with the cluster's
+  account; it holds none of the cluster's keys and no manager certificate.
+  Its log names what failed, and on the managers the node has only gone from
+  the node list. Remove any file the log names, then join it with
+  `sudo sfpanel agent join` and a token from
+  `sudo sfpanel cluster token --agent`, which removes the account. It comes
+  back as a new node, with a new ID and without its labels.
 
 **Backups.** The scheduled backups beside the database
 (`/var/lib/sfpanel/backups`) are the operator's and stay where they are; when

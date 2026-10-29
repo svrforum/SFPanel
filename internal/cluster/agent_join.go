@@ -6,6 +6,7 @@ import (
 	"crypto/elliptic"
 	"crypto/rand"
 	"crypto/x509"
+	"database/sql"
 	"encoding/pem"
 	"errors"
 	"fmt"
@@ -34,6 +35,12 @@ import (
 type AgentJoinEngine struct {
 	Config     *config.Config
 	ConfigPath string
+	// DB is this server's database. With it, a join removes the local admin
+	// account once the config names this server an agent: an agent has no
+	// login, and the account a former manager kept — after a leave, or a
+	// conversion that stopped short — is the cluster admin's, its password
+	// hash, TOTP seed and recovery codes. nil leaves it.
+	DB *sql.DB
 	// Version is this binary's, sent with the registration; the leader logs
 	// it with the new agent.
 	Version string
@@ -208,6 +215,17 @@ func (e *AgentJoinEngine) Execute(managerAddr, token, advertise, pin string, pan
 		return nil, registeredAnyway(resp.NodeId, name, fmt.Errorf("save the agent config: %w", err))
 	}
 	*e.Config = next
+
+	// Only now: a join that stops before this leaves the panel it was, signed
+	// in to with this account. The join has committed, so an account that
+	// will not go is a warning, as a manager join's adoption of the cluster
+	// admin is.
+	if e.DB != nil {
+		if _, err := e.DB.Exec(`DELETE FROM admin`); err != nil {
+			slog.Warn("joined as an agent, but the local admin account stayed: an agent has no login; delete the rows of the admin table by hand",
+				"component", "agent", "database", next.Database.Path, "error", err)
+		}
+	}
 
 	slog.Info("joined the cluster as an agent", "component", "agent",
 		"cluster", resp.ClusterName, "node_id", resp.NodeId, "leader", leaderAddr)
