@@ -137,6 +137,9 @@ type Manager struct {
 	// (HandleRenewCertificate).
 	renewMu   sync.Mutex
 	renewedAt map[string]time.Time
+	// agentKeyRotateMu orders an agent key rotation's start and its steps
+	// (agent_key_rotation.go), and the removal of an agent's keys.
+	agentKeyRotateMu sync.Mutex
 	// hbReconnect asks the heartbeat for a new connection
 	// (reconnectHeartbeat): one signal waits, and a second is the same one.
 	hbReconnect chan struct{}
@@ -763,9 +766,22 @@ func (m *Manager) HandleJoin(nodeID, nodeName, apiAddr, grpcAddr, token string, 
 		// agent's key is used no more; kept, it would stay in replicated state
 		// for good, as removing a manager takes no agent key with it. Its
 		// panel CA stays: the managers reach a manager's panel by it as well.
-		if err := m.raft.Apply(Command{Type: CmdDeleteConfig, Key: AgentKeyConfigKey(nodeID)}, 5*time.Second); err != nil {
+		// The key a rotation issued it goes too; left, it is a record no one
+		// reads. Both under the rotation's lock: a confirm that read the
+		// node as an agent must not put the key back after.
+		m.agentKeyRotateMu.Lock()
+		err := m.raft.Apply(Command{Type: CmdDeleteConfig, Key: AgentKeyConfigKey(nodeID)}, 5*time.Second)
+		var nextErr error
+		if err == nil {
+			nextErr = m.raft.Apply(Command{Type: CmdDeleteConfig, Key: AgentKeyNextConfigKey(nodeID)}, 5*time.Second)
+		}
+		m.agentKeyRotateMu.Unlock()
+		if err != nil {
 			m.undoPromotion(existing, agentKey, used)
 			return nil, nil, nil, nil, fmt.Errorf("remove the agent key: %w", err)
+		}
+		if nextErr != nil {
+			slog.Warn("the key a rotation issued the agent was not removed", "component", "cluster", "node_id", nodeID, "error", nextErr)
 		}
 	}
 
@@ -1038,11 +1054,19 @@ func (m *Manager) RemoveNode(nodeID string) error {
 	}
 
 	if node != nil && !node.IsManager() {
-		// With the key gone no manager can sign for the agent. If this fails
-		// the record stays and the removal can be retried; in the other order
-		// a failure could leave the key replicated with no record to remove
-		// it by.
-		if err := m.raft.Apply(Command{Type: CmdDeleteConfig, Key: AgentKeyConfigKey(nodeID)}, 5*time.Second); err != nil {
+		// With the key, and the key a rotation issued it, gone no manager can
+		// sign for the agent. If this fails the record stays and the removal
+		// can be retried; in the other order a failure could leave the key
+		// replicated with no record to remove it by. Under the rotation's
+		// lock: a confirm between the two writes would put the issued key
+		// back as the agent's.
+		m.agentKeyRotateMu.Lock()
+		err := m.raft.Apply(Command{Type: CmdDeleteConfig, Key: AgentKeyConfigKey(nodeID)}, 5*time.Second)
+		if err == nil {
+			err = m.raft.Apply(Command{Type: CmdDeleteConfig, Key: AgentKeyNextConfigKey(nodeID)}, 5*time.Second)
+		}
+		m.agentKeyRotateMu.Unlock()
+		if err != nil {
 			return fmt.Errorf("remove agent key: %w", err)
 		}
 	} else if err := m.raft.RemoveServer(nodeID); err != nil {

@@ -181,6 +181,14 @@ func (c *GRPCClient) RenewCertificate(ctx context.Context, req *pb.RenewCertific
 	return c.client.RenewCertificate(ctx, req)
 }
 
+// RotateAgentKey asks the leader for the key an agent key rotation issued
+// this agent, or tells it the agent holds that key.
+func (c *GRPCClient) RotateAgentKey(ctx context.Context, req *pb.RotateAgentKeyRequest) (*pb.RotateAgentKeyResponse, error) {
+	ctx, cancel := context.WithTimeout(ctx, 30*time.Second)
+	defer cancel()
+	return c.client.RotateAgentKey(ctx, req)
+}
+
 // OpenAgentHeartbeat opens an agent's heartbeat stream to a manager, which
 // lasts until ctx ends or the stream fails. Its pongs must be read: unread,
 // they fill the stream's flow-control window and both ends wedge (see the

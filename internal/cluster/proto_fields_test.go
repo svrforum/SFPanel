@@ -54,3 +54,12 @@ func TestProtoCarriesTheProxyGeneration(t *testing.T) {
 		t.Fatal("proxy_generation did not round-trip")
 	}
 }
+
+func TestProtoCarriesAgentKeyRotations(t *testing.T) {
+	pong := &pb.HeartbeatPong{AgentKey: &pb.AgentKeyHint{Generation: 2, Current: true}}
+	req := &pb.RotateAgentKeyRequest{Generation: 2, Proof: "p", Confirm: true}
+	resp := &pb.RotateAgentKeyResponse{Success: true, AgentKey: "k", Switched: true, LeaderGrpcAddress: "192.0.2.1:3629"}
+	if pong.GetAgentKey().GetGeneration() != 2 || !req.GetConfirm() || !resp.GetSwitched() || resp.GetAgentKey() != "k" {
+		t.Fatal("agent key rotation fields did not round-trip")
+	}
+}

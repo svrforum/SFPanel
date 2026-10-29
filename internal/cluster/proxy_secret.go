@@ -364,15 +364,16 @@ func (m *Manager) replicatedSecretSeenAt(replicated string, now time.Time) time.
 }
 
 // heartbeatCapabilities is what this node reports on its heartbeat: CapAgents
-// always — it is a property of the code — and CapCARotation always, as
-// CapAgents; CapProxyRotation always, as CapAgents: a property of the code —
+// always — it is a property of the code — and CapCARotation and
+// CapAgentKeyRotation always, as CapAgents; CapProxyRotation always, as
+// CapAgents: a property of the code —
 // whether this manager has taken a re-rotation's next secret is its ping's
 // proxy_generation; CapProxySecret once this node accepts the replicated
 // secret, what the leader waits for before it rotates, not merely once it
 // runs code that could; and CapJWTRotation once something is wired to apply
 // a new JWT key.
 func (m *Manager) heartbeatCapabilities() []string {
-	caps := []string{CapAgents, CapCARotation, CapProxyRotation}
+	caps := []string{CapAgents, CapCARotation, CapProxyRotation, CapAgentKeyRotation}
 	if m.jwtApplierSet.Load() {
 		caps = append(caps, CapJWTRotation)
 	}

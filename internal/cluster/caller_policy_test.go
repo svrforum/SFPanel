@@ -42,6 +42,7 @@ const (
 	methodGetMetrics = "/sfpanel.cluster.ClusterService/GetMetrics"
 	methodSubscribe  = "/sfpanel.cluster.ClusterService/Subscribe"
 	methodRenew      = "/sfpanel.cluster.ClusterService/RenewCertificate"
+	methodRotateKey  = "/sfpanel.cluster.ClusterService/RotateAgentKey"
 )
 
 func TestAuthorizeCaller(t *testing.T) {
@@ -75,6 +76,10 @@ func TestAuthorizeCaller(t *testing.T) {
 		{"a manager may not renew through an agent's RPC", methodRenew, "m1", CertRoleManager, codes.PermissionDenied, "may not call"},
 		{"an agent ID with a manager certificate may not renew", methodRenew, "a1", CertRoleManager, codes.PermissionDenied, "may not call"},
 		{"a stranger may not renew", methodRenew, "x9", CertRoleAgent, codes.PermissionDenied, "not a member"},
+		{"an agent rotates its key", methodRotateKey, "a1", CertRoleAgent, codes.OK, ""},
+		{"a manager may not rotate through an agent's RPC", methodRotateKey, "m1", CertRoleManager, codes.PermissionDenied, "may not call"},
+		{"an agent ID with a manager certificate may not rotate", methodRotateKey, "a1", CertRoleManager, codes.PermissionDenied, "may not call"},
+		{"a stranger may not rotate", methodRotateKey, "x9", CertRoleAgent, codes.PermissionDenied, "not a member"},
 		{"an unlisted method is refused", "/sfpanel.cluster.ClusterService/Shiny", "m1", CertRoleManager, codes.PermissionDenied, "not open to cluster members"},
 	}
 	for _, tc := range cases {

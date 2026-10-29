@@ -30,6 +30,7 @@ const (
 	ClusterService_ReportPanelCA_FullMethodName    = "/sfpanel.cluster.ClusterService/ReportPanelCA"
 	ClusterService_AgentHeartbeat_FullMethodName   = "/sfpanel.cluster.ClusterService/AgentHeartbeat"
 	ClusterService_RenewCertificate_FullMethodName = "/sfpanel.cluster.ClusterService/RenewCertificate"
+	ClusterService_RotateAgentKey_FullMethodName   = "/sfpanel.cluster.ClusterService/RotateAgentKey"
 )
 
 // ClusterServiceClient is the client API for ClusterService service.
@@ -60,6 +61,10 @@ type ClusterServiceClient interface {
 	// moves it to (the pong's ca.sign_pin), over its current mTLS: the node
 	// is the caller's certificate, never a request field.
 	RenewCertificate(ctx context.Context, in *RenewCertificateRequest, opts ...grpc.CallOption) (*RenewCertificateResponse, error)
+	// An agent takes the internal-proxy key an agent key rotation issued it
+	// (the pong's agent_key hint), and says when it holds it, over its
+	// current mTLS: the node is the caller's certificate, never a field.
+	RotateAgentKey(ctx context.Context, in *RotateAgentKeyRequest, opts ...grpc.CallOption) (*RotateAgentKeyResponse, error)
 }
 
 type clusterServiceClient struct {
@@ -195,6 +200,16 @@ func (c *clusterServiceClient) RenewCertificate(ctx context.Context, in *RenewCe
 	return out, nil
 }
 
+func (c *clusterServiceClient) RotateAgentKey(ctx context.Context, in *RotateAgentKeyRequest, opts ...grpc.CallOption) (*RotateAgentKeyResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(RotateAgentKeyResponse)
+	err := c.cc.Invoke(ctx, ClusterService_RotateAgentKey_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 // ClusterServiceServer is the server API for ClusterService service.
 // All implementations must embed UnimplementedClusterServiceServer
 // for forward compatibility.
@@ -223,6 +238,10 @@ type ClusterServiceServer interface {
 	// moves it to (the pong's ca.sign_pin), over its current mTLS: the node
 	// is the caller's certificate, never a request field.
 	RenewCertificate(context.Context, *RenewCertificateRequest) (*RenewCertificateResponse, error)
+	// An agent takes the internal-proxy key an agent key rotation issued it
+	// (the pong's agent_key hint), and says when it holds it, over its
+	// current mTLS: the node is the caller's certificate, never a field.
+	RotateAgentKey(context.Context, *RotateAgentKeyRequest) (*RotateAgentKeyResponse, error)
 	mustEmbedUnimplementedClusterServiceServer()
 }
 
@@ -265,6 +284,9 @@ func (UnimplementedClusterServiceServer) AgentHeartbeat(grpc.BidiStreamingServer
 }
 func (UnimplementedClusterServiceServer) RenewCertificate(context.Context, *RenewCertificateRequest) (*RenewCertificateResponse, error) {
 	return nil, status.Error(codes.Unimplemented, "method RenewCertificate not implemented")
+}
+func (UnimplementedClusterServiceServer) RotateAgentKey(context.Context, *RotateAgentKeyRequest) (*RotateAgentKeyResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method RotateAgentKey not implemented")
 }
 func (UnimplementedClusterServiceServer) mustEmbedUnimplementedClusterServiceServer() {}
 func (UnimplementedClusterServiceServer) testEmbeddedByValue()                        {}
@@ -456,6 +478,24 @@ func _ClusterService_RenewCertificate_Handler(srv interface{}, ctx context.Conte
 	return interceptor(ctx, in, info, handler)
 }
 
+func _ClusterService_RotateAgentKey_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(RotateAgentKeyRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(ClusterServiceServer).RotateAgentKey(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: ClusterService_RotateAgentKey_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(ClusterServiceServer).RotateAgentKey(ctx, req.(*RotateAgentKeyRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 // ClusterService_ServiceDesc is the grpc.ServiceDesc for ClusterService service.
 // It's only intended for direct use with grpc.RegisterService,
 // and not to be introspected or modified (even as a copy)
@@ -494,6 +534,10 @@ var ClusterService_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "RenewCertificate",
 			Handler:    _ClusterService_RenewCertificate_Handler,
+		},
+		{
+			MethodName: "RotateAgentKey",
+			Handler:    _ClusterService_RotateAgentKey_Handler,
 		},
 	},
 	Streams: []grpc.StreamDesc{

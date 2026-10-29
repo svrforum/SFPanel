@@ -457,6 +457,10 @@ func TestAnAgentPromotesToAManager(t *testing.T) {
 	if err := mgr.UpdateNodeLabels(id, map[string]string{"group": "edge"}); err != nil {
 		t.Fatal(err)
 	}
+	// A key an agent key rotation issued it and it had not confirmed.
+	if err := mgr.SetConfig(AgentKeyNextConfigKey(id), string(mustJSON(agentKeyNext{Generation: 1, Key: "issued-key"}))); err != nil {
+		t.Fatal(err)
+	}
 	tok, err := mgr.PrepareManagerPromotion(id)
 	if err != nil {
 		t.Fatal(err)
@@ -504,6 +508,9 @@ func TestAnAgentPromotesToAManager(t *testing.T) {
 	leaf, err := NewTLSManager(cfg.Cluster.CertDir).NodeCertLeaf()
 	if err != nil || CertRole(leaf) != CertRoleManager || leaf.Subject.CommonName != id {
 		t.Fatalf("the node certificate: %v", err)
+	}
+	if v, _ := mgr.raft.GetFSM().GetConfigValue(AgentKeyNextConfigKey(id)); v != "" {
+		t.Fatal("the key issued to the agent stayed once it became a manager")
 	}
 }
 

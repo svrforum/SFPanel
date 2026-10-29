@@ -205,6 +205,7 @@ var methodPolicy = map[string]callerPolicy{
 	"/sfpanel.cluster.ClusterService/ProxyRequest":     callerManager,
 	"/sfpanel.cluster.ClusterService/ReportPanelCA":    callerMember, // for itself only: see ReportPanelCA
 	"/sfpanel.cluster.ClusterService/RenewCertificate": callerAgent,  // for itself only: see RenewCertificate
+	"/sfpanel.cluster.ClusterService/RotateAgentKey":   callerAgent,  // for itself only: see RotateAgentKey
 }
 
 // authorizeCaller checks the verified peer certificate against methodPolicy.
@@ -436,6 +437,26 @@ func (s *GRPCServer) RenewCertificate(ctx context.Context, req *pb.RenewCertific
 	return &pb.RenewCertificateResponse{Success: true, NodeCert: cert, CaBundle: bundle}, nil
 }
 
+// RotateAgentKey hands the calling agent the internal-proxy key an agent key
+// rotation issued it, and moves the managers to it once the agent says it
+// holds it (HandleRotateAgentKey). The node is the caller's verified
+// certificate, never a request field; a follower answers with the leader's
+// address, where the agent asks again.
+func (s *GRPCServer) RotateAgentKey(ctx context.Context, req *pb.RotateAgentKeyRequest) (*pb.RotateAgentKeyResponse, error) {
+	leaf := peerLeaf(ctx)
+	if leaf == nil {
+		return nil, status.Error(codes.Unauthenticated, "client certificate required for this method")
+	}
+	if !s.manager.IsLeader() {
+		return &pb.RotateAgentKeyResponse{Error: ErrNotLeader.Error(), LeaderGrpcAddress: s.manager.GetRaft().LeaderGRPCAddress()}, nil
+	}
+	key, switched, err := s.manager.HandleRotateAgentKey(leaf, req.Generation, req.Proof, req.Confirm)
+	if err != nil {
+		return &pb.RotateAgentKeyResponse{Error: err.Error()}, nil
+	}
+	return &pb.RotateAgentKeyResponse{Success: true, AgentKey: key, Switched: switched}, nil
+}
+
 // PreFlight validates a join token without consuming it.
 //
 // The CA key goes back whatever the token says. A joiner asks with no token
@@ -597,6 +618,8 @@ func (s *GRPCServer) serveHeartbeat(stream grpc.BidiStreamingServer[pb.Heartbeat
 			if !promote {
 				// Agents learn a CA rotation from here; managers from their FSM.
 				pong.Ca = s.manager.caHint()
+				// And an agent key rotation, as a generation: never a key.
+				pong.AgentKey = s.manager.agentKeyHint(peerCN)
 			}
 			if err := stream.Send(pong); err != nil {
 				return err

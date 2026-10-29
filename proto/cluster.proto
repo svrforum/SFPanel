@@ -27,6 +27,10 @@ service ClusterService {
     // moves it to (the pong's ca.sign_pin), over its current mTLS: the node
     // is the caller's certificate, never a request field.
     rpc RenewCertificate(RenewCertificateRequest) returns (RenewCertificateResponse);
+    // An agent takes the internal-proxy key an agent key rotation issued it
+    // (the pong's agent_key hint), and says when it holds it, over its
+    // current mTLS: the node is the caller's certificate, never a field.
+    rpc RotateAgentKey(RotateAgentKeyRequest) returns (RotateAgentKeyResponse);
 }
 
 message PreFlightRequest {
@@ -128,6 +132,16 @@ message HeartbeatPong {
     // caught up. Absent with no rotation, from a follower, and from a leader
     // older than the field: the agent keeps what it has.
     ClusterCA ca = 6;
+    // An agent key rotation, from a leader whose FSM has caught up. Absent
+    // with none, from a follower, and from a leader older than the field.
+    AgentKeyHint agent_key = 7;
+}
+
+// AgentKeyHint is what the leader tells an agent of an agent key rotation:
+// never a key.
+message AgentKeyHint {
+    int64 generation = 1;  // the last agent key rotation started
+    bool  current = 2;     // the managers sign for this agent with that generation's key
 }
 
 // ClusterCA is what the leader tells an agent of a CA rotation.
@@ -234,4 +248,20 @@ message RenewCertificateResponse {
     bytes  node_cert = 3;            // PEM, from the CA the rotation signs with now
     bytes  ca_bundle = 4;            // PEM, the CAs to trust now (as the pong's)
     string leader_grpc_address = 5;  // set when the answering manager is not the leader
+}
+
+message RotateAgentKeyRequest {
+    int64  generation = 1;  // the hint's
+    // hex HMAC-SHA256 over "agent-key\n<fetch|confirm>\n<node id>\n<generation>":
+    // a fetch made with the key the agent holds now, a confirm with the key issued
+    string proof = 2;
+    bool   confirm = 3;     // the agent holds the issued key on disk and accepts it
+}
+
+message RotateAgentKeyResponse {
+    bool   success = 1;
+    string error = 2;
+    string agent_key = 3;           // the key issued to this agent, on a fetch; nothing else
+    bool   switched = 4;            // the managers sign for this agent with the issued key now
+    string leader_grpc_address = 5; // set when the answering manager is not the leader
 }

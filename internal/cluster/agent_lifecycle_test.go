@@ -174,6 +174,7 @@ func TestRemovingAnAgentDropsItsKeyFirst(t *testing.T) {
 	}
 	want := []Command{
 		{Type: CmdDeleteConfig, Key: AgentKeyConfigKey(id)},
+		{Type: CmdDeleteConfig, Key: AgentKeyNextConfigKey(id)},
 		{Type: CmdRemoveNode, Key: id},
 		{Type: CmdDeleteConfig, Key: panelCAKey(id)},
 	}

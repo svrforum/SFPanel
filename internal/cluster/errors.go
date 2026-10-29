@@ -71,6 +71,13 @@ var (
 	ErrRotationRefused = errors.New("the rotation was refused")
 	// ErrRotationWaiting is followed by the nodes the rotation waits for.
 	ErrRotationWaiting = errors.New("a rotation waits for every node it changes to be online and run a version that follows it")
+	// ErrNoAgentKeyDue: no agent key rotation at that generation is waiting
+	// for this node — none started, another one since, or a confirm before
+	// the key was taken.
+	ErrNoAgentKeyDue = errors.New("no agent key rotation is due for this node at that generation")
+	// ErrAgentKeyProof: a step of an agent key rotation not signed with the
+	// key it must be — the agent's own for a fetch, the issued one for a confirm.
+	ErrAgentKeyProof = errors.New("the agent key rotation step is not signed with this agent's key")
 	// ErrCARotationInProgress: refused while the cluster CA is being replaced.
 	ErrCARotationInProgress = errors.New("the cluster CA is being replaced: joins, registrations, conversions, promotions and updates wait until it has finished — see 'sfpanel cluster rotate status'")
 	// ErrCARotationPastReturn: a CA rotation is past the point it can be undone.
