@@ -508,9 +508,13 @@ type HeartbeatPing struct {
 	JwtGeneration *int64 `protobuf:"varint,10,opt,name=jwt_generation,json=jwtGeneration,proto3,oneof" json:"jwt_generation,omitempty"`
 	// The CAs this node trusts now, as CAPin fingerprints. A CA rotation moves
 	// on only once every node trusts what the next step needs.
-	CaTrustPins   []string `protobuf:"bytes,11,rep,name=ca_trust_pins,json=caTrustPins,proto3" json:"ca_trust_pins,omitempty"`
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
+	CaTrustPins []string `protobuf:"bytes,11,rep,name=ca_trust_pins,json=caTrustPins,proto3" json:"ca_trust_pins,omitempty"`
+	// The generation of the managers' internal proxy secret this manager
+	// accepts (ProxyKey): the leader switches every manager to a new one
+	// only once each of them accepts it.
+	ProxyGeneration *int64 `protobuf:"varint,12,opt,name=proxy_generation,json=proxyGeneration,proto3,oneof" json:"proxy_generation,omitempty"`
+	unknownFields   protoimpl.UnknownFields
+	sizeCache       protoimpl.SizeCache
 }
 
 func (x *HeartbeatPing) Reset() {
@@ -618,6 +622,13 @@ func (x *HeartbeatPing) GetCaTrustPins() []string {
 		return x.CaTrustPins
 	}
 	return nil
+}
+
+func (x *HeartbeatPing) GetProxyGeneration() int64 {
+	if x != nil && x.ProxyGeneration != nil {
+		return *x.ProxyGeneration
+	}
+	return 0
 }
 
 type HeartbeatPong struct {
@@ -1736,7 +1747,7 @@ const file_proto_cluster_proto_rawDesc = "" +
 	"\anode_id\x18\x01 \x01(\tR\x06nodeId\"?\n" +
 	"\rLeaveResponse\x12\x18\n" +
 	"\asuccess\x18\x01 \x01(\bR\asuccess\x12\x14\n" +
-	"\x05error\x18\x02 \x01(\tR\x05error\"\xc5\x03\n" +
+	"\x05error\x18\x02 \x01(\tR\x05error\"\x8a\x04\n" +
 	"\rHeartbeatPing\x12\x17\n" +
 	"\anode_id\x18\x01 \x01(\tR\x06nodeId\x12\x1f\n" +
 	"\vcpu_percent\x18\x02 \x01(\x01R\n" +
@@ -1750,9 +1761,11 @@ const file_proto_cluster_proto_rawDesc = "" +
 	"\x12raft_applied_index\x18\t \x01(\x04H\x00R\x10raftAppliedIndex\x88\x01\x01\x12*\n" +
 	"\x0ejwt_generation\x18\n" +
 	" \x01(\x03H\x01R\rjwtGeneration\x88\x01\x01\x12\"\n" +
-	"\rca_trust_pins\x18\v \x03(\tR\vcaTrustPinsB\x15\n" +
+	"\rca_trust_pins\x18\v \x03(\tR\vcaTrustPins\x12.\n" +
+	"\x10proxy_generation\x18\f \x01(\x03H\x02R\x0fproxyGeneration\x88\x01\x01B\x15\n" +
 	"\x13_raft_applied_indexB\x11\n" +
-	"\x0f_jwt_generation\"\xfe\x01\n" +
+	"\x0f_jwt_generationB\x13\n" +
+	"\x11_proxy_generation\"\xfe\x01\n" +
 	"\rHeartbeatPong\x12\x1b\n" +
 	"\tleader_id\x18\x01 \x01(\tR\bleaderId\x12\x1c\n" +
 	"\ttimestamp\x18\x02 \x01(\x03R\ttimestamp\x12.\n" +

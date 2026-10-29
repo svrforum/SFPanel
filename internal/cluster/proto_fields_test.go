@@ -46,3 +46,11 @@ func TestProtoCarriesRotations(t *testing.T) {
 		t.Fatal("rotation fields did not round-trip")
 	}
 }
+
+// The generation of the managers' internal proxy secret a manager accepts.
+func TestProtoCarriesTheProxyGeneration(t *testing.T) {
+	g := int64(4)
+	if (&pb.HeartbeatPing{ProxyGeneration: &g}).GetProxyGeneration() != 4 {
+		t.Fatal("proxy_generation did not round-trip")
+	}
+}

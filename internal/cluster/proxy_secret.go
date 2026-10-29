@@ -126,6 +126,10 @@ type proxySecretFloor struct {
 	RotatedAt string `json:"rotated_at,omitempty"`
 	// AgentsSeen is unknown to releases from before it, which ignore it.
 	AgentsSeen bool `json:"agents_seen,omitempty"`
+	// Key is the re-rotation record this node last applied
+	// (withProxyKeyFloor); Secret then holds the secret it signs with, which
+	// is what a release from before Key reads.
+	Key *ProxyKey `json:"key,omitempty"`
 }
 
 // onConfigChange applies a replicated secret, or the cluster CA, the moment
@@ -138,7 +142,7 @@ func (m *Manager) onConfigChange(key string) {
 		m.ApplyProxySecrets()
 		m.ApplyJWTKey()
 		m.ApplyClusterCA()
-	case configKeyProxySecret, configKeyProxyRotatedAt:
+	case configKeyProxySecret, configKeyProxyRotatedAt, configKeyProxyKey:
 		m.ApplyProxySecrets()
 	case configKeyJWTKey:
 		m.ApplyJWTKey()
@@ -148,10 +152,11 @@ func (m *Manager) onConfigChange(key string) {
 }
 
 // ApplyProxySecrets installs this node's signing and accepted secrets from
-// the replicated state. Runs at activation, when the FSM changes them, and
-// on every watchLeader tick on every node; a change is logged once. An
-// agent's record is not a proxy key, so an agent's arrival takes effect on
-// the next tick.
+// the replicated state, and a re-rotation's record once there is one
+// (proxy_rotation.go). Runs at activation, when the FSM changes them, and on
+// every watchLeader tick on every node; a change is logged once. An agent's
+// record is not a proxy key, so an agent's arrival takes effect on the next
+// tick.
 func (m *Manager) ApplyProxySecrets() {
 	if m.raft == nil {
 		return
@@ -161,10 +166,23 @@ func (m *Manager) ApplyProxySecrets() {
 	m.appliedSecretsMu.Lock()
 	defer m.appliedSecretsMu.Unlock()
 	fsm := m.raft.GetFSM()
-	replicated, _ := fsm.GetConfigValue(configKeyProxySecret)
-	rotatedAt, _ := fsm.GetConfigValue(configKeyProxyRotatedAt)
-	replicated, rotatedAt = m.withProxySecretFloor(replicated, rotatedAt)
-	sign, accept := proxySecretsAt(m.ProxySecret(), replicated, rotatedAt, time.Now(), m.agentsSeen(fsm.GetState()))
+	state := fsm.GetState()
+	now := time.Now()
+	var sign, replicated string
+	var accept []string
+	if k, ok := m.withProxyKeyFloor(proxyKeyOf(state)); ok {
+		// A re-rotation's record replaces plan A's keys for good: plan A had
+		// settled before one could start (StartProxyRotation).
+		sign, accept = proxyKeysAt(k, now)
+		replicated = sign
+		m.appliedProxyGen.Store(k.Generation)
+	} else {
+		replicated, _ = fsm.GetConfigValue(configKeyProxySecret)
+		rotatedAt, _ := fsm.GetConfigValue(configKeyProxyRotatedAt)
+		replicated, rotatedAt = m.withProxySecretFloor(replicated, rotatedAt)
+		sign, accept = proxySecretsAt(m.ProxySecret(), replicated, rotatedAt, now, m.agentsSeen(state))
+		m.appliedProxyGen.Store(0)
+	}
 	m.appliedReplicated = replicated
 	if sign == m.appliedSign && slices.Equal(accept, m.appliedAccept) {
 		return
@@ -175,19 +193,14 @@ func (m *Manager) ApplyProxySecrets() {
 	if replicated != "" && sign == replicated {
 		signing = "replicated"
 	}
-	slog.Info("internal proxy secrets applied", "component", "cluster", "signing", signing, "accepted", len(accept))
+	slog.Info("internal proxy secrets applied", "component", "cluster", "signing", signing, "accepted", len(accept), "generation", m.appliedProxyGen.Load())
 }
 
-// withProxySecretFloor fills in from the floor file what the FSM does not
-// show yet, and records what it shows. Both values only move forward — the
-// secret is seeded once, the rotation recorded once — so the floor never
-// overrides the FSM; it stands in for entries not replayed yet. A floor that
-// cannot be read is ignored: the FSM then decides alone, as before the floor
-// existed. Caller holds appliedSecretsMu.
-func (m *Manager) withProxySecretFloor(replicated, rotatedAt string) (string, string) {
-	if m.config == nil || m.config.DataDir == "" {
-		return replicated, rotatedAt
-	}
+// loadProxySecretFloor reads the floor file once, into m.floor, and returns
+// its path. A floor that cannot be read is ignored: the FSM then decides
+// alone, as before the floor existed. Caller holds appliedSecretsMu and has
+// checked m.config.DataDir.
+func (m *Manager) loadProxySecretFloor() string {
 	path := filepath.Join(m.config.DataDir, proxySecretFloorFile)
 	if !m.floorLoaded {
 		m.floorLoaded = true
@@ -200,6 +213,53 @@ func (m *Manager) withProxySecretFloor(replicated, rotatedAt string) (string, st
 			slog.Warn("ignoring the recorded internal proxy secret", "component", "cluster", "path", path, "error", err)
 		}
 	}
+	return path
+}
+
+// withProxyKeyFloor is the newer of the FSM's re-rotation record and the one
+// the floor kept — by generation, then phase — and records the FSM's when it
+// is the newer. It stands in for entries a restarted node has not replayed
+// yet: without it a snapshot from a rotation's next phase put the node back
+// on the secret the rotation retired. The floor's secret becomes the record's
+// signing secret, what an older release reads from it. Caller holds
+// appliedSecretsMu.
+func (m *Manager) withProxyKeyFloor(k ProxyKey, ok bool) (ProxyKey, bool) {
+	if m.config == nil || m.config.DataDir == "" {
+		return k, ok
+	}
+	path := m.loadProxySecretFloor()
+	kept := m.floor.Key
+	if kept != nil && (!ok || kept.newerThan(k)) {
+		return *kept, true
+	}
+	if !ok {
+		return k, false
+	}
+	if kept == nil || !kept.sameAs(k) {
+		sign, _ := proxyKeysAt(k, time.Now())
+		rec := k
+		next := proxySecretFloor{Secret: sign, RotatedAt: m.floor.RotatedAt, AgentsSeen: m.floor.AgentsSeen, Key: &rec}
+		data, _ := json.Marshal(next)
+		if err := config.AtomicWriteFile(path, data, 0600); err != nil {
+			slog.Warn("could not record the internal proxy secret", "component", "cluster", "path", path, "error", err)
+		} else {
+			m.floor = next
+		}
+	}
+	return k, true
+}
+
+// withProxySecretFloor fills in from the floor file what the FSM does not
+// show yet, and records what it shows. Both values only move forward — the
+// secret is seeded once, the rotation recorded once — so the floor never
+// overrides the FSM; it stands in for entries not replayed yet. It runs only
+// while no re-rotation record exists, in the FSM or the floor, so the floor
+// it writes has no Key to lose. Caller holds appliedSecretsMu.
+func (m *Manager) withProxySecretFloor(replicated, rotatedAt string) (string, string) {
+	if m.config == nil || m.config.DataDir == "" {
+		return replicated, rotatedAt
+	}
+	path := m.loadProxySecretFloor()
 	switch {
 	case replicated == "":
 		replicated, rotatedAt = m.floor.Secret, m.floor.RotatedAt
@@ -220,8 +280,9 @@ func (m *Manager) withProxySecretFloor(replicated, rotatedAt string) (string, st
 
 // agentsSeen reports whether this cluster has, or ever had, an agent, and
 // records it in the floor file: during boot replay the FSM lacks both the
-// agents and the mark, and the floor stands in for them. Caller holds
-// appliedSecretsMu.
+// agents and the mark, and the floor stands in for them. Like
+// withProxySecretFloor it runs only while no re-rotation record exists, in
+// the FSM or the floor. Caller holds appliedSecretsMu.
 func (m *Manager) agentsSeen(state ClusterState) bool {
 	seen := hasAgentNodes(state) || state.Config[configKeyAgentsSeen] != ""
 	if m.config == nil || m.config.DataDir == "" {
@@ -304,12 +365,14 @@ func (m *Manager) replicatedSecretSeenAt(replicated string, now time.Time) time.
 
 // heartbeatCapabilities is what this node reports on its heartbeat: CapAgents
 // always — it is a property of the code — and CapCARotation always, as
-// CapAgents; CapProxySecret once this node accepts the replicated secret,
-// what the leader waits for before it rotates, not merely once it runs code
-// that could; and CapJWTRotation once something is wired to apply a new JWT
-// key.
+// CapAgents; CapProxyRotation always, as CapAgents: a property of the code —
+// whether this manager has taken a re-rotation's next secret is its ping's
+// proxy_generation; CapProxySecret once this node accepts the replicated
+// secret, what the leader waits for before it rotates, not merely once it
+// runs code that could; and CapJWTRotation once something is wired to apply
+// a new JWT key.
 func (m *Manager) heartbeatCapabilities() []string {
-	caps := []string{CapAgents, CapCARotation}
+	caps := []string{CapAgents, CapCARotation, CapProxyRotation}
 	if m.jwtApplierSet.Load() {
 		caps = append(caps, CapJWTRotation)
 	}

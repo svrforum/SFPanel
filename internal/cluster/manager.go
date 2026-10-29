@@ -97,6 +97,14 @@ type Manager struct {
 	floor             proxySecretFloor
 	proxySecretSeen   string
 	proxySecretSeenAt time.Time
+	// appliedProxyGen is the generation of the managers' secret this node
+	// accepts (ApplyProxySecrets), read by the heartbeat without the lock.
+	appliedProxyGen atomic.Int64
+	// proxyRotateMu runs the leader's re-rotation writes one at a time — a
+	// start, the steps of the watchLeader tick (proxy_rotation.go) — and
+	// guards proxyWaiting, whom the re-rotation last said it waits for.
+	proxyRotateMu sync.Mutex
+	proxyWaiting  string
 
 	// The cluster JWT key as this manager runs it (jwt_rotation.go). jwtMu
 	// orders the applies and guards jwtApply; whether an applier is wired and
@@ -420,6 +428,9 @@ func (m *Manager) watchLeader() {
 			m.ApplyClusterCA()
 			if isLeader {
 				if err := m.MaybeRotateProxySecret(); err != nil && !errors.Is(err, ErrNotLeader) {
+					slog.Warn("internal proxy secret rotation step failed", "component", "cluster", "error", err)
+				}
+				if err := m.MaybeAdvanceProxyRotation(); err != nil && !errors.Is(err, ErrNotLeader) {
 					slog.Warn("internal proxy secret rotation step failed", "component", "cluster", "error", err)
 				}
 				m.repairJWTMirror()
@@ -2032,6 +2043,10 @@ func (m *Manager) StartLocalMetrics(collector MetricsCollector) {
 						// The CAs this node trusts, which a CA rotation's
 						// steps wait on.
 						CaTrustPins: m.tls.TrustPins(),
+						// The newest generation of the managers' secret
+						// this node accepts, which a re-rotation's switch
+						// waits on.
+						ProxyGeneration: proto.Int64(m.ProxyGeneration()),
 					}
 					// The JWT key generation this manager runs, reported
 					// only once something applies a new one.

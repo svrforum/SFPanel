@@ -568,6 +568,9 @@ func (s *GRPCServer) serveHeartbeat(stream grpc.BidiStreamingServer[pb.Heartbeat
 				JWTGeneration:  result.ping.JwtGeneration,
 				CATrustPins:    result.ping.CaTrustPins,
 				CertCAPin:      certCA,
+				// What a re-rotation of the managers' secret goes by; only a
+				// manager's means anything.
+				ProxyGeneration: result.ping.ProxyGeneration,
 			})
 			// The ping's time is the sender's clock, in seconds — a manager's
 			// and an agent's alike.

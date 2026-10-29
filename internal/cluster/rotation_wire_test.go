@@ -30,7 +30,7 @@ func TestTheLeaderRecordsWhatARotationGoesBy(t *testing.T) {
 		t.Fatal(err)
 	}
 	if err := stream.Send(&pb.HeartbeatPing{NodeId: res.NodeID, Timestamp: time.Now().Unix(), Version: "test",
-		CaTrustPins: []string{"sha256:said"}, JwtGeneration: proto.Int64(4)}); err != nil {
+		CaTrustPins: []string{"sha256:said"}, JwtGeneration: proto.Int64(4), ProxyGeneration: proto.Int64(2)}); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := stream.Recv(); err != nil {
@@ -38,14 +38,15 @@ func TestTheLeaderRecordsWhatARotationGoesBy(t *testing.T) {
 	}
 	met := mgr.GetHeartbeat().GetMetrics(res.NodeID)
 	leaderCA := mgr.GetTLS().TrustPins()[0]
-	if met == nil || !slices.Equal(met.CATrustPins, []string{"sha256:said"}) || met.JWTGeneration == nil || *met.JWTGeneration != 4 || met.CertCAPin != leaderCA {
+	if met == nil || !slices.Equal(met.CATrustPins, []string{"sha256:said"}) || met.JWTGeneration == nil || *met.JWTGeneration != 4 || met.CertCAPin != leaderCA ||
+		met.ProxyGeneration == nil || *met.ProxyGeneration != 2 {
 		t.Fatalf("recorded %+v, want the agent's word and the CA %s behind its connection", met, leaderCA)
 	}
 	// Compared with the same metrics without them, not searched for a pin:
 	// the generation is a bare number.
 	data, _ := json.Marshal(met)
 	without := *met
-	without.JWTGeneration, without.CATrustPins, without.CertCAPin = nil, nil, ""
+	without.JWTGeneration, without.CATrustPins, without.CertCAPin, without.ProxyGeneration = nil, nil, "", nil
 	if want, _ := json.Marshal(&without); strings.Contains(string(data), "sha256:") || string(data) != string(want) {
 		t.Fatalf("the metrics show the rotation's fields: %s", data)
 	}

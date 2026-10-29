@@ -108,6 +108,10 @@ message HeartbeatPing {
     // The CAs this node trusts now, as CAPin fingerprints. A CA rotation moves
     // on only once every node trusts what the next step needs.
     repeated string ca_trust_pins = 11;
+    // The generation of the managers' internal proxy secret this manager
+    // accepts (ProxyKey): the leader switches every manager to a new one
+    // only once each of them accepts it.
+    optional int64 proxy_generation = 12;
 }
 
 message HeartbeatPong {
