@@ -140,7 +140,7 @@ func TestWipeManagerFiles(t *testing.T) {
 		_ = os.MkdirAll(filepath.Dir(p), 0o700)
 		_ = os.WriteFile(p, []byte("x"), 0o600)
 	}
-	if want := []string{"ca.key", "raft-log.db", "raft-stable.db", "snapshots", "tokens.json", "proxy-secret.json", "peers.json", "peers.info"}; !slices.Equal(names, want) {
+	if want := []string{"ca.key", "raft-log.db", "raft-stable.db", "snapshots", "tokens.json", "proxy-secret.json", "ca-rotation.json", "peers.json", "peers.info"}; !slices.Equal(names, want) {
 		t.Fatalf("ManagerFiles names %v, want %v", names, want)
 	}
 	// Raft keeps its snapshots in a directory of them.

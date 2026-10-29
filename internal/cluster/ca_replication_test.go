@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"slices"
 	"sync"
 	"testing"
 	"time"
@@ -162,6 +163,81 @@ func TestEnsureCAKey_NoopWhenPresent(t *testing.T) {
 	got, _ := tlsMgr.LoadCAKey()
 	if string(got) != string(caKey) {
 		t.Fatal("ensureCAKey clobbered an existing ca.key")
+	}
+}
+
+// A manager without ca.key materializes the key of the CA its ca.crt starts
+// with: at promote replicated state may still name the old pair as the
+// cluster's while ca.crt holds the next CA, and the old key beside it would
+// fail every signature.
+func TestEnsureCAKeyFollowsCACrt(t *testing.T) {
+	cur, _ := GenerateCA("cur", time.Now())
+	next, _ := GenerateCA("next", time.Now())
+	tlsMgr := NewTLSManager(t.TempDir())
+	if err := tlsMgr.SaveCACert(next.CertPEM); err != nil {
+		t.Fatal(err)
+	}
+	r := CARotation{Seq: 3, Phase: CAPhasePromote, OldPin: cur.Pin(), NextPin: next.Pin()}
+	fsm := fsmWithConfig(t, map[string]string{
+		configKeyCACert: string(cur.CertPEM), configKeyCAKey: string(cur.KeyPEM),
+		configKeyCANextCert: string(next.CertPEM), configKeyCANextKey: string(next.KeyPEM),
+		configKeyCARotation: string(mustJSON(r)),
+	})
+	m := &Manager{tls: tlsMgr, raft: &RaftNode{fsm: fsm}}
+	if err := m.ensureCAKey(); err != nil {
+		t.Fatal(err)
+	}
+	if _, _, err := tlsMgr.IssueNodeCert("joiner", []string{"127.0.0.1"}, CertRoleManager); err != nil {
+		t.Fatalf("the materialized key does not sign with ca.crt: %v", err)
+	}
+}
+
+// No key is written beside a ca.crt it does not pair with: at promote, until
+// this node applies the step, ca.crt still starts with the current CA, and
+// the next CA's key beside it would fail every signature.
+func TestEnsureCAKeyWritesNoKeyCACrtDoesNotPairWith(t *testing.T) {
+	cur, _ := GenerateCA("cur", time.Now())
+	next, _ := GenerateCA("next", time.Now())
+	tlsMgr := NewTLSManager(t.TempDir())
+	if err := tlsMgr.SaveCACert(append(append([]byte{}, cur.CertPEM...), next.CertPEM...)); err != nil {
+		t.Fatal(err)
+	}
+	r := CARotation{Seq: 3, Phase: CAPhasePromote, OldPin: cur.Pin(), NextPin: next.Pin()}
+	fsm := fsmWithConfig(t, map[string]string{
+		configKeyCACert: string(next.CertPEM), configKeyCAKey: string(next.KeyPEM),
+		configKeyCANextCert: string(next.CertPEM), configKeyCANextKey: string(next.KeyPEM),
+		configKeyCARotation: string(mustJSON(r)),
+	})
+	m := &Manager{tls: tlsMgr, raft: &RaftNode{fsm: fsm}}
+	if err := m.ensureCAKey(); !errors.Is(err, ErrCAKeyUnavailable) {
+		t.Fatalf("ensureCAKey = %v, want ErrCAKeyUnavailable", err)
+	}
+	if tlsMgr.HasCAKey() {
+		t.Fatal("a key ca.crt does not start with was written beside it")
+	}
+}
+
+// A node missing ca.crt as well gets it back as the rotation's phase has it,
+// with the key of the CA it starts with.
+func TestEnsureCAKeyRestoresCACrtAsThePhaseHasIt(t *testing.T) {
+	cur, _ := GenerateCA("cur", time.Now())
+	next, _ := GenerateCA("next", time.Now())
+	tlsMgr := NewTLSManager(t.TempDir())
+	r := CARotation{Seq: 1, Phase: CAPhaseTrust, OldPin: cur.Pin(), NextPin: next.Pin()}
+	fsm := fsmWithConfig(t, map[string]string{
+		configKeyCACert: string(cur.CertPEM), configKeyCAKey: string(cur.KeyPEM),
+		configKeyCANextCert: string(next.CertPEM), configKeyCANextKey: string(next.KeyPEM),
+		configKeyCARotation: string(mustJSON(r)),
+	})
+	m := &Manager{tls: tlsMgr, raft: &RaftNode{fsm: fsm}}
+	if err := m.ensureCAKey(); err != nil {
+		t.Fatal(err)
+	}
+	if got, want := tlsMgr.TrustPins(), []string{cur.Pin(), next.Pin()}; !slices.Equal(got, want) {
+		t.Fatalf("ca.crt restored with %v, want %v", got, want)
+	}
+	if _, _, err := tlsMgr.IssueNodeCert("joiner", []string{"127.0.0.1"}, CertRoleManager); err != nil {
+		t.Fatalf("the restored pair does not sign: %v", err)
 	}
 }
 

@@ -172,14 +172,15 @@ func (m *Manager) AbandonAgentConversion(id string, tok *JoinToken) error {
 // and that an agent needs none of: the CA key; the Raft log, stable store and
 // snapshots, whose state carries every agent's key, the accounts and the
 // managers' proxy secret; the leader's join tokens; the proxy secret's floor;
-// and a Raft recovery's peer lists. A directory left unset names nothing.
+// the CA rotation's floor; and a Raft recovery's peer lists. A directory left
+// unset names nothing.
 func ManagerFiles(c *config.ClusterConfig) []string {
 	var files []string
 	if c.CertDir != "" {
 		files = append(files, filepath.Join(c.CertDir, "ca.key"))
 	}
 	if c.DataDir != "" {
-		for _, f := range []string{"raft-log.db", "raft-stable.db", "snapshots", "tokens.json", proxySecretFloorFile, "peers.json", "peers.info"} {
+		for _, f := range []string{"raft-log.db", "raft-stable.db", "snapshots", "tokens.json", proxySecretFloorFile, caRotationFloorFile, "peers.json", "peers.info"} {
 			files = append(files, filepath.Join(c.DataDir, f))
 		}
 	}

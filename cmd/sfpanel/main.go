@@ -223,9 +223,12 @@ func main() {
 			}
 			return nil, fmt.Errorf("gRPC listen %s: %w", grpcAddr, startErr)
 		}
-		// Installs the CA-derived secret until the replicated one takes over;
-		// watchLeader keeps it current from then on.
+		// Installs the CA-derived secret until the replicated one takes over,
+		// and the step of a CA rotation the FSM shows: the snapshot a boot
+		// restores reaches no FSM callback. watchLeader keeps both current
+		// from then on.
 		mgr.ApplyProxySecrets()
+		mgr.ApplyClusterCA()
 
 		// Stop gRPC server when manager shuts down
 		go func() {

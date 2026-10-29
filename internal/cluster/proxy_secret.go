@@ -128,19 +128,22 @@ type proxySecretFloor struct {
 	AgentsSeen bool `json:"agents_seen,omitempty"`
 }
 
-// onConfigChange applies a replicated secret the moment the FSM changes it,
-// rather than on the next watchLeader tick. The FSM's one callback slot is
-// this, so every replicated secret is dispatched here; "" is a snapshot
-// restore, which may have changed any of them.
+// onConfigChange applies a replicated secret, or the cluster CA, the moment
+// the FSM changes it, rather than on the next watchLeader tick. The FSM's one
+// callback slot is this, so every replicated secret is dispatched here; ""
+// is a snapshot restore, which may have changed any of them.
 func (m *Manager) onConfigChange(key string) {
 	switch key {
 	case "":
 		m.ApplyProxySecrets()
 		m.ApplyJWTKey()
+		m.ApplyClusterCA()
 	case configKeyProxySecret, configKeyProxyRotatedAt:
 		m.ApplyProxySecrets()
 	case configKeyJWTKey:
 		m.ApplyJWTKey()
+	case configKeyCARotation, configKeyCANextCert, configKeyCANextKey, configKeyCACert, configKeyCAKey:
+		m.ApplyClusterCA()
 	}
 }
 
@@ -300,12 +303,13 @@ func (m *Manager) replicatedSecretSeenAt(replicated string, now time.Time) time.
 }
 
 // heartbeatCapabilities is what this node reports on its heartbeat: CapAgents
-// always — it is a property of the code — CapProxySecret once this node
-// accepts the replicated secret, what the leader waits for before it rotates,
-// not merely once it runs code that could, and CapJWTRotation once something
-// is wired to apply a new JWT key.
+// always — it is a property of the code — and CapCARotation always, as
+// CapAgents; CapProxySecret once this node accepts the replicated secret,
+// what the leader waits for before it rotates, not merely once it runs code
+// that could; and CapJWTRotation once something is wired to apply a new JWT
+// key.
 func (m *Manager) heartbeatCapabilities() []string {
-	caps := []string{CapAgents}
+	caps := []string{CapAgents, CapCARotation}
 	if m.jwtApplierSet.Load() {
 		caps = append(caps, CapJWTRotation)
 	}

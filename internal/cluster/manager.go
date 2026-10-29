@@ -74,9 +74,10 @@ type Manager struct {
 	skewMu     sync.Mutex
 	skewWarned map[string]time.Time
 
-	// proxySecretCache caches the sha256(CA cert) derivation. Invalidated
-	// implicitly on cert-rotate via the TLSManager's stat-based reload —
-	// callers refresh on TLS error responses; nothing else mutates the CA.
+	// proxySecretCache caches the sha256(CA cert) derivation. Derived once
+	// per process. A CA rotation rewrites ca.crt, which changes the derived
+	// value from the next start — harmless once the replicated secret has
+	// taken over (ProxyRotationSettled, which a CA rotation waits for).
 	proxySecretMu    sync.RWMutex
 	proxySecretCache string
 
@@ -107,6 +108,20 @@ type Manager struct {
 	jwtApplierSet atomic.Bool
 	jwtRunning    atomic.Int64
 	jwtRotateMu   sync.Mutex
+
+	// The cluster CA as this manager follows a rotation of it (ca_apply.go).
+	// caApplyMu runs ApplyClusterCA one call at a time — the FSM's callbacks
+	// come in goroutines of their own, in no order — and ensureCAKey's write
+	// with it; it guards the floor, the seq of the last record applied as
+	// caRotationFloorFile keeps it, and the last reason given for applying
+	// nothing (noteCAApply).
+	caApplyMu     sync.Mutex
+	caFloorLoaded bool
+	caFloorSeq    uint64
+	caApplyNote   string
+	// hbReconnect asks the heartbeat for a new connection
+	// (reconnectHeartbeat): one signal waits, and a second is the same one.
+	hbReconnect chan struct{}
 }
 
 // SetVersion sets the panel version for heartbeat reporting.
@@ -144,6 +159,8 @@ func NewManager(cfg *config.ClusterConfig) *Manager {
 		connPool:  NewConnPool(tlsMgr),
 		nodeID:    cfg.NodeID,
 		nodeName:  cfg.NodeName,
+
+		hbReconnect: make(chan struct{}, 1),
 	}
 }
 
@@ -390,6 +407,7 @@ func (m *Manager) watchLeader() {
 			}
 			m.ApplyProxySecrets()
 			m.ApplyJWTKey()
+			m.ApplyClusterCA()
 			if isLeader {
 				if err := m.MaybeRotateProxySecret(); err != nil && !errors.Is(err, ErrNotLeader) {
 					slog.Warn("internal proxy secret rotation step failed", "component", "cluster", "error", err)
@@ -1399,7 +1417,10 @@ func (m *Manager) EnsureRoleCert() error {
 // certificate the manager role (EnsureRoleCert). If the key lives only in
 // replicated FSM state (this node joined the cluster rather than founding the
 // CA), it is materialized to disk on demand — so followers don't carry a loose
-// ca.key file until they actually need to sign. Returns ErrCAKeyUnavailable when the key exists neither on disk nor in
+// ca.key file until they actually need to sign. The key materialized is the key
+// of the CA ca.crt starts with: in a CA rotation replicated state holds two
+// pairs, and from promote on names the next one as the cluster's only after the
+// record. Returns ErrCAKeyUnavailable when the key exists neither on disk nor in
 // the FSM, which is genuinely unrecoverable without operator action.
 func (m *Manager) ensureCAKey() error {
 	if m.tls.HasCAKey() {
@@ -1408,38 +1429,57 @@ func (m *Manager) ensureCAKey() error {
 	if m.raft == nil {
 		return ErrCAKeyUnavailable
 	}
-	cfg := m.raft.GetFSM().GetState().Config
-	keyPEM := cfg[configKeyCAKey]
-	if keyPEM == "" {
-		return ErrCAKeyUnavailable
-	}
+	// ApplyClusterCA rewrites ca.crt under this lock: the key written here
+	// pairs with the ca.crt read here.
+	m.caApplyMu.Lock()
+	defer m.caApplyMu.Unlock()
+	state := m.raft.GetFSM().GetState()
+	mat, matErr := caMaterialOf(state)
 	// A node missing ca.key can also be missing ca.crt (never happens for a
-	// joined node, but cheap insurance): restore the public cert too.
-	if certPEM := cfg[configKeyCACert]; certPEM != "" && !m.tls.HasCA() {
-		if err := m.tls.SaveCACert([]byte(certPEM)); err != nil {
+	// joined node, but cheap insurance): restore it as the rotation's phase
+	// has it.
+	if matErr == nil && !m.tls.HasCA() {
+		if err := m.tls.SaveCACert(mat.TrustPEM()); err != nil {
 			return fmt.Errorf("materialize CA cert: %w", err)
 		}
 	}
-	if err := m.tls.SaveCAKey([]byte(keyPEM)); err != nil {
-		return fmt.Errorf("materialize CA key: %w", err)
+	crt, _ := m.tls.LoadCACert()
+	certs := pemCertificates(crt)
+	if len(certs) == 0 {
+		return ErrCAKeyUnavailable
 	}
-	slog.Info("materialized cluster CA key from replicated state", "component", "cluster")
-	return nil
+	first := CAPin(certs[0].RawSubjectPublicKeyInfo)
+	var pairs []*CAPair
+	if matErr == nil {
+		pairs = append(pairs, mat.Disk, mat.Sign)
+	}
+	if next, err := ParseCAPair([]byte(state.Config[configKeyCANextCert]), []byte(state.Config[configKeyCANextKey])); err == nil {
+		pairs = append(pairs, next)
+	}
+	for _, ca := range pairs {
+		if ca.Pin() != first {
+			continue
+		}
+		if err := m.tls.SaveCAKey(ca.KeyPEM); err != nil {
+			return fmt.Errorf("materialize CA key: %w", err)
+		}
+		slog.Info("materialized cluster CA key from replicated state", "component", "cluster")
+		return nil
+	}
+	return ErrCAKeyUnavailable
 }
 
 // ProxySecret returns the CA-derived internal proxy secret, sha256(ca.crt):
 // what nodes sign with until the replicated secret takes over, accepted for
 // legacyProxyGrace after (ApplyProxySecrets). Returns empty if TLS is not
-// configured, which callers also use to ask whether this node is clustered.
+// configured. Its only reader is ApplyProxySecrets.
 //
-// Cached after the first successful derivation. The proxy middleware hits
-// this on every cross-node request — the previous implementation read
-// the CA cert off disk and SHA256'd it on every call, adding two
-// allocations and one syscall per proxied request. The CA changes only
-// on operator-initiated rotation (10-year default; see TLSManager); a
-// stale cache entry post-rotation is fine because the peer's TLS handshake
-// would reject the mismatched cert anyway, surfacing the rotation through
-// a different path.
+// Cached after the first successful derivation (proxySecretCache), from when
+// the proxy middleware read it on every cross-node request — the previous
+// implementation read the CA cert off disk and SHA256'd it on every call,
+// adding two allocations and one syscall per proxied request. The CA changes
+// only on operator-initiated rotation (10-year default; see TLSManager), and
+// a rotation does not clear the cache.
 func (m *Manager) ProxySecret() string {
 	if m.tls == nil {
 		return ""
@@ -1863,6 +1903,17 @@ func (m *Manager) StartLocalMetrics(collector MetricsCollector) {
 
 			// If follower, also send to leader via gRPC
 			if m.raft != nil && !m.raft.IsLeader() {
+				// A certificate moved to another CA is shown on a new
+				// connection: the leader goes by the CA behind the one its
+				// heartbeat stream came in on (ApplyClusterCA).
+				select {
+				case <-m.hbReconnect:
+					if grpcStream != nil {
+						closeStream()
+					}
+				default:
+				}
+
 				leaderAddr := m.raft.LeaderGRPCAddress()
 
 				// If leader changed, close old stream
@@ -1960,6 +2011,9 @@ func (m *Manager) StartLocalMetrics(collector MetricsCollector) {
 						// The leader promotes this node only once it shows
 						// its Raft has caught up (promotionReady).
 						RaftAppliedIndex: proto.Uint64(m.raft.AppliedIndex()),
+						// The CAs this node trusts, which a CA rotation's
+						// steps wait on.
+						CaTrustPins: m.tls.TrustPins(),
 					}
 					// The JWT key generation this manager runs, reported
 					// only once something applies a new one.
