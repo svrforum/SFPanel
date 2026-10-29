@@ -140,7 +140,7 @@ type raftConn struct {
 
 func (c *raftConn) admitted() error {
 	c.once.Do(func() {
-		if c.admit = c.Conn.Handshake(); c.admit == nil {
+		if c.admit = c.Handshake(); c.admit == nil {
 			c.admit = c.tm.trackConn(c.NetConn(), c.ConnectionState().VerifiedChains)
 		}
 	})
