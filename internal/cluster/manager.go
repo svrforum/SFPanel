@@ -119,6 +119,11 @@ type Manager struct {
 	caFloorLoaded bool
 	caFloorSeq    uint64
 	caApplyNote   string
+	// caRotateMu runs the leader's CA rotation writes one at a time — a
+	// start, a stop, the steps of the watchLeader tick (ca_rotation_leader.go)
+	// — and guards caWaiting, whom the rotation last said it waits for.
+	caRotateMu sync.Mutex
+	caWaiting  string
 	// hbReconnect asks the heartbeat for a new connection
 	// (reconnectHeartbeat): one signal waits, and a second is the same one.
 	hbReconnect chan struct{}
@@ -413,6 +418,9 @@ func (m *Manager) watchLeader() {
 					slog.Warn("internal proxy secret rotation step failed", "component", "cluster", "error", err)
 				}
 				m.repairJWTMirror()
+				if err := m.MaybeAdvanceCARotation(); err != nil && !errors.Is(err, ErrNotLeader) {
+					slog.Warn("CA rotation step failed", "component", "cluster", "error", err)
+				}
 			}
 			// Rising edge → (re)seed the CA into the replicated FSM. This is the
 			// self-healing migration path for existing clusters: seeding requires
@@ -625,6 +633,11 @@ func (m *Manager) HandleJoin(nodeID, nodeName, apiAddr, grpcAddr, token string, 
 	// majority's leader has no record of.
 	if err := m.raft.Barrier(2 * time.Second); err != nil {
 		return nil, nil, nil, nil, fmt.Errorf("leader barrier failed: %w", err)
+	}
+	// Nothing joins while the CA rotates: the joiner would come in on one
+	// step's CA and certificate, which the steps already past never counted.
+	if m.CARotationActive() {
+		return nil, nil, nil, nil, ErrCARotationInProgress
 	}
 
 	state := m.raft.GetFSM().GetState()

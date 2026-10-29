@@ -565,13 +565,18 @@ func (s *GRPCServer) serveHeartbeat(stream grpc.BidiStreamingServer[pb.Heartbeat
 				s.manager.PromoteOnHeartbeatIfPending(result.ping.NodeId, result.ping.RaftAppliedIndex)
 			}
 
-			if err := stream.Send(&pb.HeartbeatPong{
+			pong := &pb.HeartbeatPong{
 				LeaderId:          s.manager.GetRaft().LeaderID(),
 				Timestamp:         result.ping.Timestamp,
 				LeaderGrpcAddress: s.manager.GetRaft().LeaderGRPCAddress(),
 				Managers:          s.manager.managerInfos(),
 				FromLeader:        s.manager.IsLeader(),
-			}); err != nil {
+			}
+			if !promote {
+				// Agents learn a CA rotation from here; managers from their FSM.
+				pong.Ca = s.manager.caHint()
+			}
+			if err := stream.Send(pong); err != nil {
 				return err
 			}
 		case <-member.C:

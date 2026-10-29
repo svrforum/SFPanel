@@ -32,9 +32,10 @@ func refuseConversion(reason error) error {
 // the cluster with nowhere to go. The node must be a manager other than this
 // leader, online on a version that knows agents; the managers left must keep
 // their quorum; and none of the registration's own refusals may apply — the
-// proxy secret still switching, another manager not ready for agents, no room
-// for another agent, a name or an address an agent may not have or another
-// node has, no CA key to sign with. A refusal wraps ErrConvertRefused.
+// proxy secret still switching, a CA rotation in progress, another manager
+// not ready for agents, no room for another agent, a name or an address an
+// agent may not have or another node has, no CA key to sign with. A refusal
+// wraps ErrConvertRefused.
 func (m *Manager) ReadyForAgentConversion(id string) error {
 	if m.raft == nil || !m.raft.IsLeader() {
 		return ErrNotLeader
@@ -88,6 +89,9 @@ func (m *Manager) ReadyForAgentConversion(id string) error {
 	// record, which its leave takes.
 	if !m.ProxyRotationSettled(time.Now()) {
 		return refuseConversion(ErrProxyRotationPending)
+	}
+	if m.CARotationActive() {
+		return refuseConversion(ErrCARotationInProgress)
 	}
 	delete(state.Nodes, id)
 	if waiting := m.managersNotReadyForAgents(state); len(waiting) > 0 {
@@ -340,13 +344,14 @@ func refusePromotion(reason error) error {
 // PrepareManagerPromotion readies the promotion of the agent id to a manager
 // (leader only). The gates come first, while a refusal changes nothing: the
 // node must be an agent and online — it joins again itself — and its join
-// must have nothing to be refused for that can be told here: no room for
-// another manager, no CA key to sign its certificate with, a record address
-// the token cannot be bound to. Met only at the join, those would restart
-// the agent for nothing. Then it makes a manager token that admits id alone,
-// at the IP of its gRPC address. Nothing else changes until the node joins
-// with it, and the join (HandleJoin) turns the agent's record into a
-// manager's, keeping its name and labels. A refusal wraps ErrPromoteRefused.
+// must have nothing to be refused for that can be told here: a CA rotation
+// in progress, no room for another manager, no CA key to sign its
+// certificate with, a record address the token cannot be bound to. Met only
+// at the join, those would restart the agent for nothing. Then it makes a
+// manager token that admits id alone, at the IP of its gRPC address. Nothing
+// else changes until the node joins with it, and the join (HandleJoin) turns
+// the agent's record into a manager's, keeping its name and labels. A
+// refusal wraps ErrPromoteRefused.
 func (m *Manager) PrepareManagerPromotion(id string) (*JoinToken, error) {
 	if m.raft == nil || !m.raft.IsLeader() {
 		return nil, ErrNotLeader
@@ -363,6 +368,9 @@ func (m *Manager) PrepareManagerPromotion(id string) (*JoinToken, error) {
 	}
 	if node.IsManager() {
 		return nil, refusePromotion(ErrPromoteNotAgent)
+	}
+	if m.CARotationActive() {
+		return nil, refusePromotion(ErrCARotationInProgress)
 	}
 	name := node.Name
 	if name == "" {

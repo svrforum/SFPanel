@@ -151,6 +151,11 @@ func (m *Manager) HandleRegisterAgent(in RegisterAgentInput) (*RegisterAgentResu
 	if !m.ProxyRotationSettled(time.Now()) {
 		return nil, ErrProxyRotationPending
 	}
+	// An agent registered now would hold a certificate from one CA and a pin
+	// of the other, and count in no step.
+	if m.CARotationActive() {
+		return nil, ErrCARotationInProgress
+	}
 
 	state := m.raft.GetFSM().GetState()
 	if waiting := m.managersNotReadyForAgents(state); len(waiting) > 0 {
