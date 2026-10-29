@@ -42,7 +42,8 @@ jobs:
       - run: mkdir -p web/dist && echo '<!doctype html><title>ci-stub</title>' > web/dist/index.html
       - name: Install tmux for PTY scroll regression
         run: sudo apt-get update && sudo apt-get install -y tmux
-      - run: go test ./cmd/... ./internal/... -v -count=1
+      # internal/cluster alone runs past go test's 10-minute default.
+      - run: go test ./cmd/... ./internal/... -v -count=1 -timeout 30m
 
   go-lint:
     runs-on: ubuntu-latest

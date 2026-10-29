@@ -54,8 +54,10 @@ third-party-licenses:
 stub-dist:
 	@[ -f web/dist/index.html ] || (mkdir -p web/dist && echo '<!doctype html><title>test-stub</title>' > web/dist/index.html)
 
+# internal/cluster runs past go test's 10-minute default: its tests start real
+# Raft clusters, TLS listeners and rotations end to end.
 test: stub-dist
-	go test ./cmd/... ./internal/... -v -count=1
+	go test ./cmd/... ./internal/... -v -count=1 -timeout 30m
 
 # 앱스토어 카탈로그 번들 생성
 appstore-catalog:
@@ -63,7 +65,7 @@ appstore-catalog:
 
 # 테스트 커버리지
 test-coverage: stub-dist
-	go test ./cmd/... ./internal/... -coverprofile=coverage.out
+	go test ./cmd/... ./internal/... -coverprofile=coverage.out -timeout 30m
 	go tool cover -func=coverage.out | tail -1
 
 # CI - 로컬에서 전체 파이프라인 실행
