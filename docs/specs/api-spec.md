@@ -104,6 +104,12 @@
 
 매니저들의 비밀은 Raft로 복제하는 무작위 비밀이고, 모든 매니저가 그것을 받아들이게 되면 리더가 전환을 기록합니다. 그 전까지는 이전 방식인 클러스터 CA 인증서의 SHA-256으로 서명하며, 이 값은 전환 뒤 2분까지만 받습니다. 에이전트는 전환이 기록되고 5분이 지난 뒤에야 등록됩니다 — 에이전트도 CA 인증서를 받으므로, 그때는 이전 방식이 어디서도 통하지 않아야 합니다.
 
+**JWT 키 교체** (`POST /cluster/rotate/jwt`): 리더가 클러스터의 새 JWT 키를 복제 상태에 쓰면 모든 매니저가 그 키로 바꾸면서 자기 노드의 갱신 토큰을 모두 지우고 WS 티켓을 비웁니다. 교체 전에 발급된 액세스 토큰·갱신 토큰·WS 티켓은 모든 매니저에서 `401`이 되고, 요청한 운영자를 포함해 모두 다시 로그인합니다. 이미 열린 터미널·로그 스트림 같은 연결은 끊지 않습니다. 에이전트에는 JWT 키가 없어 바뀌는 것이 없습니다.
+
+**프록시 비밀 재교체** (`POST /cluster/rotate/proxy`): 리더가 다음 세대의 매니저 비밀을 복제 상태에 씁니다. 모든 매니저가 하트비트로 그것을 받아들였다고 알린 뒤에야 리더가 전환을 기록하고, 그때부터 모두 새 비밀로 서명합니다. 이전 비밀은 전환 뒤 2분까지(각 노드의 시계) 받고, 리더가 전환 5분 뒤 복제 상태에서 지웁니다. 어느 노드도 더 오래된 세대로 돌아가지 않으며, 열린 세션과 연결은 끊기지 않습니다.
+
+**에이전트 키 교체** (`POST /cluster/rotate/agent-keys`): 에이전트마다 새 키를 리더와의 mTLS 연결(gRPC `RotateAgentKey`)로 받습니다. 에이전트가 새 키를 저장하고 그 키로 만든 증명으로 확인한 뒤에만 리더가 매니저들이 서명하는 키(`agent_key/<id>`)를 새 키로 바꾸며, 에이전트는 이전 키를 2분 더 받습니다. 그 전까지 매니저는 이전 키로 서명하므로 중계가 끊기지 않고, 오프라인 에이전트는 돌아와 첫 하트비트에 옮깁니다. 두 교체의 단계는 `GET /cluster/rotation`으로 봅니다.
+
 #### `?node=`가 에이전트일 때
 
 에이전트(`cluster.role: agent`)는 Raft 밖의 노드입니다. 로그인·계정·클러스터 관리 라우트가 없고, 자기 매니저가 그 에이전트의 키로 서명한 요청만 받습니다 (`docs/specs/cluster-ops.md`의 "Agents").
@@ -4887,7 +4893,7 @@ data: {"phase":"ready","session":"5f0c…e9a1","sha256":"9b2d…","bytes":214748
 | `ttl` | string | 아니오 | Go duration. 생략하거나 해석할 수 없으면 24시간. 0 이하이거나 720시간(30일)을 넘으면 400 |
 | `kind` | string | 아니오 | 토큰이 들일 노드의 종류: `manager`(기본) 또는 `agent`. 다른 값은 400 |
 
-읽을 수 없는 본문은 기본값으로 받지 않고 `400 INVALID_REQUEST`로 거부합니다 — 에이전트 토큰을 청한 요청이 매니저 토큰(가입하는 서버에 JWT 비밀·관리자 계정·CA 키를 넘긴다)을 받아서는 안 되기 때문입니다. 매니저가 32대이면 매니저 토큰은 `400 INVALID_REQUEST`, 에이전트가 `cluster.max_agents`대이면 에이전트 토큰은 `400 CLUSTER_MAX_AGENTS`입니다.
+읽을 수 없는 본문은 기본값으로 받지 않고 `400 INVALID_REQUEST`로 거부합니다 — 에이전트 토큰을 청한 요청이 매니저 토큰(가입하는 서버에 JWT 비밀·관리자 계정·CA 키를 넘긴다)을 받아서는 안 되기 때문입니다. 매니저가 32대이면 매니저 토큰은 `400 INVALID_REQUEST`, 에이전트가 `cluster.max_agents`대이면 에이전트 토큰은 `400 CLUSTER_MAX_AGENTS`입니다. 클러스터 CA 교체가 진행 중이면 `409 CLUSTER_CA_ROTATING`입니다 — 토큰의 지문(`ca_pin`)이 교체가 바꿀 CA를 가리키게 됩니다(`POST /cluster/rotate/ca`).
 
 **Response (200):**
 ```json
@@ -5156,7 +5162,7 @@ Raft 리더십을 지정한 노드로 이전. 실행은 리더가 하며, 팔로
 ### POST /api/v1/cluster/nodes/:id/convert
 매니저를 **같은 노드 ID의 에이전트로 전환**합니다. 이름·라벨·가입 시각이 유지됩니다. 실행은 리더가 하며, 다른 매니저에서 요청하면 리더로 전달됩니다. 리더는 관문을 모두 확인한 뒤 그 노드에 묶인 에이전트 토큰(그 노드 ID와 그 노드의 IP에서만, 30분)을 만들고, 노드의 이름·라벨·가입 시각을 복제 상태(`converting/<id>`)에 남긴 다음 그 노드의 `POST /cluster/become-agent`를 부릅니다. 노드는 떠나기 전에 답하므로 `202`는 전환이 시작됐다는 뜻이고, 노드 목록에 그 노드가 에이전트로 다시 나타나면 끝난 것입니다. CLI: `sudo sfpanel cluster convert <node-id>`(서비스가 돌고 있는 매니저에서).
 
-관문(아무것도 바꾸기 전에 모두 확인): 리더가 아닌 매니저일 것, 온라인이고 에이전트를 아는 릴리스일 것, 그 노드 없이도 남은 투표자가 정족수를 이룰 것, 에이전트가 지금 등록될 수 있을 것(프록시 비밀 전환 기록 뒤 5분, 다른 매니저가 모두 온라인이고 에이전트를 아는 릴리스, `cluster.max_agents` 여유), 에이전트로 쓸 이름·주소일 것(유효한 노드 이름, 클러스터가 아는 gRPC 주소가 IP:포트, 다른 노드가 같은 이름이나 IP를 쓰지 않음), 리더가 CA 키를 가질 것. 한 리더는 전환을 한 번에 하나씩 시작합니다. 순서와 실패했을 때는 `docs/specs/cluster-ops.md`의 "Converting a manager to an agent"를 보세요.
+관문(아무것도 바꾸기 전에 모두 확인): 리더가 아닌 매니저일 것, 온라인이고 에이전트를 아는 릴리스일 것, 그 노드 없이도 남은 투표자가 정족수를 이룰 것, 에이전트가 지금 등록될 수 있을 것(프록시 비밀 전환 기록 뒤 5분, 다른 매니저가 모두 온라인이고 에이전트를 아는 릴리스, `cluster.max_agents` 여유), 에이전트로 쓸 이름·주소일 것(유효한 노드 이름, 클러스터가 아는 gRPC 주소가 IP:포트, 다른 노드가 같은 이름이나 IP를 쓰지 않음), 리더가 CA 키를 가질 것, CA 교체가 진행 중이지 않을 것. 한 리더는 전환을 한 번에 하나씩 시작합니다. 순서와 실패했을 때는 `docs/specs/cluster-ops.md`의 "Converting a manager to an agent"를 보세요.
 
 - **인증 필요**: 예
 
@@ -5234,7 +5240,7 @@ Raft 리더십을 지정한 노드로 이전. 실행은 리더가 하며, 팔로
 ### POST /api/v1/cluster/nodes/:id/promote
 에이전트를 **같은 노드 ID의 매니저로 승격**합니다. 이름·라벨·가입 시각이 유지됩니다. 실행은 리더가 하며, 다른 매니저에서 요청하면 리더로 전달됩니다. 리더는 관문을 확인한 뒤 그 에이전트에 묶인 매니저 토큰(30분)을 만들고 에이전트의 `POST /system/become-manager`를 부릅니다. 에이전트는 가입하기 전에 답하므로 `202`는 승격이 시작됐다는 뜻이고, 노드가 재시작해 매니저로 돌아오면 끝난 것입니다. 매니저가 된 노드는 리더가 그 Raft 포트(클러스터 gRPC 포트 + 1)에 닿고 그 Raft가 따라잡을 때까지 비투표자입니다. CLI: `sudo sfpanel cluster promote <node-id>`(서비스가 돌고 있는 매니저에서).
 
-관문: 에이전트일 것, 온라인일 것, 매니저 자리가 남을 것(32대), 리더가 CA 키를 가질 것, 클러스터가 아는 그 에이전트의 gRPC 주소가 IP:포트일 것(토큰이 그 IP에 묶임). 순서와 실패했을 때, Raft 포트가 닫혀 있을 때는 `docs/specs/cluster-ops.md`의 "Promoting an agent to a manager"를 보세요.
+관문: 에이전트일 것, 온라인일 것, 매니저 자리가 남을 것(32대), 리더가 CA 키를 가질 것, 클러스터가 아는 그 에이전트의 gRPC 주소가 IP:포트일 것(토큰이 그 IP에 묶임), CA 교체가 진행 중이지 않을 것. 순서와 실패했을 때, Raft 포트가 닫혀 있을 때는 `docs/specs/cluster-ops.md`의 "Promoting an agent to a manager"를 보세요.
 
 - **인증 필요**: 예
 
@@ -5515,6 +5521,236 @@ data: {"overall":"complete","updated":4,"failed":0,"leader_restarting":true}
 | `INVALID_REQUEST` | 400 | 클러스터가 구성되지 않음 |
 | `INTERNAL_ERROR` | 503 | 리더가 아닌 노드에서 요청 |
 | `UPDATE_IN_PROGRESS` | 409 | 클러스터 업데이트가 이미 진행 중 |
+| `CLUSTER_CA_ROTATING` | 409 | 클러스터 CA 교체가 진행 중(노드를 재시작하면 단계 도중의 디스크로 돌아옴). 교체가 끝난 뒤 다시 |
+
+---
+
+### 클러스터 비밀 교체
+
+클러스터의 비밀 넷 — JWT 키, 매니저 프록시 비밀, 에이전트 키, 클러스터 CA — 을 노드 재시작 없이 바꾸는 라우트입니다. 모두 리더에서 실행되며, 다른 매니저에서 요청하면 리더로 전달됩니다. 리더는 아무것도 쓰기 전에 그 교체가 바꾸는 노드가 모두 따라올 수 있는지 확인하고, 막히면 `409 CLUSTER_ROTATION_REFUSED`와 기다리는 노드를 이름·이유와 함께 답합니다(예: `the rotation was refused: a rotation waits for every node it changes to be online and run a version that follows it; waiting for peer-2 (offline), web-03 (0.79.0)`). CLI는 `sudo sfpanel cluster rotate jwt | proxy | agent-keys | ca [--phase-timeout D] | abort | status`(서비스가 돌고 있는 매니저에서)이고, 운영 순서와 단계별 설명은 `docs/specs/cluster-ops.md`의 "Rotating the cluster's secrets"를 보세요.
+
+응답과 상태 어디에도 비밀(키·비밀 값·CA 개인키·인증서 PEM)은 실리지 않습니다. 비밀은 세대 번호로, CA는 공개키 지문(`sha256:<hex>`, 가입 명령의 `--ca`와 같은 형식)으로만 나옵니다.
+
+다섯 개의 시작·중단 라우트가 함께 쓰는 에러 응답:
+
+| 코드 | HTTP 상태 | 조건 |
+|------|-----------|------|
+| `INVALID_REQUEST` | 400 | 클러스터 미구성 |
+| `INTERNAL_ERROR` | 503 | 리더 없음(선출 중), 또는 전달받은 노드가 그새 리더가 아님 |
+| `CLUSTER_ROTATION_REFUSED` | 409 | 관문 거부 또는 중단할 수 없음(`message`에 이유). 아무것도 바뀌지 않음 |
+| `INTERNAL_ERROR` | 500 | 복제 상태에 쓰지 못함, 기록을 읽지 못함 |
+
+---
+
+### POST /api/v1/cluster/rotate/jwt
+클러스터에 새 JWT 키를 줍니다. 모든 매니저(리더 포함)가 그 키로 바꾸면서 자기 노드의 세션을 모두 끝냅니다 — 갱신 토큰을 지우고, 키를 바꾸고, WS 티켓을 비웁니다. 이 요청을 보낸 운영자의 세션도 끝나므로 이 응답이 그 세션의 마지막 응답이고, 다시 로그인해야 합니다. 열린 터미널·로그 스트림은 끊지 않습니다. 에이전트에는 바뀌는 것이 없습니다.
+
+관문: 다른 모든 매니저가 온라인이고 교체를 따라가는 릴리스(`jwt-rotation-v1`)일 것, 리더 자신이 새 키를 적용할 수 있을 것.
+
+- **인증 필요**: 예
+
+**Request Body:** 없음 (빈 POST)
+
+**Response (200):**
+```json
+{
+  "success": true,
+  "data": {
+    "generation": 1,
+    "message": "The cluster has a new JWT key: every session has ended, this one included — sign in again"
+  }
+}
+```
+
+`generation`은 새 키의 세대입니다. 클러스터를 만들 때의 키가 0이고, 교체마다 1씩 오릅니다.
+
+---
+
+### POST /api/v1/cluster/rotate/proxy
+매니저들이 서로에게 보내는 중계에 서명하는 내부 프록시 비밀을 바꿉니다. 바로 `202`로 답하고, 리더가 15초 틱마다 한 단계씩 진행합니다: `next`(모든 매니저가 새 비밀을 받아들이고 이전 비밀로 서명 — 모든 매니저가 온라인이고 하트비트로 새 세대를 받아들였다고 알릴 때까지, 기한 없음) → `switched`(모두 새 비밀로 서명하고 이전 비밀은 각 노드의 시계로 2분까지 받음 — 5분) → `done`(리더가 이전 비밀을 복제 상태에서 지움). 세션은 끝나지 않고 열린 연결도 끊기지 않습니다.
+
+관문: 다른 모든 매니저가 온라인이고 교체를 따라가는 릴리스(`proxy-rotation-v1`)일 것, 처음 복제 비밀로 전환한 지 5분이 지났을 것, `switched` 단계가 아닐 것(`… is still accepted until <시각>`), 복제 상태의 기록을 읽을 수 있을 것. `next`에서 다시 시작하면 다음 비밀만 새로 바뀝니다(아직 아무도 그것으로 서명하지 않았음).
+
+- **인증 필요**: 예
+
+**Request Body:** 없음 (빈 POST)
+
+**Response (202):**
+```json
+{
+  "success": true,
+  "data": {
+    "generation": 2,
+    "message": "Every manager takes the new internal proxy secret, then all switch to it: follow it with GET /api/v1/cluster/rotation"
+  }
+}
+```
+
+---
+
+### POST /api/v1/cluster/rotate/agent-keys
+모든 에이전트에 새 키(매니저들이 그 에이전트에게 서명하는 키)를 줍니다. 바로 `202`로 답합니다. 각 에이전트는 다음 하트비트에서 리더와의 mTLS 연결로 새 키를 받고(지금 키로 만든 증명), 저장한 뒤 새 키로 만든 증명으로 확인합니다. 리더는 그 확인을 본 뒤에야 매니저들을 새 키로 바꾸고, 에이전트는 이전 키를 2분 더 받습니다. 오프라인 에이전트는 기다리지 않습니다 — 이전 키로 계속 동작하다가 돌아와 첫 하트비트에 옮기며, 그동안 상태의 `agent_keys.agents[].pending`이 `true`입니다. 다시 시작하면 새 세대가 앞 세대를 대신합니다.
+
+관문: 다른 모든 매니저가 온라인이고 교체를 따라가는 릴리스(`agent-key-rotation-v1`)일 것, 온라인인 에이전트 가운데 이전 릴리스가 없을 것(이름·버전을 답함), 복제 상태의 기록을 읽을 수 있을 것.
+
+- **인증 필요**: 예
+
+**Request Body:** 없음 (빈 POST)
+
+**Response (202):**
+```json
+{
+  "success": true,
+  "data": {
+    "generation": 1,
+    "message": "Every agent moves to a new key at its next heartbeat, an offline one once it is back: follow it with GET /api/v1/cluster/rotation"
+  }
+}
+```
+
+---
+
+### POST /api/v1/cluster/rotate/ca
+클러스터 CA를 바꾸기 시작합니다. 리더가 다음 CA(10년)를 만들고 바로 `202`로 답한 뒤, 모든 노드를 한 단계씩 옮깁니다: `trust`(모든 노드가 두 CA를 믿음) → `reissue`(다음 CA가 서명하고, 매니저는 자기 인증서를 직접, 에이전트는 리더에게 받아 다시 발급 — 리더가 모든 노드의 하트비트 연결에서 다음 CA의 인증서를 볼 때까지) → `promote`(다음 CA가 클러스터의 CA가 되고 모든 노드가 이전 CA를 뺌 — 모든 매니저와 온라인 에이전트가 다음 CA만 믿는다고 알릴 때까지) → `done`. `trust`·`reissue`가 기한 안에 끝나지 않거나 운영자가 중단하면 현재 CA를 지킨 채 되돌아갑니다(`rollback` → `drop` → `aborted`). `promote` 뒤에는 되돌리기가 없습니다.
+
+관문: CA 교체가 진행 중이지 않을 것, 처음 복제 비밀로 전환한 지 5분이 지났을 것, 모든 노드(에이전트 포함)가 온라인이고 교체를 따라가는 릴리스(`ca-rotation-v1`)일 것, 리더의 `ca.crt`와 복제 상태의 CA가 지난 교체가 남긴 CA일 것, 단계 기한이 범위 안일 것, 클러스터 업데이트가 돌고 있지 않을 것.
+
+진행 중에는 참가 토큰 생성(`POST /cluster/token`)과 클러스터 업데이트(`POST /cluster/update`)가 `409 CLUSTER_CA_ROTATING`, 전환·승격이 `409 CLUSTER_CONVERT_REFUSED`·`409 CLUSTER_PROMOTE_REFUSED`로 거부되고, 가입과 에이전트 등록도 거부됩니다. 끝난 뒤의 가입 명령은 새 CA의 지문(`ca_pin`)을 싣고, 그 전에 받은 가입 명령은 `the CA fingerprint does not match …`로 거부됩니다.
+
+- **인증 필요**: 예
+
+**Request Body** (생략 가능):
+```json
+{ "phase_timeout": "30m" }
+```
+
+| 필드 | 타입 | 필수 | 설명 |
+|------|------|------|------|
+| `phase_timeout` | string | 아니오 | `trust`·`reissue` 단계가 각각 걸릴 수 있는 시간(Go duration). 생략하면 30분. 5분~24시간 밖이면 `409 CLUSTER_ROTATION_REFUSED`, duration이 아니면 `400 INVALID_REQUEST` |
+
+**Response (202):**
+```json
+{
+  "success": true,
+  "data": {
+    "rotation": {
+      "id": "6f1c…",
+      "seq": 1,
+      "phase": "trust",
+      "old_pin": "sha256:…",
+      "next_pin": "sha256:…",
+      "started_at": "2026-10-29T09:00:00Z",
+      "phase_at": "2026-10-29T09:00:00Z",
+      "phase_timeout_seconds": 1800
+    },
+    "message": "The cluster CA is being replaced: follow it with GET /api/v1/cluster/rotation"
+  }
+}
+```
+
+| 필드 | 타입 | 설명 |
+|------|------|------|
+| `rotation.id`, `seq` | string, number | 교체의 ID와 기록 번호. 단계마다 `seq`가 하나씩 오르고, 다음 교체는 마지막 `seq`에서 이어집니다 |
+| `rotation.phase` | string | `trust`, `reissue`, `promote`, `done`, `rollback`, `drop`, `aborted` |
+| `rotation.old_pin`, `next_pin` | string | 현재 CA와 다음 CA의 지문 |
+| `rotation.phase_at`, `phase_timeout_seconds` | string, number | 지금 단계가 시작된 시각과 `trust`·`reissue`의 기한(초) |
+| `rotation.reason` | string | 되돌아갈 때만: 기한이 지나 막은 노드, 또는 `aborted by the operator` |
+
+**에러 응답:** 위의 공통 표에 더해
+| 코드 | HTTP 상태 | 조건 |
+|------|-----------|------|
+| `INVALID_REQUEST` | 400 | 읽을 수 없는 본문, duration이 아닌 `phase_timeout` |
+| `UPDATE_IN_PROGRESS` | 409 | 클러스터 업데이트가 진행 중 |
+
+---
+
+### POST /api/v1/cluster/rotate/ca/abort
+CA 교체를 멈추고 현재 CA를 지킵니다. `trust`에서는 `drop`으로(아직 옮긴 인증서가 없음), `reissue`에서는 `rollback`으로(다음 CA가 서명한 인증서를 모두 현재 CA로 되돌린 뒤 `drop`) 갑니다. 진행은 `GET /cluster/rotation`으로 봅니다. CLI: `sudo sfpanel cluster rotate abort`.
+
+`409 CLUSTER_ROTATION_REFUSED`: `promote` 뒤(`the next CA is the cluster's already …` — 다른 노드가 이미 이전 CA를 뺐을 수 있음, 새 교체로 다시 옮김), 진행 중인 교체가 없음(`no CA rotation is in progress`), 이미 되돌아가는 중.
+
+- **인증 필요**: 예
+
+**Request Body:** 없음 (빈 POST)
+
+**Response (202):** `data`에 `rotation`(위와 같은 모양, `phase`는 `drop` 또는 `rollback`, `reason`은 `aborted by the operator`)과 `message`.
+
+---
+
+### GET /api/v1/cluster/rotation
+네 교체가 노드별로 어디에 있는지 보여 줍니다. 모든 노드의 하트비트를 듣는 리더만 답하므로 팔로워는 리더에게 묻고, 리더임을 확인하지 못하면 `503`입니다. 진행은 이것을 폴링해 봅니다. CLI: `sudo sfpanel cluster rotate status`.
+
+- **인증 필요**: 예
+
+**Response (200):**
+```json
+{
+  "success": true,
+  "data": {
+    "jwt": {
+      "generation": 1,
+      "rotated_at": "2026-10-29T09:00:00Z",
+      "managers": [
+        { "id": "node-m1", "name": "manager-01", "online": true, "generation": 1, "can_rotate": true }
+      ]
+    },
+    "proxy": {
+      "generation": 2,
+      "phase": "next",
+      "waiting": ["manager-02 (offline)"],
+      "managers": [
+        { "id": "node-m1", "name": "manager-01", "online": true, "generation": 2, "can_rotate": true }
+      ]
+    },
+    "agent_keys": {
+      "generation": 1,
+      "started_at": "2026-10-29T09:10:00Z",
+      "pending": 1,
+      "agents": [
+        { "id": "node-a1", "name": "agent-01", "online": true, "pending": true, "issued": true, "can_rotate": true }
+      ]
+    },
+    "ca": {
+      "current_pin": "sha256:…",
+      "raft_tls": true,
+      "rotation": {
+        "id": "6f1c…", "seq": 2, "phase": "reissue",
+        "old_pin": "sha256:…", "next_pin": "sha256:…",
+        "started_at": "2026-10-29T09:20:00Z", "phase_at": "2026-10-29T09:21:00Z", "phase_timeout_seconds": 1800,
+        "deadline": "2026-10-29T09:51:00Z",
+        "waiting": ["agent-01 (still presents a certificate from the current CA)"],
+        "nodes": [
+          { "id": "node-a1", "name": "agent-01", "kind": "agent", "online": true,
+            "trusts": ["sha256:…", "sha256:…"], "cert_ca": "sha256:…", "can_rotate": true }
+        ]
+      }
+    }
+  }
+}
+```
+
+| 필드 | 설명 |
+|------|------|
+| `jwt.generation`, `rotated_at` | 클러스터 JWT 키의 세대(만들 때의 키는 0)와 마지막 교체 시각 |
+| `jwt.managers[].generation` | 그 매니저가 쓰는 세대 — 리더는 자기 것, 나머지는 하트비트가 알린 것. 알리지 않았으면 없음 |
+| `proxy.generation`, `phase`, `switched_at` | 프록시 비밀의 세대(재교체한 적 없으면 0, 처음의 복제 비밀 전환은 세지 않음), 단계(`next`·`switched`·`done`), 전환 시각 |
+| `proxy.waiting` | `next`에서만: 전환을 막는 매니저와 이유 |
+| `proxy.managers[].generation` | 그 매니저가 받아들이는 가장 새 세대 |
+| `agent_keys.generation`, `started_at`, `pending` | 마지막으로 시작한 에이전트 키 교체(없으면 0)와 아직 옮기지 않은 에이전트 수 |
+| `agent_keys.agents[].pending` | 매니저들이 아직 그 교체의 키로 서명하지 않음. 오프라인 에이전트도 나옵니다 |
+| `agent_keys.agents[].issued` | 새 키를 받아 갔고 아직 확인하지 않음 |
+| `ca.current_pin` | 클러스터 CA의 지문 — 교체 중에는 옮겨 가기 전의 CA |
+| `ca.raft_tls` | Raft 포트가 TLS인지. `false`면 CA 교체가 Raft 포트에는 닿지 않습니다 |
+| `ca.rotation` | 마지막 CA 교체(한 적 없으면 없음): `POST /cluster/rotate/ca`의 `rotation` 필드에 더해 `deadline`(`trust`·`reissue`에서 되돌아가는 시각), `waiting`(그 단계를 막는 노드와 이유), `nodes` |
+| `ca.rotation.nodes[].trusts`, `cert_ca` | 그 노드가 믿는다고 알린 CA들과, 리더가 그 노드의 하트비트 연결에서 본 인증서를 서명한 CA(리더는 자기 파일로) |
+| `can_rotate` | 그 노드의 릴리스가 그 교체를 따라가는지(온라인 여부는 `online`이 따로 말함) |
+
+**에러 응답:**
+| 코드 | HTTP 상태 | 조건 |
+|------|-----------|------|
+| `INVALID_REQUEST` | 400 | 클러스터 미구성 |
+| `INTERNAL_ERROR` | 503 | 리더 없음, 또는 리더임을 확인하지 못함 |
+| `INTERNAL_ERROR` | 500 | CA 교체 기록을 읽지 못함 |
 
 ---
 
@@ -6180,7 +6416,7 @@ WireGuard 키페어 생성 (`wg genkey` + `wg pubkey`).
 | GET | `/api/v1/appstore/installed` | O | 설치된 앱 목록 |
 | POST | `/api/v1/appstore/refresh` | O | 앱스토어 캐시 갱신 |
 
-### 클러스터 (22개)
+### 클러스터 (28개)
 
 | 메서드 | 경로 | 인증 | 설명 |
 |--------|------|------|------|
@@ -6206,6 +6442,12 @@ WireGuard 키페어 생성 (`wg genkey` + `wg pubkey`).
 | POST | `/api/v1/cluster/disband` | O | 클러스터 해산 (팔로워 요청은 리더로 전달, 알리지 못한 에이전트는 응답에) |
 | GET | `/api/v1/cluster/interfaces` | O | 네트워크 인터페이스 목록 (클러스터 초기화용) |
 | POST | `/api/v1/cluster/update` | O | 클러스터 전체 업데이트 오케스트레이션 (SSE, 리더 전용) |
+| POST | `/api/v1/cluster/rotate/jwt` | O | 클러스터 JWT 키 교체 — 모든 매니저의 모든 세션이 끝남 (리더가 실행) |
+| POST | `/api/v1/cluster/rotate/proxy` | O | 매니저 내부 프록시 비밀 재교체 (202, 리더가 실행) |
+| POST | `/api/v1/cluster/rotate/agent-keys` | O | 모든 에이전트 키 교체 (202, 리더가 실행, 오프라인 에이전트는 돌아와서) |
+| POST | `/api/v1/cluster/rotate/ca` | O | 클러스터 CA 교체 시작 (202, 리더가 실행, `phase_timeout`) |
+| POST | `/api/v1/cluster/rotate/ca/abort` | O | CA 교체 중단 — `promote` 전까지만 (202) |
+| GET | `/api/v1/cluster/rotation` | O | 비밀 교체의 노드별 상태 (리더가 답함, 비밀은 싣지 않음) |
 
 ### 알림 시스템 (11개)
 

@@ -77,8 +77,8 @@ heartbeat.
 
 | Material | Lifetime | Rotation | Notes |
 |---|---|---|---|
-| Cluster CA | 10 years (`InitCA`) | Manual, coordinated restart | No in-place rotation — every node must trust the new CA simultaneously |
-| Node cert | 5 years (`IssueNodeCert`) | `sudo sfpanel cluster reissue-cert` | Hot-reload within ≤ 60 s; debounced re-stat in `getNodeCert` |
+| Cluster CA | 10 years (`InitCA`; a rotated CA from its rotation) | `sudo sfpanel cluster rotate ca` | No restart: every node trusts both CAs before any certificate moves (§ Rotating the cluster's secrets) |
+| Node cert | 5 years (`IssueNodeCert`) | `sudo sfpanel cluster reissue-cert`; a CA rotation reissues every node certificate | Hot-reload within ≤ 60 s; debounced re-stat in `getNodeCert` |
 
 Both `node.crt` and `node.key` live in `{Cluster.CertDir}` and are written
 0600. The cert is technically public material in mTLS, but locking it down
@@ -87,36 +87,238 @@ matches the rest of the trust material on the host (config, DB, key).
 A node certificate carries its role in the subject's OU: `sfpanel-manager`
 or `sfpanel-agent`. The Raft port refuses an agent's certificate, and of the
 cluster gRPC methods that need a certificate an agent may call only
-AgentHeartbeat and ReportPanelCA, each for itself; a manager heartbeats on
-Heartbeat, which refuses an agent. A manager whose certificate
+AgentHeartbeat, ReportPanelCA, RenewCertificate and RotateAgentKey, each for
+itself — the last two answer only while a rotation asks for them; a manager
+heartbeats on Heartbeat, which refuses an agent. A manager whose certificate
 predates roles reissues it with the manager role by itself, on its first
 leader-watch tick after the upgrade, keeping its node ID and addresses and
 signing with the CA key it holds through replicated state; `reissue-cert`
 issues with the manager role too.
 
-### CA rotation playbook (no automation today)
+A CA past its `NotAfter` fails every gRPC handshake, and the cluster cannot
+recover from that by itself: rotate it well before (§ Rotating the cluster's
+secrets).
 
-There is no `sfpanel cluster rotate-ca` command. The 10-year horizon is far
-enough out that a manual playbook is acceptable, but rotate **before**
-expiry — once the CA is past `NotAfter`, every gRPC handshake fails and the
-cluster cannot self-recover.
+---
 
-1. **Plan a maintenance window.** Treat CA rotation as a coordinated cluster
-   restart. All voters must be online and reachable from the operator.
-2. **Run `sfpanel cluster reissue-cert` on every node first.** Cycling node
-   certs ahead of CA rotation puts every node on a fresh cert that you can
-   re-sign with the new CA in step 4.
-3. **Generate the new CA locally.** Use the same key params as
-   `internal/cluster/tls.go` (P-256 ECDSA, NotAfter = now + 10 y).
-4. **For each node:** stop sfpanel → replace `{CertDir}/ca.crt` (and key on
-   the original CA holder) with the new CA → re-issue node certs against the
-   new CA, each with its role → start sfpanel. A join command carries the
-   CA's fingerprint, so every one printed before the rotation stops working.
-5. **Verify** with `sfpanel cluster status` after every voter is back. If any
-   node is stuck, copy the new CA cert manually and restart that node.
+## Rotating the cluster's secrets
 
-`cachedCAPool` is loaded once at startup (`loadCAPool`), so step 4
-implicitly requires a restart — there is no hot-reload path for the CA.
+Four secrets can be replaced on a live cluster, without restarting a node,
+each with one command on a manager whose service is running:
+`sudo sfpanel cluster rotate jwt`, `rotate proxy`, `rotate agent-keys` and
+`rotate ca`. The command asks the panel, which hands the request to the
+leader. Before it writes anything the leader checks that every node the
+rotation changes can follow it; a refusal is `409 CLUSTER_ROTATION_REFUSED`,
+nothing having changed, and names whom it waits for and why
+(`… waiting for peer-2 (offline), web-03 (0.79.0)`).
+`sudo sfpanel cluster rotate status` (`GET /api/v1/cluster/rotation`) shows
+where each node stands in each of them, by generation and fingerprint — never
+a secret.
+
+Rotate after converting a manager to an agent or taking one out of the
+cluster, after a backup has left the cluster's servers, and whenever a secret
+may have leaked. A manager holds all four — in memory, on disk and in its
+copy of the Raft log — and keeps them when it goes. § In what order says how
+to go about it.
+
+### The JWT key
+
+`sudo sfpanel cluster rotate jwt` (`POST /api/v1/cluster/rotate/jwt`) gives
+the cluster a new JWT key. Every manager, the leader too, applies it as soon
+as its replicated state holds it, and ends every session it holds: the
+refresh tokens are deleted before the key changes, and the WebSocket tickets
+go after it. Every access token, refresh token and WebSocket ticket issued
+before the rotation is then refused on every manager, the operator's own
+session included: the answer is the last one it gets, and everyone signs in
+again.
+
+- **What it does not end:** terminals, log streams and other connections
+  that were open already. They were authenticated when they opened, and
+  nothing checks them again. If someone may be in one, restart the managers
+  one at a time after the rotation.
+- **Gate:** every other manager online, on a release that follows a
+  rotation. One that does not would go on taking the retired key.
+- **`SFPANEL_JWT_SECRET`:** a manager whose environment sets it runs that
+  key at every start instead of the cluster's, so a rotation is undone on it
+  at its next restart: it takes the retired key again, and the others refuse
+  the tokens it issues. It warns at boot. Unset the variable on cluster
+  managers.
+- **A manager restored from a backup** restarts with the key, and the
+  generation, it had when the backup was taken. By its first leader-watch
+  tick (15 seconds) it finds the cluster's key newer and applies it, which
+  ends the sessions the restore brought back.
+- An agent holds no JWT key, and a JWT rotation changes nothing on it.
+
+### The managers' internal proxy secret
+
+`sudo sfpanel cluster rotate proxy` (`POST /api/v1/cluster/rotate/proxy`,
+`202`) replaces the secret the managers sign their relays to each other with.
+Rotate it whenever the JWT key is: a header signed with it passes on any
+manager's panel without a JWT, as any user. Nobody is signed out. It goes in
+three steps, each on the leader's 15-second tick:
+
+1. **next** — every manager accepts the new secret beside the one it signs
+   with. The leader waits until every manager is online and says, on its
+   heartbeat, that it accepts the new secret. This step has no time limit:
+   nobody signs with the new secret yet, so waiting opens nothing.
+2. **switched** — every manager signs with the new secret, and accepts the
+   old one for two more minutes by its own clock, for a peer whose replicated
+   state lags. The leader waits five minutes.
+3. **done** — the leader takes the old secret out of replicated state.
+
+No session, terminal or stream is cut at any step.
+
+- **Gate:** every other manager online, on a release that follows a
+  rotation, and five minutes past the switch of the internal proxy secret to
+  the replicated one, which the leader records by itself once every manager
+  accepts the replicated secret.
+- **A rotation held in next** waits for a manager that is offline, not heard
+  from or on an older release; `rotate status` names it (`waiting`). Wait
+  for it, or remove it. Started again in next, a rotation replaces only the
+  next secret, which nobody has signed with. A start during switched is
+  refused (`… is still accepted until <time>`): start again after that time.
+- **A manager rolled back to an older release** follows
+  `cluster_proxy_secret`, the plain copy of the signing secret, alone. It
+  never says it accepts a next secret, so a rotation's switch waits for it
+  until it is updated again or removed.
+- No node goes back to an older secret: each keeps the last step it applied
+  in `proxy-secret.json`, and after a restart goes by the newer of that and
+  its replicated state.
+
+### The agents' keys
+
+`sudo sfpanel cluster rotate agent-keys`
+(`POST /api/v1/cluster/rotate/agent-keys`, `202`) gives every agent a new
+key, the one the managers sign their requests to it with, over the agent's
+own mTLS connection to the leader (RotateAgentKey):
+
+1. At the agent's next heartbeat the leader tells it a rotation is due. The
+   agent fetches its new key with a proof made with the key it holds, writes
+   it to `<cert_dir>/agent-key-rotation.json` and accepts both keys.
+2. It confirms with a proof made with the new key. Only then does the leader
+   make the new key the one the managers sign with, and the old one leaves
+   replicated state.
+3. The agent's `agent.key` becomes the new key, and it accepts the old one
+   for two more minutes, for a manager whose replicated state lags.
+
+Until the confirm the managers sign with the old key, which the agent still
+accepts: a rotation cut off half-way breaks no relay, terminal or stream.
+
+- **An offline agent does not hold the rotation up.** It goes on with its
+  old key, and moves at its first heartbeat once it is back; `rotate status`
+  lists it by name as `pending` meanwhile. Remove an agent that will not come
+  back (`sudo sfpanel cluster remove <node-id>`).
+- **Gate:** every other manager online, on a release that follows a
+  rotation, and no online agent on a release that does not — the refusal
+  names it and its version. Update it first.
+- **Started again,** a rotation replaces the last one: an agent that has not
+  confirmed takes the new rotation's key.
+- `agent.key` is always the key the managers sign with, as far as the agent
+  knows; the key on its way is in `agent-key-rotation.json`. An agent rolled
+  back to an older release reads `agent.key` alone and keeps working, on its
+  old key: it never confirms, so the managers stay on that key too.
+- **An agent that lost its disk after confirming** — restored from an image
+  taken before, say — holds a key the managers no longer sign with, and the
+  leader tells it so (`the managers sign for this agent with a key it does
+  not hold …`). Remove the node on a manager, run
+  `sudo sfpanel agent reset --yes` on it, and join it again.
+
+### The cluster CA
+
+`sudo sfpanel cluster rotate ca [--phase-timeout 30m]`
+(`POST /api/v1/cluster/rotate/ca`, `202`) replaces the cluster CA. The
+leader makes the next CA, which lasts ten years, and moves every node to it a
+step at a time. Each step waits for every node, on evidence the leader sees
+itself:
+
+1. **trust** — every node trusts both CAs. The leader waits until every node
+   says, on its heartbeat, that it trusts both.
+2. **reissue** — the next CA signs. Every manager reissues its own
+   certificate with it, keeping its key and names, and every agent asks the
+   leader for one (RenewCertificate, with a proof made with the agent's
+   key). The leader waits until every node's heartbeat connection has
+   presented a certificate from the next CA.
+3. **promote** — the next CA is the cluster's, and every node drops the old
+   one. The leader waits until every manager, and every agent online, says it
+   trusts the next CA alone. An agent offline by then holds its new
+   certificate already, and catches up at its first heartbeat back.
+4. **done**.
+
+- **Time limit:** trust and reissue may each take `--phase-timeout`
+  (default 30 minutes, from 5 minutes to 24 hours). Past it the rotation
+  goes back by itself, keeping the current CA, and records which nodes held
+  it (`reason`). From trust it drops the next CA (drop → aborted); from
+  reissue every certificate moves back to the current CA first (rollback →
+  drop → aborted). The way back has no time limit: rollback waits for every
+  node, and drop for every manager and every agent online.
+- **`sudo sfpanel cluster rotate abort`** stops it the same way. From
+  promote on there is no way back — a node may have dropped the old CA — and
+  the stop is refused; another rotation is the way to move again.
+- **Every node must be online**, agents included, on a release that follows
+  a rotation, before it starts. An offline node holds trust and reissue until
+  their time sends the rotation back, and an offline manager holds promote
+  until it is back. Wait for it, or remove it, rotate, and join its
+  replacement with the new fingerprint.
+- **Also refused at the start:** a CA rotation under way, a cluster update
+  running (`409 UPDATE_IN_PROGRESS`), and a switch of the internal proxy
+  secret to the replicated one less than five minutes old — the secret it
+  replaced was derived from `ca.crt`.
+- **While it runs, nothing joins or updates.** Join tokens and cluster
+  updates are refused with `409 CLUSTER_CA_ROTATING`, conversions and
+  promotions with their own `409`, and joins and agent registrations with
+  the rotation's message. `sfpanel cluster reissue-cert` refuses on a node
+  whose `ca.crt` holds two CAs.
+- **After it,** make new join commands (`sudo sfpanel cluster token`). Every
+  one printed before carries the old CA's fingerprint, and a join with it is
+  refused (`the CA fingerprint does not match …`).
+- **`raft_tls: false`:** a cluster whose Raft port is not under TLS rotates
+  all the same, but the rotation does not reach that port; `rotate status`
+  shows `raft_tls`.
+- The old CA's key stays in the managers' Raft logs and snapshots until Raft
+  compacts them. Once no node trusts that CA, nothing it signs is accepted
+  anywhere.
+
+### In what order
+
+After converting a manager to an agent or taking one out, or to start over
+after a suspected leak:
+
+1. Update every node to this release, the agents first.
+2. Choose the managers to keep, and convert the others one at a time
+   (§ Converting a manager to an agent).
+3. `sudo sfpanel cluster rotate status`: every node is online and can
+   rotate (`can_rotate`).
+4. `rotate jwt`, and sign in again.
+5. `rotate proxy` and `rotate agent-keys`; then `rotate status` until the
+   proxy secret is `done` and the only agents still `pending` are offline.
+6. `rotate ca`; then `rotate status` until it is `done`. It needs every node
+   online, so an agent still pending after step 5 has come back and moved by
+   then, or been removed.
+7. Make new join commands.
+8. Deal with the old backups: the `config.yaml.bak` and `sfpanel.db.bak` an
+   update leaves, and the scheduled ones in `/var/lib/sfpanel/backups`. Those
+   taken before step 4 hold the retired JWT key and the old account.
+
+- **Why the keys go before the CA:** a CA rotation's certificate renewal is
+  proved with the agent's key. Rotated first, the keys a former manager held
+  prove nothing: it would have had to act during the key rotation too.
+  The other way round, one CA rotation with the old CA key and the old agent
+  keys is enough to get certificates from the next CA.
+- **A manager converted, left or removed after a rotation started** saw the
+  new secrets: run steps 4 to 6 again.
+- **If an attacker may have acted during the rotations** — a former manager
+  holding both the old CA key and the agents' keys — rotating does not shut
+  them out. Remove each agent, reset it (`sudo sfpanel agent reset --yes`)
+  and join it again with the new fingerprint.
+- **On production servers,** a Proxmox host among them, approve each step as
+  it comes, and rehearse the whole sequence on a test cluster first.
+
+### What is not rotated
+
+The account's secrets: the admin's password hash, TOTP secret and recovery
+codes, which a former manager held too. Replace them after step 4, as each
+needs a fresh sign-in: change the password (it replicates to every manager),
+turn 2FA off and enroll it again, and make new recovery codes.
 
 ---
 
@@ -142,7 +344,10 @@ not asked, and one the leader's heartbeats show offline is skipped.
   finishes regardless of whether anyone is still watching. Closing the tab
   does not cancel it.
 - One cluster update at a time: a second request while one is running gets
-  `409 UPDATE_IN_PROGRESS`.
+  `409 UPDATE_IN_PROGRESS`. None starts while a CA rotation is under way
+  (`409 CLUSTER_CA_ROTATING`), and a CA rotation does not start during an
+  update: a node an update restarts would come back on whatever its disk
+  held.
 - The leader sends the release it looked up to every node with the request,
   so a run asks GitHub's API once however many nodes it updates: the API
   allows sixty unauthenticated requests an hour per address. A node takes
@@ -277,8 +482,9 @@ agent's stacks when they move to another node (§ Stack migrations).
 
 What an agent holds is no credential anywhere else: its certificate
 (OU `sfpanel-agent`) gets it nothing on a manager's gRPC port but its own
-heartbeat and panel-CA report, its key is accepted by no other node, and the
-managers' internal proxy secret never reaches it.
+heartbeat, panel-CA report, and certificate renewal and key during a
+rotation, its key is accepted by no other node, and the managers' internal
+proxy secret never reaches it.
 
 ### Joining
 
@@ -335,8 +541,9 @@ curl -fsSL https://raw.githubusercontent.com/svrforum/SFPanel/main/scripts/insta
   default 100).
 - The join turns on the panel's HTTPS if it was off, writes the cluster CA
   certificate, the agent's certificate and key, and its internal proxy key
-  (`agent.key`, 0600) under `cluster.cert_dir`, and restarts a running
-  sfpanel, which comes back as an agent.
+  (`agent.key`, 0600) under `cluster.cert_dir` — removing the key rotation's
+  state an earlier membership left there (`agent-key-rotation.json`) — and
+  restarts a running sfpanel, which comes back as an agent.
 - Before the token travels, the join checks that the panel's certificate
   verifies against the panel's CA for the advertise IP, where the managers
   reach the panel, and for 127.0.0.1, where the agent's own gRPC server
@@ -345,9 +552,10 @@ curl -fsSL https://raw.githubusercontent.com/svrforum/SFPanel/main/scripts/insta
   operator certificate has to name both, or the join stops and says so.
 - A server that still holds a cluster manager's files is refused: `ca.key`
   in `cluster.cert_dir`, or `raft-log.db`, `raft-stable.db`, `snapshots`,
-  `tokens.json`, `proxy-secret.json`, `peers.json` or `peers.info` in
-  `cluster.data_dir`. They hold the cluster's keys, which an agent joined
-  over them would keep. Remove what the refusal lists, then join again.
+  `tokens.json`, `proxy-secret.json`, `ca-rotation.json`, `peers.json` or
+  `peers.info` in `cluster.data_dir`. They hold the cluster's keys, which an
+  agent joined over them would keep. Remove what the refusal lists, then join
+  again.
 
 ### Ports
 
@@ -355,7 +563,7 @@ curl -fsSL https://raw.githubusercontent.com/svrforum/SFPanel/main/scripts/insta
 |---|---|---|
 | Managers → agent | 3629 (`cluster.grpc_port`) | Requests, over gRPC with mTLS |
 | Managers → agent | 3628 (`server.port`) | Event streams, file transfers, terminals and other WebSockets, stack migrations (a manager pushes stacks to the agent, and pulls the agent's own from it) — panel HTTPS |
-| Agent → managers | 3629 | Registration, heartbeats and panel-CA reports, to the leader; the other managers are tried when it cannot be reached |
+| Agent → managers | 3629 | Registration, heartbeats, panel-CA reports, and a rotation's certificate renewal and key, to the leader; the other managers are tried when it cannot be reached |
 
 An agent needs no Raft port (3630), on either side.
 
@@ -381,8 +589,10 @@ systemd starts it again.
 
 On the agent, `sudo sfpanel agent status` shows its cluster, node ID and
 advertise address, the managers and the leader it last heard from, whether
-the leader removed it, its certificate's expiry, whether its key is present
-(never the key itself) and whether its panel answers on loopback. On a
+the leader removed it, the CAs it trusts (by fingerprint — two while a CA
+rotation is under way), its certificate's expiry and the CA that signed it,
+whether its key is present (never the key itself) and whether its panel
+answers on loopback. On a
 manager, the node list shows it with `kind: agent` and no Raft role; it is
 online while its heartbeats arrive.
 
@@ -427,8 +637,9 @@ node; the leader watches the managers' pings the same way.
    `/api/v1/health` still work, and after a restart it opens loopback only.
 3. On the agent, `sudo sfpanel agent reset --yes` makes it a standalone panel
    again: the config stops naming it an agent (role, node ID and managers
-   cleared) and gets a new JWT key, the certificates, the key and the link's
-   state are deleted, and a running service restarts. Without `--yes` it
+   cleared) and gets a new JWT key, the certificates, the key, a key
+   rotation's state (`agent-key-rotation.json`) and the link's state are
+   deleted, and a running service restarts. Without `--yes` it
    only lists what it would do. The installer's `uninstall` runs the reset
    itself.
 
@@ -624,6 +835,7 @@ leader, which runs it.
   new node.
 - The leader can sign certificates: it holds the CA key, on disk or in
   replicated state.
+- No CA rotation is under way.
 
 A leader starts one conversion at a time.
 
@@ -646,9 +858,9 @@ A leader starts one conversion at a time.
 4. It saves its config as a standalone panel's, with a JWT key of its own.
 5. It removes what a manager keeps and an agent must not hold: `ca.key` in
    `cluster.cert_dir`; `raft-log.db`, `raft-stable.db`, `snapshots`,
-   `tokens.json`, `proxy-secret.json`, `peers.json` and `peers.info` in
-   `cluster.data_dir`; the local `admin` account; and the `config.yaml.bak`
-   and `sfpanel.db.bak` an update leaves.
+   `tokens.json`, `proxy-secret.json`, `ca-rotation.json`, `peers.json` and
+   `peers.info` in `cluster.data_dir`; the local `admin` account; and the
+   `config.yaml.bak` and `sfpanel.db.bak` an update leaves.
 6. It registers as an agent under its own ID with the token, and the leader
    gives the new record the name, labels and join time it recorded.
 7. It restarts as an agent (`Restart=always` starts it again).
@@ -684,9 +896,12 @@ carry on from another manager.
 (`/var/lib/sfpanel/backups`) are the operator's and stay where they are; when
 there are any, the answer's message ends with a warning, and the node logs
 one. Those taken while the node was a manager hold the cluster's JWT key and
-admin account, usable until the cluster's secrets are rotated — which SFPanel
-cannot do yet — and the agent refuses to restore them (§ Backups and agents).
-Move them off the node, or delete them.
+admin account, usable until the JWT key is rotated (`sfpanel cluster rotate
+jwt`) and the admin's password and 2FA are replaced, and the agent refuses to
+restore them (§ Backups and agents). Move them off the node, or delete them.
+The node itself held the managers' internal proxy secret and the agents' keys
+as well: rotate those too (`rotate proxy`, `rotate agent-keys`), in the order
+§ Rotating the cluster's secrets gives.
 
 ---
 
@@ -699,8 +914,8 @@ labels and join time. Any manager takes the request to the leader.
 
 **Gates.** The node is an agent and online, as it joins again itself; the
 cluster has room for another manager (32); the leader can sign certificates;
-and the cluster has the agent at an IP and a port, which the token is bound
-to. A refusal is `409 CLUSTER_PROMOTE_REFUSED`, nothing having changed.
+the cluster has the agent at an IP and a port, which the token is bound to;
+and no CA rotation is under way. A refusal is `409 CLUSTER_PROMOTE_REFUSED`, nothing having changed.
 
 **Steps.**
 
@@ -712,8 +927,9 @@ to. A refusal is `409 CLUSTER_PROMOTE_REFUSED`, nothing having changed.
    becomes binds it, and answers `202`: the promotion has begun.
 3. It removes whatever an earlier membership as a manager left — `ca.key`,
    the Raft stores and snapshots, `tokens.json`, `proxy-secret.json`,
-   `peers.json` and `peers.info` — while it is still an agent and uses none
-   of them. One that will not go stops the promotion there.
+   `ca-rotation.json`, `peers.json` and `peers.info` — while it is still an
+   agent and uses none of them. One that will not go stops the promotion
+   there.
 4. It joins as a manager under its own ID and name, at its config's
    `advertise_address`. The leader turns the agent's record into a manager's,
    a Raft non-voter, keeping its name, labels and join time, and deletes the
@@ -721,7 +937,7 @@ to. A refusal is `409 CLUSTER_PROMOTE_REFUSED`, nothing having changed.
    with their own secret; its panel CA stays. The join writes the manager's
    certificate, its config — no role or manager list, the cluster's JWT key —
    and the cluster's admin account.
-5. It removes `agent.key` and `agent-state.json`.
+5. It removes `agent.key`, `agent-key-rotation.json` and `agent-state.json`.
 6. It restarts as a manager, with the login and web UI a manager has.
 
 The agent restarts whatever the outcome, and one whose join the leader

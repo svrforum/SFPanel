@@ -327,10 +327,20 @@
     - 일반 요청은 gRPC `ProxyRequest`(에이전트의 gRPC 서버는 자기 매니저 목록의 매니저 인증서만 받고 자기 키로 루프백에 서명), 스트림·파일·WebSocket은 에이전트 패널 HTTPS로 직접 그 에이전트의 키로 서명해 보낸다. 키가 없거나 패널 CA를 모르면 보내지 않으며, 매니저 비밀로 서명한 헤더와 사용자 토큰·쿠키는 어떤 경로로도 에이전트에 가지 않는다
     - 30초마다 리더에 하트비트를 보내고, 응답의 리더 주소는 어느 매니저의 것이든 따르되 매니저 목록은 리더의 응답에서만 받는다(`{data_dir}/agent-state.json`) — 팔로워의 목록은 제거를 늦게 반영할 수 있다. 팔로워에게서는 그가 알려 준 리더 항목 하나만, 에이전트가 그 주소의 매니저를 모를 때 받는다(에이전트가 듣지 못하는 사이 뽑힌 리더에게 닿는 길). 리더를 모르는 매니저(선거 중·고립·자기 업데이트 중인 리더)는 바로 떠나 30초 뒤 다음 매니저로 간다. "제거됨"은 리더만 말하며, 그때 에이전트는 패널의 클러스터 쪽 리스너와 gRPC 서버를 닫고 루프백만 남긴다 → `sfpanel agent reset --yes`로 단독 패널. 운영 절차는 `cluster-ops.md`의 "Agents"
   - **매니저 ↔ 에이전트 전환** (리더가 실행, 노드 ID·이름·라벨·가입 시각 유지): 리더는 관문을 모두 확인한 뒤 그 노드 ID와 IP에 묶인 토큰(30분)을 만들어 노드에 건넨다. 묶인 토큰은 그 노드가 그 주소에서만 쓸 수 있다
-    - **전환** (`POST /cluster/nodes/:id/convert`, `sfpanel cluster convert`): 리더가 아닌 매니저만. 관문은 온라인·에이전트를 아는 버전, 남은 투표자의 정족수, 프록시 비밀 전환 정착, 다른 매니저의 준비, 에이전트 자리, 에이전트로 쓸 이름·주소, CA 키. 노드는 떠남 → 단독 설정 저장 → 매니저 파일(`ca.key`, Raft 저장소·스냅샷, `tokens.json`, `proxy-secret.json`, `peers.json`/`peers.info`)과 로컬 `admin`, `.bak` 사본 삭제 → 같은 ID로 에이전트 등록 → 재시작. 떠나기 전 실패는 매니저로 돌아오고, 단독 설정을 저장한 뒤의 실패(지우지 못한 파일, 거부된 등록)는 단독 패널이 되어 그 서버에서 `agent join`(새 노드로). 예약 백업은 지우지 않고 응답·로그로 알린다(클러스터 비밀을 담고 있음)
+    - **전환** (`POST /cluster/nodes/:id/convert`, `sfpanel cluster convert`): 리더가 아닌 매니저만. 관문은 온라인·에이전트를 아는 버전, 남은 투표자의 정족수, 프록시 비밀 전환 정착, CA 교체 중 아님, 다른 매니저의 준비, 에이전트 자리, 에이전트로 쓸 이름·주소, CA 키. 노드는 떠남 → 단독 설정 저장 → 매니저 파일(`ca.key`, Raft 저장소·스냅샷, `tokens.json`, `proxy-secret.json`, `ca-rotation.json`, `peers.json`/`peers.info`)과 로컬 `admin`, `.bak` 사본 삭제 → 같은 ID로 에이전트 등록 → 재시작. 떠나기 전 실패는 매니저로 돌아오고, 단독 설정을 저장한 뒤의 실패(지우지 못한 파일, 거부된 등록)는 단독 패널이 되어 그 서버에서 `agent join`(새 노드로). 예약 백업은 지우지 않고 응답·로그로 알린다(클러스터 비밀을 담고 있음)
     - **승격** (`POST /cluster/nodes/:id/promote`, `sfpanel cluster promote`): 에이전트가 같은 ID로 매니저 가입 → 리더가 기록을 매니저 비투표자로 바꾸고 에이전트 키를 지움 → 재시작. 투표자가 되려면 리더가 그 Raft 포트(gRPC+1)에 닿아야 한다. 에이전트는 승격이 끝날 때까지 그 포트를 열어 두고 리더는 기록을 바꾸기 전에 접속해 보며, 닿지 않으면 가입을 거부해 노드는 에이전트로 돌아온다(에이전트와 리더의 로그에 이유). 가입 뒤에 닫히면 비투표자로 남고 리더 로그에 Raft의 오류가 나온다
     - 새 오류 코드 `CLUSTER_CONVERT_REFUSED`·`CLUSTER_PROMOTE_REFUSED` (관문 409, 노드의 거부 502). 운영 절차는 `cluster-ops.md`의 "Converting a manager to an agent"·"Promoting an agent to a manager"
-  - **CLI 명령어**: `sfpanel cluster init/join/leave/status/token/remove/convert/promote/list/leader-transfer/reissue-cert` (`cluster token --agent`는 에이전트 토큰), 에이전트 쪽은 `sfpanel agent join/status/reset`
+  - **클러스터 비밀 교체** (리더가 실행, 노드 재시작 없음, `sfpanel cluster rotate …`): 아무것도 쓰기 전에 그 교체가 바꾸는 노드가 모두 온라인이고 따라가는 릴리스인지 확인하고, 막히면 `409 CLUSTER_ROTATION_REFUSED`로 기다리는 노드를 이름·이유와 함께 답한다. 상태는 `GET /cluster/rotation`(세대·지문만, 비밀 없음). 운영 순서는 전환 → JWT → 프록시 비밀·에이전트 키 → CA (`cluster-ops.md`의 "Rotating the cluster's secrets")
+
+    | 교체 | 방식 | 끝나는 것 · 기다리는 것 |
+    |------|------|------------------------|
+    | JWT 키 (`rotate jwt`) | FSM `jwt_key`(세대·키)를 모든 매니저가 더 큰 세대일 때만 적용, config.yaml에 키와 세대를 한 번에 저장. `jwt_secret`은 예전 릴리스용 거울 | 모든 매니저의 액세스·갱신 토큰과 WS 티켓(갱신 토큰 삭제 → 키 교체 → 티켓 비우기). 열린 스트림은 그대로 |
+    | 매니저 프록시 비밀 (`rotate proxy`) | FSM `cluster_proxy_key`의 단계 `next`(새 비밀을 받기만) → `switched`(새 비밀로 서명, 이전 비밀 2분) → `done`(5분 뒤 리더가 지움). 세대와 `proxy-secret.json` 하한으로 앞으로만 | 모든 매니저가 새 세대를 받아들였다고 알릴 때까지(기한 없음). 세션은 끝나지 않음 |
+    | 에이전트 키 (`rotate agent-keys`) | 에이전트가 gRPC `RotateAgentKey`로 새 키를 받아 `agent-key-rotation.json`에 두고, 새 키의 증명으로 확인한 뒤에만 매니저들의 `agent_key/<id>`가 바뀜. 에이전트는 이전 키를 2분 더 받음 | 오프라인 에이전트는 기다리지 않음(돌아와 첫 하트비트에 옮김, 상태에 `pending`). 온라인인 이전 릴리스 에이전트는 시작을 막음 |
+    | 클러스터 CA (`rotate ca`) | FSM `cluster_ca_rotation` 기록과 `cluster_ca_next_*`. `trust`(두 CA 신뢰) → `reissue`(매니저는 직접, 에이전트는 gRPC `RenewCertificate`로 새 인증서) → `promote`(이전 CA 제외) → `done`. 신뢰는 핸드셰이크마다 `ca.crt`를 다시 읽음 | 모든 노드가 온라인이어야 시작. 단계마다 노드의 보고와 리더가 하트비트 연결에서 본 인증서로 판단. `trust`·`reissue`는 기한(기본 30분)이 지나면 현재 CA로 되돌아감, `promote` 뒤에는 되돌리기 없음. 진행 중 가입·등록·전환·승격·토큰·클러스터 업데이트 거부(토큰·업데이트는 `409 CLUSTER_CA_ROTATING`) |
+
+    계정 비밀(비밀번호 해시·TOTP 비밀·복구 코드)은 교체하지 않는다 — 운영자가 JWT 교체 뒤 비밀번호를 바꾸고 2FA를 다시 등록하고 복구 코드를 새로 만든다
+  - **CLI 명령어**: `sfpanel cluster init/join/leave/status/token/remove/convert/promote/rotate/list/leader-transfer/reissue-cert` (`cluster token --agent`는 에이전트 토큰, `cluster rotate jwt|proxy|agent-keys|ca|abort|status`는 비밀 교체), 에이전트 쪽은 `sfpanel agent join/status/reset`
   - **웹 UI API**: 클러스터 초기화/참여/탈퇴/해산/업데이트 REST API (~15개 엔드포인트)
 - **패키지 레이아웃**: `internal/cluster/` — `manager.go`, `raft_fsm.go`, `grpc_server.go`, `join.go`, `detect.go`, `tls.go`, `token.go`, `ws_relay.go` 외 다수. proto는 `proto/cluster.proto`, 생성물 `proto/cluster.pb.go` / `proto/cluster_grpc.pb.go`
 - **설정 확장**: `config.yaml`에 `cluster` 섹션 (enabled, name, node_id, node_name, grpc_port, data_dir, cert_dir, advertise_address, raft_tls; 에이전트는 role, managers, agent_allowed_sources, 리더는 max_agents)
@@ -346,7 +356,7 @@
 - **알려진 제약**:
   - 토큰은 만든 리더에만 있다 (복제되지 않음 — 리더가 바뀌면 이전 토큰은 쓸 수 없음)
   - 비클러스터 → 클러스터 마이그레이션 경로 없음 (Init/Join 신규만 지원)
-  - TLS: CA 10년 / 노드 인증서 5년 TTL, 만료 자동 감시는 없음. 노드 인증서는 `sfpanel cluster reissue-cert`로 무중단 재발급 가능, CA 회전은 전 노드 동시 재시작 필요
+  - TLS: CA 10년 / 노드 인증서 5년 TTL, 만료 자동 감시는 없음. 노드 인증서는 `sfpanel cluster reissue-cert`로 무중단 재발급 가능, CA는 `sfpanel cluster rotate ca`로 재시작 없이 교체하며 CA 교체가 모든 노드 인증서를 새로 발급한다
   - 네트워크 분할 시 Raft 안전성만 보장 (분할 뇌 자체는 막지 않음)
 - **관련 기술**: hashicorp/raft, raft-boltdb, gRPC, protobuf, crypto/x509
 
@@ -995,7 +1005,10 @@ SFPanel 바이너리는 서버 실행 외에도 관리 명령을 지원합니다
 | `sfpanel cluster promote NODE_ID` | 에이전트를 같은 ID의 매니저로 승격 (서비스 실행 중, 리더가 실행) |
 | `sfpanel cluster list` | 클러스터 멤버 목록 (역할 + 헬스) |
 | `sfpanel cluster leader-transfer NODE_ID` | 리더십 이전 (graceful drain용) |
-| `sfpanel cluster reissue-cert` | 노드 인증서 무중단 재발급 (핫 리로드) |
+| `sfpanel cluster reissue-cert` | 노드 인증서 무중단 재발급 (핫 리로드). CA 교체 중(`ca.crt`에 CA가 둘)에는 거부 |
+| `sfpanel cluster rotate jwt\|proxy\|agent-keys` | 클러스터 JWT 키 / 매니저 내부 프록시 비밀 / 에이전트 키 교체 (서비스 실행 중, 리더가 실행) |
+| `sfpanel cluster rotate ca [--phase-timeout D]` · `rotate abort` | 클러스터 CA 교체 시작 / `promote` 전까지 중단 |
+| `sfpanel cluster rotate status` | 비밀 교체의 노드별 상태 |
 | `sfpanel help` | 사용법 도움말 출력 |
 
 **update 동작 과정:**
