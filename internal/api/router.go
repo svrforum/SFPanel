@@ -249,6 +249,8 @@ func NewRouter(database *sql.DB, auditWriter *sfdb.AsyncWriter, alertManager *fe
 			DB:           database,
 			LiveActivate: liveActivate,
 			Version:      version,
+			// A rotated JWT key ends every session on this manager.
+			EndSessions: authHandler.EndSessions,
 			OnManagerActivated: func(m *cluster.Manager) {
 				authHandler.SetClusterMgr(m)
 				composeHandler.SetClusterMgr(m)
@@ -404,6 +406,7 @@ func NewRouter(database *sql.DB, auditWriter *sfdb.AsyncWriter, alertManager *fe
 		clusterGroup.POST("/disband", clusterHandler.DisbandCluster)
 		clusterGroup.GET("/interfaces", clusterHandler.GetNetworkInterfaces)
 		clusterGroup.POST("/update", clusterHandler.ClusterUpdate)
+		clusterGroup.POST("/rotate/jwt", clusterHandler.RotateJWT)
 	} else {
 		// An agent's half of its promotion to a manager, which the leader
 		// calls (POST /cluster/nodes/:id/promote): under /system, as an agent

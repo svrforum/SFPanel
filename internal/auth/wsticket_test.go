@@ -80,3 +80,14 @@ func TestMintWSTicket_ConcurrencySafe(t *testing.T) {
 		seen[tok] = true
 	}
 }
+
+func TestClearWSTicketsEndsEveryTicket(t *testing.T) {
+	a, b := MintWSTicket("alice"), MintWSTicket("bob")
+	ClearWSTickets()
+	if _, ok := ConsumeWSTicket(a); ok {
+		t.Fatal("a ticket survived")
+	}
+	if _, ok := ConsumeWSTicket(b); ok {
+		t.Fatal("a ticket survived")
+	}
+}

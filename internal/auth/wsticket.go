@@ -76,3 +76,12 @@ func ConsumeWSTicket(ticket string) (string, bool) {
 	}
 	return entry.username, true
 }
+
+// ClearWSTickets ends every ticket not used yet. A JWT key rotation calls it:
+// a ticket minted with a token of the retired key would otherwise open a
+// WebSocket for up to a minute after it.
+func ClearWSTickets() {
+	wsTicketsMu.Lock()
+	defer wsTicketsMu.Unlock()
+	clear(wsTickets)
+}

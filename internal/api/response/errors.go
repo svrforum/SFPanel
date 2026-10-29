@@ -456,6 +456,11 @@ const (
 	// for another manager, another promotion under way), 502 when the agent
 	// refused the request. The message names the reason.
 	ErrClusterPromoteRefused = "CLUSTER_PROMOTE_REFUSED"
+	// ErrClusterRotationRefused is returned (HTTP 409) when a secret rotation
+	// is not started, or a CA rotation not stopped, nothing having changed:
+	// a node that cannot follow, one offline, a rotation already running, or
+	// past the point a CA rotation can be undone. The message names it.
+	ErrClusterRotationRefused = "CLUSTER_ROTATION_REFUSED"
 )
 
 // TLS error codes

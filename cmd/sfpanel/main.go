@@ -129,6 +129,9 @@ func main() {
 	}
 	logging.SetupFromConfig(cfg.Log.Level, cfg.Log.File)
 	slog.Info("SFPanel starting", "version", version, "port", cfg.Server.Port)
+	if w := jwtOverrideWarning(cfg, os.Getenv("SFPANEL_JWT_SECRET") != ""); w != "" {
+		slog.Warn(w, "component", "cluster")
+	}
 
 	// Sweep orphaned update staging files (<exe>.new/.rollback) left by a killed
 	// update or watchdog so they don't accumulate. <exe>.bak is intentionally
@@ -286,9 +289,11 @@ func main() {
 			// loaded host. Poll IsLeader() instead and bail after 30s — followers
 			// don't need to sync because the leader's FSM state replicates back.
 			// Bound to bgCtx so a SIGTERM during the poll stops it promptly
-			// rather than outliving the DB it reads.
+			// rather than outliving the DB it reads. The key is read here: the
+			// router's JWT key applier writes a rotated one into cfg.
+			jwtSecret := cfg.Auth.JWTSecret
 			safe.Go("cluster-bootstrap-sync", func() {
-				syncBootstrapState(bgCtx, clusterMgr, database, cfg.Auth.JWTSecret, 30*time.Second)
+				syncBootstrapState(bgCtx, clusterMgr, database, jwtSecret, 30*time.Second)
 			})
 		}
 
@@ -774,6 +779,18 @@ func cleanupUpdateTempFiles() {
 			slog.Info("removed orphaned update temp file", "path", exe+sfx)
 		}
 	}
+}
+
+// jwtOverrideWarning is what a manager says at boot when SFPANEL_JWT_SECRET
+// replaces config.yaml's key: the cluster's key, which a rotation changes,
+// lives in config.yaml, and the variable puts this manager back on a key of
+// its own at every start — tokens it issues are refused on the others, and it
+// goes on taking the retired key until the next rotation.
+func jwtOverrideWarning(cfg *config.Config, overridden bool) string {
+	if !overridden || !cfg.Cluster.Enabled || cfg.Cluster.IsAgent() {
+		return ""
+	}
+	return "SFPANEL_JWT_SECRET replaces the cluster's JWT key on this manager at every start: unset it, or every rotation is undone here at the next restart"
 }
 
 // loadCLIConfig reads the panel config the way every CLI subcommand does.

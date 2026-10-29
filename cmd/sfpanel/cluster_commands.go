@@ -169,6 +169,8 @@ func clusterCommand(args []string) {
 		clusterConvert(args[1:])
 	case "promote":
 		clusterPromote(args[1:])
+	case "rotate":
+		clusterRotate(args[1:])
 	case "reissue-cert":
 		clusterReissueCert(args[1:])
 	case "list":
@@ -306,6 +308,9 @@ func clusterInit(args []string) {
 	}
 
 	cfg.Cluster = *mgr.GetConfig()
+	// A new cluster's key is generation 0; one kept from a cluster this node
+	// left would stand above every rotation of this one.
+	cfg.Auth.JWTGeneration = 0
 	if err := saveConfig(cfgPath, cfg); err != nil {
 		log.Printf("Warning: failed to save config: %v", err)
 	}
@@ -944,6 +949,49 @@ func clusterPromote(args []string) {
 	fmt.Println(string(raw))
 }
 
+// rotateCall is the request a 'sfpanel cluster rotate' asks the running
+// panel for.
+type rotateCall struct {
+	method, path string
+}
+
+// rotateRequest is the panel request 'sfpanel cluster rotate <what>' makes;
+// anything else is answered with the usage.
+func rotateRequest(args []string) (rotateCall, error) {
+	if len(args) == 1 && args[0] == "jwt" {
+		return rotateCall{method: http.MethodPost, path: "/api/v1/cluster/rotate/jwt"}, nil
+	}
+	return rotateCall{}, errors.New("usage: sfpanel cluster rotate jwt")
+}
+
+// clusterRotate replaces one of the cluster's secrets through the running
+// panel, as clusterConvert does a conversion: the leader checks that every
+// node can follow, and every node follows on its own.
+func clusterRotate(args []string) {
+	cfgPath, rest := parseCfgFlag(args)
+	req, err := rotateRequest(rest)
+	if err != nil {
+		fmt.Println(err)
+		os.Exit(1)
+	}
+
+	cfg := loadCfgForCLI(cfgPath)
+	if !cfg.Cluster.Enabled {
+		log.Fatal("Cluster not initialized.")
+	}
+	if !isServerRunning(cfg.Server.Port) {
+		log.Fatal("Local sfpanel server is not running — a rotation runs on the live cluster.")
+	}
+	raw, err := callLocalAPI(cfg, req.method, req.path, nil)
+	if err != nil {
+		log.Fatalf("Rotate failed: %v", err)
+	}
+	fmt.Println(string(raw))
+	if rest[0] == "jwt" {
+		fmt.Println("Every session on every manager has ended: sign in again.")
+	}
+}
+
 func saveConfig(path string, cfg *config.Config) error {
 	data, err := yaml.Marshal(cfg)
 	if err != nil {
@@ -968,6 +1016,7 @@ func printClusterHelp() {
 	fmt.Println("  sfpanel cluster promote NODE_ID           Turn an agent into a manager, keeping its ID and labels")
 	fmt.Println("  sfpanel cluster leave                     Leave the cluster")
 	fmt.Println("  sfpanel cluster reissue-cert              Re-issue this node's cluster cert (hot reload)")
+	fmt.Println("  sfpanel cluster rotate jwt                Replace the cluster's JWT key (everyone signs in again)")
 	fmt.Println()
 	fmt.Println("All subcommands accept --config PATH to select a config file")
 	fmt.Println("(default: /etc/sfpanel/config.yaml).")

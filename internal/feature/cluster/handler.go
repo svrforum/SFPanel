@@ -73,7 +73,7 @@ const (
 type Handler struct {
 	mu           sync.RWMutex
 	joiningMu    sync.Mutex // prevents concurrent Init/Join
-	configMu     sync.Mutex // protects h.Config.Cluster field writes
+	configMu     sync.Mutex // protects h.Config.Cluster field writes and the JWT key's (saveJWTKey)
 	disbandOnce  sync.Once  // guards performDisband so replicated CmdDisband can't fire twice
 	Manager      *cluster.Manager
 	Config       *config.Config
@@ -86,6 +86,14 @@ type Handler struct {
 	// OnManagerActivated is called after a manager is set (init/join).
 	// Used to propagate the manager to other handlers (e.g. auth).
 	OnManagerActivated func(*cluster.Manager)
+	// EndSessions ends every session on this node while it runs swap
+	// (featureauth.Handler.EndSessions). Nil: this manager does not apply a
+	// rotated JWT key, and so does not report that it can.
+	EndSessions func(swap func()) error
+	// jwtMu orders the applies of a rotated JWT key; jwtSwapped is the
+	// generation whose sessions have ended here (rotation.go).
+	jwtMu      sync.Mutex
+	jwtSwapped int64
 
 	// Read-path leader-proxy breaker. See proxyToLeaderRead.
 	leaderReadMu   sync.Mutex
@@ -136,20 +144,22 @@ func (h *Handler) setManager(m *cluster.Manager) {
 		// inside performDisband guards against duplicate invocation in the
 		// unlikely event of log replay firing twice.
 		m.SetOnDisband(h.performDisband)
+		h.wireJWTApplier(m)
 	}
 }
 
 // ActivateBootManager wires the manager-dependent callbacks (currently the
-// disband self-clean) for a Manager that was injected at construction time via
-// the boot path. The runtime init/join paths register these through
-// setManager; the boot path builds the Handler with a struct literal
-// (router.go) and so must call this explicitly. Without it, a node that boots
-// straight into an existing cluster never registers performDisband, so a
-// replicated CmdDisband silently no-ops and "cluster disband" appears to do
-// nothing after any restart. Nil-safe and idempotent.
+// disband self-clean and the JWT key applier) for a Manager that was injected
+// at construction time via the boot path. The runtime init/join paths register
+// these through setManager; the boot path builds the Handler with a struct
+// literal (router.go) and so must call this explicitly. Without it, a node
+// that boots straight into an existing cluster never registers performDisband,
+// so a replicated CmdDisband silently no-ops and "cluster disband" appears to
+// do nothing after any restart. Nil-safe and idempotent.
 func (h *Handler) ActivateBootManager() {
 	if m := h.getManager(); m != nil {
 		m.SetOnDisband(h.performDisband)
+		h.wireJWTApplier(m)
 	}
 }
 
@@ -379,6 +389,12 @@ func (h *Handler) InitCluster(c echo.Context) error {
 
 	h.configMu.Lock()
 	h.Config.Cluster = *mgr.GetConfig()
+	h.configMu.Unlock()
+
+	// A new cluster's key is generation 0; one kept from a cluster this node
+	// left would stand above every rotation of this one.
+	h.configMu.Lock()
+	h.Config.Auth.JWTGeneration = 0
 	h.configMu.Unlock()
 
 	// L-02: Write jwt_secret + admin to FSM *before* persisting config.
@@ -1290,8 +1306,13 @@ func (h *Handler) LeaveCluster(c echo.Context) error {
 		}
 	}
 
+	// Under configMu, as saveJWTKey writes a rotated JWT key into the same
+	// config: a copy it took while this one changed could be written after
+	// it, and put the node back in the cluster it left.
+	h.configMu.Lock()
 	h.Config.Cluster.Enabled = false
 	data, err := yaml.Marshal(h.Config)
+	h.configMu.Unlock()
 	if err != nil {
 		return response.Fail(c, http.StatusInternalServerError, response.ErrInternalError, fmt.Sprintf("Failed to marshal config: %v", err))
 	}
