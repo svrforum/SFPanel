@@ -3,6 +3,7 @@ package cluster
 import (
 	"bytes"
 	"context"
+	"encoding/json"
 	"errors"
 	"slices"
 	"strings"
@@ -268,5 +269,55 @@ func TestAManagerReportsAgentKeyRotation(t *testing.T) {
 	m := &Manager{raft: &RaftNode{fsm: NewFSM()}}
 	if !slices.Contains(m.heartbeatCapabilities(), CapAgentKeyRotation) {
 		t.Fatal("CapAgentKeyRotation not reported")
+	}
+}
+
+// The status follows an agent through its move — pending from the start
+// until the managers sign with its new key, issued between its fetch and its
+// confirm — and carries neither key.
+func TestTheRotationStatusFollowsAnAgentsKeyMove(t *testing.T) {
+	mgr, res, tm := keyAgent(t)
+	oldKey := agentKeyIn(mgr, res.NodeID)
+	agentView := func(what string) (AgentKeyRotationStatus, AgentKeyView) {
+		t.Helper()
+		st, err := mgr.RotationStatus()
+		if err != nil {
+			t.Fatalf("%s: %v", what, err)
+		}
+		if len(st.AgentKeys.Agents) != 1 || st.AgentKeys.Agents[0].ID != res.NodeID {
+			t.Fatalf("%s: agents %+v", what, st.AgentKeys.Agents)
+		}
+		return st.AgentKeys, st.AgentKeys.Agents[0]
+	}
+	if st, v := agentView("before a rotation"); st.Generation != 0 || st.Pending != 0 || v.Pending || v.Issued || !v.CanRotate || !v.Online {
+		t.Fatalf("before a rotation: %+v %+v", st, v)
+	}
+	gen, err := mgr.StartAgentKeyRotation()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if st, v := agentView("started"); st.Generation != gen || st.StartedAt == nil || st.Pending != 1 || !v.Pending || v.Issued {
+		t.Fatalf("started: %+v %+v", st, v)
+	}
+	leaf, _ := tm.NodeCertLeaf()
+	newKey, _, err := mgr.HandleRotateAgentKey(leaf, gen, agentKeyProof(oldKey, "fetch", res.NodeID, gen), false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if st, v := agentView("fetched"); st.Pending != 1 || !v.Pending || !v.Issued {
+		t.Fatalf("fetched: %+v %+v", st, v)
+	}
+	st, err := mgr.RotationStatus()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if data, _ := json.Marshal(st); bytes.Contains(data, []byte(newKey)) || bytes.Contains(data, []byte(oldKey)) {
+		t.Fatalf("the status carries an agent key: %s", data)
+	}
+	if _, _, err := mgr.HandleRotateAgentKey(leaf, gen, agentKeyProof(newKey, "confirm", res.NodeID, gen), true); err != nil {
+		t.Fatal(err)
+	}
+	if st, v := agentView("confirmed"); st.Pending != 0 || v.Pending || v.Issued {
+		t.Fatalf("confirmed: %+v %+v", st, v)
 	}
 }

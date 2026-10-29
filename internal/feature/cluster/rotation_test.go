@@ -415,3 +415,69 @@ func TestATokenAfterARotationPinsTheNewCA(t *testing.T) {
 		t.Fatalf("token: %d %s", status, body)
 	}
 }
+
+// The managers' proxy secret and the agents' keys start from the panel API
+// as the other rotations do, and the status shows each step — generations
+// and names, never a secret.
+func TestRotateProxyAndAgentKeys(t *testing.T) {
+	mgr := settledLeader(t)
+	h := &Handler{Manager: mgr}
+	status, body := call(t, h.RotateProxy, http.MethodPost, "/api/v1/cluster/rotate/proxy", "")
+	if status != http.StatusAccepted || !strings.Contains(body, `"generation":1`) {
+		t.Fatalf("proxy: %d %s", status, body)
+	}
+	status, body = call(t, h.RotateAgentKeys, http.MethodPost, "/api/v1/cluster/rotate/agent-keys", "")
+	if status != http.StatusAccepted || !strings.Contains(body, `"generation":1`) {
+		t.Fatalf("agent keys: %d %s", status, body)
+	}
+	status, body = call(t, h.GetRotation, http.MethodGet, "/api/v1/cluster/rotation", "")
+	var got struct {
+		Data struct {
+			Proxy struct {
+				Generation int64  `json:"generation"`
+				Phase      string `json:"phase"`
+			} `json:"proxy"`
+			AgentKeys struct {
+				Generation int64 `json:"generation"`
+				Pending    int   `json:"pending"`
+			} `json:"agent_keys"`
+		} `json:"data"`
+	}
+	if err := json.Unmarshal([]byte(body), &got); status != http.StatusOK || err != nil ||
+		got.Data.Proxy.Generation != 1 || got.Data.Proxy.Phase != "next" || got.Data.AgentKeys.Generation != 1 || got.Data.AgentKeys.Pending != 0 {
+		t.Fatalf("status: %d %s", status, body)
+	}
+	raw, _ := mgr.GetRaft().GetFSM().GetConfigValue("cluster_proxy_key")
+	var rec struct{ Secret, Previous string }
+	if err := json.Unmarshal([]byte(raw), &rec); err != nil || rec.Secret == "" {
+		t.Fatalf("no record to compare with: %v", err)
+	}
+	if strings.Contains(body, rec.Secret) || strings.Contains(body, rec.Previous) {
+		t.Fatalf("the status carries a secret: %s", body)
+	}
+}
+
+// A start the gates refuse is a 409 that names whom it waits for, and
+// changes nothing.
+func TestRotateProxyAndAgentKeysRefusalsNameWhom(t *testing.T) {
+	mgr := settledLeader(t)
+	h := &Handler{Manager: mgr}
+	data, _ := json.Marshal(cluster.Node{ID: "m2", Name: "m2", Kind: cluster.KindManager, Role: cluster.RoleVoter})
+	if err := mgr.GetRaft().Apply(cluster.Command{Type: cluster.CmdAddNode, Value: data}, 5*time.Second); err != nil {
+		t.Fatal(err)
+	}
+	for path, fn := range map[string]echo.HandlerFunc{
+		"/api/v1/cluster/rotate/proxy":      h.RotateProxy,
+		"/api/v1/cluster/rotate/agent-keys": h.RotateAgentKeys,
+	} {
+		status, body := call(t, fn, http.MethodPost, path, "")
+		if status != http.StatusConflict || !strings.Contains(body, response.ErrClusterRotationRefused) || !strings.Contains(body, "m2 (not heard from)") {
+			t.Fatalf("%s: %d %s", path, status, body)
+		}
+	}
+	for _, key := range []string{"cluster_proxy_key", "agent_keys_rotation"} {
+		if v, _ := mgr.GetRaft().GetFSM().GetConfigValue(key); v != "" {
+			t.Fatalf("a refused start wrote %s", key)
+		}
+	}
+}

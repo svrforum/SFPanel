@@ -980,8 +980,12 @@ func rotateRequest(args []string) (rotateCall, error) {
 		return rotateCall{method: http.MethodPost, path: "/api/v1/cluster/rotate/ca/abort"}, nil
 	case len(args) == 1 && args[0] == "status":
 		return rotateCall{method: http.MethodGet, path: "/api/v1/cluster/rotation"}, nil
+	case len(args) == 1 && args[0] == "proxy":
+		return rotateCall{method: http.MethodPost, path: "/api/v1/cluster/rotate/proxy"}, nil
+	case len(args) == 1 && args[0] == "agent-keys":
+		return rotateCall{method: http.MethodPost, path: "/api/v1/cluster/rotate/agent-keys"}, nil
 	}
-	return rotateCall{}, errors.New("usage: sfpanel cluster rotate jwt | ca [--phase-timeout D] | abort | status")
+	return rotateCall{}, errors.New("usage: sfpanel cluster rotate jwt | proxy | agent-keys | ca [--phase-timeout D] | abort | status")
 }
 
 // clusterRotate replaces one of the cluster's secrets through the running
@@ -1016,7 +1020,7 @@ func clusterRotate(args []string) {
 	switch rest[0] {
 	case "jwt":
 		fmt.Println("Every session on every manager has ended: sign in again.")
-	case "ca":
+	case "ca", "proxy", "agent-keys":
 		fmt.Println("Follow it with: sfpanel cluster rotate status")
 	}
 }
@@ -1062,6 +1066,8 @@ func printClusterHelp() {
 	fmt.Println("  sfpanel cluster leave                     Leave the cluster")
 	fmt.Println("  sfpanel cluster reissue-cert              Re-issue this node's cluster cert (hot reload)")
 	fmt.Println("  sfpanel cluster rotate jwt                Replace the cluster's JWT key (everyone signs in again)")
+	fmt.Println("  sfpanel cluster rotate proxy              Replace the managers' internal proxy secret")
+	fmt.Println("  sfpanel cluster rotate agent-keys         Give every agent a new key (an offline one once it is back)")
 	fmt.Println("  sfpanel cluster rotate ca [--phase-timeout D]")
 	fmt.Println("                                            Replace the cluster CA (each step waits for every node)")
 	fmt.Println("  sfpanel cluster rotate abort              Stop a CA rotation before its point of no return")

@@ -206,3 +206,58 @@ func (h *Handler) GetRotation(c echo.Context) error {
 	}
 	return response.OK(c, st)
 }
+
+// RotateProxy (POST /cluster/rotate/proxy) starts replacing the managers'
+// internal proxy secret and answers at once (202): every manager takes the
+// new secret before any signs with it, then all switch, each step on the
+// leader's watch — GET /cluster/rotation follows it. A follower forwards it
+// to the leader. Refused (409), nothing having changed, while a manager
+// cannot follow, while plan A's first switch has not settled, and while the
+// previous secret is still accepted after a switch.
+func (h *Handler) RotateProxy(c echo.Context) error {
+	mgr := h.getManager()
+	if mgr == nil {
+		return response.Fail(c, http.StatusBadRequest, response.ErrInvalidRequest, "Cluster not configured")
+	}
+	if handled, err := middleware.ProxyToLeader(c, mgr); handled {
+		return err
+	}
+	gen, err := mgr.StartProxyRotation()
+	switch {
+	case errors.Is(err, cluster.ErrRotationRefused):
+		return response.Fail(c, http.StatusConflict, response.ErrClusterRotationRefused, err.Error())
+	case err != nil:
+		return clusterErrResponse(c, err)
+	}
+	return response.Accepted(c, map[string]interface{}{
+		"generation": gen,
+		"message":    "Every manager takes the new internal proxy secret, then all switch to it: follow it with GET /api/v1/cluster/rotation",
+	})
+}
+
+// RotateAgentKeys (POST /cluster/rotate/agent-keys) starts giving every agent
+// a new internal-proxy key and answers at once (202): each agent takes its
+// key at its next heartbeat, an offline one once it is back, and the managers
+// sign with it only once the agent says it holds it — GET /cluster/rotation
+// follows it. A follower forwards it to the leader. Refused (409), nothing
+// having changed, while a manager or an online agent cannot follow.
+func (h *Handler) RotateAgentKeys(c echo.Context) error {
+	mgr := h.getManager()
+	if mgr == nil {
+		return response.Fail(c, http.StatusBadRequest, response.ErrInvalidRequest, "Cluster not configured")
+	}
+	if handled, err := middleware.ProxyToLeader(c, mgr); handled {
+		return err
+	}
+	gen, err := mgr.StartAgentKeyRotation()
+	switch {
+	case errors.Is(err, cluster.ErrRotationRefused):
+		return response.Fail(c, http.StatusConflict, response.ErrClusterRotationRefused, err.Error())
+	case err != nil:
+		return clusterErrResponse(c, err)
+	}
+	return response.Accepted(c, map[string]interface{}{
+		"generation": gen,
+		"message":    "Every agent moves to a new key at its next heartbeat, an offline one once it is back: follow it with GET /api/v1/cluster/rotation",
+	})
+}

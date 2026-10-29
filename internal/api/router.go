@@ -407,8 +407,11 @@ func NewRouter(database *sql.DB, auditWriter *sfdb.AsyncWriter, alertManager *fe
 		clusterGroup.GET("/interfaces", clusterHandler.GetNetworkInterfaces)
 		clusterGroup.POST("/update", clusterHandler.ClusterUpdate)
 		// Secret rotations, driven by the leader: the JWT key (everyone signs
-		// in again), the cluster CA (followed with GET /rotation), and its stop.
+		// in again), the managers' internal proxy secret, the agents' keys,
+		// the cluster CA (followed with GET /rotation), and its stop.
 		clusterGroup.POST("/rotate/jwt", clusterHandler.RotateJWT)
+		clusterGroup.POST("/rotate/proxy", clusterHandler.RotateProxy)
+		clusterGroup.POST("/rotate/agent-keys", clusterHandler.RotateAgentKeys)
 		clusterGroup.POST("/rotate/ca", clusterHandler.RotateCA)
 		clusterGroup.POST("/rotate/ca/abort", clusterHandler.AbortCARotation)
 		clusterGroup.GET("/rotation", clusterHandler.GetRotation)

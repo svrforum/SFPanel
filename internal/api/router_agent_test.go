@@ -115,6 +115,8 @@ var expectedManagerOnlyRoutes = func() []string {
 		"GET /api/v1/cluster/interfaces",
 		"POST /api/v1/cluster/update",
 		"POST /api/v1/cluster/rotate/jwt",
+		"POST /api/v1/cluster/rotate/proxy",
+		"POST /api/v1/cluster/rotate/agent-keys",
 		"POST /api/v1/cluster/rotate/ca",
 		"POST /api/v1/cluster/rotate/ca/abort",
 		"GET /api/v1/cluster/rotation",

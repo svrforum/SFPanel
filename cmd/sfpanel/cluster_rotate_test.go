@@ -20,7 +20,7 @@ func TestRotateRequest(t *testing.T) {
 	if err != nil || got.method != http.MethodPost || got.path != "/api/v1/cluster/rotate/jwt" {
 		t.Fatalf("jwt: %+v %v", got, err)
 	}
-	for _, bad := range [][]string{nil, {"everything"}, {"jwt", "extra"}} {
+	for _, bad := range [][]string{nil, {"everything"}, {"jwt", "extra"}, {"proxy", "extra"}, {"agent-keys", "extra"}} {
 		if _, err := rotateRequest(bad); err == nil {
 			t.Fatalf("%v was taken", bad)
 		}
@@ -30,6 +30,8 @@ func TestRotateRequest(t *testing.T) {
 		"ca --phase-timeout 10m": {method: http.MethodPost, path: "/api/v1/cluster/rotate/ca", body: map[string]string{"phase_timeout": "10m"}},
 		"abort":                  {method: http.MethodPost, path: "/api/v1/cluster/rotate/ca/abort"},
 		"status":                 {method: http.MethodGet, path: "/api/v1/cluster/rotation"},
+		"proxy":                  {method: http.MethodPost, path: "/api/v1/cluster/rotate/proxy"},
+		"agent-keys":             {method: http.MethodPost, path: "/api/v1/cluster/rotate/agent-keys"},
 	} {
 		got, err := rotateRequest(strings.Fields(args))
 		if err != nil || got.method != want.method || got.path != want.path || !reflect.DeepEqual(got.body, want.body) {

@@ -11,8 +11,10 @@ import (
 // It names every secret by its generation or its pin and carries none — no
 // key, no certificate PEM, no secret of any kind.
 type RotationStatus struct {
-	JWT JWTRotationStatus `json:"jwt"`
-	CA  CARotationStatus  `json:"ca"`
+	JWT       JWTRotationStatus      `json:"jwt"`
+	Proxy     ProxyRotationStatus    `json:"proxy"`
+	AgentKeys AgentKeyRotationStatus `json:"agent_keys"`
+	CA        CARotationStatus       `json:"ca"`
 }
 
 // JWTRotationStatus is the cluster's JWT key by its generation — 0 for the
@@ -33,6 +35,51 @@ type JWTManagerView struct {
 	Online     bool   `json:"online"`
 	Generation *int64 `json:"generation,omitempty"` // nil: not reported
 	CanRotate  bool   `json:"can_rotate"`
+}
+
+// ProxyRotationStatus is the managers' internal proxy secret by its
+// generation — 0 until a re-rotation, plan A's first switch not counted —
+// the re-rotation's phase, whom its next step waits for (next only), and the
+// newest secret each manager says it accepts. No secret is read into it.
+type ProxyRotationStatus struct {
+	Generation int64              `json:"generation"`      // the newest secret; 0: never rotated again
+	Phase      string             `json:"phase,omitempty"` // next, switched, done
+	SwitchedAt *time.Time         `json:"switched_at,omitempty"`
+	Waiting    []string           `json:"waiting,omitempty"`
+	Managers   []ProxyManagerView `json:"managers"`
+}
+
+// ProxyManagerView is a manager in a proxy secret re-rotation, as the leader
+// knows it from its last heartbeat (this leader from what it applied), and
+// whether it follows one (CapProxyRotation).
+type ProxyManagerView struct {
+	ID         string `json:"id"`
+	Name       string `json:"name"`
+	Online     bool   `json:"online"`
+	Generation *int64 `json:"generation,omitempty"` // the newest secret it accepts; nil: not reported
+	CanRotate  bool   `json:"can_rotate"`
+}
+
+// AgentKeyRotationStatus is the last agent key rotation started and where
+// each agent stands in it. Offline agents are listed too: they take their
+// key once they are back, and this is the one place they show. No key is
+// read into it.
+type AgentKeyRotationStatus struct {
+	Generation int64          `json:"generation"` // the last rotation started; 0: never
+	StartedAt  *time.Time     `json:"started_at,omitempty"`
+	Pending    int            `json:"pending"`
+	Agents     []AgentKeyView `json:"agents"`
+}
+
+// AgentKeyView is an agent in the last agent key rotation, and whether its
+// code follows one (CapAgentKeyRotation).
+type AgentKeyView struct {
+	ID        string `json:"id"`
+	Name      string `json:"name"`
+	Online    bool   `json:"online"`
+	Pending   bool   `json:"pending"` // the managers do not sign for it with the last rotation's key yet
+	Issued    bool   `json:"issued"`  // it took that key and has not confirmed it
+	CanRotate bool   `json:"can_rotate"`
 }
 
 // CARotationStatus is the cluster CA by its pin — while a rotation is under
@@ -82,11 +129,13 @@ func (m *Manager) RotationStatus() (*RotationStatus, error) {
 		return nil, ErrNotLeader
 	}
 	state := m.raft.GetFSM().GetState()
-	ca, err := m.caRotationStatus(state, time.Now())
+	now := time.Now()
+	ca, err := m.caRotationStatus(state, now)
 	if err != nil {
 		return nil, err
 	}
-	return &RotationStatus{JWT: m.jwtRotationStatus(state), CA: ca}, nil
+	return &RotationStatus{JWT: m.jwtRotationStatus(state), Proxy: m.proxyRotationStatus(state, now),
+		AgentKeys: m.agentKeyRotationStatus(state), CA: ca}, nil
 }
 
 // jwtRotationStatus is the JWT half of RotationStatus. This leader's own
@@ -125,6 +174,64 @@ func (m *Manager) jwtRotationStatus(state ClusterState) JWTRotationStatus {
 		st.Managers = append(st.Managers, v)
 	}
 	slices.SortFunc(st.Managers, func(a, b JWTManagerView) int { return strings.Compare(a.ID, b.ID) })
+	return st
+}
+
+// proxyRotationStatus is the proxy secret part of RotationStatus at now: the
+// record's generation and phase — never its secrets — whom the switch waits
+// for (nextProxyStep, which decides it) and each manager as the step sees it
+// (proxyNodes).
+func (m *Manager) proxyRotationStatus(state ClusterState, now time.Time) ProxyRotationStatus {
+	nodes := m.proxyNodes(state)
+	st := ProxyRotationStatus{Managers: make([]ProxyManagerView, 0, len(nodes))}
+	if k, ok := proxyKeyOf(state); ok {
+		st.Generation, st.Phase = k.Generation, string(k.Phase())
+		if !k.SwitchedAt.IsZero() {
+			at := k.SwitchedAt
+			st.SwitchedAt = &at
+		}
+		if k.Phase() == ProxyPhaseNext {
+			st.Waiting = nextProxyStep(k, nodes, now).Waiting
+		}
+	}
+	for _, n := range nodes {
+		st.Managers = append(st.Managers, ProxyManagerView{ID: n.ID, Name: n.Name, Online: n.Online, Generation: n.Generation, CanRotate: n.Capable})
+	}
+	return st
+}
+
+// agentKeyRotationStatus is the agent key part of RotationStatus: the last
+// rotation and each agent in it, by ID — whether the managers sign for it
+// with that rotation's key yet, and whether it holds an issued key it has
+// not confirmed; never a key. With no rotation started nothing is pending.
+func (m *Manager) agentKeyRotationStatus(state ClusterState) AgentKeyRotationStatus {
+	st := AgentKeyRotationStatus{Agents: []AgentKeyView{}}
+	rec, started := agentKeysRotationOf(state)
+	if started {
+		st.Generation = rec.Generation
+		at := rec.StartedAt
+		st.StartedAt = &at
+	}
+	health := m.heartbeat.CheckHealth()
+	for id, n := range state.Nodes {
+		if n.IsManager() {
+			continue
+		}
+		v := AgentKeyView{ID: id, Name: n.Name, Online: health[id] == StatusOnline}
+		if met := m.heartbeat.GetMetrics(id); met != nil {
+			v.CanRotate = slices.Contains(met.Capabilities, CapAgentKeyRotation)
+		}
+		if started {
+			next, ok := agentKeyNextOf(state, id)
+			v.Pending = !ok || !next.switchedAt(rec.Generation)
+			v.Issued = ok && next.Generation == rec.Generation && next.Key != ""
+			if v.Pending {
+				st.Pending++
+			}
+		}
+		st.Agents = append(st.Agents, v)
+	}
+	slices.SortFunc(st.Agents, func(a, b AgentKeyView) int { return strings.Compare(a.ID, b.ID) })
 	return st
 }
 
