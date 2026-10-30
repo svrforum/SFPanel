@@ -5099,7 +5099,7 @@ data: {"phase":"ready","session":"5f0c…e9a1","sha256":"9b2d…","bytes":214748
 클러스터에서 자발적으로 탈퇴. 리더에게 탈퇴를 통보한 후 로컬 클러스터 데이터를 정리하고 서비스를 재시작합니다. (로컬 노드 row에서 탈퇴 UI는 v0.19.0+.)
 
 - **인증 필요**: 예
-- **쿼리 파라미터**: `force` — 탈퇴 후 잔여 voter가 quorum을 형성할 수 없으면(live heartbeat 기준) 탈퇴를 거부합니다. `?force=true`로 긴급 drain 시 오버라이드.
+- **쿼리 파라미터**: `force` — 탈퇴 후 잔여 voter가 quorum을 형성할 수 없으면 탈퇴를 거부합니다. 리더는 각 매니저의 heartbeat 스트림으로, 다른 매니저의 heartbeat를 받지 않는 팔로워는 리더가 노드 기록에 남긴 상태(노드 목록과 같은 신선도)로 판단합니다. `?force=true`(CLI는 `sudo sfpanel cluster leave --force`)로 긴급 drain 시 오버라이드.
 
 **Request Body:** 없음 (빈 POST)
 

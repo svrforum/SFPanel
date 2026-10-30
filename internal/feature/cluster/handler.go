@@ -1283,10 +1283,12 @@ func (h *Handler) LeaveCluster(c echo.Context) error {
 	}
 
 	// Quorum guard: refuse to leave when the surviving voters could not form
-	// quorum afterwards, based on *live* heartbeat health (not stale FSM
-	// status). The orphan case this catches: a 2-voter cluster whose peer is
-	// already offline — leaving strands a lone voter that can neither elect
-	// nor commit. ?force=true bypasses for an emergency drain.
+	// quorum afterwards — on the leader by its live heartbeat streams, on a
+	// follower, which hears no other manager's, by the status the leader
+	// keeps in their records. The orphan case this catches: a 2-voter
+	// cluster whose peer is already offline — leaving strands a lone voter
+	// that can neither elect nor commit. ?force=true (the CLI's --force)
+	// bypasses for an emergency drain.
 	if c.QueryParam("force") != "true" {
 		if reason, blocked := mgr.WouldDropBelowQuorumOnLeave(); blocked {
 			return response.Fail(c, http.StatusConflict, response.ErrClusterQuorum,

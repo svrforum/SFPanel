@@ -116,8 +116,9 @@ nothing having changed, and names whom it waits for and why
 (`… waiting for peer-2 (offline), web-03 (0.79.0)`). A manager that stops
 is offline to a rotation at once, as its heartbeat stream to the leader ends,
 while the node list keeps it online until its last ping is three minutes old.
-Converting or promoting a node, a leave and a panel update judge the voters
-the same way.
+Converting or promoting a node, a leave from the leader and a panel update
+judge the voters the same way (§ Disband and leave says how a follower's
+leave does).
 `sudo sfpanel cluster rotate status` (`GET /api/v1/cluster/rotation`) shows
 where each node stands in each of them, by generation and fingerprint — never
 a secret.
@@ -464,6 +465,15 @@ update counts as a failure and stops on (see above).
   when the service is stopped; through the running service — the UI, or
   the CLI, which hands the leave to it — the answer's message ends with the
   same warning and this node's ID.
+- A leave through the running service is refused (`409 CLUSTER_QUORUM`,
+  `only 1 of 2 remaining voters reachable (need 2 for quorum)`) when the
+  managers left behind could not form a quorum. The leader judges the
+  others by their heartbeat streams to it; a follower, which hears from no
+  other manager, by the status the leader keeps in each node's record — as
+  fresh as the node list, so a manager stopped a moment ago still counts
+  for a few minutes there. `sudo sfpanel cluster leave --force` (the API's
+  `?force=true`, which the UI offers after the refusal) leaves anyway. A
+  leave with the service stopped has no such check.
 - A leave removes the cluster's data and certificate directories before it
   saves the config as standalone. One it cannot remove ends the leave with
   the config still naming the cluster: remove it by hand and leave again.

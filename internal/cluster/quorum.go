@@ -46,28 +46,39 @@ func wouldDropBelowQuorumOnLeave(selfID string, voters map[string]NodeStatus) (s
 }
 
 // WouldDropBelowQuorumOnLeave reports whether this node leaving the cluster
-// would leave the surviving voters unable to form quorum, based on live
-// heartbeat health. It returns an operator-useful reason and true when the
-// leave should be refused.
+// would leave the surviving voters unable to form quorum. It returns an
+// operator-useful reason and true when the leave should be refused.
 //
 // With no Raft attached there is nothing to protect, so it fails open
 // (returns "", false). It mirrors pickTransferTarget's enumeration: read the
-// FSM node set, keep only voters, and resolve each one's live status from the
-// heartbeat manager (a voter absent from the health map — e.g. one that never
-// reported — is treated as offline).
+// FSM node set and keep only voters. The leader resolves each one's status
+// from its heartbeat streams (LiveHealth; a voter absent from it — one that
+// never reported — is offline). A follower cannot: managers ping only the
+// leader, so its own map holds itself alone, and every follower's leave was
+// refused as if the others were down. It reads the status the leader keeps
+// in each record instead, which the leader's heartbeat monitor writes on
+// every change: as fresh as the node list, so a manager stopped a moment ago
+// still counts for up to a few minutes, as it did for the leader before its
+// streams were counted. A record with no status is offline.
 func (m *Manager) WouldDropBelowQuorumOnLeave() (string, bool) {
 	if m.raft == nil {
 		return "", false
 	}
 	state := m.raft.GetFSM().GetState()
-	health := m.heartbeat.LiveHealth()
+	var health map[string]NodeStatus
+	if m.raft.IsLeader() {
+		health = m.heartbeat.LiveHealth()
+	}
 
 	voters := make(map[string]NodeStatus, len(state.Nodes))
 	for id, node := range state.Nodes {
 		if node.Role != RoleVoter {
 			continue
 		}
-		status, ok := health[id]
+		status, ok := node.Status, node.Status != ""
+		if health != nil {
+			status, ok = health[id]
+		}
 		if !ok {
 			status = StatusOffline
 		}

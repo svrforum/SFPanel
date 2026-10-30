@@ -15,6 +15,7 @@ import (
 	"net/http"
 	"os"
 	"os/exec"
+	"slices"
 	"strings"
 	"time"
 
@@ -454,8 +455,14 @@ func isServerRunning(port int) bool {
 }
 
 func clusterLeave(args []string) {
-	cfgPath, _ := parseCfgFlag(args)
+	cfgPath, rest := parseCfgFlag(args)
 	cfg := loadCfgForCLI(cfgPath)
+	// --force passes the running service's quorum guard, as the UI's force
+	// prompt does. A stopped service's leave has no guard to pass.
+	leavePath := "/api/v1/cluster/leave"
+	if slices.Contains(rest, "--force") {
+		leavePath += "?force=true"
+	}
 
 	if !cfg.Cluster.Enabled {
 		log.Fatal("This node is not part of a cluster.")
@@ -464,7 +471,7 @@ func clusterLeave(args []string) {
 	// Delegate to running server to avoid Raft port conflict
 	if isServerRunning(cfg.Server.Port) {
 		fmt.Println("Server is running — delegating leave to live server...")
-		raw, err := callLocalAPI(cfg, "POST", "/api/v1/cluster/leave", nil)
+		raw, err := callLocalAPI(cfg, "POST", leavePath, nil)
 		if err != nil {
 			log.Fatalf("Leave via server failed: %v", err)
 		}
@@ -1075,7 +1082,8 @@ func printClusterHelp() {
 	fmt.Println("  sfpanel cluster remove NODE_ID            Remove a node")
 	fmt.Println("  sfpanel cluster convert NODE_ID           Turn a manager into an agent, keeping its ID and labels")
 	fmt.Println("  sfpanel cluster promote NODE_ID           Turn an agent into a manager, keeping its ID and labels")
-	fmt.Println("  sfpanel cluster leave                     Leave the cluster")
+	fmt.Println("  sfpanel cluster leave [--force]           Leave the cluster; --force leaves even when the")
+	fmt.Println("                                            managers left could not form a quorum")
 	fmt.Println("  sfpanel cluster reissue-cert              Re-issue this node's cluster cert (hot reload)")
 	fmt.Println("  sfpanel cluster rotate jwt                Replace the cluster's JWT key (everyone signs in again)")
 	fmt.Println("  sfpanel cluster rotate proxy              Replace the managers' internal proxy secret")
