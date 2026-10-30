@@ -1055,6 +1055,20 @@
     "role": {
       "voter": "투표 노드",
       "nonvoter": "비투표 노드"
+    },
+    "errors": {
+      "routeNotOnAgent": "클러스터 관리는 매니저에서 합니다. 데이터센터나 매니저를 먼저 고르세요.",
+      "agentAuthFailed": "이 매니저가 에이전트에 보낼 요청에 서명하지 못했습니다. 에이전트가 아직 클러스터에 있는지, 시계가 맞는지 확인하세요.",
+      "agentPanelInsecure": "에이전트의 패널 인증서가 아직 클러스터에 없어 암호화 없이 중계하지 않습니다. 1분쯤 기다리거나 에이전트를 재시작하세요.",
+      "tokenKind": "이 가입 토큰은 다른 종류의 노드용입니다.",
+      "maxAgents": "에이전트 수가 cluster.max_agents 한도에 닿았습니다.",
+      "caRotating": "클러스터 CA를 교체하는 중입니다. 교체가 끝난 뒤 다시 하세요.",
+      "quorum": "이렇게 하면 클러스터가 정족수를 잃습니다."
+    },
+    "warnings": {
+      "leaveUnacknowledged": "어느 리더도 이 노드를 클러스터에서 빼지 않았습니다. 리더에서 실행하세요: sudo sfpanel cluster remove {{node_id}}",
+      "agentsNotReached": "다음 에이전트에는 알리지 못했습니다. 각 서버에서 sudo sfpanel agent reset --yes를 실행하세요: {{agents}}",
+      "managerBackups": "이 노드의 예약 백업은 매니저일 때 만든 것이라, 비밀을 교체하기 전까지 클러스터 비밀을 담고 있습니다."
     }
   },
   "settings": {
@@ -1428,6 +1442,14 @@
       "renewPending": "갱신 시점입니다 — 다음 재시작에 적용됩니다.",
       "downloadCA": "인증기관 다운로드 (ca.crt)",
       "downloading": "다운로드 중…"
+    },
+    "updateErrors": {
+      "inProgress": "업데이트가 이미 진행 중입니다.",
+      "downgrade": "이 노드의 버전보다 오래된 릴리스라 설치하지 않습니다."
+    },
+    "restoreErrors": {
+      "managerBackupOnAgent": "매니저의 백업에는 클러스터 비밀이 들어 있어 에이전트에 복원하지 않습니다.",
+      "agentBackupOnManager": "에이전트의 백업은 매니저에 복원하지 않습니다."
     }
   },
   "siteConfig": {

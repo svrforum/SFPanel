@@ -1142,7 +1142,8 @@ interface InstalledApp {
 | `docker.prune` | Docker 정리 | title, containers, images, volumes, networks, success 등 |
 | `network` | 네트워크 관리 | title, subtitle, interfaces, dnsServers, routes, bonding, configure, up, down, speed, bondMode 등 |
 | `disk` | 디스크 관리 | title, tabs.overview/partitions/filesystems/lvm/raid/swap 등 |
-| `settings` | 설정 페이지 | title, subtitle, language, languageDescription, changePassword, currentPassword, newPassword, confirmNewPassword, twoFA, twoFAEnabled/NotConfigured, enable2FA, scanQR, secretKey, verificationCode, systemInfo, version, terminal, terminalTimeout, fileUpload, maxUploadSize |
+| `settings` | 설정 페이지 | title, subtitle, language, languageDescription, changePassword, currentPassword, newPassword, confirmNewPassword, twoFA, twoFAEnabled/NotConfigured, enable2FA, scanQR, secretKey, verificationCode, systemInfo, version, terminal, terminalTimeout, fileUpload, maxUploadSize, updateErrors.inProgress/downgrade, restoreErrors.managerBackupOnAgent/agentBackupOnManager |
+| `cluster` | 클러스터 | title, nav, notEnabled, notRunning, stacks, init, join, overview, events, nodes, tokens, leave, tree, status, role, errors.routeNotOnAgent/agentAuthFailed/agentPanelInsecure/tokenKind/maxAgents/caRotating/quorum, warnings.leaveUnacknowledged/agentsNotReached/managerBackups |
 | `terminal` | 터미널 | connectingLogs, connectingShell, connected, wsError, connectionClosed, notAuthenticated, newTab, noTabs, fontSmaller, fontLarger, search, searchPlaceholder, prev, next |
 | `files` | 파일 관리자 | title, count, name, size, modified, permissions, empty, loading, newFile, newFolder, upload, edit, editFile, download, rename, renameTitle, deleteTitle, deleteConfirm |
 | `cron` | 크론 작업 | title, count, showAll, newJob, tableTitle, schedule, command, type, presets, presetEveryMinute/Hour/Daily/Weekly/Monthly, createTitle, editTitle, deleteTitle |
@@ -1150,7 +1151,11 @@ interface InstalledApp {
 | `packages` | 패키지 관리 | title, subtitle, dockerStatus, dockerDescription, installDocker, systemUpdates, checkForUpdates, upgradeAll, searchAndInstall, search, install, remove, operationComplete, operationRunning |
 | `firewall` | 방화벽 관리 | title, tabs.rules/ports/fail2ban, status, enable, disable, rules, addRule, deleteRule, ports, action, port, protocol, from, to, comment, listeningPorts |
 | `firewall.fail2ban` | Fail2ban | status, install, jails, enable, disable, unban, bannedIPs, maxRetry, banTime, findTime |
-| `appstore` | 앱스토어 | title, subtitle, searchPlaceholder, allCategories, install, installed, installing, installTitle, installDescription, envVars, refresh, refreshing, noApps, port, website, viewStack, generated |
+| `appStore` | 앱스토어 | title, subtitle, searchPlaceholder, allCategories, install, installed, installing, installTitle, installDescription, envVars, refresh, refreshing, noApps, port, website, viewStack, generated |
+
+**오류 코드 문구**: 서버 오류 봉투의 `code`는 `web/src/lib/codeMessages.ts`의 `CODE_MESSAGES`(코드 → i18n 키)로 번역되고, 서버의 영어 `message`는 대체값으로 남는다. `details`가 문구의 `{{…}}` 자리를 채운다. 목록에 없는 코드는 서버 메시지를 그대로 보인다 — 이유를 메시지에 싣는 거부(`CLUSTER_CONVERT_REFUSED`·`CLUSTER_PROMOTE_REFUSED`·`CLUSTER_ROTATION_REFUSED`)는 일부러 넣지 않는다. 탈퇴·해체·전환이 성공 응답의 `data.warnings`에 싣는 경고 코드의 문구도 이 표에 둔다. 번역은 `api.ts`의 `apiErrorFrom(status, body)` 한 곳에서 하며, `request()`와 `request()`를 거치지 않는 스트림(`errorFromResponse(res)`, 예: `clusterUpdateStream`)이 같은 `ApiError`(`status`·`code`·`details`)를 던진다. 봉투가 아닌 본문(프록시의 502 등)은 `HTTP <status>`다.
+
+**언어 검사 테스트**: `web/src/i18n/locales.test.ts`가 소스의 고정 키 `t('a.b')`와 `CODE_MESSAGES`의 모든 키를 `ko.json`·`en.json` 양쪽에서 찾고, 값 없이 부르는 키에 `{{…}}` 자리가 있으면 실패한다. 템플릿 키(`t(\`x.${y}\`)`)는 이 검사가 보지 못하므로, 값에 따라 키를 고를 때는 고정 키의 객체 맵을 쓴다.
 
 ---
 

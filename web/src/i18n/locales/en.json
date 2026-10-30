@@ -1057,6 +1057,20 @@
     "role": {
       "voter": "Voter",
       "nonvoter": "Non-voter"
+    },
+    "errors": {
+      "routeNotOnAgent": "Cluster management runs on a manager. Choose the datacenter or a manager first.",
+      "agentAuthFailed": "This manager could not sign its request to the agent. Check that the agent is still in the cluster and that its clock is right.",
+      "agentPanelInsecure": "The agent's panel certificate has not reached the cluster yet, so nothing is relayed to it unencrypted. Wait a minute, or restart the agent.",
+      "tokenKind": "This join token was made for another kind of node.",
+      "maxAgents": "The cluster already has as many agents as cluster.max_agents allows.",
+      "caRotating": "The cluster CA is being replaced. Try again once the rotation is done.",
+      "quorum": "This would leave the cluster without a quorum."
+    },
+    "warnings": {
+      "leaveUnacknowledged": "No leader took this node out of the cluster. On the leader, run: sudo sfpanel cluster remove {{node_id}}",
+      "agentsNotReached": "These agents were not told and need sudo sfpanel agent reset --yes on their own server: {{agents}}",
+      "managerBackups": "This node's scheduled backups were taken while it was a manager and hold the cluster's secrets until they are rotated."
     }
   },
   "settings": {
@@ -1430,6 +1444,14 @@
       "renewPending": "Renewal is due — it happens on the next restart.",
       "downloadCA": "Download authority (ca.crt)",
       "downloading": "Downloading…"
+    },
+    "updateErrors": {
+      "inProgress": "An update is already running.",
+      "downgrade": "The release is older than this node's version, so it is not installed."
+    },
+    "restoreErrors": {
+      "managerBackupOnAgent": "A manager's backup holds the cluster's secrets and does not go on an agent.",
+      "agentBackupOnManager": "An agent's backup does not go on a manager."
     }
   },
   "siteConfig": {

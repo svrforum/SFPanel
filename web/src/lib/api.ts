@@ -120,6 +120,42 @@ export function setApiTranslator(fn: Translator) {
 
 // Error codes the panel words itself live in ./codeMessages.
 
+// An error the server refused with: the HTTP status and the envelope's code and
+// details ride on it, so callers can react to a specific refusal (a 409
+// firewall-lockout guard) without parsing the message.
+export type ApiError = Error & { status?: number; code?: string; details?: Record<string, string> }
+
+// apiErrorFrom reads the { success:false, error:{ code, message, details } }
+// envelope. A body that is not one — a reverse proxy's 502 page, an Echo
+// default error — says only its status.
+export function apiErrorFrom(status: number, body: unknown): ApiError {
+  const envelope = body && typeof body === 'object' && (body as { success?: unknown }).success === false
+    ? (body as { error?: { code?: string; message?: string; details?: Record<string, string> } })
+    : undefined
+  if (!envelope) return Object.assign(new Error(`HTTP ${status}`), { status }) as ApiError
+  const code = envelope.error?.code
+  const sent = envelope.error?.message || 'Unknown error'
+  const details = envelope.error?.details
+  const message = code && CODE_MESSAGES[code] ? translate(CODE_MESSAGES[code], sent, details) : sent
+  const err = new Error(message) as ApiError
+  err.status = status
+  err.code = code
+  err.details = details
+  return err
+}
+
+// errorFromResponse is apiErrorFrom for a fetch the caller made itself — a
+// stream or a download — so its refusal reads like any request()'s.
+export async function errorFromResponse(res: Response): Promise<ApiError> {
+  let body: unknown
+  try {
+    body = await res.json()
+  } catch {
+    // not JSON: the status is all there is
+  }
+  return apiErrorFrom(res.status, body)
+}
+
 
 /**
  * How long to wait for the operations the server itself bounds at five minutes.
@@ -525,20 +561,7 @@ class ApiClient {
 
     const json = await res.json()
 
-    if (!json.success) {
-      // Attach HTTP status + error code so callers can react to specific
-      // conditions (e.g. a 409 firewall-lockout guard) without parsing the
-      // message. Reading `.message` still works as before.
-      const code: string | undefined = json.error?.code
-      const sent = json.error?.message || 'Unknown error'
-      const details: Record<string, string> | undefined = json.error?.details
-      const message = code && CODE_MESSAGES[code] ? translate(CODE_MESSAGES[code], sent, details) : sent
-      const err = new Error(message) as Error & { status?: number; code?: string; details?: Record<string, string> }
-      err.status = res.status
-      err.code = code
-      err.details = details
-      throw err
-    }
+    if (!json.success) throw apiErrorFrom(res.status, json)
 
     return json.data as T
   }
@@ -2580,8 +2603,9 @@ class ApiClient {
         method: 'POST',
         headers: this.streamHeaders({ 'Content-Type': 'application/json' }),
         body: JSON.stringify({ mode }),
-      }).then(resp => {
-        if (!resp.ok || !resp.body) return reject(Object.assign(new Error(`HTTP ${resp.status}`), { status: resp.status }))
+      }).then(async resp => {
+        if (!resp.ok) return reject(await errorFromResponse(resp))
+        if (!resp.body) return reject(Object.assign(new Error(`HTTP ${resp.status}`), { status: resp.status }))
         const reader = resp.body.getReader()
         const decoder = new TextDecoder()
         let buffer = ''

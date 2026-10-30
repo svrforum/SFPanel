@@ -26,4 +26,22 @@ export const CODE_MESSAGES: Record<string, string> = {
   APT_REPO_FAILED: 'packages.repoFailed',
   APT_TRANSACTION_RUNNING: 'packages.transactionRunning',
   ALERT_RULE_TYPE_NOT_EVALUATED: 'settings.alerts.rules.typeNotEvaluated',
+  CLUSTER_ROUTE_NOT_ON_AGENT: 'cluster.errors.routeNotOnAgent',
+  CLUSTER_AGENT_AUTH_FAILED: 'cluster.errors.agentAuthFailed',
+  CLUSTER_AGENT_PANEL_INSECURE: 'cluster.errors.agentPanelInsecure',
+  CLUSTER_TOKEN_KIND: 'cluster.errors.tokenKind',
+  CLUSTER_MAX_AGENTS: 'cluster.errors.maxAgents',
+  CLUSTER_CA_ROTATING: 'cluster.errors.caRotating',
+  CLUSTER_QUORUM: 'cluster.errors.quorum',
+  UPDATE_IN_PROGRESS: 'settings.updateErrors.inProgress',
+  UPDATE_DOWNGRADE_BLOCKED: 'settings.updateErrors.downgrade',
+  // Warnings a successful leave, disband or convert carries in data.warnings,
+  // worded the same way as a refusal's code.
+  CLUSTER_LEAVE_UNACKNOWLEDGED: 'cluster.warnings.leaveUnacknowledged',
+  CLUSTER_AGENTS_NOT_REACHED: 'cluster.warnings.agentsNotReached',
+  CLUSTER_MANAGER_BACKUPS: 'cluster.warnings.managerBackups',
+  RESTORE_MANAGER_BACKUP_ON_AGENT: 'settings.restoreErrors.managerBackupOnAgent',
+  RESTORE_AGENT_BACKUP_ON_MANAGER: 'settings.restoreErrors.agentBackupOnManager',
+  // CLUSTER_CONVERT_REFUSED, CLUSTER_PROMOTE_REFUSED and CLUSTER_ROTATION_REFUSED
+  // carry their reason in the server's message, so they stay unworded here.
 }
