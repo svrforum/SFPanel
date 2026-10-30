@@ -15,20 +15,25 @@ function Segments<T extends string>({ label, value, options, onChange }: {
   options: { value: T; label: string }[]
   onChange: (value: T) => void
 }) {
+  // Captioned on screen like the group select: three "All" buttons in a row
+  // say nothing about what each one is all of.
   return (
-    <div role="group" aria-label={label} className="flex items-center gap-1">
-      {options.map((o) => (
-        <Button
-          key={o.value}
-          variant={value === o.value ? 'default' : 'outline'}
-          size="sm"
-          aria-pressed={value === o.value}
-          onClick={() => onChange(o.value)}
-          className="h-7 text-xs rounded-xl"
-        >
-          {o.label}
-        </Button>
-      ))}
+    <div className="flex items-center gap-1.5">
+      <span className="text-xs text-muted-foreground">{label}</span>
+      <div role="group" aria-label={label} className="flex items-center gap-1">
+        {options.map((o) => (
+          <Button
+            key={o.value}
+            variant={value === o.value ? 'default' : 'outline'}
+            size="sm"
+            aria-pressed={value === o.value}
+            onClick={() => onChange(o.value)}
+            className="h-7 text-xs rounded-xl"
+          >
+            {o.label}
+          </Button>
+        ))}
+      </div>
     </div>
   )
 }

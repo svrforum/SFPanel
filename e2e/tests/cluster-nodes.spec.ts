@@ -122,6 +122,13 @@ test('filters by kind, status and group, and searches', async ({ page }) => {
 
   const kind = page.getByRole('group', { name: 'Kind' })
   const status = page.getByRole('group', { name: 'Status' })
+  // Three "All" buttons in a row: each group is captioned on screen too, as
+  // the group select is, not only for a screen reader.
+  for (const [group, caption] of [[kind, 'Kind'], [status, 'Status']] as const) {
+    const shown = group.locator('xpath=preceding-sibling::*[1]')
+    await expect(shown).toHaveText(caption)
+    await expect(shown).toBeVisible()
+  }
 
   await kind.getByRole('button', { name: 'Agents' }).click()
   await expect(bodyRows(page)).toHaveCount(40)
