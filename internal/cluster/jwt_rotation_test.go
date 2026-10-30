@@ -118,6 +118,9 @@ func TestRotateJWTKeyRefusesARecordThatDoesNotParse(t *testing.T) {
 		}
 	}
 	waitFor(t, "the leader to run generation 3", func() bool { return mgr.JWTGeneration() == 3 })
+	// Not three: the FSM calls back in a goroutine, and an apply that runs
+	// after the next rotation landed takes the newer generation at once.
+	applied := len(a.all())
 	if err := mgr.SetConfig(configKeyJWTKey, "{"); err != nil {
 		t.Fatal(err)
 	}
@@ -126,7 +129,7 @@ func TestRotateJWTKeyRefusesARecordThatDoesNotParse(t *testing.T) {
 		t.Fatalf("a rotation over a record that does not parse: generation %d, %v", gen, err)
 	}
 	record, _ := mgr.raft.GetFSM().GetConfigValue(configKeyJWTKey)
-	if after, _ := mgr.raft.GetFSM().GetConfigValue(configKeyJWTSecret); record != "{" || after != plain || len(a.all()) != 3 {
+	if after, _ := mgr.raft.GetFSM().GetConfigValue(configKeyJWTSecret); record != "{" || after != plain || len(a.all()) != applied {
 		t.Fatal("a refused rotation changed something")
 	}
 }
