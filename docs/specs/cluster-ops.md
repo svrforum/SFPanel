@@ -66,8 +66,11 @@ cluster its quorum. The leader's log says why. Raft's own errors name the
 joiner's Raft address (`failed to heartbeat to`, `failed to appendEntries
 to`), and a joiner that heartbeats before its Raft has caught up is logged
 as `joining manager not promoted yet: its Raft has not caught up — is the
-leader able to reach its Raft port (the gRPC port + 1)?`. Open the port,
-and once its Raft has caught up the next heartbeat promotes it. A manager on
+leader able to reach its Raft port (the gRPC port + 1)?`. A joiner whose
+Raft port was closed from the start never learns from Raft which manager
+leads, so it sends no heartbeat at all: the node list shows it offline, and
+only Raft's errors name it. Open the port, and once its Raft has caught up
+the next heartbeat promotes it. A manager on
 a release that does not report its applied index is promoted at its first
 heartbeat.
 
