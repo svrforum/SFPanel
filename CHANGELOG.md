@@ -6,6 +6,17 @@ The format is loosely based on [Keep a Changelog](https://keepachangelog.com/), 
 
 ---
 
+## [0.79.2] – 2026-10-30
+
+### Security
+
+- **Rebuilt with Go 1.26.10 and x/net 0.62.** Go 1.26.10 fixes GO-2026-6809: crypto/x509's certificate verification now distrusts compromised intermediate certificates, and the panel's outbound TLS — the release download among it — and its cluster certificate checks go through it. x/net 0.62 fixes two advisories in its HTML package (GO-2026-6866, GO-2026-6860). No line of the panel's own code differs from 0.79.1. The CI vulnerability job had been failing on these since they appeared; the Go advisories that remain are the ones with no upstream fix, as before.
+- Web dependencies move to their patched releases — DOMPurify 3.4.17, fast-uri 3.1.9 and serialize-javascript 7.1.4 — which clears the `npm audit` gate. The advisories left are moderate or low and have no fix in range: the `postcss-selector-parser` that `@tailwindcss/typography` pins and the `deepmerge` under the PWA plugin's workbox, both of which run only while the web app is built.
+
+### Upgrading
+
+- Update every node; the cluster update takes them one at a time.
+
 ## [0.79.1] – 2026-10-30
 
 ### Security
