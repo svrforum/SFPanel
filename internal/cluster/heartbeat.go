@@ -76,6 +76,14 @@ func (hm *HeartbeatManager) StreamEnded(nodeID string) {
 	hm.dropped[nodeID] = true
 }
 
+// Streaming reports whether nodeID has a heartbeat stream to this manager
+// open, counted from its first ping.
+func (hm *HeartbeatManager) Streaming(nodeID string) bool {
+	hm.mu.RLock()
+	defer hm.mu.RUnlock()
+	return hm.streams[nodeID] > 0
+}
+
 // LiveHealth is CheckHealth for what an operator starts — a rotation, a
 // conversion, a leave, an update — and the rotation status beside it: a node
 // whose heartbeat streams to this manager have all ended is offline, though

@@ -2114,14 +2114,61 @@ func (m *Manager) Shutdown() {
 // holding a disband they never applied: of two managers, the one left could
 // not commit alone and stayed in a cluster of one, and of more, a follower
 // made leader stopped as fast in its turn. A barrier is that next entry.
+// It commits on a majority, so it proves only that a majority took the
+// disband in; the leader then gives the rest up to disbandStreamWait (see
+// awaitManagersStopped) and names any that did not. One left behind needs
+// 'sfpanel cluster leave' (forced) or a forced disband on its own server.
 // Nobody is handed leadership either: every manager is leaving.
 func (m *Manager) ShutdownForDisband() {
 	if m.raft != nil && m.raft.IsLeader() {
 		if err := m.raft.Barrier(5 * time.Second); err != nil {
 			slog.Warn("could not confirm that the other managers learned of the disband", "component", "cluster", "error", err)
+		} else {
+			m.awaitManagersStopped(disbandStreamWait)
 		}
 	}
 	m.shutdown(false)
+}
+
+// disbandStreamWait bounds how long a disband's leader waits for the other
+// managers to stop. A variable so that a test can shorten it.
+var disbandStreamWait = 5 * time.Second
+
+// awaitManagersStopped waits, up to bound, until no other manager voter has a
+// heartbeat stream open to this leader. Each closes its stream as it applies
+// the disband and stops; one still running meanwhile receives this leader's
+// entries, so one that lagged can catch up. Those still streaming at the
+// bound are logged by name.
+func (m *Manager) awaitManagersStopped(bound time.Duration) {
+	var others []string
+	for id, n := range m.raft.GetFSM().GetState().Nodes {
+		if id != m.nodeID && n.IsManager() && n.Role == RoleVoter {
+			others = append(others, id)
+		}
+	}
+	streaming := func() []string {
+		var open []string
+		for _, id := range others {
+			if m.heartbeat.Streaming(id) {
+				open = append(open, id)
+			}
+		}
+		return open
+	}
+	deadline := time.Now().Add(bound)
+	for {
+		open := streaming()
+		if len(open) == 0 {
+			return
+		}
+		if !time.Now().Before(deadline) {
+			sort.Strings(open)
+			slog.Warn("disband: these managers had not stopped when the leader did; each needs a forced leave or a forced disband on its own server",
+				"component", "cluster", "managers", open)
+			return
+		}
+		time.Sleep(100 * time.Millisecond)
+	}
 }
 
 func (m *Manager) shutdown(transferLeadership bool) {

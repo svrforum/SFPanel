@@ -3,6 +3,7 @@ package cluster
 import (
 	"fmt"
 	"io"
+	"strings"
 	"testing"
 	"time"
 
@@ -102,5 +103,71 @@ func TestADisbandReachesEveryManagerBeforeTheLeaderStops(t *testing.T) {
 				}
 			}
 		})
+	}
+}
+
+// soleLeader is a one-manager cluster's leader whose FSM also lists the
+// managers named, which send it heartbeats in a test and nothing else.
+func soleLeader(t *testing.T, others ...string) *Manager {
+	t.Helper()
+	leader := inmemManagers(t, 1)[0]
+	waitFor(t, "a leader", leader.raft.IsLeader)
+	for _, id := range append([]string{leader.nodeID}, others...) {
+		if err := leader.raft.Apply(Command{Type: CmdAddNode, Value: mustJSON(Node{ID: id, Name: id, Kind: KindManager, Role: RoleVoter})}, 5*time.Second); err != nil {
+			t.Fatal(err)
+		}
+	}
+	return leader
+}
+
+// A barrier commits on a majority: of three managers or more, one lagging
+// behind could miss the disband and stay in a cluster with no leader. The
+// leader stays while another manager still streams heartbeats to it — each
+// closes its stream as it applies the disband and stops — and meanwhile it
+// keeps sending entries a lagging one can catch up with.
+func TestADisbandsLeaderStaysWhileAnotherManagerStillStreams(t *testing.T) {
+	leader := soleLeader(t, "m2")
+	leader.heartbeat.RecordStreamPing(&NodeMetrics{NodeID: "m2"}, true)
+	ended := make(chan time.Time, 1)
+	go func() {
+		time.Sleep(200 * time.Millisecond)
+		ended <- time.Now()
+		leader.heartbeat.StreamEnded("m2")
+	}()
+	start := time.Now()
+	leader.ShutdownForDisband()
+	returned := time.Now()
+	if at := <-ended; returned.Before(at) {
+		t.Fatalf("the leader stopped %v before m2's stream ended", at.Sub(returned))
+	}
+	if took := returned.Sub(start); took > 2*time.Second {
+		t.Fatalf("the leader stayed %v after m2's stream ended", took)
+	}
+}
+
+// One that never closes its stream holds the leader only so long, and is
+// named: it needs a forced leave or a forced disband on its own server.
+func TestADisbandsLeaderNamesTheManagersStillStreaming(t *testing.T) {
+	logs := captureLogs(t)
+	prev := disbandStreamWait
+	disbandStreamWait = 300 * time.Millisecond
+	t.Cleanup(func() { disbandStreamWait = prev })
+	leader := soleLeader(t, "m2", "m3")
+	leader.heartbeat.RecordStreamPing(&NodeMetrics{NodeID: "m2"}, true)
+	leader.heartbeat.RecordStreamPing(&NodeMetrics{NodeID: "m3"}, true)
+	leader.heartbeat.StreamEnded("m3")
+	start := time.Now()
+	leader.ShutdownForDisband()
+	if took := time.Since(start); took < 300*time.Millisecond || took > 2*time.Second {
+		t.Fatalf("the leader stayed %v, not the bound", took)
+	}
+	var named []string
+	for _, line := range strings.Split(logs.String(), "\n") {
+		if strings.Contains(line, "had not stopped") {
+			named = append(named, line)
+		}
+	}
+	if len(named) != 1 || !strings.Contains(named[0], "m2") || strings.Contains(named[0], "m3") {
+		t.Fatalf("one line should name m2 alone: %q", named)
 	}
 }

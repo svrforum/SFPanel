@@ -474,8 +474,14 @@ update counts as a failure and stops on (see above).
   tell (offline ones, and any that did not hear in time); each needs
   `sudo sfpanel agent reset --yes` on its own server. The leader then
   removes Raft state and TLS material cluster-wide via the FSM, and exits
-  each manager's process. It stays until the other managers have taken the
-  disband in: one that only stored it would wait for a leader that is gone.
+  each manager's process. It stays until a majority of the managers have
+  taken the disband in — one that only stored it would wait for a leader
+  that is gone — and then up to five seconds more, until each other manager
+  has stopped and closed its heartbeat stream; meanwhile one that lagged can
+  still catch up. Its log names any that had not
+  (`these managers had not stopped when the leader did`): each needs a
+  forced leave (`sudo sfpanel cluster leave --force`) or a forced disband
+  (below) on its own server.
   The local SQLite DB is **not** wiped — audit logs, monitor history, cron,
   and Docker state are local-only and persist after the cluster goes away.
 - When no leader is left at all, `?force=true` disbands only the node it is
