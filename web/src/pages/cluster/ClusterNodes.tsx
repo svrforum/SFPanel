@@ -2,7 +2,7 @@ import { useCallback, useMemo, useState } from 'react'
 import { useSearchParams } from 'react-router-dom'
 import { useVisibleInterval } from '@/hooks/useVisibleInterval'
 import { useTranslation } from 'react-i18next'
-import { Server, Trash2, RefreshCw, Tag, ArrowRightLeft, AlertTriangle } from 'lucide-react'
+import { Server, RefreshCw, AlertTriangle } from 'lucide-react'
 import { api } from '@/lib/api'
 import type { ClusterNode, ClusterStatus, ClusterNodeMetrics } from '@/types/api'
 import { useConfirm } from '@/components/ConfirmDialog'
@@ -15,6 +15,7 @@ import {
   GROUP_LABEL,
   filterFromQuery,
   filterNodes,
+  isAgent,
   lastSeenAgo,
   nodeGroups,
   nodeRoleKind,
@@ -23,6 +24,8 @@ import {
   type NodeFilter,
 } from '@/lib/clusterNodes'
 import { NodeLabelsDialog } from './components/NodeLabelsDialog'
+import { EditNodeAddressDialog } from './components/EditNodeAddressDialog'
+import { NodeRowMenu } from './components/NodeRowMenu'
 import { KindBadge } from './components/KindBadge'
 import { NodeFilterBar } from './components/NodeFilterBar'
 import { NodeCard, NodeGroup, NodeStatus, NodeVersion } from './components/NodeCard'
@@ -48,6 +51,9 @@ export default function ClusterNodes() {
   // Label editing
   const [labelDialogOpen, setLabelDialogOpen] = useState(false)
   const [labelNode, setLabelNode] = useState<ClusterNode | null>(null)
+  // Address editing
+  const [addressDialogOpen, setAddressDialogOpen] = useState(false)
+  const [addressNode, setAddressNode] = useState<ClusterNode | null>(null)
 
   // Background refreshes don't toggle the page-level loading spinner —
   // only the initial mount and the Refresh button do. Calling
@@ -90,23 +96,36 @@ export default function ClusterNodes() {
   const groups = useMemo(() => nodeGroups(nodes ?? []), [nodes])
   const shown = useMemo(() => sortNodes(filterNodes(nodes ?? [], filter), leaderId), [nodes, filter, leaderId])
 
-  const handleRemove = async (nodeId: string, nodeName: string) => {
-    if (!(await confirm({ title: t('cluster.nodes.confirmRemove', { name: nodeName }), danger: true }))) return
+  // After a change the list is fetched again and the shell is told, so the
+  // sidebar's tree shows the same nodes, groups and leader as this table.
+  const changed = useCallback(() => {
+    loadNodes()
+    window.dispatchEvent(new Event('sfpanel:cluster-changed'))
+  }, [loadNodes])
+
+  const handleRemove = async (node: ClusterNode) => {
+    // A removed agent stays an agent until it is reset on its own server: the
+    // operator needs the command that makes it a standalone panel again.
+    const title = isAgent(node)
+      ? t('cluster.nodes.confirmRemoveAgent', { name: node.name })
+      : t('cluster.nodes.confirmRemove', { name: node.name })
+    if (!(await confirm({ title, danger: true }))) return
     try {
-      await api.removeClusterNode(nodeId)
-      toast.success(t('cluster.nodes.removed', { name: nodeName }))
-      loadNodes()
+      await api.removeClusterNode(node.id)
+      toast.success(t('cluster.nodes.removed', { name: node.name }))
+      changed()
     } catch (err) {
       toast.error(message(err))
     }
   }
 
-  const handleTransferLeadership = async (nodeId: string, nodeName: string) => {
-    if (!(await confirm({ title: t('cluster.nodes.confirmTransfer', { name: nodeName }) }))) return
+  const handleTransferLeadership = async (node: ClusterNode) => {
+    if (!(await confirm({ title: t('cluster.nodes.confirmTransfer', { name: node.name }) }))) return
     try {
-      await api.transferClusterLeadership(nodeId)
-      toast.success(t('cluster.nodes.leaderTransferred', { name: nodeName }))
-      setTimeout(loadNodes, 2000)
+      await api.transferClusterLeadership(node.id)
+      toast.success(t('cluster.nodes.leaderTransferred', { name: node.name }))
+      // The election takes a moment: asked at once, the old leader still leads.
+      setTimeout(changed, 2000)
     } catch (err) {
       toast.error(message(err))
     }
@@ -115,6 +134,11 @@ export default function ClusterNodes() {
   const openLabelDialog = (node: ClusterNode) => {
     setLabelNode(node)
     setLabelDialogOpen(true)
+  }
+
+  const openAddressDialog = (node: ClusterNode) => {
+    setAddressNode(node)
+    setAddressDialogOpen(true)
   }
 
   // Only an answer that says so means "not a cluster". Before the first answer,
@@ -139,10 +163,8 @@ export default function ClusterNodes() {
     )
   }
 
-  // Labels, leader transfer and removal are leader operations, and every node
-  // can ask for them: the server forwards a follower's request to the leader.
-  // A follower can also hand the leadership to itself. Never offered: removing
-  // this node (that is leaving) or the leader (transfer it away first).
+  // Every leader operation needs a leader to land on; NodeRowMenu decides
+  // which of them a node is offered.
   const hasLeader = !!status?.is_leader || !!leaderId
 
   const labelChips = (node: ClusterNode) => (
@@ -152,52 +174,21 @@ export default function ClusterNodes() {
           {k}={v}
         </span>
       ))}
-      {hasLeader && (
-        <button
-          onClick={() => openLabelDialog(node)}
-          className="p-0.5 rounded hover:bg-accent transition-colors outline-none focus-visible:ring-2 focus-visible:ring-ring/40 focus-visible:ring-offset-0"
-          title={t('cluster.nodes.editLabels')}
-          aria-label={t('cluster.nodes.editLabels')}
-        >
-          <Tag className="h-3 w-3 text-muted-foreground" />
-        </button>
-      )}
     </div>
   )
 
-  const actions = (node: ClusterNode) => {
-    // Only a voting manager can lead: the server has no agent to hand it to.
-    const canTransfer = hasLeader && node.status === 'online' && node.id !== leaderId && nodeRoleKind(node, leaderId) === 'manager'
-    const canRemove = hasLeader && node.id !== localId && node.id !== leaderId
-    if (!canTransfer && !canRemove) return null
-    return (
-      <div className="flex items-center gap-1">
-        {canTransfer && (
-          <Button
-            variant="ghost"
-            size="sm"
-            className="h-7 w-7 p-0 text-primary hover:text-primary hover:bg-primary/10"
-            onClick={() => handleTransferLeadership(node.id, node.name)}
-            title={t('cluster.nodes.transferLeadership')}
-            aria-label={t('cluster.nodes.transferLeadership')}
-          >
-            <ArrowRightLeft className="h-3.5 w-3.5" />
-          </Button>
-        )}
-        {canRemove && (
-          <Button
-            variant="ghost"
-            size="sm"
-            className="h-7 w-7 p-0 text-destructive hover:text-destructive hover:bg-destructive/10"
-            onClick={() => handleRemove(node.id, node.name)}
-            aria-label={t('common.delete')}
-          >
-            <Trash2 className="h-3.5 w-3.5" />
-          </Button>
-        )}
-      </div>
-    )
-  }
+  const menu = (node: ClusterNode) => (
+    <NodeRowMenu
+      node={node}
+      localId={localId}
+      leaderId={leaderId}
+      hasLeader={hasLeader}
+      onLabels={openLabelDialog}
+      onAddress={openAddressDialog}
+      onTransfer={handleTransferLeadership}
+      onRemove={handleRemove}
+    />
+  )
 
   const seen = (node: ClusterNode) => lastSeenAgo(node.last_seen, i18n.language) || '—'
 
@@ -264,7 +255,7 @@ export default function ClusterNodes() {
                     <TableCell>{labelChips(node)}</TableCell>
                     <TableCell className="text-[13px] text-muted-foreground">{seen(node)}</TableCell>
                     <TableCell className="text-[13px] text-muted-foreground">{node.api_address}</TableCell>
-                    <TableCell>{actions(node)}</TableCell>
+                    <TableCell>{menu(node)}</TableCell>
                   </TableRow>
                 ))}
               </TableBody>
@@ -282,7 +273,7 @@ export default function ClusterNodes() {
                 reference={reference}
                 lastSeen={seen(node)}
                 labels={labelChips(node)}
-                actions={actions(node)}
+                menu={menu(node)}
               />
             ))}
           </div>
@@ -294,7 +285,14 @@ export default function ClusterNodes() {
         open={labelDialogOpen}
         onOpenChange={setLabelDialogOpen}
         node={labelNode}
-        onSaved={loadNodes}
+        onSaved={changed}
+      />
+
+      <EditNodeAddressDialog
+        open={addressDialogOpen}
+        onOpenChange={setAddressDialogOpen}
+        node={addressNode}
+        onSaved={changed}
       />
     </div>
   )

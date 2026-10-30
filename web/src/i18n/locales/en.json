@@ -1032,7 +1032,11 @@
       "shown": "{{shown}} of {{total}}",
       "noMatch": "No node matches these filters.",
       "loadFailed": "Could not refresh the node list. Showing the last one.",
-      "loadError": "Could not load the node list."
+      "loadError": "Could not load the node list.",
+      "actions": "Node actions",
+      "open": "Open node",
+      "confirmRemoveAgent": "Remove {{name}}? It stops being managed here. On that server, run sudo sfpanel agent reset --yes to turn it back into a standalone panel.",
+      "groupHint": "Nodes with the same group are listed together."
     },
     "tokens": {
       "generateTitle": "Generate Join Token",

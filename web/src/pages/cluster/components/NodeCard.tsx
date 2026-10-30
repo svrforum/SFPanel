@@ -46,8 +46,8 @@ export function NodeGroup({ node }: { node: ClusterNode }) {
 }
 
 // A phone gets one card per node instead of a nine-column table: the same
-// fields, stacked, with the row's actions at the foot.
-export function NodeCard({ node, kind, isLocal, version, reference, lastSeen, labels, actions }: {
+// fields, stacked, with the row's menu beside the status.
+export function NodeCard({ node, kind, isLocal, version, reference, lastSeen, labels, menu }: {
   node: ClusterNode
   kind: NodeRoleKind
   isLocal: boolean
@@ -55,7 +55,7 @@ export function NodeCard({ node, kind, isLocal, version, reference, lastSeen, la
   reference?: string
   lastSeen: string
   labels?: ReactNode
-  actions?: ReactNode
+  menu?: ReactNode
 }) {
   const { t } = useTranslation()
   return (
@@ -65,7 +65,10 @@ export function NodeCard({ node, kind, isLocal, version, reference, lastSeen, la
           <span data-node-name className="text-[13px] font-medium break-all">{node.name}</span>
           {isLocal && <span className="ml-1.5 text-[10px] text-muted-foreground">({t('layout.cluster.localNode')})</span>}
         </div>
-        <NodeStatus status={node.status} />
+        <div className="flex items-center gap-1 shrink-0">
+          <NodeStatus status={node.status} />
+          {menu}
+        </div>
       </div>
       <div className="flex flex-wrap items-center gap-1.5 text-[13px]">
         <KindBadge kind={kind} />
@@ -77,7 +80,6 @@ export function NodeCard({ node, kind, isLocal, version, reference, lastSeen, la
         <div className="break-all">{node.api_address}</div>
         <div>{t('cluster.nodes.lastSeen')}: {lastSeen}</div>
       </div>
-      {actions && <div className="flex justify-end">{actions}</div>}
     </div>
   )
 }

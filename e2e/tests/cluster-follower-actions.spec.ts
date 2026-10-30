@@ -56,12 +56,19 @@ async function mock(page: Page, localId: string, leaderId = 'node-a') {
 
 const row = (page: Page, name: string) => page.getByRole('row').filter({ hasText: name })
 
-async function actions(r: Locator) {
-  return {
-    labels: await r.getByRole('button', { name: 'Edit labels' }).count(),
-    transfer: await r.getByRole('button', { name: 'Transfer leadership' }).count(),
-    remove: await r.getByRole('button', { name: 'Delete' }).count(),
+// The row's operations live in its menu: open it, read what it offers, close it.
+async function actions(page: Page, r: Locator) {
+  await r.getByRole('button', { name: 'Node actions' }).click()
+  const menu = page.getByRole('menu')
+  await expect(menu).toBeVisible()
+  const offered = {
+    labels: await menu.getByRole('menuitem', { name: 'Edit labels' }).count(),
+    transfer: await menu.getByRole('menuitem', { name: 'Transfer leadership' }).count(),
+    remove: await menu.getByRole('menuitem', { name: 'Delete' }).count(),
   }
+  await page.keyboard.press('Escape')
+  await expect(menu).toHaveCount(0)
+  return offered
 }
 
 test('a follower offers the leader operations, and can take the leadership itself', async ({ page }) => {
@@ -70,12 +77,13 @@ test('a follower offers the leader operations, and can take the leadership itsel
   await expect(row(page, 'gamma')).toBeVisible()
 
   // The leader: labels only — it cannot be removed, and it already leads.
-  expect(await actions(row(page, 'alpha'))).toEqual({ labels: 1, transfer: 0, remove: 0 })
+  expect(await actions(page, row(page, 'alpha'))).toEqual({ labels: 1, transfer: 0, remove: 0 })
   // This node: removing it is leaving, which is elsewhere.
-  expect(await actions(row(page, 'beta'))).toEqual({ labels: 1, transfer: 1, remove: 0 })
-  expect(await actions(row(page, 'gamma'))).toEqual({ labels: 1, transfer: 1, remove: 1 })
+  expect(await actions(page, row(page, 'beta'))).toEqual({ labels: 1, transfer: 1, remove: 0 })
+  expect(await actions(page, row(page, 'gamma'))).toEqual({ labels: 1, transfer: 1, remove: 1 })
 
-  await row(page, 'beta').getByRole('button', { name: 'Transfer leadership' }).click()
+  await row(page, 'beta').getByRole('button', { name: 'Node actions' }).click()
+  await page.getByRole('menu').getByRole('menuitem', { name: 'Transfer leadership' }).click()
   await page.getByRole('dialog').getByRole('button', { name: 'Confirm' }).click()
   await expect.poll(() => calls.find(c => c.path === '/cluster/leader-transfer')?.body).toEqual({ target_node_id: 'node-b' })
 })
@@ -84,9 +92,9 @@ test('the leader offers what it always did', async ({ page }) => {
   await mock(page, 'node-a')
   await page.goto('/cluster/nodes')
   await expect(row(page, 'gamma')).toBeVisible()
-  expect(await actions(row(page, 'alpha'))).toEqual({ labels: 1, transfer: 0, remove: 0 })
-  expect(await actions(row(page, 'beta'))).toEqual({ labels: 1, transfer: 1, remove: 1 })
-  expect(await actions(row(page, 'gamma'))).toEqual({ labels: 1, transfer: 1, remove: 1 })
+  expect(await actions(page, row(page, 'alpha'))).toEqual({ labels: 1, transfer: 0, remove: 0 })
+  expect(await actions(page, row(page, 'beta'))).toEqual({ labels: 1, transfer: 1, remove: 1 })
+  expect(await actions(page, row(page, 'gamma'))).toEqual({ labels: 1, transfer: 1, remove: 1 })
 })
 
 test('any node renames the cluster, and the sidebar shows it at once', async ({ page }) => {

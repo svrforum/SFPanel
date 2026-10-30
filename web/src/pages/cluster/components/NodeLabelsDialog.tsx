@@ -1,16 +1,18 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useId, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { Trash2 } from 'lucide-react'
 import { api } from '@/lib/api'
+import { GROUP_LABEL } from '@/lib/clusterNodes'
 import type { ClusterNode } from '@/types/api'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog'
 import { toast } from 'sonner'
 
-// Edit a node's labels (add / remove key=value pairs, saved as a whole set).
-// Owns its working-copy state and the PATCH call; the caller passes the node
-// being edited and refreshes via onSaved.
+// Edit a node's group and labels (add / remove key=value pairs, saved as a
+// whole set). The group is the `group` label, edited in its own field and
+// kept out of the list below it. Owns its working-copy state and the PATCH
+// call; the caller passes the node being edited and refreshes via onSaved.
 export function NodeLabelsDialog({
   open,
   onOpenChange,
@@ -24,6 +26,8 @@ export function NodeLabelsDialog({
 }) {
   const { t } = useTranslation()
   const [labels, setLabels] = useState<Record<string, string>>({})
+  const [group, setGroup] = useState('')
+  const groupId = useId()
   const [labelKey, setLabelKey] = useState('')
   const [labelValue, setLabelValue] = useState('')
 
@@ -32,15 +36,21 @@ export function NodeLabelsDialog({
   // the dialog was opened for, an external input that changes between opens.
   useEffect(() => {
     if (!open || !node) return
+    const rest = { ...(node.labels || {}) }
+    delete rest[GROUP_LABEL]
     // eslint-disable-next-line react-hooks/set-state-in-effect
-    setLabels({ ...(node.labels || {}) })
+    setLabels(rest)
+    setGroup(node.labels?.[GROUP_LABEL] ?? '')
     setLabelKey('')
     setLabelValue('')
   }, [open, node])
 
   const handleAddLabel = () => {
     if (!labelKey.trim()) return
-    setLabels(prev => ({ ...prev, [labelKey.trim()]: labelValue.trim() }))
+    // Typed as a label, the group still belongs in its own field: kept in the
+    // list it would be overwritten by that field on save.
+    if (labelKey.trim() === GROUP_LABEL) setGroup(labelValue.trim())
+    else setLabels(prev => ({ ...prev, [labelKey.trim()]: labelValue.trim() }))
     setLabelKey('')
     setLabelValue('')
   }
@@ -55,13 +65,16 @@ export function NodeLabelsDialog({
 
   const handleSave = async () => {
     if (!node) return
+    // A blank group is no group: the key goes, rather than a group named "".
+    const next = { ...labels }
+    if (group.trim()) next[GROUP_LABEL] = group.trim()
     try {
-      await api.updateClusterNodeLabels(node.id, labels)
+      await api.updateClusterNodeLabels(node.id, next)
       toast.success(t('cluster.nodes.labelsUpdated'))
       onOpenChange(false)
       onSaved()
     } catch (err) {
-      toast.error(String(err))
+      toast.error(err instanceof Error ? err.message : String(err))
     }
   }
 
@@ -72,6 +85,20 @@ export function NodeLabelsDialog({
           <DialogTitle className="text-[15px]">{t('cluster.nodes.editLabelsTitle', { name: node?.name ?? '' })}</DialogTitle>
         </DialogHeader>
         <div className="space-y-4">
+          <div className="space-y-1.5">
+            <label htmlFor={groupId} className="text-[11px] text-muted-foreground uppercase tracking-wider">
+              {t('cluster.nodes.group')}
+            </label>
+            <Input
+              id={groupId}
+              value={group}
+              onChange={(e) => setGroup(e.target.value)}
+              aria-describedby={`${groupId}-hint`}
+              className="h-9 rounded-xl bg-secondary/50 border-0 text-[13px]"
+            />
+            <p id={`${groupId}-hint`} className="text-[11px] text-muted-foreground">{t('cluster.nodes.groupHint')}</p>
+          </div>
+
           {/* Existing labels */}
           <div className="space-y-2">
             {Object.entries(labels).map(([k, v]) => (

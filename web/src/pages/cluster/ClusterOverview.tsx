@@ -10,6 +10,7 @@ import { useConfirm } from '@/components/ConfirmDialog'
 import { usePrompt } from '@/components/PromptDialog'
 import { cn, nodeStatusColor } from '@/lib/utils'
 import { waitForServerBack } from '@/lib/restart'
+import { isManager } from '@/lib/clusterNodes'
 import { toast } from 'sonner'
 import { ClusterInitForm } from './components/ClusterInitForm'
 import { ClusterUpdateProgress, type UpdateEvent } from './components/ClusterUpdateProgress'
@@ -386,16 +387,20 @@ export default function ClusterOverview() {
                 )}
 
                 <div className="flex items-center gap-1 shrink-0">
-                  <Button
-                    variant="ghost"
-                    size="sm"
-                    className="h-7 w-7 p-0 text-muted-foreground hover:text-foreground hover:bg-accent"
-                    onClick={() => openEditAddress(node)}
-                    title={t('cluster.nodes.editAddress')}
-                    aria-label={t('cluster.nodes.editAddress')}
-                  >
-                    <Pencil className="h-3.5 w-3.5" />
-                  </Button>
+                  {/* An agent's certificate names the address it registered
+                      with: the server would take a new one and break the link. */}
+                  {isManager(node) && (
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      className="h-7 w-7 p-0 text-muted-foreground hover:text-foreground hover:bg-accent"
+                      onClick={() => openEditAddress(node)}
+                      title={t('cluster.nodes.editAddress')}
+                      aria-label={t('cluster.nodes.editAddress')}
+                    >
+                      <Pencil className="h-3.5 w-3.5" />
+                    </Button>
+                  )}
                   {node.id === status.local_id && (
                     <Button
                       variant="ghost"
