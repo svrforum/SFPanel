@@ -262,28 +262,30 @@ func keepLiveClusterBlock(staged, live []byte) ([]byte, error) {
 }
 
 // archiveRoleRefusal says why this node must not restore an archive whose
-// config.yaml is staged at path, or "" when it may. A manager's archive holds
+// config.yaml is staged at path, with the refusal's code, or "" when it may.
+// The code is its own, not RESTORE_FAILED: the archive is sound, only meant
+// for a node of the other role. A manager's archive holds
 // the cluster's admin account and JWT key, which an agent must not hold; an
 // agent's would boot a manager or standalone panel as that agent, which needs
 // a key only that agent has, so the panel would exit at every start. An
 // unreadable file is left to validateStagedConfig, which says what is wrong
 // with it.
-func archiveRoleRefusal(path string, agentMode bool) string {
+func archiveRoleRefusal(path string, agentMode bool) (code, msg string) {
 	data, err := os.ReadFile(path)
 	if err != nil {
-		return ""
+		return "", ""
 	}
 	var cfg config.Config
 	if yaml.Unmarshal(data, &cfg) != nil {
-		return ""
+		return "", ""
 	}
 	switch {
 	case agentMode && cfg.Cluster.Enabled && !cfg.Cluster.IsAgent():
-		return "Refusing to restore: this backup is a cluster manager's. It holds the cluster's admin account and JWT key, which an agent must not hold — restore it on a manager"
+		return response.ErrRestoreManagerBackupOnAgent, "Refusing to restore: this backup is a cluster manager's. It holds the cluster's admin account and JWT key, which an agent must not hold — restore it on a manager"
 	case !agentMode && cfg.Cluster.IsAgent():
-		return "Refusing to restore: this backup is an agent's. Its settings would start this server as that agent, which needs keys only that agent has — restore it on that agent"
+		return response.ErrRestoreAgentBackupOnManager, "Refusing to restore: this backup is an agent's. Its settings would start this server as that agent, which needs keys only that agent has — restore it on that agent"
 	}
-	return ""
+	return "", ""
 }
 
 // keepLiveClusterBlockAt rewrites the staged config.yaml at stagedPath with
@@ -1341,8 +1343,8 @@ func (h *Handler) restoreFrom(c echo.Context, src io.Reader) error {
 
 	// A backup of another role is refused before any live file is touched.
 	if cfgEntry, ok := stagedByName["config.yaml"]; ok {
-		if msg := archiveRoleRefusal(cfgEntry.path, h.AgentMode); msg != "" {
-			return response.Fail(c, http.StatusBadRequest, response.ErrRestoreFailed, msg)
+		if code, msg := archiveRoleRefusal(cfgEntry.path, h.AgentMode); msg != "" {
+			return response.Fail(c, http.StatusBadRequest, code, msg)
 		}
 	}
 

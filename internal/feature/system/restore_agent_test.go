@@ -2,7 +2,9 @@ package system
 
 import (
 	"archive/tar"
+	"encoding/json"
 	"net/http"
+	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -10,6 +12,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/svrforum/SFPanel/internal/api/response"
 	"github.com/svrforum/SFPanel/internal/config"
 )
 
@@ -208,8 +211,10 @@ func TestAgentRestoreKeepsItsClusterBlock(t *testing.T) {
 }
 
 // A manager's backup holds the cluster's admin account and JWT key. An agent
-// must hold neither, so it refuses the archive before touching anything.
-func TestAgentRefusesAManagersBackup(t *testing.T) {
+// must hold neither, so it refuses the archive before touching anything, with
+// a code of its own: RESTORE_FAILED is every corrupt archive's, and the screen
+// has to say that this one is whole but for another role.
+func TestRestoringAManagersBackupOnAnAgentSaysWhy(t *testing.T) {
 	h, _ := restoreHandler(t)
 	h.AgentMode = true
 	if err := os.WriteFile(h.ConfigPath, []byte(agentLiveConfig), 0o600); err != nil {
@@ -223,12 +228,15 @@ func TestAgentRefusesAManagersBackup(t *testing.T) {
 	if rec.Code != http.StatusBadRequest || !strings.Contains(rec.Body.String(), "a cluster manager's") {
 		t.Fatalf("restore: %d %s", rec.Code, rec.Body)
 	}
+	if code := errorCode(t, rec); code != response.ErrRestoreManagerBackupOnAgent {
+		t.Errorf("code %q, want %q", code, response.ErrRestoreManagerBackupOnAgent)
+	}
 	assertUntouched(t, h, agentLiveConfig)
 }
 
 // An agent's config would boot a manager or a standalone panel as that agent,
 // which needs a key only that agent has: the panel would exit at every start.
-func TestManagerRefusesAnAgentsBackup(t *testing.T) {
+func TestRestoringAnAgentsBackupOnAManagerSaysWhy(t *testing.T) {
 	h, _ := restoreHandler(t)
 	archive := buildTarGz(t, []tarEntry{
 		{name: "sfpanel.db", typeflag: tar.TypeReg, body: validSQLiteDBBytes(t)},
@@ -238,7 +246,24 @@ func TestManagerRefusesAnAgentsBackup(t *testing.T) {
 	if rec.Code != http.StatusBadRequest || !strings.Contains(rec.Body.String(), "an agent's") {
 		t.Fatalf("restore: %d %s", rec.Code, rec.Body)
 	}
+	if code := errorCode(t, rec); code != response.ErrRestoreAgentBackupOnManager {
+		t.Errorf("code %q, want %q", code, response.ErrRestoreAgentBackupOnManager)
+	}
 	assertUntouched(t, h, "old: config\n")
+}
+
+// errorCode is the code in a refusal's envelope.
+func errorCode(t *testing.T, rec *httptest.ResponseRecorder) string {
+	t.Helper()
+	var env struct {
+		Error struct {
+			Code string `json:"code"`
+		} `json:"error"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &env); err != nil {
+		t.Fatalf("not an envelope: %s", rec.Body)
+	}
+	return env.Error.Code
 }
 
 // assertUntouched checks that a refused restore left the live files as

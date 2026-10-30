@@ -98,6 +98,13 @@ func (h *Handler) brokeredPreflight(ctx context.Context, src, project, targetNod
 	case target.ImportPolicy < 1:
 		report.Blocks = append(report.Blocks, PreflightFinding{Code: "target-version", Message: "the target runs a version that cannot take a migration from an agent; upgrade it"})
 	}
+	// Only a notice, so the operator can acknowledge before the source stops:
+	// this is the agent's word, and an agent that leaves something out changes
+	// nothing — the target reads the bundle's compose itself and refuses the
+	// risky tier without the acknowledgement.
+	if len(info.RiskyFindings) > 0 {
+		report.Warnings = append(report.Warnings, PreflightFinding{Code: "compose-risky", Message: "the stack asks for host access that runs on the target as it is: " + strings.Join(info.RiskyFindings, ", ")})
+	}
 	return report, nil
 }
 

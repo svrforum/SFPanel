@@ -10,6 +10,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"os"
+	"path/filepath"
 	"runtime"
 	"strings"
 	"testing"
@@ -416,5 +417,50 @@ func TestASourceSessionInfoStatesTheSourcesFacts(t *testing.T) {
 		if resp.Data[k] != want {
 			t.Errorf("%s = %v, want %v (%s)", k, resp.Data[k], want, rec.Body)
 		}
+	}
+}
+
+// An agent's stack that asks for host access is refused by the target unless
+// the operator acknowledged it. The source names that access in its answer, so
+// the pre-flight can say so before the stack is stopped: from the compose file
+// as the bundle carries it, and from the resolved config the target checks
+// too, where an .env can add what the file does not show.
+func TestAnAgentSourceTellsThePreflightWhatIsRisky(t *testing.T) {
+	for _, tc := range []struct {
+		name, compose, resolved string
+		want                    string // "": no risky_findings at all
+	}{
+		{"plain", "services:\n  web:\n    image: nginx:fake\n", "", ""},
+		{"docker.sock", "services:\n  web:\n    image: nginx:fake\n    volumes:\n      - /var/run/docker.sock:/var/run/docker.sock\n", "", "/var/run/docker.sock"},
+		{"from its .env", "services:\n  web:\n    image: nginx:fake\n    privileged: ${PRIV}\n", "services:\n  web:\n    image: nginx:fake\n    privileged: true\n", "privileged: true"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			h, _ := sourceHandler(t)
+			if err := os.WriteFile(filepath.Join(h.ComposePath, "demo", "docker-compose.yml"), []byte(tc.compose), 0o644); err != nil {
+				t.Fatal(err)
+			}
+			t.Setenv("FAKE_RESOLVED_YAML", tc.resolved)
+			rec := sourceCall(t, h, (*Handler).MigrateSourceInfo, http.MethodGet, "demo", "/api/v1/docker/compose/demo/migrate-source/info", "")
+			var resp struct {
+				Data map[string]any `json:"data"`
+			}
+			if rec.Code != http.StatusOK || json.Unmarshal(rec.Body.Bytes(), &resp) != nil {
+				t.Fatalf("info: %d %s", rec.Code, rec.Body)
+			}
+			findings, present := resp.Data["risky_findings"]
+			if tc.want == "" {
+				if present {
+					t.Fatalf("a stack asking for nothing has risky_findings: %s", rec.Body)
+				}
+				return
+			}
+			list, _ := findings.([]any)
+			if len(list) != 1 {
+				t.Fatalf("risky_findings = %v, want one finding naming %q", findings, tc.want)
+			}
+			if s, _ := list[0].(string); !strings.Contains(s, tc.want) {
+				t.Errorf("risky_findings[0] = %q, want it to name %q", s, tc.want)
+			}
+		})
 	}
 }

@@ -594,6 +594,40 @@ func TestABrokeredPreflightIsTheSourcesFacts(t *testing.T) {
 	}
 }
 
+// An agent's stack that asks for host access is refused by the target unless
+// the operator acknowledged it, and by then the stack has been stopped. The
+// pre-flight names that access as a warning, so the operator can acknowledge
+// it first; it does not block, as the acknowledgement lifts it.
+func TestABrokeredPreflightWarnsOfARiskyAgentStack(t *testing.T) {
+	src, dst := newFakeSource(t), newFakeTarget(t, true)
+	src.info = func(c echo.Context) error {
+		return c.JSON(http.StatusOK, map[string]any{"success": true, "data": map[string]any{
+			"session_version": 1, "node_id": "a1", "arch": runtime.GOARCH,
+			"risky_findings": []string{`service "web" binds sensitive host path "/var/run/docker.sock"`, `service "web" sets privileged: true`},
+		}})
+	}
+	h, _ := brokerHandler(t, brokerCluster(t, src, dst))
+
+	report := brokeredReport(t, h, `{"targetNodeId":"a2"}`)
+	if hasBlock(report, "compose-risky") {
+		t.Fatalf("the acknowledgement lifts a risky stack, yet it blocks: %+v", report)
+	}
+	var risky *PreflightFinding
+	for i := range report.Warnings {
+		if report.Warnings[i].Code == "compose-risky" {
+			risky = &report.Warnings[i]
+		}
+	}
+	if risky == nil {
+		t.Fatalf("no compose-risky warning: %+v", report)
+	}
+	for _, want := range []string{"/var/run/docker.sock", "privileged: true"} {
+		if !strings.Contains(risky.Message, want) {
+			t.Errorf("the warning %q does not name %q", risky.Message, want)
+		}
+	}
+}
+
 // What the source serves must be the bundle it announced: the target is sent
 // the announced sha with every byte, and the length is what goes out. A bundle
 // that is not that one goes nowhere, and the source hears "failed".

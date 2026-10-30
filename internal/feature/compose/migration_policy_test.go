@@ -20,11 +20,13 @@ import (
 )
 
 // fakeDockerScript logs every docker call and answers the few a migration
-// makes before it transfers anything.
+// makes before it transfers anything. The resolved YAML config is
+// $FAKE_RESOLVED_YAML, empty unless a test sets it.
 const fakeDockerScript = `#!/bin/sh
 echo "$*" >> "$FAKE_DOCKER_LOG"
 case "$*" in
   *"config --format json"*) echo '{"services":{"web":{"image":"nginx:fake"}}}' ;;
+  *" config") printf '%s' "$FAKE_RESOLVED_YAML" ;;
   "save nginx:fake") printf 'IMAGEDATA' ;;
   "image inspect --format {{.Size}} nginx:fake") echo 9 ;;
 esac

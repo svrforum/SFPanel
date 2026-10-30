@@ -3452,7 +3452,11 @@ data: {"step":"complete","message":"Updated to v0.5.6. Restarting..."}
 | 코드 | HTTP 상태 | 조건 |
 |------|-----------|------|
 | `RESTORE_FAILED` | 400 | 백업 파일 미제공, 유효하지 않은 gzip/tar, sfpanel.db 누락 |
+| `RESTORE_MANAGER_BACKUP_ON_AGENT` | 400 | 에이전트에 클러스터 매니저의 백업 — 클러스터의 관리자 계정과 JWT 키가 들어 있어 에이전트가 가지면 안 됩니다. 아카이브는 온전하며 매니저에서 복원합니다. 아카이브를 다 받은 뒤 아무 파일도 바꾸기 전에 거부합니다 |
+| `RESTORE_AGENT_BACKUP_ON_MANAGER` | 400 | 매니저나 단독 패널에 에이전트의 백업 — 그 설정은 이 서버를 그 에이전트로 띄우는데, 그 에이전트만 가진 키가 없습니다. 그 에이전트에서 복원합니다 |
 | `RESTORE_FAILED` | 500 | DB 또는 설정 파일 복원 실패 |
+
+`POST /api/v1/system/restore/file`(서버에 있는 아카이브로 복원)도 같은 복원을 거치므로 같은 코드로 거부합니다.
 
 ---
 
@@ -4588,6 +4592,7 @@ data: {"phase":"complete","line":"Update completed successfully"}
 | `system-bind` | 호스트/시스템 바인드 마운트(예: docker.sock, /dev)는 복사되지 않으며 대상에 존재해야 함 |
 | `external-volume` | external 볼륨의 데이터도 복사됨 — 다른 스택과 공유하는 데이터가 중복될 수 있음 |
 | `absolute-bind-write` | 절대 경로 바인드의 데이터가 대상의 같은 절대 경로에 쓰임(보호된 시스템 경로는 건너뜀). 원본이 에이전트이면 대상이 이런 스택을 거부합니다(`migrate-import` 참조) |
+| `compose-risky` | 원본이 에이전트이고 스택이 위험 계층(docker.sock 같은 민감한 호스트 경로 바인드, `privileged`, 호스트 네임스페이스, 위험한 capability·그룹·보안 옵션, 디바이스)을 요청함. 메시지에 항목을 `, `로 나열합니다(`the stack asks for host access that runs on the target as it is: …`). `migrate`에 `acknowledgeRisks: true`가 없으면 대상이 원본을 멈춘 뒤 `COMPOSE_RISKY`로 거부하므로, 화면은 이 경고로 미리 승인을 받습니다. 에이전트가 보낸 목록(`migrate-source/info`의 `risky_findings`)이라 막는 근거가 아니며, 거부는 지금처럼 대상이 번들의 compose를 직접 읽어 합니다. `risky_findings`를 보내지 않는 이전 릴리스의 에이전트가 원본이면 이 경고는 오지 않습니다 |
 | `large-transfer` | 추정 이관 크기가 5 GiB를 넘음 — 오래 걸릴 수 있음 |
 | `device-required` | 디바이스/GPU 요청 — 대상에 동등 하드웨어 필요 |
 | `target-unreachable` | 대상 노드 조회 실패 — 디스크/포트/아키텍처/덮어쓰기 점검이 생략됨. 보고서에는 경고로 오지만 `migrate`는 원본을 멈추기 전에 이 경우를 거부합니다 |
@@ -4795,7 +4800,8 @@ data: {"phase":"rollback","message":"transfer/restore failed; source restarted: 
     "has_abs_bind": false,
     "has_device": false,
     "estimated_bytes": 18874368,
-    "estimated_docker_bytes": 536870912
+    "estimated_docker_bytes": 536870912,
+    "risky_findings": ["service \"web\" binds sensitive host path \"/var/run/docker.sock\" at \"/var/run/docker.sock\""]
   }
 }
 ```
@@ -4807,6 +4813,7 @@ data: {"phase":"rollback","message":"transfer/restore failed; source restarted: 
 | `ports` | 스택이 쓰는 호스트 포트 |
 | `has_system_bind`, `has_external_volume`, `has_abs_bind`, `has_device` | 사전 점검 경고(`system-bind`, `external-volume`, `absolute-bind-write`, `device-required`)의 근거 |
 | `estimated_bytes`, `estimated_docker_bytes` | 대상의 스택 루트에 놓일 크기(정의 + 바인드 데이터 + 여유)와 Docker 저장소에 놓일 크기(볼륨 + 이미지) |
+| `risky_findings` | 스택이 요청하는 위험 계층 항목(대상의 `COMPOSE_RISKY` 거부와 같은 문장). compose 파일과 `.env`로 해석한 설정을 대상이 읽는 그대로 둘 다 읽고, 같은 항목은 한 번만 싣습니다. 없으면 필드가 없습니다. 사전 점검의 `compose-risky` 경고의 근거 |
 
 **에러 응답:** `INVALID_NAME` 400 (유효하지 않은 프로젝트 id), `COMPOSE_ERROR` 400 (스택 설정을 해석할 수 없음).
 

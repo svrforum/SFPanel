@@ -406,6 +406,14 @@ const (
 	ErrUpdateInProgress  = "UPDATE_IN_PROGRESS"
 	ErrBackupFailed      = "BACKUP_FAILED"
 	ErrRestoreFailed     = "RESTORE_FAILED"
+	// ErrRestoreManagerBackupOnAgent is returned (HTTP 400) when an agent is
+	// given a cluster manager's backup: it holds the cluster's admin account
+	// and JWT key, which an agent must not hold. The archive itself is sound.
+	ErrRestoreManagerBackupOnAgent = "RESTORE_MANAGER_BACKUP_ON_AGENT"
+	// ErrRestoreAgentBackupOnManager is returned (HTTP 400) when a manager or
+	// standalone panel is given an agent's backup, which would start it as
+	// that agent without the keys only that agent has.
+	ErrRestoreAgentBackupOnManager = "RESTORE_AGENT_BACKUP_ON_MANAGER"
 )
 
 // Command execution error codes

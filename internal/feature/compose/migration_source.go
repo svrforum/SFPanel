@@ -17,6 +17,7 @@ import (
 	"github.com/labstack/echo/v4"
 	"github.com/svrforum/SFPanel/internal/api/response"
 	"github.com/svrforum/SFPanel/internal/auth"
+	"github.com/svrforum/SFPanel/internal/composex"
 )
 
 // A source session is the source's side of a migration that a manager
@@ -142,18 +143,21 @@ func newSessionID() string {
 // migrateSourceInfo is a source's half of a pre-flight, for a manager that
 // carries its stack (BuildPreflightReport takes it with the target's).
 // SessionVersion says this node serves migration sessions; a node from before
-// them has no such route.
+// them has no such route. RiskyFindings is what the stack asks for in the
+// risky tier, which a target refuses from an agent without the operator's
+// acknowledgement; a node from before it leaves it out.
 type migrateSourceInfo struct {
-	SessionVersion       int    `json:"session_version"`
-	NodeID               string `json:"node_id"`
-	Arch                 string `json:"arch"`
-	Ports                []int  `json:"ports"`
-	HasSystemBind        bool   `json:"has_system_bind"`
-	HasExternalVolume    bool   `json:"has_external_volume"`
-	HasAbsBind           bool   `json:"has_abs_bind"`
-	HasDevice            bool   `json:"has_device"`
-	EstimatedBytes       int64  `json:"estimated_bytes"`
-	EstimatedDockerBytes int64  `json:"estimated_docker_bytes"`
+	SessionVersion       int      `json:"session_version"`
+	NodeID               string   `json:"node_id"`
+	Arch                 string   `json:"arch"`
+	Ports                []int    `json:"ports"`
+	HasSystemBind        bool     `json:"has_system_bind"`
+	HasExternalVolume    bool     `json:"has_external_volume"`
+	HasAbsBind           bool     `json:"has_abs_bind"`
+	HasDevice            bool     `json:"has_device"`
+	EstimatedBytes       int64    `json:"estimated_bytes"`
+	EstimatedDockerBytes int64    `json:"estimated_docker_bytes"`
+	RiskyFindings        []string `json:"risky_findings,omitempty"`
 }
 
 // MigrateSourceInfo (GET /docker/compose/:project/migrate-source/info) answers
@@ -182,7 +186,40 @@ func (h *Handler) MigrateSourceInfo(c echo.Context) error {
 		HasDevice:            in.HasDevice,
 		EstimatedBytes:       in.EstimatedBytes,
 		EstimatedDockerBytes: in.EstimatedDockerBytes,
+		RiskyFindings:        h.riskyFindings(c.Request().Context(), project),
 	})
+}
+
+// riskyFindings is the risky tier of project's compose as a target checks it
+// on import (checkImportCompose): the compose file the bundle carries, and the
+// config resolved with its .env, which can ask for what the file does not
+// show. Each finding is named once. A document that cannot be read adds
+// nothing here; the import says what is wrong with it.
+func (h *Handler) riskyFindings(ctx context.Context, project string) []string {
+	var docs []string
+	if yamlPath, _ := h.Compose.ResolveComposeFile(ctx, project); yamlPath != "" {
+		if raw, err := os.ReadFile(yamlPath); err == nil {
+			docs = append(docs, string(raw))
+		}
+	}
+	if resolved, err := h.Compose.GetResolvedConfigYAML(ctx, project); err == nil {
+		docs = append(docs, resolved)
+	}
+	var findings []string
+	seen := map[string]bool{}
+	for _, doc := range docs {
+		report, err := composex.Analyze(doc)
+		if err != nil {
+			continue
+		}
+		for _, f := range report.Risky {
+			if !seen[f.Message] {
+				seen[f.Message] = true
+				findings = append(findings, f.Message)
+			}
+		}
+	}
+	return findings
 }
 
 // MigrateSource (POST /docker/compose/:project/migrate-source, SSE) runs a
