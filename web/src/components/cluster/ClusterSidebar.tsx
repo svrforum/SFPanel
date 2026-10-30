@@ -55,11 +55,17 @@ export default function ClusterSidebar({ status, panelVersion, onLogout, onNodeC
   // navigate / setCurrentNode side effects.
   const syncing = useRef(false)
 
+  // The list before this one: a node that just left is named by the name it
+  // had there, not its id (a UUID the operator cannot place).
+  const lastNodes = useRef<ClusterNode[]>([])
+
   const loadNodes = useCallback(() => {
     api.getClusterNodes()
       .then((data) => {
         setNodes(data.nodes)
         setNodesError(false)
+        const seen = lastNodes.current
+        lastNodes.current = data.nodes
         // The node being shown left the cluster (removed, or converted and not
         // back yet), whether picked now or remembered from an earlier visit:
         // every page would ask the manager for it and be told "Node not found".
@@ -68,7 +74,8 @@ export default function ClusterSidebar({ status, panelVersion, onLogout, onNodeC
         if (current && data.nodes.length > 0 && !data.nodes.some((n) => n.id === current)) {
           api.setCurrentNode(null)
           window.dispatchEvent(new CustomEvent<NodeChangedDetail>(NODE_CHANGED, { detail: { nodeId: data.local_id } }))
-          toast.warning(t('cluster.tree.nodeGone', { id: current }))
+          // A fresh load with a stale stored selection never saw its name.
+          toast.warning(t('cluster.tree.nodeGone', { id: seen.find((n) => n.id === current)?.name || current }))
         }
       })
       .catch(() => {
@@ -153,8 +160,10 @@ export default function ClusterSidebar({ status, panelVersion, onLogout, onNodeC
     return <SidebarSkeleton widthPx={(treeCollapsed ? 52 : 180) + (menuCollapsed ? 42 : 180)} />
   }
 
+  // "Unknown node" only once a list has come back without it: before the
+  // first answer, or while the leader cannot be reached, nothing says so.
   const selectedNodeName = selection.type === 'node'
-    ? nodes.find(n => n.id === selection.nodeId)?.name || t('layout.cluster.unknownNode')
+    ? nodes.find(n => n.id === selection.nodeId)?.name || (nodes.length > 0 ? t('layout.cluster.unknownNode') : '')
     : ''
 
   return (

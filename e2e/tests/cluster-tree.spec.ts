@@ -22,7 +22,7 @@ const agents = Array.from({ length: 40 }, (_, k) => {
 // Listed out of order on purpose: the tree sorts.
 const nodes = [...agents.slice().reverse(), ...managers.slice().reverse()]
 
-async function mock(page: Page, opts: { storage?: Record<string, string>; list?: () => unknown[] } = {}) {
+async function mock(page: Page, opts: { storage?: Record<string, string>; list?: () => unknown[]; nodesDown?: boolean } = {}) {
   const requests: string[] = []
   await page.addInitScript((storage) => {
     sessionStorage.setItem('token', 'fixture-token')
@@ -38,7 +38,14 @@ async function mock(page: Page, opts: { storage?: Record<string, string>; list?:
     let data: unknown = {}
     if (path === '/auth/setup-status') data = { setup_required: false }
     else if (path === '/cluster/status') data = { enabled: true, name: 'lab', node_count: nodes.length, leader_id: 'm-1', local_id: 'm-1', is_leader: true }
-    else if (path === '/cluster/nodes') data = { nodes: opts.list?.() ?? nodes, local_id: 'm-1', is_leader: true }
+    else if (path === '/cluster/nodes') {
+      if (opts.nodesDown) {
+        // What a follower answers with the leader unreachable.
+        await route.fulfill({ status: 503, json: { success: false, error: { code: 'CLUSTER_NOT_LEADER', message: 'leader unreachable' } } })
+        return
+      }
+      data = { nodes: opts.list?.() ?? nodes, local_id: 'm-1', is_leader: true }
+    }
     else if (path === '/cluster/overview') data = { name: 'lab', node_count: nodes.length, leader_id: 'm-1', nodes, metrics: [] }
     else if (path === '/cluster/events') data = { events: [] }
     else if (url.searchParams.get('node') === 'gone') {
@@ -136,6 +143,42 @@ test('falls back to this node when the selected one is gone', async ({ page }) =
   await expect.poll(() => requests.slice(lastGone() + 1).filter((r) => !r.startsWith('/cluster/')).length).toBeGreaterThan(0)
   // The tree marks this node.
   await expect.poll(() => page.evaluate(() => localStorage.getItem('sfpanel-cluster-selection'))).toBe(JSON.stringify({ type: 'node', nodeId: 'm-1' }))
+})
+
+// Node ids are UUIDs; the operator knows the node by its name.
+test('a node that leaves while shown is named by its name', async ({ page }) => {
+  const leaving = { ...base, id: '3f2b9c1e-6a4d-4b8e-9f0a-1c2d3e4f5a6b', name: 'agent-07', kind: 'agent', role: '', api_address: '198.51.100.7:3628' }
+  let list: unknown[] = [...nodes, leaving]
+  await mock(page, {
+    storage: {
+      sfpanel_current_node: leaving.id,
+      'sfpanel-cluster-selection': JSON.stringify({ type: 'node', nodeId: leaving.id }),
+    },
+    list: () => list,
+  })
+  await page.goto('/dashboard')
+  await expect(page.getByText('agent-07', { exact: true }).first()).toBeVisible()
+
+  list = nodes
+  await page.evaluate(() => window.dispatchEvent(new Event('sfpanel:cluster-changed')))
+  await expect(page.getByText('agent-07 is no longer in the cluster, so this node is shown instead.')).toBeVisible()
+  await expect(page.getByText(/3f2b9c1e/)).toHaveCount(0)
+})
+
+// The menu's header named a node it had not looked up yet "Unknown node", and
+// kept saying so while the leader could not be reached.
+test('the node menu does not call a node unknown before the list says so', async ({ page }) => {
+  const requests = await mock(page, {
+    storage: {
+      sfpanel_current_node: 'agent-5',
+      'sfpanel-cluster-selection': JSON.stringify({ type: 'node', nodeId: 'agent-5' }),
+    },
+    nodesDown: true,
+  })
+  await page.goto('/dashboard')
+  await expect.poll(() => requests.filter((r) => r === '/cluster/nodes').length).toBeGreaterThan(0)
+  await expect(page.getByRole('link', { name: 'Dashboard' }).first()).toBeVisible()
+  await expect(page.getByText('Unknown node')).toHaveCount(0)
 })
 
 test('shows a change the page reports at once', async ({ page }) => {
