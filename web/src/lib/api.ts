@@ -1314,12 +1314,13 @@ class ApiClient {
   // migrateStream cold-migrates the stack to targetNodeId and streams phase
   // events (preflight → quiesce → package → transfer → restore → up →
   // healthcheck → finalize, or rollback/error on failure). `node` is the SOURCE
-  // node the stack lives on (defaults to the current node). acknowledgeRisks is
-  // the operator's yes to an agent stack's host access (the pre-flight's
-  // compose-risky warning); without it the target refuses such a stack.
+  // node the stack lives on (defaults to the current node). acknowledgedRisks
+  // is the agent stack's host access the operator said yes to: the lines of
+  // the pre-flight's compose-risky warning, as shown. The target refuses each
+  // risky finding of an agent's stack that is not among them.
   async migrateStream(
     project: string,
-    body: { targetNodeId: string; disposition: MigrateDisposition; overwriteAcked: boolean; acknowledgeRisks?: boolean; rateLimitMbps?: number },
+    body: { targetNodeId: string; disposition: MigrateDisposition; overwriteAcked: boolean; acknowledgedRisks?: string[]; rateLimitMbps?: number },
     onEvent: (event: MigratePhaseEvent) => void,
     node?: string,
   ): Promise<void> {

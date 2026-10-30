@@ -801,7 +801,7 @@ data: {"phase":"done","message":"Migration complete.","done":true}
 
 `transfer` 단계는 진행률 갱신을 위해 위 예시처럼 증분 이벤트를 반복 전송한다: `data: {"phase":"transfer","message":"Transferring to target... 512 / 2048 MiB (25%)","done":false}`.
 
-실패 시 패키징/전송 단계는 소스를 복구한 뒤 `{"phase":"rollback",...,"done":true}`를, 사전 점검 차단이나 그 외 실패는 `{"phase":"error",...,"done":true}`를 마지막으로 전송한다. 원본은 사전 점검에 차단이 없고, 대상이 사전 점검에 답했으며(`target-unreachable`이면 거부), 대상에 보낼 수 있을 때만 멈춘다 — 아니면 `pre-flight blocked: …` `error`로 끝나고 원본은 그대로 돈다. 요청 본문은 `{"targetNodeId","disposition","overwriteAcked","acknowledgeRisks","rateLimitMbps"}` (REST 스펙의 `POST /docker/compose/:project/migrate` 참조). `acknowledgeRisks` (선택) — 위험 계층 compose에 대한 운영자의 승인으로, 대상은 원본이 에이전트일 때만 본다. `rateLimitMbps` (선택) — 전송 대역폭 상한(MiB/s), 0/미지정 시 무제한 (v0.51.0).
+실패 시 패키징/전송 단계는 소스를 복구한 뒤 `{"phase":"rollback",...,"done":true}`를, 사전 점검 차단이나 그 외 실패는 `{"phase":"error",...,"done":true}`를 마지막으로 전송한다. 원본은 사전 점검에 차단이 없고, 대상이 사전 점검에 답했으며(`target-unreachable`이면 거부), 대상에 보낼 수 있을 때만 멈춘다 — 아니면 `pre-flight blocked: …` `error`로 끝나고 원본은 그대로 돈다. 요청 본문은 `{"targetNodeId","disposition","overwriteAcked","acknowledgedRisks","rateLimitMbps"}` (REST 스펙의 `POST /docker/compose/:project/migrate` 참조). `acknowledgedRisks` (선택) — 운영자가 승인한 위험 계층 항목의 문장 목록으로, 대상은 원본이 에이전트일 때만 보며 목록에 없는 위험 항목은 거부한다. `rateLimitMbps` (선택) — 전송 대역폭 상한(MiB/s), 0/미지정 시 무제한 (v0.51.0).
 
 **에이전트의 스택**(`?node=<에이전트>`)은 요청을 받은 매니저가 실행하고, 스트림도 그 매니저의 것이다. 매니저는 `preflight`·`transfer`와 정지 전 거부를 보내고, 원본 세션의 `quiesce`·`package`와 마지막 `finalize`→`done`·`rollback`·`error`를 출력 정리만 거쳐 그대로 전달한다(`ready`는 전달하지 않음). 전송이 실패하면 원인을 끝이 아닌 `transfer` 이벤트로 먼저 보내고 원본의 마지막 이벤트가 뒤따른다:
 ```

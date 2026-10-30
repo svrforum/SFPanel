@@ -20,13 +20,39 @@ import (
 
 func TestImportPolicyFrom(t *testing.T) {
 	m := MigrationManifest{Overwrite: true}
-	if p := importPolicyFrom(http.Header{}, m); !p.Overwrite || p.AgentSource || !p.AckRisks {
-		t.Fatalf("a sender from before policies: %+v (want the manifest's overwrite, a manager source, risks as before)", p)
+	if p := importPolicyFrom(http.Header{}, m); !p.Overwrite || p.AgentSource {
+		t.Fatalf("a sender from before policies: %+v (want the manifest's overwrite, a manager source)", p)
 	}
 	h := http.Header{}
-	importPolicy{Overwrite: false, AckRisks: false, AgentSource: true}.setHeaders(h)
-	if p := importPolicyFrom(h, m); p.Overwrite || !p.AgentSource || p.AckRisks {
+	importPolicy{Overwrite: false, AgentSource: true}.setHeaders(h)
+	if p := importPolicyFrom(h, m); p.Overwrite || !p.AgentSource || len(p.AckedRisks) != 0 {
 		t.Fatalf("a policy that says no: %+v — the bundle's overwrite must not count", p)
+	}
+}
+
+// The acknowledged findings cross as a header: each must arrive as the
+// sentence the operator saw, whatever path it quotes.
+func TestImportPolicyCarriesTheAcknowledgedFindings(t *testing.T) {
+	risks := []string{
+		`service "a, b" binds sensitive host path "/home/u/\"x\", y" at "/data"`,
+		`service "웹" binds sensitive host path "/srv/데이터; z" at "/d"`,
+		"service \"x\" sets privileged: true",
+	}
+	h := http.Header{}
+	importPolicy{AgentSource: true, AckedRisks: risks}.setHeaders(h)
+	got := importPolicyFrom(h, MigrationManifest{}).AckedRisks
+	if len(got) != len(risks) {
+		t.Fatalf("got %q, want %q", got, risks)
+	}
+	for i := range risks {
+		if got[i] != risks[i] {
+			t.Errorf("finding %d: got %q, want %q", i, got[i], risks[i])
+		}
+	}
+	// A header that is not the encoding acknowledges nothing.
+	h.Set(migrationAckRisksHeader, "true")
+	if p := importPolicyFrom(h, MigrationManifest{}); len(p.AckedRisks) != 0 {
+		t.Fatalf("a bare true acknowledged %q", p.AckedRisks)
 	}
 }
 

@@ -774,8 +774,9 @@ leaves the source running.
 
 **The target takes the import's terms from the sending manager**, never from
 the bundle, which is the source's: whether to replace a stack or a volume it
-already has (the operator's overwrite acknowledgement), whether the operator
-acknowledged a risky compose file, and whether the bundle came from an agent.
+already has (the operator's overwrite acknowledgement), which risky findings
+the operator was shown and acknowledged, and whether the bundle came from an
+agent.
 They travel as headers of the import request (`X-SFPanel-Migration-*`),
 which only a manager can send: the request is signed with the target's key,
 and an agent holds no other node's. A bundle's own overwrite flag counts only
@@ -785,9 +786,12 @@ when no such header came, from a manager on a release from before them.
 become root on the node its stack moves to:
 
 - A compose file in the risky tier — `privileged`, host namespaces, the
-  Docker socket and the like — needs the operator's acknowledgement,
-  `"acknowledgeRisks": true` in the migration's body, or the target refuses
-  it (`COMPOSE_RISKY`). A manager's stack is checked for the forbidden tier
+  Docker socket and the like — needs the operator's acknowledgement of each
+  finding: `"acknowledgedRisks"` in the migration's body lists the sentences
+  the pre-flight showed, and the target refuses (`COMPOSE_RISKY`), naming
+  them, every risky finding of the compose file or of its resolved form that
+  is not on the list. The list the dialog shows is the agent's own word; an
+  agent that leaves a finding out gets it refused, not acknowledged. A manager's stack is checked for the forbidden tier
   only, as before: it passed the risky tier when it was created. The
   forbidden tier — binds of `/etc/sfpanel`, `/var/lib/sfpanel`, `/root/.ssh`
   or `/etc/sudoers.d` — is refused for every source.

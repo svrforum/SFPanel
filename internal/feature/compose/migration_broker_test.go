@@ -418,12 +418,16 @@ func phasesOf(events []operatorEvent) []string {
 // the target under the operator's policy, marked as an agent's, and the source
 // hears that the target took it. The manager runs no docker of its own.
 func TestAManagerCarriesAnAgentsStackToTheTarget(t *testing.T) {
-	for _, tc := range []struct{ overwrite, ackRisks bool }{{true, false}, {false, true}} {
-		t.Run(fmt.Sprintf("overwrite=%v,risks=%v", tc.overwrite, tc.ackRisks), func(t *testing.T) {
+	for _, tc := range []struct {
+		overwrite bool
+		risks     []string
+	}{{true, nil}, {false, []string{`service "x" sets privileged: true`}}} {
+		t.Run(fmt.Sprintf("overwrite=%v,risks=%d", tc.overwrite, len(tc.risks)), func(t *testing.T) {
 			src, dst := newFakeSource(t), newFakeTarget(t, true)
 			h, dockerLog := brokerHandler(t, brokerCluster(t, src, dst))
 
-			events := runBrokered(t, h, fmt.Sprintf(`{"targetNodeId":"a2","disposition":"retain","overwriteAcked":%v,"acknowledgeRisks":%v}`, tc.overwrite, tc.ackRisks))
+			risks, _ := json.Marshal(tc.risks)
+			events := runBrokered(t, h, fmt.Sprintf(`{"targetNodeId":"a2","disposition":"retain","overwriteAcked":%v,"acknowledgedRisks":%s}`, tc.overwrite, risks))
 
 			_, got, _, header := dst.seen()
 			if !bytes.Equal(got, brokerBundle) {
@@ -434,7 +438,7 @@ func TestAManagerCarriesAnAgentsStackToTheTarget(t *testing.T) {
 				migrationPolicyHeader:     "1",
 				migrationSourceKindHeader: "agent",
 				migrationOverwriteHeader:  strconv.FormatBool(tc.overwrite),
-				migrationAckRisksHeader:   strconv.FormatBool(tc.ackRisks),
+				migrationAckRisksHeader:   encodeAckedRisks(tc.risks),
 			} {
 				if header.Get(k) != want {
 					t.Errorf("%s = %q, want %q", k, header.Get(k), want)

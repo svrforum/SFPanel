@@ -160,11 +160,12 @@ func TestPushBundleCarriesThePolicy(t *testing.T) {
 	h := &Handler{ComposePath: t.TempDir()}
 	h.SetClusterMgr(mgr)
 	status, _, err := h.pushBundle(t.Context(), "a1", "alice", strings.NewReader("bundle"), 6, "abc",
-		importPolicy{Overwrite: true, AckRisks: false, AgentSource: true}, nil, 0)
+		importPolicy{Overwrite: true, AckedRisks: []string{`service "x" sets privileged: true`}, AgentSource: true}, nil, 0)
 	if err != nil || status != http.StatusOK {
 		t.Fatalf("push: %d %v", status, err)
 	}
-	for k, want := range map[string]string{migrationPolicyHeader: "1", migrationOverwriteHeader: "true", migrationAckRisksHeader: "false", migrationSourceKindHeader: "agent"} {
+	for k, want := range map[string]string{migrationPolicyHeader: "1", migrationOverwriteHeader: "true",
+		migrationAckRisksHeader: encodeAckedRisks([]string{`service "x" sets privileged: true`}), migrationSourceKindHeader: "agent"} {
 		if got.Get(k) != want {
 			t.Errorf("%s = %q, want %q", k, got.Get(k), want)
 		}

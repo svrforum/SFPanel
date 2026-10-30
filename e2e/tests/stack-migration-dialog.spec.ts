@@ -104,7 +104,15 @@ test('asks to acknowledge what an agent stack is allowed to do', async ({ page }
   await expect(dialog.getByText('Migrated').first()).toBeVisible()
   expect(starts).toHaveLength(1)
   expect(starts[0].url).toContain('node=agent-1')
-  expect(starts[0].body).toMatchObject({ targetNodeId: 'm-2', acknowledgeRisks: true })
+  // The lines the operator was shown, each as the server worded it: the
+  // target takes only these.
+  expect(starts[0].body).toMatchObject({
+    targetNodeId: 'm-2',
+    acknowledgedRisks: [
+      'service "web" binds sensitive host path "/var/run/docker.sock" at "/var/run/docker.sock"',
+      'service "web" sets privileged: true',
+    ],
+  })
 })
 
 test('does not start toward an unreachable target', async ({ page }) => {
@@ -120,7 +128,7 @@ test('does not start toward an unreachable target', async ({ page }) => {
 })
 
 test('says why the migration did not start', async ({ page }) => {
-  await mock(page, {
+  const starts = await mock(page, {
     report: { blocks: [], warnings: [] },
     start: { status: 409, json: { success: false, error: { code: 'ALREADY_EXISTS', message: 'a migration for this stack is already in progress' } } },
   })
@@ -131,6 +139,8 @@ test('says why the migration did not start', async ({ page }) => {
   await dialog.getByRole('button', { name: 'Start migration' }).click()
   await expect(dialog.getByText('a migration for this stack is already in progress')).toBeVisible()
   await expect(dialog.getByText('Migration failed to start')).toHaveCount(0)
+  // No risk was listed, so none is acknowledged.
+  expect(starts[0].body).not.toHaveProperty('acknowledgedRisks')
 })
 
 test('shows the kind of each node', async ({ page }) => {

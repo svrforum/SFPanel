@@ -4595,7 +4595,7 @@ data: {"phase":"complete","line":"Update completed successfully"}
 | `stack-exists` | 대상에 동일 id 스택이 이미 존재 (`overwriteAcked`로 승인 필요) |
 | `source-version` | 원본 에이전트가 원본 세션이 없는 이전 릴리스(`migrate-source/info`가 404이거나 `session_version`이 없음) — 에이전트를 올려야 합니다. 원본의 사실을 받지 못했으므로 이 차단 하나만 옵니다 |
 | `target-version` | 원본이 에이전트인데 대상이 이관 정책을 모르는 이전 릴리스(`target-info`에 `import_policy`가 없음) — 그런 대상은 에이전트의 번들을 번들의 말대로, 매니저의 규칙으로 받으므로 보내지 않습니다. 대상을 올려야 합니다 |
-| `compose-forbidden` | 원본이 에이전트이고 스택이 금지 계층(`/etc/sfpanel`·`/var/lib/sfpanel`·`/root/.ssh`·`/etc/sudoers.d` 바인드 — 패널 자신의 비밀)을 요청함. 메시지에 항목을 `, `로 나열합니다(`the stack binds the panel's own secrets, which no target takes: …`). 이 계층은 `acknowledgeRisks`로도 풀리지 않아 대상이 원본을 멈춘 뒤 `COMPOSE_FORBIDDEN`으로 거부하므로, 원본을 멈추기 전에 막습니다. 에이전트가 보낸 목록(`migrate-source/info`의 `forbidden_findings`)이며, 빠뜨려도 지금처럼 대상이 거부합니다. `forbidden_findings`를 보내지 않는 이전 릴리스의 에이전트가 원본이면 이 차단은 오지 않습니다 |
+| `compose-forbidden` | 원본이 에이전트이고 스택이 금지 계층(`/etc/sfpanel`·`/var/lib/sfpanel`·`/root/.ssh`·`/etc/sudoers.d` 바인드 — 패널 자신의 비밀)을 요청함. 메시지에 항목을 `, `로 나열합니다(`the stack binds the panel's own secrets, which no target takes: …`). 이 계층은 `acknowledgedRisks`로도 풀리지 않아 대상이 원본을 멈춘 뒤 `COMPOSE_FORBIDDEN`으로 거부하므로, 원본을 멈추기 전에 막습니다. 에이전트가 보낸 목록(`migrate-source/info`의 `forbidden_findings`)이며, 빠뜨려도 지금처럼 대상이 거부합니다. `forbidden_findings`를 보내지 않는 이전 릴리스의 에이전트가 원본이면 이 차단은 오지 않습니다 |
 
 **경고 코드 (`warnings` — 승인 후 진행 가능):**
 | 코드 | 조건 |
@@ -4603,7 +4603,7 @@ data: {"phase":"complete","line":"Update completed successfully"}
 | `system-bind` | 호스트/시스템 바인드 마운트(예: docker.sock, /dev)는 복사되지 않으며 대상에 존재해야 함 |
 | `external-volume` | external 볼륨의 데이터도 복사됨 — 다른 스택과 공유하는 데이터가 중복될 수 있음 |
 | `absolute-bind-write` | 절대 경로 바인드의 데이터가 대상의 같은 절대 경로에 쓰임(보호된 시스템 경로는 건너뜀). 원본이 에이전트이면 대상이 이런 스택을 거부합니다(`migrate-import` 참조) |
-| `compose-risky` | 원본이 에이전트이고 스택이 위험 계층(docker.sock 같은 민감한 호스트 경로 바인드, `privileged`, 호스트 네임스페이스, 위험한 capability·그룹·보안 옵션, 디바이스)을 요청함. 메시지에 항목을 `, `로 나열합니다(`the stack asks for host access that runs on the target as it is: …`). `migrate`에 `acknowledgeRisks: true`가 없으면 대상이 원본을 멈춘 뒤 `COMPOSE_RISKY`로 거부하므로, 화면은 이 경고로 미리 승인을 받습니다. 에이전트가 보낸 목록(`migrate-source/info`의 `risky_findings`)이라 막는 근거가 아니며, 거부는 지금처럼 대상이 번들의 compose를 직접 읽어 합니다. `risky_findings`를 보내지 않는 이전 릴리스의 에이전트가 원본이면 이 경고는 오지 않습니다 |
+| `compose-risky` | 원본이 에이전트이고 스택이 위험 계층(docker.sock 같은 민감한 호스트 경로 바인드, `privileged`, 호스트 네임스페이스, 위험한 capability·그룹·보안 옵션, 디바이스)을 요청함. 메시지에 항목을 `, `로 나열합니다(`the stack asks for host access that runs on the target as it is: …`). `migrate`의 `acknowledgedRisks`에 없는 항목이 있으면 대상이 원본을 멈춘 뒤 `COMPOSE_RISKY`로 거부하므로, 화면은 이 경고의 항목을 보여 주고 승인받은 그 문장들을 보냅니다. 에이전트가 보낸 목록(`migrate-source/info`의 `risky_findings`)이라 막는 근거가 아니며, 거부는 지금처럼 대상이 번들의 compose를 직접 읽어 합니다 — 에이전트가 목록에서 뺀 항목은 승인되지 않은 것이라 대상이 그 항목을 이름 대어 거부합니다. `risky_findings`를 보내지 않는 이전 릴리스의 에이전트가 원본이면 이 경고는 오지 않습니다 |
 | `large-transfer` | 추정 이관 크기가 5 GiB를 넘음 — 오래 걸릴 수 있음 |
 | `device-required` | 디바이스/GPU 요청 — 대상에 동등 하드웨어 필요 |
 | `target-unreachable` | 대상 노드 조회 실패 — 디스크/포트/아키텍처/덮어쓰기 점검이 생략됨. 보고서에는 경고로 오지만 `migrate`는 원본을 멈추기 전에 이 경우를 거부합니다 |
@@ -4649,7 +4649,7 @@ data: {"phase":"complete","line":"Update completed successfully"}
   "targetNodeId": "node-b",
   "disposition": "retain",
   "overwriteAcked": false,
-  "acknowledgeRisks": false,
+  "acknowledgedRisks": [],
   "rateLimitMbps": 0
 }
 ```
@@ -4659,7 +4659,7 @@ data: {"phase":"complete","line":"Update completed successfully"}
 | `targetNodeId` | string | 예 | 이관 대상 노드 ID |
 | `disposition` | string | 예 | 이관 성공 후 소스 처리: `retain` \| `delete` \| `clone` |
 | `overwriteAcked` | boolean | 아니오 | 대상에 이미 있는 같은 id의 스택·볼륨 덮어쓰기 승인 (기본 `false`). 대상은 이 값을 보내는 매니저의 정책 헤더로 받습니다 |
-| `acknowledgeRisks` | boolean | 아니오 | 운영자가 위험 계층 compose(`privileged`, 호스트 네임스페이스, docker.sock 등)를 승인함 (기본 `false`). 대상은 원본이 에이전트일 때만 이 값을 보며, 승인 없는 그런 스택은 `COMPOSE_RISKY`로 거부합니다(원본은 다시 켜짐). 매니저의 스택은 만들 때 위험 계층을 거쳤으므로 금지 계층만 검사합니다 |
+| `acknowledgedRisks` | string[] | 아니오 | 운영자가 승인한 위험 계층 항목(`privileged`, 호스트 네임스페이스, docker.sock 등) — 사전 점검의 `compose-risky` 경고가 나열한 문장 그대로 (기본: 없음, 아무것도 승인하지 않음). 대상은 원본이 에이전트일 때만 이 목록을 보며, 번들의 compose와 resolved 문서에서 찾은 위험 항목 가운데 목록에 없는 것을 모두 이름 대어 `COMPOSE_RISKY`로 거부합니다(원본은 다시 켜짐). 매니저의 스택은 만들 때 위험 계층을 거쳤으므로 금지 계층만 검사합니다 |
 | `rateLimitMbps` | number | 아니오 | 전송 대역폭 상한(MB/s). 0 또는 미지정 = 무제한. (v0.51.0) |
 
 **disposition 의미:**
@@ -4756,13 +4756,13 @@ data: {"phase":"rollback","message":"transfer/restore failed; source restarted: 
 |------|----|------|
 | `X-SFPanel-Migration-Policy` | `1` | 정책을 싣는다는 표시. 없으면 정책 이전 릴리스의 매니저가 보낸 것으로 보고, 덮어쓰기는 번들의 `overwrite`를 따르며 위험 계층은 승인된 것으로(스택을 만들 때 거쳤으므로), 원본은 매니저로 봅니다 |
 | `X-SFPanel-Migration-Overwrite` | `true` \| `false` | 대상에 이미 있는 같은 id의 스택·볼륨을 바꿔도 되는지 (운영자의 `overwriteAcked`) |
-| `X-SFPanel-Migration-Ack-Risks` | `true` \| `false` | 운영자가 위험 계층 compose를 승인했는지 (`acknowledgeRisks`) |
+| `X-SFPanel-Migration-Ack-Risks` | base64(JSON 문자열 배열) | 운영자가 승인한 위험 계층 항목의 문장 (`acknowledgedRisks`). 경로에 따옴표·쉼표·비ASCII가 있어도 그대로 전달되도록 base64로 싣습니다. 읽을 수 없는 값은 아무것도 승인하지 않습니다 |
 | `X-SFPanel-Migration-Source-Kind` | `manager` \| `agent` | 원본의 종류. `manager`가 아닌 값은 모두 `agent`(더 엄격한 쪽)로 봅니다 |
 
 **모든 원본:** compose는 금지 계층(`/etc/sfpanel`, `/var/lib/sfpanel`, `/root/.ssh`, `/etc/sudoers.d` 바인드)을 거부합니다(`400 COMPOSE_FORBIDDEN`). 매니저의 스택은 만들 때 위험 계층을 거쳤으므로 금지 계층만 검사합니다. 이미지 아카이브는 스택이 쓰는 태그만 설정할 수 있습니다 — `docker load`는 아카이브가 이름 붙인 태그를 모두 설정하므로, 다른 태그를 담은 아카이브는 적재하지 않습니다(다이제스트로 지정한 이미지는 태그가 없어야 함).
 
 **원본이 에이전트일 때 더해지는 규칙** — 에이전트의 root가 이관으로 다른 노드의 root가 되지 않도록:
-- compose의 위험 계층(`privileged`, 호스트 네임스페이스, docker.sock 등)은 `Ack-Risks: true`여야 합니다. 아니면 `400 COMPOSE_RISKY`. 원문과 .env 주입 뒤 resolved 문서를 같은 계층으로 검사합니다.
+- compose의 위험 계층(`privileged`, 호스트 네임스페이스, docker.sock 등)은 항목마다 그 문장이 `Ack-Risks` 목록에 있어야 합니다. 없는 항목이 하나라도 있으면 그 항목을 모두 이름 대어 `400 COMPOSE_RISKY`. 원문과 .env 주입 뒤 resolved 문서를 같은 계층으로 검사합니다.
 - 바인드 데이터는 스택 디렉터리 안으로만 복원합니다. 스택 밖(절대 경로) 바인드가 있는 스택은 그 바인드를 건너뛰지 않고 거부합니다(`500 COMPOSE_ERROR`, `restore data: the stack binds …, outside its own directory …`). 원본이 매니저면 지금처럼 보호된 시스템 경로 밖의 같은 절대 경로에 씁니다.
 - 이미지는 대상에 없는 태그로, 또는 대상이 그 태그로 이미 가진 같은 이미지일 때만 적재합니다(같은 이미지면 적재를 건너뜀). 대상이 그 태그를 다른 이미지로 가지고 있으면 `409 ALREADY_EXISTS` — 그 태그를 쓰는 다른 스택이 다음 재시작에 에이전트의 이미지를 돌리게 되기 때문입니다. 대상에서 태그를 지우거나 바꾼 뒤 다시 시도합니다.
 

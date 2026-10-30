@@ -47,14 +47,30 @@ func validProjectID(id string) bool {
 
 // checkImportCompose is an import's compose check. A manager's stack was
 // checked when it was created and keeps the forbidden tier only, as before; an
-// agent's compose file is the agent's word, so the risky tier needs the
-// operator's acknowledgement, given on the manager that sent the import.
+// agent's compose file is the agent's word, so each risky finding needs the
+// operator's acknowledgement of that very sentence, given on the manager that
+// sent the import. The lines the operator saw were the agent's own list, so a
+// finding it left out is refused, and named, rather than taken as answered.
 func checkImportCompose(content string, p importPolicy) error {
 	report, err := composex.Analyze(content)
 	if err != nil {
 		return err
 	}
-	return report.Error(!p.AgentSource || p.AckRisks)
+	if !p.AgentSource {
+		return report.Error(true)
+	}
+	acked := make(map[string]bool, len(p.AckedRisks))
+	for _, r := range p.AckedRisks {
+		acked[r] = true
+	}
+	unacked := report.Risky[:0:0]
+	for _, f := range report.Risky {
+		if !acked[f.Message] {
+			unacked = append(unacked, f)
+		}
+	}
+	report.Risky = unacked
+	return report.Error(false)
 }
 
 // importComposeCode classifies a rejected import's compose for the response,
@@ -642,15 +658,16 @@ type migrateRequest struct {
 	TargetNodeID   string `json:"targetNodeId"`
 	Disposition    string `json:"disposition"`
 	OverwriteAcked bool   `json:"overwriteAcked"`
-	// AcknowledgeRisks is the operator's word on a risky compose file,
-	// sent to the target in the import policy.
-	AcknowledgeRisks bool    `json:"acknowledgeRisks"`
-	RateLimitMbps    float64 `json:"rateLimitMbps"` // transfer cap in MiB/s; <=0 = unlimited
+	// AcknowledgedRisks is the risky findings the operator was shown and
+	// acknowledged, each the sentence the pre-flight listed; sent to the
+	// target in the import policy. None acknowledges nothing.
+	AcknowledgedRisks []string `json:"acknowledgedRisks"`
+	RateLimitMbps     float64  `json:"rateLimitMbps"` // transfer cap in MiB/s; <=0 = unlimited
 }
 
 // Migrate (POST /docker/compose/:project/migrate, SSE) cold-migrates a stack to
 // targetNodeId. Body: {"targetNodeId","disposition","overwriteAcked",
-// "acknowledgeRisks"}. Streams phase events. Nothing is stopped until the
+// "acknowledgedRisks"}. Streams phase events. Nothing is stopped until the
 // target is known to be reachable and signable. The source is restored to
 // running on any failure before finalize; the source is only destroyed (delete
 // disposition) AFTER the target reports healthy. A stack on an agent is
@@ -738,7 +755,7 @@ func (h *Handler) Migrate(c echo.Context) error {
 	// 4. transfer — stream the bundle to the target; it restores + ups + healthchecks.
 	send(PhaseTransfer, "Transferring to target...", false)
 	// The source is this manager, so AgentSource stays false.
-	policy := importPolicy{Overwrite: req.OverwriteAcked, AckRisks: req.AcknowledgeRisks}
+	policy := importPolicy{Overwrite: req.OverwriteAcked, AckedRisks: req.AcknowledgedRisks}
 	status, body, terr := h.pushBundleFileToTarget(opCtx, req.TargetNodeID, username, bundleFile, sha, policy, transferProgress(send), rateBytes)
 	if terr != nil || status != http.StatusOK {
 		// On a CONNECTION error the target detaches its restore+up from the dropped

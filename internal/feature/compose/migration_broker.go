@@ -298,7 +298,7 @@ func (h *Handler) carryBundle(ctx context.Context, source *sourceClient, project
 	}
 	// A pull that breaks off half way cuts the push short: the target finds
 	// the sha does not match and writes nothing.
-	policy := importPolicy{Overwrite: req.OverwriteAcked, AckRisks: req.AcknowledgeRisks, AgentSource: true}
+	policy := importPolicy{Overwrite: req.OverwriteAcked, AckedRisks: req.AcknowledgedRisks, AgentSource: true}
 	status, body, terr := h.pushBundle(ctx, req.TargetNodeID, username, resp.Body, resp.ContentLength, ready.Sha256, policy, onProg, rateBytes)
 	switch {
 	case terr == nil && status == http.StatusOK:

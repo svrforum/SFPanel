@@ -130,7 +130,8 @@ export function MigrateStackDialog({
           targetNodeId: targetId,
           disposition,
           overwriteAcked: overwriteAck,
-          acknowledgeRisks: riskLines.length > 0 && risksAck,
+          // The lines shown, not a yes: the target takes only these.
+          acknowledgedRisks: riskLines.length > 0 && risksAck ? riskLines : undefined,
           rateLimitMbps: rateLimit ? Number(rateLimit) : undefined,
         },
         (ev) => {

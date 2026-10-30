@@ -1381,8 +1381,9 @@ export interface HealthcheckSpec {
 export interface MigratePreflightFinding {
   // Codes the dialog acts on: the warnings 'target-unreachable' (the
   // migration refuses it) and 'compose-risky' (an agent stack's host access,
-  // which needs acknowledgeRisks; an older agent or manager sends none). A
-  // block, 'compose-forbidden' among them, is shown by its message.
+  // whose lines go back as acknowledgedRisks; an older agent or manager
+  // sends none). A block, 'compose-forbidden' among them, is shown by its
+  // message.
   code: string
   message: string
 }

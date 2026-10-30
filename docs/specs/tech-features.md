@@ -114,7 +114,7 @@
   - **Docker Compose (Stacks)**: 설정 가능한 스택 루트(`server.stacks_path`, 기본 `/opt/stacks`) 디스크 스캔 기반 프로젝트 관리, Monaco 에디터 YAML 편집, `.env` 편집, `up -d`/`down`(이미지·볼륨 동시 삭제 옵션), 프로젝트 상태, **서비스별 제어**(시작/중지/재시작)와 로그, **스택 업데이트 확인·적용**(`POST /compose/:project/check-updates` → `…/update`/`…/update-stream` SSE)
     - **노드 간 스택 마이그레이션**(클러스터 전용): 대상 노드(`targetNodeId`)로의 콜드 마이그레이션 + 원본 처분(`disposition`: retain/delete/clone). 정의·`.env`·볼륨·바인드 데이터·이미지(save/load)를 콜드 패키징해 이전. **사전 점검**(arch/디스크/포트/덮어쓰기)과 **헬스 게이트**를 통과해야 적용하며, 덮어쓰기 시 정의/볼륨을 백업하고 실패 시 원복. 전송 진행률은 SSE로 스트리밍, **전송 속도 제한**(v0.51.0) 지원
       - 원본은 사전 점검에 차단이 없고, 대상이 답했으며(`target-unreachable`이면 거부), 대상에 서명하고 닿을 수 있을 때만 멈춘다
-      - 대상은 덮어쓰기·위험 계층 승인(`acknowledgeRisks`)·원본의 종류를 번들이 아니라 보내는 매니저의 정책 헤더(`X-SFPanel-Migration-*`)로 받는다. 대상의 키로 서명된 요청이라 에이전트는 보낼 수 없다
+      - 대상은 덮어쓰기·승인한 위험 계층 항목(`acknowledgedRisks`)·원본의 종류를 번들이 아니라 보내는 매니저의 정책 헤더(`X-SFPanel-Migration-*`)로 받는다. 대상의 키로 서명된 요청이라 에이전트는 보낼 수 없다
       - **에이전트의 스택은 매니저가 중개**한다(원본 → 매니저 → 대상): `?node=<에이전트>`의 `/migrate`·`/migrate/preflight`는 요청을 받은 매니저가 실행하고, 에이전트의 원본 세션(`…/migrate-source`, 내부 전용)에서 번들을 디스크 없이 받아 대상에 흘려보낸 뒤 결과(`imported`/`failed`/`unknown`)를 알린다. 결과 없이 끊기면 원본은 번들이 통째로 나간 적이 없을 때만 다시 켠다. 중개하는 매니저는 Docker가 없어도 된다
       - 에이전트의 번들은 더 엄격하다: 위험 계층 compose는 운영자 승인이 있어야 하고, 바인드는 스택 디렉터리 안만 복원하며(밖이면 거부), 이미지는 대상에 없는 태그나 같은 이미지로만 적재한다. 원본 에이전트와 대상이 이 기능을 아는 릴리스여야 한다(`source-version`·`target-version` 차단). 운영 절차는 `cluster-ops.md`의 "Stack migrations"
   - **리소스 정리(Prune)**: 컨테이너/이미지/볼륨/네트워크 개별 + 전체 일괄

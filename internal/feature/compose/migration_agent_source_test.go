@@ -15,25 +15,45 @@ import (
 	"github.com/labstack/echo/v4"
 	"github.com/svrforum/SFPanel/internal/api/response"
 	"github.com/svrforum/SFPanel/internal/auth"
+	"github.com/svrforum/SFPanel/internal/composex"
 	"github.com/svrforum/SFPanel/internal/docker"
 )
 
 // A risky stack from an agent needs the operator's acknowledgement on the
 // target: its compose file is the agent's word, not the stack the operator
-// created.
+// created. The acknowledgement is of the sentences the operator was shown,
+// which the agent chose: a finding it left out is refused, and named.
 func TestAnAgentsComposeNeedsTheOperatorsAcknowledgement(t *testing.T) {
-	risky := "services:\n  x:\n    image: alpine\n    volumes:\n      - /var/run/docker.sock:/var/run/docker.sock\n"
+	risky := "services:\n  x:\n    image: alpine\n    privileged: true\n    volumes:\n      - /var/run/docker.sock:/var/run/docker.sock\n"
+	report, err := composex.Analyze(risky)
+	if err != nil || len(report.Risky) != 2 {
+		t.Fatalf("fixture: %v %+v", err, report)
+	}
+	var sock, priv string
+	for _, f := range report.Risky {
+		if strings.Contains(f.Message, "docker.sock") {
+			sock = f.Message
+		} else {
+			priv = f.Message
+		}
+	}
 	if err := checkImportCompose(risky, importPolicy{AgentSource: true}); err == nil || !strings.Contains(err.Error(), "docker.sock") {
 		t.Fatalf("from an agent, unacknowledged: %v", err)
 	}
-	if err := checkImportCompose(risky, importPolicy{AgentSource: true, AckRisks: true}); err != nil {
-		t.Fatalf("from an agent, acknowledged: %v", err)
+	// Shown only the docker.sock line, the operator said yes to that line.
+	err = checkImportCompose(risky, importPolicy{AgentSource: true, AckedRisks: []string{sock}})
+	if err == nil || !strings.Contains(err.Error(), priv) || strings.Contains(err.Error(), "docker.sock") {
+		t.Fatalf("from an agent, one of two acknowledged: %v (want %q named, and only it)", err, priv)
 	}
-	if err := checkImportCompose(risky, importPolicy{AckRisks: true}); err != nil {
+	if err := checkImportCompose(risky, importPolicy{AgentSource: true, AckedRisks: []string{priv, sock}}); err != nil {
+		t.Fatalf("from an agent, every finding acknowledged: %v", err)
+	}
+	if err := checkImportCompose(risky, importPolicy{}); err != nil {
 		t.Fatalf("from a manager, as before: %v", err)
 	}
 	forbidden := "services:\n  x:\n    image: alpine\n    volumes:\n      - /etc/sfpanel:/loot\n"
-	if err := checkImportCompose(forbidden, importPolicy{AgentSource: true, AckRisks: true}); err == nil {
+	fr, _ := composex.Analyze(forbidden)
+	if err := checkImportCompose(forbidden, importPolicy{AgentSource: true, AckedRisks: []string{fr.Forbidden[0].Message}}); err == nil {
 		t.Fatal("the forbidden tier was lifted")
 	}
 }
