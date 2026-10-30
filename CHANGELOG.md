@@ -6,6 +6,16 @@ The format is loosely based on [Keep a Changelog](https://keepachangelog.com/), 
 
 ---
 
+## [0.79.4] – 2026-10-30
+
+### Fixed
+
+- **A follower's cluster dashboard shows the cluster as the leader sees it.** The overview page's live updates came from the node the browser was on, and only the leader hears the nodes' heartbeats: on any other manager, a few seconds after the page opened, every other node — the leader included — turned offline with no metrics, under a "leader unreachable" banner. The node list and the sidebar, which ask the leader, were right. A follower now passes on the leader's overview, and shows its own, flagged as possibly out of date, only when the leader does not answer.
+
+### Upgrading
+
+- Update every node; the cluster update takes them one at a time.
+
 ## [0.79.3] – 2026-10-30
 
 ### Fixed
