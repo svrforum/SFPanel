@@ -188,3 +188,25 @@ func TestClusterErrResponseNamesTheTokenKindAndTheAgentCap(t *testing.T) {
 		}
 	}
 }
+
+// A token that was used or expired has left the list the page shows, and a
+// revoke the page sent for it found nothing. That answered 401, which the web
+// client takes for an ended session and logs the operator out.
+func TestRevokingATokenThatIsGoneIsNotFoundNotASessionFailure(t *testing.T) {
+	h := &Handler{Manager: tokenLeader(t)}
+	req := httptest.NewRequest(http.MethodDelete, "/api/v1/cluster/tokens/gone", nil)
+	rec := httptest.NewRecorder()
+	c := echo.New().NewContext(req, rec)
+	c.SetParamNames("id")
+	c.SetParamValues("gone")
+	if err := h.RevokeToken(c); err != nil {
+		t.Fatal(err)
+	}
+	var out struct {
+		Error struct{ Code string } `json:"error"`
+	}
+	_ = json.Unmarshal(rec.Body.Bytes(), &out)
+	if rec.Code != http.StatusNotFound || out.Error.Code != response.ErrNotFound {
+		t.Fatalf("revoking a gone token: %d %s (401 logs the operator out), want 404 %s", rec.Code, out.Error.Code, response.ErrNotFound)
+	}
+}

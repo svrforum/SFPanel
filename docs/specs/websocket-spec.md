@@ -135,12 +135,12 @@ const wsUrl = `${protocol}//${window.location.host}/ws/...?token=${token}`
 | **사용 페이지** | `ClusterOverview.tsx` |
 | **라우트 등록** | `e.GET("/ws/cluster/overview", featureWS.ClusterOverviewWS(...))` |
 
-기존 15초 HTTP 3중 폴링(`/cluster/status` + `/cluster/overview` + `/cluster/events`)을 대체한다. 노드별 **단일 공유 샘플러**(`internal/feature/websocket/cluster_overview.go`)가 로컬 Raft FSM + 이벤트 버스에서 스냅샷을 만들어 그 노드의 모든 대시보드 연결에 fan-out한다 — 리더 RPC 없음. 팔로워는 복제된 FSM 뷰를 `stale=true`로 표시(프론트는 "오래된 데이터" 배너 렌더). 메시지 형식:
+기존 15초 HTTP 3중 폴링(`/cluster/status` + `/cluster/overview` + `/cluster/events`)을 대체한다. 노드별 **단일 공유 샘플러**(`internal/feature/websocket/cluster_overview.go`)가 스냅샷을 만들어 그 노드의 모든 대시보드 연결에 fan-out한다. 리더는 로컬 Raft FSM + 이벤트 버스에서 만들고, 팔로워는 틱마다 리더의 `GET /cluster/overview`를 한 번 받아 그 개요를 싣는다(v0.79.4+, 노드 상태는 리더만 듣는 하트비트에서 온다). 리더에 닿지 않을 때만 팔로워 자신의 FSM 뷰를 `stale=true`로 보낸다(프론트는 "오래된 데이터" 배너 렌더). `latest_version`은 리더의 업데이트 확인기가 마지막으로 본 릴리스로, 리더의 스냅샷과 리더 개요를 옮긴 팔로워의 스냅샷에만 있다(확인기가 아직 못 봤으면 없음). 메시지 형식:
 
 ```json
 {
   "enabled": true, "local_id": "<uuid>", "is_leader": true, "stale": false,
-  "name": "svrforum", "node_count": 2, "leader_id": "<uuid>",
+  "name": "svrforum", "node_count": 2, "leader_id": "<uuid>", "latest_version": "0.80.0",
   "nodes": [ /* ClusterNode[] */ ], "metrics": [ /* ClusterNodeMetrics[] */ ],
   "events": [ /* 최근 20개 ClusterEvent */ ]
 }

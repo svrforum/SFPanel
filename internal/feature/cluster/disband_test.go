@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/labstack/echo/v4"
+	"github.com/svrforum/SFPanel/internal/api/response"
 	"github.com/svrforum/SFPanel/internal/cluster"
 )
 
@@ -23,8 +24,9 @@ func disbandHandler(t *testing.T, mgr *cluster.Manager) *Handler {
 }
 
 // postDisband answers POST /cluster/disband with query, and returns the
-// status and the message, whichever of data or error carries it.
-func postDisband(t *testing.T, h *Handler, query string) (int, string) {
+// status, the message, whichever of data or error carries it, and the
+// warnings.
+func postDisband(t *testing.T, h *Handler, query string) (int, string, []response.Warning) {
 	t.Helper()
 	req := httptest.NewRequest(http.MethodPost, "/api/v1/cluster/disband"+query, nil)
 	rec := httptest.NewRecorder()
@@ -32,13 +34,26 @@ func postDisband(t *testing.T, h *Handler, query string) (int, string) {
 		t.Fatal(err)
 	}
 	var out struct {
-		Data  struct{ Message string } `json:"data"`
+		Data struct {
+			Message  string
+			Warnings []response.Warning
+		} `json:"data"`
 		Error struct{ Message string } `json:"error"`
 	}
 	if err := json.Unmarshal(rec.Body.Bytes(), &out); err != nil {
 		t.Fatalf("%v (body %s)", err, rec.Body.String())
 	}
-	return rec.Code, out.Data.Message + out.Error.Message
+	return rec.Code, out.Data.Message + out.Error.Message, out.Data.Warnings
+}
+
+// agentsNotReached is the one warning a disband that missed agents gives:
+// their names, for the page to word.
+func agentsNotReached(t *testing.T, w []response.Warning, agents string) {
+	t.Helper()
+	if len(w) != 1 || w[0].Code != response.ErrClusterAgentsNotReached || w[0].Details["agents"] != agents ||
+		!strings.Contains(w[0].Message, "sudo sfpanel agent reset --yes") {
+		t.Fatalf("disband warnings %+v, want one %s naming %q", w, response.ErrClusterAgentsNotReached, agents)
+	}
 }
 
 func addAgentRecord(t *testing.T, mgr *cluster.Manager, id, name string) {
@@ -53,14 +68,17 @@ func addAgentRecord(t *testing.T, mgr *cluster.Manager, id, name string) {
 }
 
 // An agent the leader could not tell keeps trying a cluster that is gone
-// until someone resets it, so the answer names it.
-func TestDisbandNamesTheAgentsItCouldNotTell(t *testing.T) {
+// until someone resets it, so the answer names it: in the message, for the CLI
+// and older pages, and in a warning with its code.
+func TestADisbandThatMissedAgentsNamesThemInAWarning(t *testing.T) {
 	mgr := tokenLeader(t)
 	addAgentRecord(t, mgr, "a-1", "edge-1")
-	code, msg := postDisband(t, disbandHandler(t, mgr), "")
-	if code != http.StatusOK || !strings.Contains(msg, "need 'sudo sfpanel agent reset --yes' on each: edge-1") {
+	addAgentRecord(t, mgr, "a-2", "edge-2")
+	code, msg, warnings := postDisband(t, disbandHandler(t, mgr), "")
+	if code != http.StatusOK || !strings.Contains(msg, "need 'sudo sfpanel agent reset --yes' on each: edge-1, edge-2") {
 		t.Fatalf("disband: %d %q", code, msg)
 	}
+	agentsNotReached(t, warnings, "edge-1, edge-2")
 	if mgr.GetNode("a-1") != nil {
 		t.Fatal("the agent is still a member")
 	}
@@ -81,11 +99,12 @@ func TestAForcedDisbandWithNoLeaderRunsWhereItIsSent(t *testing.T) {
 		}
 	}
 	h := disbandHandler(t, mgr)
-	if code, msg := postDisband(t, h, ""); code != http.StatusServiceUnavailable || !strings.Contains(msg, "No cluster leader available") {
+	if code, msg, _ := postDisband(t, h, ""); code != http.StatusServiceUnavailable || !strings.Contains(msg, "No cluster leader available") {
 		t.Fatalf("unforced: %d %q", code, msg)
 	}
-	code, msg := postDisband(t, h, "?force=true")
+	code, msg, warnings := postDisband(t, h, "?force=true")
 	if code != http.StatusOK || !strings.Contains(msg, "Forced local-only disband") || !strings.Contains(msg, "on each: edge-1") {
 		t.Fatalf("forced: %d %q", code, msg)
 	}
+	agentsNotReached(t, warnings, "edge-1")
 }

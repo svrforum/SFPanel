@@ -58,3 +58,16 @@ func TestGetUpdateInfo(t *testing.T) {
 		})
 	}
 }
+
+// CachedLatest is the release the checker last saw, whether or not this
+// node is behind it: a leader on the latest release still names it.
+func TestCachedLatestIsTheLastReleaseSeen(t *testing.T) {
+	setCachedLatest(t, "")
+	if v := CachedLatest(); v != "" {
+		t.Fatalf("before any check: %q", v)
+	}
+	setCachedLatest(t, "0.80.0")
+	if v := CachedLatest(); v != "0.80.0" {
+		t.Fatalf("CachedLatest() = %q, want 0.80.0", v)
+	}
+}

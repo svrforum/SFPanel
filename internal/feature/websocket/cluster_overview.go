@@ -11,6 +11,7 @@ import (
 
 	"github.com/labstack/echo/v4"
 	"github.com/svrforum/SFPanel/internal/cluster"
+	"github.com/svrforum/SFPanel/internal/monitor"
 )
 
 // overviewBroadcastInterval is how often the shared sampler rebuilds the cluster
@@ -52,6 +53,10 @@ var leaderOverview = func(mgr *cluster.Manager) (map[string]interface{}, error) 
 	return resp.Data, nil
 }
 
+// latestRelease is the release the leader's update checker last saw. A var so
+// tests can set it.
+var latestRelease = monitor.CachedLatest
+
 // buildClusterSnapshot assembles the combined status+overview+events payload the
 // dashboard needs. The leader builds it from its FSM and in-memory event bus. A
 // follower takes the overview from the leader (leaderOverview), once per tick
@@ -78,7 +83,7 @@ func buildClusterSnapshot(mgr *cluster.Manager) map[string]interface{} {
 	if !isLeader {
 		if lo, err := leaderOverview(mgr); err == nil {
 			snap["stale"] = false
-			for _, k := range []string{"name", "node_count", "leader_id", "nodes", "metrics", "stale"} {
+			for _, k := range []string{"name", "node_count", "leader_id", "nodes", "metrics", "stale", "latest_version"} {
 				if v, ok := lo[k]; ok {
 					snap[k] = v
 				}
@@ -92,6 +97,14 @@ func buildClusterSnapshot(mgr *cluster.Manager) map[string]interface{} {
 		snap["leader_id"] = overview.LeaderID
 		snap["nodes"] = overview.Nodes
 		snap["metrics"] = overview.Metrics
+	}
+	// The page takes each push for its whole state, so the leader's carries
+	// what its GET /cluster/overview does. A follower's own stale view has
+	// none: it does not check, and a cache from when it led could be old.
+	if isLeader {
+		if v := latestRelease(); v != "" {
+			snap["latest_version"] = v
+		}
 	}
 	return snap
 }

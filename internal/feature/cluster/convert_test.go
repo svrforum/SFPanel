@@ -132,6 +132,56 @@ func TestConvertNodeHandsTheNodeATokenMadeForIt(t *testing.T) {
 	}
 }
 
+// The node's scheduled backups from its manager days hold the cluster's
+// secrets: the leader passes the node's word on in the message, as before, and
+// as a warning with its code for the page to word. A node with none gives no
+// warning.
+func TestAConversionWithManagerBackupsWarnsInAWarning(t *testing.T) {
+	for _, tc := range []struct {
+		name, answer string
+		warns        bool
+	}{
+		{"backups", `{"success":true,"data":{"message":"leaving","warning":"the backups in /var/lib/sfpanel/backups were taken while this node was a manager and hold the cluster's secrets until they are rotated"}}`, true},
+		{"none", `{"success":true,"data":{"message":"leaving"}}`, false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			mgr := tokenLeader(t)
+			convertible(t, mgr)
+			var calls []nodeCall
+			h := &Handler{Manager: mgr, callNode: answering(&calls, http.StatusAccepted, tc.answer, nil)}
+			req := httptest.NewRequest(http.MethodPost, "/api/v1/cluster/nodes/m2/convert", nil)
+			rec := httptest.NewRecorder()
+			c := echo.New().NewContext(req, rec)
+			c.SetParamNames("id")
+			c.SetParamValues("m2")
+			if err := h.ConvertNode(c); err != nil {
+				t.Fatal(err)
+			}
+			var out struct {
+				Data struct {
+					Message  string
+					Warnings []response.Warning
+				} `json:"data"`
+			}
+			if err := json.Unmarshal(rec.Body.Bytes(), &out); err != nil || rec.Code != http.StatusAccepted {
+				t.Fatalf("convert: %d %v (body %s)", rec.Code, err, rec.Body.String())
+			}
+			if !tc.warns {
+				if len(out.Data.Warnings) != 0 || strings.Contains(out.Data.Message, "Warning") {
+					t.Fatalf("a node without manager backups warned: %q %+v", out.Data.Message, out.Data.Warnings)
+				}
+				return
+			}
+			if !strings.Contains(out.Data.Message, ". Warning: the backups in /var/lib/sfpanel/backups were taken") {
+				t.Fatalf("the message lost the node's warning: %q", out.Data.Message)
+			}
+			if w := out.Data.Warnings; len(w) != 1 || w[0].Code != response.ErrClusterManagerBackups || !strings.Contains(w[0].Message, "hold the cluster's secrets") {
+				t.Fatalf("convert warnings %+v, want one %s", w, response.ErrClusterManagerBackups)
+			}
+		})
+	}
+}
+
 // A node that refuses — a version without the route answers 404 — takes the
 // conversion nowhere: the token and the intent record go again.
 func TestConvertNodeTakesBackWhatTheNodeRefused(t *testing.T) {

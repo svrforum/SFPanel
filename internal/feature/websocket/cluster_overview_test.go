@@ -2,6 +2,8 @@ package websocket
 
 import (
 	"errors"
+	"net"
+	"path/filepath"
 	"testing"
 	"time"
 
@@ -23,7 +25,7 @@ func standInLeader(t *testing.T, answer map[string]interface{}, err error) {
 // heartbeats, so a follower pushes the leader's overview.
 func TestAFollowersSnapshotIsTheLeadersOverview(t *testing.T) {
 	standInLeader(t, map[string]interface{}{
-		"name": "lab", "node_count": 2, "leader_id": "node-l", "stale": false,
+		"name": "lab", "node_count": 2, "leader_id": "node-l", "stale": false, "latest_version": "0.80.0",
 		"nodes":   []interface{}{map[string]interface{}{"id": "node-l", "status": "online"}, map[string]interface{}{"id": "node-f", "status": "online"}},
 		"metrics": []interface{}{map[string]interface{}{"node_id": "node-l"}, map[string]interface{}{"node_id": "node-f"}},
 	}, nil)
@@ -40,8 +42,43 @@ func TestAFollowersSnapshotIsTheLeadersOverview(t *testing.T) {
 	if metrics, _ := snap["metrics"].([]interface{}); len(metrics) != 2 {
 		t.Fatalf("the snapshot lacks the leader's metrics: %v", snap["metrics"])
 	}
+	if snap["latest_version"] != "0.80.0" {
+		t.Fatalf("the snapshot lacks the leader's latest release: %v", snap["latest_version"])
+	}
 	if snap["local_id"] != "node-f" || snap["is_leader"] != false {
 		t.Fatalf("the snapshot must still name this node as the follower it is: %v", snap)
+	}
+}
+
+// The overview page takes every push for its whole state, so the leader's own
+// push carries the latest release its GET /cluster/overview does; without it
+// the first push wiped the figure the page had fetched.
+func TestTheLeadersSnapshotCarriesTheLatestRelease(t *testing.T) {
+	l, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	raftPort := l.Addr().(*net.TCPAddr).Port
+	l.Close()
+	dir := t.TempDir()
+	leader := cluster.NewManager(&config.ClusterConfig{
+		DataDir: filepath.Join(dir, "raft"), CertDir: filepath.Join(dir, "certs"),
+		AdvertiseAddress: "127.0.0.1", GRPCPort: raftPort - 1, APIPort: 1,
+	})
+	if err := leader.Init("lab"); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(leader.Shutdown)
+	orig := latestRelease
+	t.Cleanup(func() { latestRelease = orig })
+
+	latestRelease = func() string { return "" }
+	if v, ok := buildClusterSnapshot(leader)["latest_version"]; ok {
+		t.Fatalf("a snapshot before the first check carries latest_version %v", v)
+	}
+	latestRelease = func() string { return "0.80.0" }
+	if snap := buildClusterSnapshot(leader); snap["is_leader"] != true || snap["latest_version"] != "0.80.0" {
+		t.Fatalf("the leader's snapshot: is_leader %v latest_version %v, want true 0.80.0", snap["is_leader"], snap["latest_version"])
 	}
 }
 

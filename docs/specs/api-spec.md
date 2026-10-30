@@ -4874,7 +4874,11 @@ data: {"phase":"ready","session":"5f0c…e9a1","sha256":"9b2d…","bytes":214748
 
 - **인증 필요**: 예
 
-**Response (200):** `data`에 `{ name, node_count, leader_id, nodes[], metrics[] }`. (실시간 갱신은 `/ws/cluster/overview` WebSocket 사용 — v0.31.0+.)
+**Response (200):** `data`에 `{ name, node_count, leader_id, nodes[], metrics[], stale, latest_version? }`. (실시간 갱신은 `/ws/cluster/overview` WebSocket 사용 — v0.31.0+.)
+
+| 필드 | 설명 |
+|------|------|
+| `latest_version` | 리더의 업데이트 확인기가 마지막으로 본 릴리스(앞 `v` 없음, 예: `"0.80.0"`). 업데이트 확인은 리더만 하므로 GitHub를 따로 부르지 않고 이 값과 노드 버전을 비교합니다. 확인기가 아직 릴리스를 보지 못했으면 필드가 없습니다. 이 필드를 모르는 예전 리더도 보내지 않습니다. 팔로워는 리더의 개요를 그대로 돌려주므로 같은 값이 옵니다 |
 
 ---
 
@@ -4954,6 +4958,14 @@ data: {"phase":"ready","session":"5f0c…e9a1","sha256":"9b2d…","bytes":214748
 - **Path**: `id` — `GET /cluster/tokens`의 `tokens[].id`
 
 **Response (200):** `{ "revoked": "<id>" }`
+
+**에러 응답:**
+| 코드 | HTTP 상태 | 조건 |
+|------|-----------|------|
+| `INVALID_REQUEST` | 400 | 클러스터 미구성, `id` 없음 |
+| `NOT_FOUND` | 404 | 그 `id`의 대기 중인 토큰이 없음 — 목록을 받은 뒤 쓰였거나 만료된 것 포함 (`No pending join token has this id`). 예전에는 `401 INVALID_TOKEN`이어서 화면이 세션이 끝난 줄 알고 로그아웃했습니다 |
+| `INTERNAL_ERROR` | 503 | 리더 없음(선출 중) |
+| `INTERNAL_ERROR` | 500 | 폐기를 디스크에 저장하지 못함 |
 
 ---
 
@@ -5082,7 +5094,19 @@ data: {"phase":"ready","session":"5f0c…e9a1","sha256":"9b2d…","bytes":214748
 }
 ```
 
-어떤 리더도 이 노드를 빼 주지 않았으면(리더를 모르거나, 닿지 않거나, 거절) 탈퇴는 그대로 진행되고, `message` 끝에 `Warning: no leader took this node out of the cluster: …`와 이 노드의 ID가 붙습니다. 다른 노드들은 여전히 이 노드를 목록에 두므로 리더에서 `sudo sfpanel cluster remove <node-id>`로 지워야 합니다.
+어떤 리더도 이 노드를 빼 주지 않았으면(리더를 모르거나, 닿지 않거나, 거절) 탈퇴는 그대로 진행되고, `message` 끝에 `Warning: no leader took this node out of the cluster: …`와 이 노드의 ID가 붙습니다. 다른 노드들은 여전히 이 노드를 목록에 두므로 리더에서 `sudo sfpanel cluster remove <node-id>`로 지워야 합니다. 같은 내용이 `warnings`에 코드로도 실립니다(`message`는 CLI와 예전 화면을 위해 그대로):
+
+```json
+"warnings": [
+  {
+    "code": "CLUSTER_LEAVE_UNACKNOWLEDGED",
+    "message": "no leader took this node out of the cluster: … This node's ID is node-abc123.",
+    "details": { "node_id": "node-abc123" }
+  }
+]
+```
+
+`warnings`는 리더가 빼 주지 않았을 때만 있습니다.
 
 **에러 응답:**
 | 코드 | HTTP 상태 | 조건 |
@@ -5111,7 +5135,19 @@ data: {"phase":"ready","session":"5f0c…e9a1","sha256":"9b2d…","bytes":214748
 }
 ```
 
-알리지 못한 에이전트(오프라인이었거나 시간 안에 듣지 못한 것)는 메시지 끝에 이름이 나오며, 각 서버에서 `sudo sfpanel agent reset --yes`가 필요합니다. 모두 알렸으면 메시지는 `Cluster disbanded. All nodes are restarting in standalone mode...`에서 끝납니다.
+알리지 못한 에이전트(오프라인이었거나 시간 안에 듣지 못한 것)는 메시지 끝에 이름이 나오며, 각 서버에서 `sudo sfpanel agent reset --yes`가 필요합니다. 모두 알렸으면 메시지는 `Cluster disbanded. All nodes are restarting in standalone mode...`에서 끝납니다. 이름은 `warnings`에 코드로도 실립니다(강제 해산 포함, `message`는 그대로):
+
+```json
+"warnings": [
+  {
+    "code": "CLUSTER_AGENTS_NOT_REACHED",
+    "message": "These agents were not reached and need 'sudo sfpanel agent reset --yes' on each: agent-01, agent-03",
+    "details": { "agents": "agent-01, agent-03" }
+  }
+]
+```
+
+`warnings`는 알리지 못한 에이전트가 있을 때만 있습니다.
 
 **에러 응답:**
 | 코드 | HTTP 상태 | 조건 |
@@ -5179,7 +5215,18 @@ Raft 리더십을 지정한 노드로 이전. 실행은 리더가 하며, 팔로
 }
 ```
 
-노드에 매니저일 때 만든 예약 백업이 있으면 `message` 끝에 `. Warning: the backups in /var/lib/sfpanel/backups were taken while this node was a manager and hold the cluster's secrets until they are rotated`가 붙습니다.
+노드에 매니저일 때 만든 예약 백업이 있으면 `message` 끝에 `. Warning: the backups in /var/lib/sfpanel/backups were taken while this node was a manager and hold the cluster's secrets until they are rotated`가 붙고, 같은 문장이 `warnings`에 코드로도 실립니다(`message`는 그대로):
+
+```json
+"warnings": [
+  {
+    "code": "CLUSTER_MANAGER_BACKUPS",
+    "message": "the backups in /var/lib/sfpanel/backups were taken while this node was a manager and hold the cluster's secrets until they are rotated"
+  }
+]
+```
+
+`warnings`는 그런 백업이 있을 때만 있습니다.
 
 **에러 응답:**
 | 코드 | HTTP 상태 | 조건 |
@@ -6425,7 +6472,7 @@ WireGuard 키페어 생성 (`wg genkey` + `wg pubkey`).
 | GET | `/api/v1/cluster/nodes` | O | 노드 목록 (상태, 역할, 라벨, `kind`: `manager`·`agent` — 종류가 생기기 전에 기록된 노드에는 이 필드가 없고 매니저다. 에이전트는 `role`이 비어 있다) |
 | POST | `/api/v1/cluster/token` | O | 참가 토큰 생성 (TTL, `kind`: `manager`(기본)·`agent` 지정 가능). 응답: `token`, `kind`, `expires_at`, `grpc_port`, `advertise_address`, `ca_pin`(가입 명령의 `--ca`) |
 | GET | `/api/v1/cluster/tokens` | O | 대기 중 참가 토큰 목록 (마스킹, `kind`, v0.19.0+) |
-| DELETE | `/api/v1/cluster/tokens/:id` | O | 참가 토큰 폐기 (v0.19.0+) |
+| DELETE | `/api/v1/cluster/tokens/:id` | O | 참가 토큰 폐기 (v0.19.0+, 없는 토큰은 404) |
 | DELETE | `/api/v1/cluster/nodes/:id` | O | 노드 제거 (팔로워 요청은 리더로 전달, 리더 자신은 불가, `?force=`) |
 | PATCH | `/api/v1/cluster/nodes/:id/labels` | O | 노드 라벨 수정 |
 | PUT | `/api/v1/cluster/name` | O | 클러스터 이름 변경 (v0.78.6+) |

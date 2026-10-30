@@ -466,6 +466,19 @@ const (
 	// fingerprint would name a CA the rotation is about to change, or a
 	// cluster update, which restarts nodes under it.
 	ErrClusterCARotating = "CLUSTER_CA_ROTATING"
+	// ErrClusterLeaveUnacknowledged is a warning code, never an error: a
+	// leave that went ahead while no leader took this node out, so the others
+	// still list it until it is removed on the leader. Details: node_id.
+	ErrClusterLeaveUnacknowledged = "CLUSTER_LEAVE_UNACKNOWLEDGED"
+	// ErrClusterAgentsNotReached is a warning code, never an error: a disband
+	// that went ahead without telling these agents, each of which needs
+	// 'sudo sfpanel agent reset --yes' on its own server. Details: agents
+	// (their names, comma-separated).
+	ErrClusterAgentsNotReached = "CLUSTER_AGENTS_NOT_REACHED"
+	// ErrClusterManagerBackups is a warning code, never an error: a manager
+	// being converted to an agent has scheduled backups from its manager days,
+	// which hold the cluster's secrets until they are rotated.
+	ErrClusterManagerBackups = "CLUSTER_MANAGER_BACKUPS"
 )
 
 // TLS error codes

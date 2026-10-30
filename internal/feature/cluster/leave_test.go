@@ -10,14 +10,16 @@ import (
 	"time"
 
 	"github.com/labstack/echo/v4"
+	"github.com/svrforum/SFPanel/internal/api/response"
 	"github.com/svrforum/SFPanel/internal/config"
 )
 
 // A leave that no leader took says so in its answer — the UI and the CLI
 // with the service running show only the answer. The others still list the
 // node, and in a cluster of two the one left has no quorum until someone
-// removes it there.
-func TestALeaveNoLeaderTookSaysSo(t *testing.T) {
+// removes it there. The message keeps saying it for the CLI and older pages;
+// the warning carries its code and the node's ID for the page to word.
+func TestALeaveNoLeaderTookSaysSoInAWarning(t *testing.T) {
 	exited := make(chan struct{}, 1)
 	defer func(old func(int)) { exitProcess = old }(exitProcess)
 	exitProcess = func(int) { exited <- struct{}{} }
@@ -44,7 +46,10 @@ func TestALeaveNoLeaderTookSaysSo(t *testing.T) {
 		t.Fatal(err)
 	}
 	var out struct {
-		Data struct{ Message string } `json:"data"`
+		Data struct {
+			Message  string
+			Warnings []response.Warning
+		} `json:"data"`
 	}
 	if err := json.Unmarshal(rec.Body.Bytes(), &out); err != nil {
 		t.Fatalf("%v (body %s)", err, rec.Body.String())
@@ -52,6 +57,10 @@ func TestALeaveNoLeaderTookSaysSo(t *testing.T) {
 	if rec.Code != http.StatusOK || !strings.Contains(out.Data.Message, "no leader took this node out") ||
 		!strings.Contains(out.Data.Message, "sfpanel cluster remove") {
 		t.Fatalf("leave: %d %q", rec.Code, out.Data.Message)
+	}
+	if w := out.Data.Warnings; len(w) != 1 || w[0].Code != response.ErrClusterLeaveUnacknowledged ||
+		w[0].Details["node_id"] != mgr.LocalNodeID() || !strings.Contains(w[0].Message, "no leader took this node out") {
+		t.Fatalf("leave warnings %+v, want one %s naming node %s", w, response.ErrClusterLeaveUnacknowledged, mgr.LocalNodeID())
 	}
 	select {
 	case <-exited:

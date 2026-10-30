@@ -26,6 +26,7 @@ import (
 	"github.com/svrforum/SFPanel/internal/cluster"
 	pb "github.com/svrforum/SFPanel/internal/cluster/proto"
 	"github.com/svrforum/SFPanel/internal/config"
+	"github.com/svrforum/SFPanel/internal/monitor"
 	"github.com/svrforum/SFPanel/internal/paneltls"
 	"github.com/svrforum/SFPanel/internal/release"
 	"gopkg.in/yaml.v3"
@@ -590,6 +591,10 @@ func (h *Handler) GetNetworkInterfaces(c echo.Context) error {
 	})
 }
 
+// latestRelease is the release this node's update checker last saw, which
+// only a leader runs. A var so tests can set it.
+var latestRelease = monitor.CachedLatest
+
 func (h *Handler) GetOverview(c echo.Context) error {
 	mgr := h.getManager()
 	if mgr == nil {
@@ -627,14 +632,20 @@ func (h *Handler) GetOverview(c echo.Context) error {
 			"stale": stale,
 		})
 	}
-	return response.OK(c, map[string]interface{}{
+	data := map[string]interface{}{
 		"name":       overview.Name,
 		"node_count": overview.NodeCount,
 		"leader_id":  overview.LeaderID,
 		"nodes":      overview.Nodes,
 		"metrics":    overview.Metrics,
 		"stale":      stale,
-	})
+	}
+	// What the page counts the nodes behind against, without a GitHub call
+	// of its own. Left out until the checker has seen a release.
+	if v := latestRelease(); v != "" {
+		data["latest_version"] = v
+	}
+	return response.OK(c, data)
 }
 
 func (h *Handler) GetNodes(c echo.Context) error {
@@ -869,6 +880,12 @@ func (h *Handler) RevokeToken(c echo.Context) error {
 		return response.Fail(c, http.StatusBadRequest, response.ErrInvalidRequest, "Token ID required")
 	}
 	if err := mgr.RevokeJoinToken(id); err != nil {
+		// A token used or expired since the page listed it is simply gone.
+		// clusterErrResponse's 401 is for a joining node's token; to the
+		// browser it means a dead session and logs the operator out.
+		if errors.Is(err, cluster.ErrTokenNotFound) {
+			return response.Fail(c, http.StatusNotFound, response.ErrNotFound, "No pending join token has this id")
+		}
 		return clusterErrResponse(c, err)
 	}
 	return response.OK(c, map[string]string{"revoked": id})
@@ -1289,11 +1306,14 @@ func (h *Handler) LeaveCluster(c echo.Context) error {
 	// A leave no leader took goes ahead, as the CLI's does, but its answer
 	// says so: the UI and the CLI with the service running show only that.
 	untaken := ""
+	var warnings []response.Warning
 	nodeID := mgr.LocalNodeID()
 	if err := mgr.Leave(); err != nil {
 		slog.Warn("could not notify cluster of departure", "component", "cluster", "error", err)
 		if errors.Is(err, cluster.ErrLeaveUnacknowledged) {
-			untaken = fmt.Sprintf(" Warning: %v. This node's ID is %s.", err, nodeID)
+			why := fmt.Sprintf("%v. This node's ID is %s.", err, nodeID)
+			untaken = " Warning: " + why
+			warnings = append(warnings, response.Warning{Code: response.ErrClusterLeaveUnacknowledged, Message: why, Details: map[string]string{"node_id": nodeID}})
 		}
 	}
 
@@ -1338,9 +1358,15 @@ func (h *Handler) LeaveCluster(c echo.Context) error {
 		exit(1)
 	}()
 
-	return response.OK(c, map[string]string{
+	// message keeps the warning for the CLI and older pages; warnings carry
+	// its code for the page to word.
+	answer := map[string]interface{}{
 		"message": "Left cluster. Service restarting in standalone mode..." + untaken,
-	})
+	}
+	if len(warnings) > 0 {
+		answer["warnings"] = warnings
+	}
+	return response.OK(c, answer)
 }
 
 func (h *Handler) DisbandCluster(c echo.Context) error {
@@ -1374,8 +1400,14 @@ func (h *Handler) DisbandCluster(c echo.Context) error {
 		}
 	}
 	untold := ""
+	answer := map[string]interface{}{}
 	if len(notTold) > 0 {
-		untold = fmt.Sprintf(" These agents were not reached and need 'sudo sfpanel agent reset --yes' on each: %s", strings.Join(notTold, ", "))
+		agents := strings.Join(notTold, ", ")
+		why := fmt.Sprintf("These agents were not reached and need 'sudo sfpanel agent reset --yes' on each: %s", agents)
+		untold = " " + why
+		// message keeps the names for the CLI and older pages; the warning
+		// carries its code for the page to word.
+		answer["warnings"] = []response.Warning{{Code: response.ErrClusterAgentsNotReached, Message: why, Details: map[string]string{"agents": agents}}}
 	}
 
 	// L-04: Broadcast disband to all nodes through the Raft FSM. Apply blocks
@@ -1397,15 +1429,13 @@ func (h *Handler) DisbandCluster(c echo.Context) error {
 		slog.Warn("forced local-only disband (operator-initiated split)",
 			"component", "cluster", "broadcast_error", err)
 		go h.performDisband(mgr.LocalNodeID())
-		return response.OK(c, map[string]string{
-			"message": "Forced local-only disband. Follower nodes (if any) require manual 'cluster leave'." + untold,
-		})
+		answer["message"] = "Forced local-only disband. Follower nodes (if any) require manual 'cluster leave'." + untold
+		return response.OK(c, answer)
 	}
 
 	slog.Info("cluster disbanded via UI, nodes will self-clean from CmdDisband", "component", "cluster")
-	return response.OK(c, map[string]string{
-		"message": "Cluster disbanded. All nodes are restarting in standalone mode..." + untold,
-	})
+	answer["message"] = "Cluster disbanded. All nodes are restarting in standalone mode..." + untold
+	return response.OK(c, answer)
 }
 
 // agentNames lists the agents in this node's copy of the cluster state, by
@@ -1536,10 +1566,15 @@ func (h *Handler) ConvertNode(c echo.Context) error {
 	}
 	slog.Info("conversion to an agent started", "component", "cluster", "node_id", id, "name", name)
 	msg := name + " is leaving the cluster and joining it again as an agent"
+	started := map[string]interface{}{"node_id": id}
 	if reply.Data.Warning != "" {
 		msg += ". Warning: " + reply.Data.Warning
+		// The manager backups are the one warning BecomeAgent gives. message
+		// keeps it for the CLI and older pages; the code is for the page.
+		started["warnings"] = []response.Warning{{Code: response.ErrClusterManagerBackups, Message: reply.Data.Warning}}
 	}
-	return response.Accepted(c, map[string]string{"message": msg, "node_id": id})
+	started["message"] = msg
+	return response.Accepted(c, started)
 }
 
 // convertToAgent runs this node's conversion once BecomeAgent has answered;

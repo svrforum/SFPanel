@@ -76,6 +76,15 @@ func checkUpdate(currentVersion string) {
 	updateMu.Unlock()
 }
 
+// CachedLatest is the release the checker last saw, without a leading "v",
+// or "" before the first check succeeded. Only a leader checks, so a node
+// that has never led has none.
+func CachedLatest() string {
+	updateMu.RLock()
+	defer updateMu.RUnlock()
+	return cachedLatest
+}
+
 type UpdateInfo struct {
 	UpdateAvailable bool   `json:"update_available"`
 	LatestVersion   string `json:"latest_version,omitempty"`
