@@ -73,8 +73,7 @@
       "nodeCount": "{{count}}개 노드",
       "online": "온라인",
       "offline": "오프라인",
-      "suspect": "점검 중",
-      "leader": "리더"
+      "suspect": "점검 중"
     },
     "mobileNav": {
       "dashboard": "대시보드",
@@ -935,11 +934,12 @@
       "or": "또는"
     },
     "overview": {
-      "nodes": "노드",
       "avgCpu": "평균 CPU",
       "avgMemory": "평균 메모리",
       "avgDisk": "평균 디스크",
       "containers": "컨테이너",
+      "managers": "매니저",
+      "agents": "에이전트",
       "leaderLabel": "리더",
       "nodeStatus": "노드 상태",
       "memory": "메모리",
@@ -951,7 +951,7 @@
       "disband": "클러스터 해제",
       "confirmDisband": "정말 클러스터를 해제하시겠습니까? 이 노드는 독립 모드로 전환됩니다.",
       "disbandConfirmTitle": "클러스터 {{name}} 해제",
-      "disbandConfirmDesc": "클러스터 {{name}}을(를) 해제하면 이 노드가 독립 모드로 전환되고 클러스터 구성이 제거됩니다. 이 작업은 되돌릴 수 없습니다.",
+      "disbandConfirmDesc": "클러스터 {{name}}을(를) 해제하면 먼저 모든 에이전트를 내보낸 뒤, 모든 매니저를 독립 모드로 전환하고 클러스터 구성을 제거합니다. 오프라인 에이전트는 알림을 받지 못하므로 그 서버에서 sudo sfpanel agent reset --yes를 실행해야 합니다. 이 작업은 되돌릴 수 없습니다.",
       "disbanded": "클러스터가 해제되었습니다. 서비스를 재시작합니다.",
       "rollingUpdate": "순차 업데이트",
       "simultaneousUpdate": "동시 업데이트",
@@ -977,7 +977,21 @@
       "renameTitle": "클러스터 이름 변경",
       "renameHint": "모든 노드에 바로 반영됩니다. 1~64자.",
       "renamed": "클러스터 이름을 {{name}}(으)로 바꿨습니다",
-      "renameInvalid": "이름은 1~64자이고 줄바꿈 같은 제어 문자를 쓸 수 없습니다."
+      "renameInvalid": "이름은 1~64자이고 줄바꿈 같은 제어 문자를 쓸 수 없습니다.",
+      "offlineAgents_one": "오프라인 에이전트 {{count}}대: {{names}}",
+      "offlineAgents_other": "오프라인 에이전트 {{count}}대: {{names}}",
+      "andMore": "외 {{count}}대",
+      "toUpdate_one": "업데이트할 노드 {{count}}대(최신 {{version}})",
+      "toUpdate_other": "업데이트할 노드 {{count}}대(최신 {{version}})",
+      "waveSize": "물결 크기",
+      "waveSizeHint": "한 물결에 함께 업데이트할 에이전트 수",
+      "confirmRollingOrder": "에이전트를 물결로 먼저, 그다음 다른 매니저를 한 대씩, 마지막에 리더를 올립니다. 이미 최신인 노드와 오프라인 노드는 건너뜁니다.",
+      "confirmSimultaneousOrder": "모든 에이전트를 한 물결로 올리고, 매니저는 여전히 한 대씩, 리더는 마지막에 올립니다.",
+      "updateTarget": "{{version}}(으)로 업데이트",
+      "wave": "물결 {{wave}}/{{waves}}: {{nodes}}",
+      "stopped": "업데이트가 멈췄습니다",
+      "leaderRestarting": "리더가 새 릴리스로 재시작합니다.",
+      "disbandWarningsTitle": "클러스터를 해체했고, 남은 일이 하나 있습니다"
     },
     "events": {
       "node_joined": "클러스터에 참가",

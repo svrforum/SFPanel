@@ -1,20 +1,40 @@
-import { useEffect, useState, useCallback } from 'react'
+import { useEffect, useState, useCallback, useId } from 'react'
 import { useTranslation } from 'react-i18next'
-import { Server, Cpu, MemoryStick, HardDrive, Container, Crown, Bell, Power, Download, Pencil, LogOut } from 'lucide-react'
-import { api } from '@/lib/api'
-import type { ClusterOverview as ClusterOverviewType, ClusterStatus, ClusterEvent, ClusterNode, ClusterNodeMetrics } from '@/types/api'
+import { Link } from 'react-router-dom'
+import { Server, Boxes, Cpu, MemoryStick, HardDrive, Container, Bell, Power, Download, Pencil, LogOut, AlertTriangle, CircleArrowUp } from 'lucide-react'
+import { api, type ApiError } from '@/lib/api'
+import type { ClusterOverview as ClusterOverviewType, ClusterStatus, ClusterEvent, ClusterNode, ClusterNodeMetrics, ClusterUpdateEvent } from '@/types/api'
 import { useWebSocket } from '@/hooks/useWebSocket'
 import { Button } from '@/components/ui/button'
+import { Input } from '@/components/ui/input'
+import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog'
 import { TypeToConfirmDialog } from '@/components/TypeToConfirmDialog'
 import { useConfirm } from '@/components/ConfirmDialog'
 import { usePrompt } from '@/components/PromptDialog'
 import { cn, nodeStatusColor } from '@/lib/utils'
 import { waitForServerBack } from '@/lib/restart'
-import { isManager } from '@/lib/clusterNodes'
+import { ALL_NODES, filterNodes, isAgent, isManager, isOutdated, nodeRoleKind, referenceVersion, sortNodes } from '@/lib/clusterNodes'
+import { toastWarnings, warningText, type ApiWarning } from '@/lib/warnings'
 import { toast } from 'sonner'
 import { ClusterInitForm } from './components/ClusterInitForm'
-import { ClusterUpdateProgress, type UpdateEvent } from './components/ClusterUpdateProgress'
+import { ClusterUpdateProgress } from './components/ClusterUpdateProgress'
 import { EditNodeAddressDialog } from './components/EditNodeAddressDialog'
+import { KindBadge } from './components/KindBadge'
+
+const message = (err: unknown) => (err instanceof Error ? err.message : String(err))
+
+// How many offline agents the overview names before it says "and N more".
+const NAMED_OFFLINE = 5
+
+// The node restarts after a leave, a disband or its own update: wait for it,
+// then reload (and reload anyway once the wait gives up).
+const reloadWhenBack = () => waitForServerBack({ onTimeout: () => window.location.reload() })
+
+// A wave is one agent or more, and no more than there are agents.
+function clampWave(entered: string, agents: number): number {
+  const n = Math.floor(Number(entered))
+  return Number.isFinite(n) ? Math.min(Math.max(n, 1), agents) : 1
+}
 
 // The combined snapshot pushed over /ws/cluster/overview (status + overview +
 // recent events in one message). Followers serve their replicated FSM view with
@@ -30,6 +50,9 @@ interface ClusterSnapshot {
   nodes?: ClusterNode[]
   metrics?: ClusterNodeMetrics[]
   events?: ClusterEvent[]
+  // Each push replaces the overview, so a field the push does not carry is
+  // lost on the first one.
+  latest_version?: string
 }
 
 export default function ClusterOverview() {
@@ -41,9 +64,12 @@ export default function ClusterOverview() {
   const [events, setEvents] = useState<ClusterEvent[]>([])
   const [loading, setLoading] = useState(true)
   const [updating, setUpdating] = useState(false)
-  const [updateLog, setUpdateLog] = useState<UpdateEvent[]>([])
+  const [updateLog, setUpdateLog] = useState<ClusterUpdateEvent[]>([])
+  const [waveSize, setWaveSize] = useState('1')
   const [disbandOpen, setDisbandOpen] = useState(false)
   const [disbanding, setDisbanding] = useState(false)
+  const [disbandWarnings, setDisbandWarnings] = useState<ApiWarning[] | null>(null)
+  const waveHintId = useId()
 
   // Per-node address editing
   const [editDialogOpen, setEditDialogOpen] = useState(false)
@@ -84,6 +110,7 @@ export default function ClusterOverview() {
       leader_id: snap.leader_id ?? '',
       nodes: snap.nodes ?? [],
       metrics: snap.metrics ?? [],
+      latest_version: snap.latest_version,
     })
     setEvents(snap.events ?? [])
     setLoading(false)
@@ -128,28 +155,43 @@ export default function ClusterOverview() {
       loadData()
       window.dispatchEvent(new Event('sfpanel:cluster-changed'))
     } catch (err) {
-      toast.error((err as { code?: string }).code === 'INVALID_NAME' ? t('cluster.overview.renameInvalid') : String(err))
+      toast.error((err as { code?: string }).code === 'INVALID_NAME' ? t('cluster.overview.renameInvalid') : message(err))
     }
   }
 
   const handleDisband = async () => {
     setDisbanding(true)
     try {
-      await api.disbandCluster()
+      const res = await api.disbandCluster()
       setDisbandOpen(false)
       toast.success(t('cluster.overview.disbanded'))
-      // Wait for the self-restart (bounded, lib default 5 min), then reload;
-      // on timeout reload anyway, matching the old inline copy's give-up path.
-      waitForServerBack({ onTimeout: () => window.location.reload() })
+      // The agents it could not tell need a command on their own servers. A
+      // toast would go with the reload, so the names stay on screen and the
+      // wait for the restart starts once they have been read.
+      if (res.warnings?.length) {
+        setDisbandWarnings(res.warnings)
+        return
+      }
+      reloadWhenBack()
     } catch (err) {
-      toast.error(String(err))
+      toast.error(message(err))
       setDisbanding(false)
     }
   }
 
+  const closeDisbandWarnings = () => {
+    setDisbandWarnings(null)
+    reloadWhenBack()
+  }
+
   const handleClusterUpdate = async (mode: 'rolling' | 'simultaneous') => {
     if (!status) return
-    if (!(await confirm({ title: t('cluster.overview.confirmUpdate') }))) return
+    const agentCount = (overview?.nodes ?? []).filter(isAgent).length
+    // Only a rolling update has waves to size; simultaneous sends every agent
+    // in one.
+    const wave = mode === 'rolling' && agentCount > 0 ? clampWave(waveSize, agentCount) : undefined
+    const order = mode === 'rolling' ? t('cluster.overview.confirmRollingOrder') : t('cluster.overview.confirmSimultaneousOrder')
+    if (!(await confirm({ title: t('cluster.overview.confirmUpdate'), description: order }))) return
     setUpdating(true)
     setUpdateLog([])
     // From a follower the stream is relayed through this node, and this node
@@ -162,15 +204,20 @@ export default function ClusterOverview() {
       await api.clusterUpdateStream(mode, (data) => {
         received++
         if (data.overall === 'complete' || data.overall === 'error') concluded = true
-        setUpdateLog(prev => [...prev, data as UpdateEvent])
-      }, viaFollower ? status.leader_id : undefined)
+        // The leader updates itself last and restarts: on the leader's own
+        // page, wait for it to come back on the new release.
+        if (data.overall === 'complete' && data.leader_restarting && !viaFollower) reloadWhenBack()
+        setUpdateLog(prev => [...prev, data])
+      }, viaFollower ? status.leader_id : undefined, wave)
       // A relay that closes cleanly mid-update ends the same way as one that
       // breaks: no verdict arrived, and the leader is still working.
       if (viaFollower && received > 0 && !concluded) toast.info(t('cluster.overview.updateContinuesOnLeader'))
     } catch (err) {
-      if ((err as { status?: number }).status === 409) toast.error(t('cluster.overview.updateAlreadyRunning'))
+      const e = err as ApiError
+      // Only this conflict means a run is under way; another says its own.
+      if (e.status === 409 && e.code === 'UPDATE_IN_PROGRESS') toast.error(t('cluster.overview.updateAlreadyRunning'))
       else if (viaFollower && received > 0) toast.info(t('cluster.overview.updateContinuesOnLeader'))
-      else toast.error(String(err))
+      else toast.error(message(err))
     } finally {
       setUpdating(false)
       loadData()
@@ -182,23 +229,31 @@ export default function ClusterOverview() {
     setEditDialogOpen(true)
   }
 
+  // The server ends the process two seconds after it answers a leave.
+  const left = (warnings: ApiWarning[] | undefined) => {
+    toast.success(t('cluster.leave.success'))
+    toastWarnings(warnings, t)
+    reloadWhenBack()
+  }
+
   const handleLeave = async () => {
     if (!(await confirm({ title: t('cluster.leave.confirm'), danger: true }))) return
     try {
-      await api.leaveCluster()
-      toast.success(t('cluster.leave.success'))
+      left((await api.leaveCluster()).warnings)
     } catch (err) {
-      if ((err as { status?: number }).status === 409) {
-        if (!(await confirm({ title: t('cluster.leave.forceConfirm'), danger: true }))) return
+      const e = err as ApiError
+      // Only a quorum refusal is one that forcing gets past. The reason (how
+      // many voters would be left) is in the server's sentence.
+      if (e.status === 409 && e.code === 'CLUSTER_QUORUM') {
+        if (!(await confirm({ title: t('cluster.leave.forceConfirm'), description: e.serverMessage, danger: true }))) return
         try {
-          await api.leaveCluster(true)
-          toast.success(t('cluster.leave.success'))
+          left((await api.leaveCluster(true)).warnings)
         } catch (forceErr) {
-          toast.error(String(forceErr))
+          toast.error(message(forceErr))
         }
         return
       }
-      toast.error(String(err))
+      toast.error(message(err))
     }
   }
 
@@ -219,9 +274,19 @@ export default function ClusterOverview() {
     return <ClusterInitForm />
   }
 
-  const nodes = overview?.nodes || []
+  const leaderId = status.leader_id ?? ''
+  const nodes = sortNodes(overview?.nodes || [], leaderId)
   const metrics = overview?.metrics || []
-  const onlineCount = nodes.filter(n => n.status === 'online').length
+  const managers = nodes.filter(isManager)
+  const agents = nodes.filter(isAgent)
+  const online = (list: ClusterNode[]) => list.filter(n => n.status === 'online').length
+  // Offline as the node list's filter reads it, so the link shows the same nodes.
+  const offlineAgents = filterNodes(nodes, { ...ALL_NODES, kind: 'agent', status: 'offline' })
+  const reference = referenceVersion(overview?.latest_version, metrics.map(m => m.version))
+  const versionOf = new Map(metrics.map(m => [m.node_id, m.version]))
+  const toUpdate = nodes.filter(n => n.status === 'online' && isOutdated(versionOf.get(n.id), reference)).length
+  const offlineNames = offlineAgents.slice(0, NAMED_OFFLINE).map(n => n.name).join(', ')
+    + (offlineAgents.length > NAMED_OFFLINE ? ' ' + t('cluster.overview.andMore', { count: offlineAgents.length - NAMED_OFFLINE }) : '')
 
   const avgCpu = metrics.length > 0 ? metrics.reduce((s, m) => s + m.cpu_percent, 0) / metrics.length : 0
   const avgMem = metrics.length > 0 ? metrics.reduce((s, m) => s + m.memory_percent, 0) / metrics.length : 0
@@ -229,11 +294,15 @@ export default function ClusterOverview() {
   const totalContainers = metrics.reduce((s, m) => s + m.container_count, 0)
 
   const statCards = [
-    { label: t('cluster.overview.nodes'), value: `${onlineCount}/${nodes.length}`, icon: Server, color: 'var(--primary)' },
-    { label: t('cluster.overview.avgCpu'), value: `${avgCpu.toFixed(1)}%`, icon: Cpu, color: avgCpu > 80 ? 'var(--destructive)' : avgCpu > 50 ? 'var(--warning)' : 'var(--primary)' },
-    { label: t('cluster.overview.avgMemory'), value: `${avgMem.toFixed(1)}%`, icon: MemoryStick, color: avgMem > 80 ? 'var(--destructive)' : avgMem > 50 ? 'var(--warning)' : 'var(--success)' },
-    { label: t('cluster.overview.avgDisk'), value: `${avgDisk.toFixed(1)}%`, icon: HardDrive, color: avgDisk > 80 ? 'var(--destructive)' : avgDisk > 50 ? 'var(--warning)' : 'var(--primary)' },
-    { label: t('cluster.overview.containers'), value: String(totalContainers), icon: Container, color: 'var(--primary)' },
+    { key: 'managers', label: t('cluster.overview.managers'), value: `${online(managers)}/${managers.length}`, icon: Server, color: 'var(--primary)' },
+    // A cluster without agents has no agent card.
+    ...(agents.length > 0
+      ? [{ key: 'agents', label: t('cluster.overview.agents'), value: `${online(agents)}/${agents.length}`, icon: Boxes, color: online(agents) < agents.length ? 'var(--warning)' : 'var(--primary)' }]
+      : []),
+    { key: 'cpu', label: t('cluster.overview.avgCpu'), value: `${avgCpu.toFixed(1)}%`, icon: Cpu, color: avgCpu > 80 ? 'var(--destructive)' : avgCpu > 50 ? 'var(--warning)' : 'var(--primary)' },
+    { key: 'memory', label: t('cluster.overview.avgMemory'), value: `${avgMem.toFixed(1)}%`, icon: MemoryStick, color: avgMem > 80 ? 'var(--destructive)' : avgMem > 50 ? 'var(--warning)' : 'var(--success)' },
+    { key: 'disk', label: t('cluster.overview.avgDisk'), value: `${avgDisk.toFixed(1)}%`, icon: HardDrive, color: avgDisk > 80 ? 'var(--destructive)' : avgDisk > 50 ? 'var(--warning)' : 'var(--primary)' },
+    { key: 'containers', label: t('cluster.overview.containers'), value: String(totalContainers), icon: Container, color: 'var(--primary)' },
   ]
 
   return (
@@ -244,6 +313,22 @@ export default function ClusterOverview() {
       {status.stale && (
         <div className="bg-warning/10 border border-warning/30 rounded-xl px-4 py-2 text-[12px] text-warning">
           {t('cluster.overview.staleData')}
+        </div>
+      )}
+      {/* Stale data may still list an agent offline that is back: no warning from it. */}
+      {!status.stale && offlineAgents.length > 0 && (
+        <Link
+          to="/cluster/nodes?kind=agent&status=offline"
+          className="flex items-start gap-2 bg-warning/10 border border-warning/30 rounded-xl px-4 py-2 text-[12px] text-warning hover:bg-warning/15"
+        >
+          <AlertTriangle className="h-3.5 w-3.5 mt-0.5 shrink-0" />
+          <span>{t('cluster.overview.offlineAgents', { count: offlineAgents.length, names: offlineNames })}</span>
+        </Link>
+      )}
+      {toUpdate > 0 && reference && (
+        <div className="flex items-start gap-2 bg-primary/10 border border-primary/20 rounded-xl px-4 py-2 text-[12px] text-primary">
+          <CircleArrowUp className="h-3.5 w-3.5 mt-0.5 shrink-0" />
+          <span>{t('cluster.overview.toUpdate', { count: toUpdate, version: reference })}</span>
         </div>
       )}
       {/* Cluster info */}
@@ -276,7 +361,23 @@ export default function ClusterOverview() {
           </div>
           <div className="flex flex-wrap gap-2">
             {(status.is_leader || !!status.leader_id) && (
-              <div className="flex flex-wrap gap-1">
+              <div className="flex flex-wrap items-center gap-1">
+                {agents.length > 0 && (
+                  <label className="flex items-center gap-1.5 text-[12px] text-muted-foreground mr-1" title={t('cluster.overview.waveSizeHint')}>
+                    {t('cluster.overview.waveSize')}
+                    <Input
+                      type="number"
+                      min={1}
+                      max={agents.length}
+                      value={waveSize}
+                      onChange={(e) => setWaveSize(e.target.value)}
+                      disabled={updating}
+                      aria-describedby={waveHintId}
+                      className="h-8 w-16 rounded-xl text-[13px]"
+                    />
+                    <span id={waveHintId} className="sr-only">{t('cluster.overview.waveSizeHint')}</span>
+                  </label>
+                )}
                 <Button
                   variant="outline"
                   size="sm"
@@ -313,12 +414,12 @@ export default function ClusterOverview() {
       </div>
 
       {/* Update progress */}
-      {updateLog.length > 0 && <ClusterUpdateProgress updateLog={updateLog} />}
+      {updateLog.length > 0 && <ClusterUpdateProgress events={updateLog} />}
 
       {/* Stats */}
-      <div className="grid grid-cols-2 md:grid-cols-5 gap-4">
+      <div className={cn('grid grid-cols-2 gap-4', statCards.length > 5 ? 'md:grid-cols-3 xl:grid-cols-6' : 'md:grid-cols-5')}>
         {statCards.map((card) => (
-          <div key={card.label} className="bg-card rounded-2xl p-5 card-shadow">
+          <div key={card.key} data-testid={`stat-${card.key}`} className="bg-card rounded-2xl p-5 card-shadow">
             <div className="flex items-center gap-2 mb-2">
               <card.icon className="h-4 w-4" style={{ color: card.color }} />
               <span className="text-[11px] text-muted-foreground">{card.label}</span>
@@ -336,7 +437,6 @@ export default function ClusterOverview() {
         <div className="divide-y divide-border">
           {nodes.map((node) => {
             const nodeMetrics = metrics.find(m => m.node_id === node.id)
-            const isLeader = node.id === status.leader_id
 
             return (
               <div key={node.id} className="px-5 py-4 flex items-center gap-4">
@@ -345,12 +445,7 @@ export default function ClusterOverview() {
                   <div>
                     <div className="flex items-center gap-2">
                       <span className="text-[13px] font-medium">{node.name}</span>
-                      {isLeader && nodes.length > 1 && (
-                        <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-full text-[10px] font-medium bg-primary/10 text-primary">
-                          <Crown className="h-3 w-3" />
-                          {t('layout.cluster.leader')}
-                        </span>
-                      )}
+                      <KindBadge kind={nodeRoleKind(node, leaderId)} />
                       {node.id === status.local_id && (
                         <span className="text-[10px] text-muted-foreground">({t('layout.cluster.localNode')})</span>
                       )}
@@ -465,6 +560,25 @@ export default function ClusterOverview() {
         loading={disbanding}
         onConfirm={handleDisband}
       />
+
+      {/* What the disband could not do, kept until it is read */}
+      <Dialog open={!!disbandWarnings} onOpenChange={(open) => { if (!open) closeDisbandWarnings() }}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle className="text-warning">{t('cluster.overview.disbandWarningsTitle')}</DialogTitle>
+            <DialogDescription asChild>
+              <div className="space-y-2">
+                {(disbandWarnings ?? []).map((w, i) => (
+                  <p key={i} className="break-words">{warningText(w, t)}</p>
+                ))}
+              </div>
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter>
+            <Button onClick={closeDisbandWarnings}>{t('common.confirm')}</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   )
 }

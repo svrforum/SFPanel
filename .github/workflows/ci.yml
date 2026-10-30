@@ -192,6 +192,7 @@ jobs:
             tests/cluster-nodes.spec.ts \
             tests/cluster-add-agent.spec.ts \
             tests/cluster-convert.spec.ts \
+            tests/cluster-overview.spec.ts \
             tests/mobile-node-picker.spec.ts \
             tests/alert-settings.spec.ts \
             tests/terminal-select-text.spec.ts \

@@ -80,6 +80,16 @@ describe('apiErrorFrom / errorFromResponse', () => {
     })
     expect(err.message).toBe('cluster.warnings.leaveUnacknowledged|node-a')
   })
+
+  it("keeps the server's sentence beside the worded one", async () => {
+    // A quorum refusal says how many voters would be left only in the
+    // server's message; wording the code must not lose it.
+    const { apiErrorFrom, setApiTranslator } = await freshApi()
+    setApiTranslator((key) => key)
+    const sent = 'Leave refused: 1 of 2 voters would remain; pass ?force=true to override'
+    const err = apiErrorFrom(409, { success: false, error: { code: 'CLUSTER_QUORUM', message: sent } })
+    expect([err.message, err.serverMessage]).toEqual(['cluster.errors.quorum', sent])
+  })
 })
 
 describe('clusterUpdateStream', () => {

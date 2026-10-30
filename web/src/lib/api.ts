@@ -40,6 +40,8 @@ import type {
   ProcessInfo,
   ClusterStatus,
   ClusterOverview,
+  ClusterUpdateEvent,
+  ClusterExitResponse,
   ClusterNodesResponse,
   ClusterConvertResponse,
   ClusterPromoteResponse,
@@ -124,8 +126,11 @@ export function setApiTranslator(fn: Translator) {
 
 // An error the server refused with: the HTTP status and the envelope's code and
 // details ride on it, so callers can react to a specific refusal (a 409
-// firewall-lockout guard) without parsing the message.
-export type ApiError = Error & { status?: number; code?: string; details?: Record<string, string> }
+// firewall-lockout guard) without parsing the message. serverMessage is the
+// envelope's own sentence: a worded code replaces the message, and a refusal
+// whose reason lives only in that sentence (how many voters a leave would
+// leave) still has it.
+export type ApiError = Error & { status?: number; code?: string; details?: Record<string, string>; serverMessage?: string }
 
 // apiErrorFrom reads the { success:false, error:{ code, message, details } }
 // envelope. A body that is not one — a reverse proxy's 502 page, an Echo
@@ -143,6 +148,7 @@ export function apiErrorFrom(status: number, body: unknown): ApiError {
   err.status = status
   err.code = code
   err.details = details
+  err.serverMessage = envelope.error?.message
   return err
 }
 
@@ -2552,7 +2558,7 @@ class ApiClient {
 
   leaveCluster(force = false) {
     const q = force ? '?force=true' : ''
-    return this.request<{ message: string }>(`/cluster/leave${q}`, { method: 'POST' })
+    return this.request<ClusterExitResponse>(`/cluster/leave${q}`, { method: 'POST' })
   }
 
   getTerminalSessions() {
@@ -2599,21 +2605,23 @@ class ApiClient {
   }
 
   disbandCluster() {
-    return this.request<{ message: string }>('/cluster/disband', {
+    return this.request<ClusterExitResponse>('/cluster/disband', {
       method: 'POST',
     })
   }
 
   // leaderId targets the leader explicitly — the orchestration only runs
   // there — so the button works from any node, whichever node is selected.
-  clusterUpdateStream(mode: 'rolling' | 'simultaneous', onEvent: (data: Record<string, unknown>) => void, leaderId?: string): Promise<void> {
+  // waveSize is sent only when given: an older leader ignores the field, and
+  // without agents there is no wave to size.
+  clusterUpdateStream(mode: 'rolling' | 'simultaneous', onEvent: (e: ClusterUpdateEvent) => void, leaderId?: string, waveSize?: number): Promise<void> {
     return new Promise((resolve, reject) => {
       if (!this.token) return reject(new Error('No token'))
       const target = leaderId ? `?node=${encodeURIComponent(leaderId)}` : ''
       fetch(`${this.apiBase}/cluster/update${target}`, {
         method: 'POST',
         headers: this.streamHeaders({ 'Content-Type': 'application/json' }),
-        body: JSON.stringify({ mode }),
+        body: JSON.stringify(waveSize === undefined ? { mode } : { mode, wave_size: waveSize }),
       }).then(async resp => {
         if (!resp.ok) return reject(await errorFromResponse(resp))
         if (!resp.body) return reject(Object.assign(new Error(`HTTP ${resp.status}`), { status: resp.status }))

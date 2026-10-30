@@ -73,8 +73,7 @@
       "nodeCount": "{{count}} nodes",
       "online": "Online",
       "offline": "Offline",
-      "suspect": "Suspect",
-      "leader": "Leader"
+      "suspect": "Suspect"
     },
     "mobileNav": {
       "dashboard": "Dashboard",
@@ -937,11 +936,12 @@
       "or": "or"
     },
     "overview": {
-      "nodes": "Nodes",
       "avgCpu": "Avg CPU",
       "avgMemory": "Avg Memory",
       "avgDisk": "Avg Disk",
       "containers": "Containers",
+      "managers": "Managers",
+      "agents": "Agents",
       "leaderLabel": "Leader",
       "nodeStatus": "Node Status",
       "memory": "Memory",
@@ -953,7 +953,7 @@
       "disband": "Disband Cluster",
       "confirmDisband": "Are you sure you want to disband the cluster? This node will switch to standalone mode.",
       "disbandConfirmTitle": "Disband cluster {{name}}",
-      "disbandConfirmDesc": "Disbanding cluster {{name}} switches this node to standalone mode and removes the cluster configuration. This cannot be undone.",
+      "disbandConfirmDesc": "Disbanding cluster {{name}} first removes every agent from it, then switches every manager to standalone mode and removes the cluster configuration. An agent that is offline is not told and needs sudo sfpanel agent reset --yes on its own server. This cannot be undone.",
       "disbanded": "Cluster disbanded. Restarting service.",
       "rollingUpdate": "Rolling Update",
       "simultaneousUpdate": "Simultaneous Update",
@@ -979,7 +979,21 @@
       "renameTitle": "Rename cluster",
       "renameHint": "Every node shows the new name right away. 1–64 characters.",
       "renamed": "Cluster renamed to {{name}}",
-      "renameInvalid": "A name is 1–64 characters, without control characters such as line breaks."
+      "renameInvalid": "A name is 1–64 characters, without control characters such as line breaks.",
+      "offlineAgents_one": "{{count}} agent offline: {{names}}",
+      "offlineAgents_other": "{{count}} agents offline: {{names}}",
+      "andMore": "and {{count}} more",
+      "toUpdate_one": "{{count}} node to update to {{version}}",
+      "toUpdate_other": "{{count}} nodes to update to {{version}}",
+      "waveSize": "Wave size",
+      "waveSizeHint": "Agents updated together in each wave",
+      "confirmRollingOrder": "Agents go first in waves, then the other managers one at a time, then the leader. Nodes already on the release and offline nodes are skipped.",
+      "confirmSimultaneousOrder": "Every agent goes in one wave; managers still go one at a time, the leader last.",
+      "updateTarget": "Updating to {{version}}",
+      "wave": "Wave {{wave}} of {{waves}}: {{nodes}}",
+      "stopped": "The update stopped",
+      "leaderRestarting": "The leader is restarting on the new release.",
+      "disbandWarningsTitle": "The cluster is disbanded, with one thing left to do"
     },
     "events": {
       "node_joined": "joined the cluster",

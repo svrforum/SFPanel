@@ -1033,6 +1033,23 @@ export interface ClusterOverview {
   latest_version?: string
 }
 
+// One event of the POST /cluster/update stream: the run (overall), a wave of
+// agents (wave, waves, nodes), or one node's step. An older leader sends no
+// waves or target and reports a node done as step "complete".
+export interface ClusterUpdateEvent {
+  overall?: 'started' | 'complete' | 'error'; mode?: string; total_nodes?: number; waves?: number; target?: string
+  wave?: number; nodes?: string[]
+  node_id?: string; node_name?: string; step?: string; message?: string
+  updated?: number; failed?: number; leader_restarting?: boolean
+}
+
+// POST /cluster/leave and /cluster/disband: the message stays for the CLI and
+// older pages; warnings says the same by code.
+export interface ClusterExitResponse {
+  message: string
+  warnings?: ApiWarning[]
+}
+
 export interface ClusterStatus {
   enabled: boolean
   // Only with enabled=false: this node's config says it is a member, but its
