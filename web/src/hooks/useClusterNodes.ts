@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import { api } from '@/lib/api'
 import type { ClusterStatus, ClusterNode } from '@/types/api'
 
@@ -13,14 +13,15 @@ export interface ClusterNodesState {
   currentNode: ClusterNode | undefined
   /** Scope the API client to a node and broadcast sfpanel:node-changed. */
   selectNode: (id: string | null) => void
+  /** Ask for the status and the node list again. */
+  reload: () => void
 }
 
 /**
- * Shared cluster-node picker state: probes cluster status, loads the node
- * list, and owns the select-node → api.setCurrentNode → node-changed-event
- * sequence. NodeSelector (desktop sidebar) and MoreMenu (mobile drawer) used
- * to implement this identically in parallel — the event contract stays the
- * same (Layout remounts the Outlet on sfpanel:node-changed).
+ * The cluster-node picker state of the phone's More drawer: probes cluster
+ * status, loads the node list, and owns the select-node →
+ * api.setCurrentNode → node-changed-event sequence (Layout remounts the
+ * Outlet on sfpanel:node-changed).
  */
 export function useClusterNodes(): ClusterNodesState {
   const [clusterStatus, setClusterStatus] = useState<ClusterStatus | null>(null)
@@ -28,7 +29,10 @@ export function useClusterNodes(): ClusterNodesState {
   const [localId, setLocalId] = useState('')
   const [selectedNode, setSelectedNode] = useState<string | null>(api.currentNode)
 
-  useEffect(() => {
+  // A follower answers 503 while it cannot reach the leader, so one ask per
+  // page load could leave the picker empty until a reload, long after the
+  // cluster had recovered. The drawer calls this again each time it opens.
+  const reload = useCallback(() => {
     api
       .getClusterStatus(true)
       .then((status) => {
@@ -43,6 +47,10 @@ export function useClusterNodes(): ClusterNodesState {
       })
       .catch(() => {})
   }, [])
+
+  useEffect(() => {
+    reload()
+  }, [reload])
 
   // Skip the broadcast for the initial mount sync — only user-driven
   // selection changes should remount the page outlet.
@@ -67,5 +75,6 @@ export function useClusterNodes(): ClusterNodesState {
     selectedNode,
     currentNode,
     selectNode: setSelectedNode,
+    reload,
   }
 }

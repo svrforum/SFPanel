@@ -2,6 +2,10 @@ package websocket
 
 import (
 	"context"
+	"encoding/json"
+	"errors"
+	"fmt"
+	"net/http"
 	"sync"
 	"time"
 
@@ -14,12 +18,47 @@ import (
 // without hammering the FSM.
 var overviewBroadcastInterval = 5 * time.Second
 
+// leaderOverviewTimeout bounds a follower's ask to the leader within one tick.
+const leaderOverviewTimeout = 3 * time.Second
+
+// leaderOverview is the leader's GET /cluster/overview, asked the way the HTTP
+// handler asks for it on a follower. Node health is what the leader hears in
+// heartbeats, which a follower never receives: its own view shows every other
+// node offline with no metrics. A var so tests can stand in for the leader.
+var leaderOverview = func(mgr *cluster.Manager) (map[string]interface{}, error) {
+	local := mgr.GetOverview()
+	if local == nil || local.LeaderID == "" {
+		return nil, errors.New("no leader known")
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), leaderOverviewTimeout)
+	defer cancel()
+	status, body, err := mgr.ProxyToNode(ctx, local.LeaderID, http.MethodGet, "/api/v1/cluster/overview", nil, "")
+	if err != nil {
+		return nil, err
+	}
+	if status != http.StatusOK {
+		return nil, fmt.Errorf("leader answered %d", status)
+	}
+	var resp struct {
+		Success bool                   `json:"success"`
+		Data    map[string]interface{} `json:"data"`
+	}
+	if err := json.Unmarshal(body, &resp); err != nil {
+		return nil, err
+	}
+	if !resp.Success || resp.Data == nil {
+		return nil, errors.New("leader sent no overview")
+	}
+	return resp.Data, nil
+}
+
 // buildClusterSnapshot assembles the combined status+overview+events payload the
-// dashboard needs, entirely from the local (Raft-replicated) FSM and in-memory
-// event bus — no leader RPC. Followers serve their replicated view flagged
-// stale=true so the UI can show its "may be out of date" banner, exactly as the
-// HTTP fallback path does. This is what lets one WS push replace the old 15s
-// triple-poll (status + overview + events) without a per-tab leader round-trip.
+// dashboard needs. The leader builds it from its FSM and in-memory event bus. A
+// follower takes the overview from the leader (leaderOverview), once per tick
+// for every dashboard open on it, and serves its own view flagged stale=true
+// only when the leader does not answer, so the UI can show its "may be out of
+// date" banner. This is what lets one WS push replace the old 15s triple-poll
+// (status + overview + events) without a per-tab leader round-trip.
 func buildClusterSnapshot(mgr *cluster.Manager) map[string]interface{} {
 	if mgr == nil {
 		return map[string]interface{}{"enabled": false}
@@ -35,6 +74,17 @@ func buildClusterSnapshot(mgr *cluster.Manager) map[string]interface{} {
 		"is_leader": isLeader,
 		"stale":     !isLeader,
 		"events":    events,
+	}
+	if !isLeader {
+		if lo, err := leaderOverview(mgr); err == nil {
+			snap["stale"] = false
+			for _, k := range []string{"name", "node_count", "leader_id", "nodes", "metrics", "stale"} {
+				if v, ok := lo[k]; ok {
+					snap[k] = v
+				}
+			}
+			return snap
+		}
 	}
 	if overview := mgr.GetOverview(); overview != nil {
 		snap["name"] = overview.Name

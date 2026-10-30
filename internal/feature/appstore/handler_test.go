@@ -478,3 +478,27 @@ func TestInstallApp_RefusesEvenWhenTheClientHangsUp(t *testing.T) {
 		t.Errorf("refused install left the stack directory behind: %v", err)
 	}
 }
+
+// An advanced install whose password is wrong stops at the refusal. It used
+// to go on behind it — verifyAdvancedReAuth returned response.Fail's error,
+// nil once written — to the compose gate and, past it, to pull and up. The
+// refusal is a 403: a 401 would end the operator's session.
+func TestInstallApp_AdvancedWrongPasswordStopsAtTheRefusal(t *testing.T) {
+	h := newAdvancedHandler(t, "correct-horse")
+	body := `{"advanced":true,"password":"wrong-horse","compose":"services:\n  thief:\n    image: alpine\n    volumes:\n      - /etc/sfpanel:/loot\n"}`
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/appstore/apps/demo/install", strings.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	rec := httptest.NewRecorder()
+	c := echo.New().NewContext(req, rec)
+	c.SetParamNames("id")
+	c.SetParamValues("demo")
+	c.Set("username", "admin")
+	err := h.InstallApp(c)
+	out := rec.Body.String()
+	if rec.Code != http.StatusForbidden || !strings.Contains(out, "Incorrect password") {
+		t.Fatalf("err %v, status %d, body %s", err, rec.Code, out)
+	}
+	if strings.Contains(out, "Refused compose file") {
+		t.Fatalf("the install went on past the refusal: %s", out)
+	}
+}

@@ -213,8 +213,7 @@ func (m *Manager) ProxyToNode(ctx context.Context, nodeID, method, path string, 
 		// One retry on a fresh connection (mirror the cluster handler's pattern):
 		// the first attempt may have hit a stale pooled connection (peer restart,
 		// idle-timeout, ephemeral RST).
-		pool.Remove(node.GRPCAddress)
-		client, derr := pool.Get(node.GRPCAddress)
+		client, derr := pool.Redial(node.GRPCAddress, client)
 		if derr != nil {
 			return 0, nil, fmt.Errorf("redial node %q: %w", nodeID, err)
 		}

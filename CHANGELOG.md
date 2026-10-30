@@ -6,6 +6,53 @@ The format is loosely based on [Keep a Changelog](https://keepachangelog.com/), 
 
 ---
 
+## [0.79.4] – 2026-10-30
+
+### Fixed
+
+- **A follower's cluster dashboard shows the cluster as the leader sees it.** The overview page's live updates came from the node the browser was on, and only the leader hears the nodes' heartbeats: on any other manager, a few seconds after the page opened, every other node — the leader included — turned offline with no metrics, under a "leader unreachable" banner. The node list and the sidebar, which ask the leader, were right. A follower now passes on the leader's overview, and shows its own, flagged as possibly out of date, only when the leader does not answer.
+
+### Upgrading
+
+- Update every node; the cluster update takes them one at a time.
+
+## [0.79.3] – 2026-10-30
+
+### Fixed
+
+- **Requests a node relays to another node at the same moment no longer cut each other off.** When a node held no live connection to the target — none yet, or one idle for five minutes — requests that arrived together each opened one and closed the one they found, which was the connection another of them had just been given; their retries did the same to each other. All of them failed with "grpc: the client connection is closing", so a page opened on a follower, or on another node chosen in the node picker, came up with 503 and 504 errors, the cluster's node list among them. They now share one connection, and a retry drops only the connection its own request failed on.
+- **The phone's node picker comes back once the leader answers again.** The picker at the top of the More drawer asked for the node list once, when the page loaded, and stayed hidden until a reload when that answer was an error. It now asks each time the drawer opens.
+
+### Upgrading
+
+- Update every node; the cluster update takes them one at a time.
+
+## [0.79.2] – 2026-10-30
+
+### Security
+
+- **Rebuilt with Go 1.26.10 and x/net 0.62.** Go 1.26.10 fixes GO-2026-6809: crypto/x509's certificate verification now distrusts compromised intermediate certificates, and the panel's outbound TLS — the release download among it — and its cluster certificate checks go through it. x/net 0.62 fixes two advisories in its HTML package (GO-2026-6866, GO-2026-6860). No line of the panel's own code differs from 0.79.1. The CI vulnerability job had been failing on these since they appeared; the Go advisories that remain are the ones with no upstream fix, as before.
+- Web dependencies move to their patched releases — DOMPurify 3.4.17, fast-uri 3.1.9 and serialize-javascript 7.1.4 — which clears the `npm audit` gate. The advisories left are moderate or low and have no fix in range: the `postcss-selector-parser` that `@tailwindcss/typography` pins and the `deepmerge` under the PWA plugin's workbox, both of which run only while the web app is built.
+
+### Upgrading
+
+- Update every node; the cluster update takes them one at a time.
+
+## [0.79.1] – 2026-10-30
+
+### Security
+
+- **A WebSocket the panel refuses is no longer opened behind the refusal.** The check in front of the metrics, container log, container exec, compose log, cluster overview and log stream WebSockets answered a request without a valid ticket, session or token with 401, and then upgraded it all the same: the check reported no error once its answer was written, and every handler went on to the upgrade. A client that read past the 401 had the stream, container exec included. The terminal and AI session WebSockets use another check and were not affected. Update every node.
+- **An advanced app install with a wrong password stops at the refusal.** The re-authentication answered 401, and the install went on to the compose checks and, past them, to pulling and starting the stack. A stolen session needed no password for an advanced install.
+
+### Fixed
+
+- **An update the quorum guard refuses stops there.** A single node's update that would leave the cluster without a quorum was answered 409 and then went on to download and install the release. The coordinated cluster update skips this guard by design and is unaffected.
+
+### Upgrading
+
+- Update every node; the cluster update takes them one at a time. Nothing else changes: configuration, cluster traffic and the API stay as they were.
+
 ## [0.79.0] – 2026-10-19
 
 ### Security

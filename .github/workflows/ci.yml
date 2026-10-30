@@ -189,6 +189,7 @@ jobs:
             tests/mobile-tmux.spec.ts \
             tests/new-session-dirs.spec.ts \
             tests/settings-scope.spec.ts \
+            tests/mobile-node-picker.spec.ts \
             tests/alert-settings.spec.ts \
             tests/terminal-select-text.spec.ts \
             tests/terminal-links.spec.ts \
