@@ -188,7 +188,7 @@ func (h *Handler) performDisband(fromNodeID string) {
 			// manager (which abandons the FSM) — otherwise the standalone restart
 			// falls back to a stale pre-cluster local account.
 			h.syncClusterAdminToLocalDB(mgr)
-			mgr.Shutdown()
+			mgr.ShutdownForDisband()
 		}
 
 		if dataDir != "" {

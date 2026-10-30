@@ -2103,6 +2103,28 @@ func (m *Manager) StartLocalMetrics(collector MetricsCollector) {
 
 // Shutdown gracefully stops all cluster services.
 func (m *Manager) Shutdown() {
+	m.shutdown(true)
+}
+
+// ShutdownForDisband stops this manager once a disband has committed. The
+// leader first makes the other managers learn that it committed: a follower
+// applies an entry only when an AppendEntries carries the commit index past
+// it, and Raft sends one with the next entry or after CommitTimeout (a second
+// here), never with a heartbeat. A leader that stopped at once left them
+// holding a disband they never applied: of two managers, the one left could
+// not commit alone and stayed in a cluster of one, and of more, a follower
+// made leader stopped as fast in its turn. A barrier is that next entry.
+// Nobody is handed leadership either: every manager is leaving.
+func (m *Manager) ShutdownForDisband() {
+	if m.raft != nil && m.raft.IsLeader() {
+		if err := m.raft.Barrier(5 * time.Second); err != nil {
+			slog.Warn("could not confirm that the other managers learned of the disband", "component", "cluster", "error", err)
+		}
+	}
+	m.shutdown(false)
+}
+
+func (m *Manager) shutdown(transferLeadership bool) {
 	if m.heartbeat != nil {
 		m.heartbeat.Stop()
 	}
@@ -2111,7 +2133,7 @@ func (m *Manager) Shutdown() {
 	// The target comes from live heartbeat health, not the FSM's stale status,
 	// and must be a manager voter: the first online node used to be taken,
 	// and a transfer to a non-voter fails with no second try.
-	if m.raft != nil && m.raft.IsLeader() {
+	if transferLeadership && m.raft != nil && m.raft.IsLeader() {
 		if target := m.pickTransferTarget(); target != "" {
 			slog.Info("transferring leadership before shutdown", "component", "cluster", "target", target)
 			if err := m.raft.TransferLeadership(target); err != nil {
