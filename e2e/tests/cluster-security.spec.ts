@@ -336,3 +336,22 @@ test('keeps the last state when the leader cannot be confirmed', async ({ page }
   await page.clock.runFor(5100)
   await expect(page.getByText('Could not reach the leader')).toHaveCount(0)
 })
+
+// Between two polls the leader may move past the point of no return, and the
+// stop is refused: the rotation runs on, so it did not "not start".
+test('says a refused stop did not stop the rotation', async ({ page }) => {
+  const why = "the next CA is the cluster's already: a rotation cannot be undone past that point"
+  const calls = await mock(page, {
+    posts: { '/cluster/rotate/ca/abort': { reply: refused(409, 'CLUSTER_ROTATION_REFUSED', why) } },
+  })
+  await page.goto('/cluster/security')
+  const ca = card(page, 'ca')
+  await ca.getByRole('button', { name: 'Stop and keep the current CA' }).click()
+  await page.getByRole('dialog').getByRole('button', { name: 'Stop and keep the current CA' }).click()
+  await expect.poll(() => posts(calls)).toEqual(['/cluster/rotate/ca/abort'])
+
+  const alert = ca.getByRole('alert')
+  await expect(alert).toContainText('The rotation was not stopped')
+  await expect(alert).toContainText(why)
+  await expect(alert).not.toContainText('The rotation did not start')
+})

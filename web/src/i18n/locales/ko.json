@@ -1142,6 +1142,7 @@
       "abortConfirm": "모든 노드가 한 단계씩 현재 CA로 돌아갑니다. 다시 하려면 새 교체를 시작하세요.",
       "deadline": "이 단계가 끝나지 않으면 {{time}}에 되돌아갑니다",
       "refused": "교체를 시작하지 못했습니다",
+      "abortRefused": "교체를 멈추지 못했습니다",
       "rotate": "교체",
       "generation": "세대 {{generation}}",
       "generationColumn": "세대",

@@ -114,7 +114,9 @@ export default function ClusterSecurity() {
       await api.abortClusterCARotation()
       load()
     } catch (err) {
-      fail('ca', err)
+      // Refused between two polls, the rotation runs on: it was not stopped,
+      // which is not the same as not started.
+      setFailures((f) => ({ ...f, ca: { ...rotationFailure(err), title: t('cluster.security.abortRefused') } }))
     } finally {
       setBusy(null)
     }

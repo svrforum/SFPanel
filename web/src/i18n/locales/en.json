@@ -1144,6 +1144,7 @@
       "abortConfirm": "Every node goes back to the current CA, a step at a time. Start a new rotation to try again.",
       "deadline": "Goes back at {{time}} unless the phase completes",
       "refused": "The rotation did not start",
+      "abortRefused": "The rotation was not stopped",
       "rotate": "Rotate",
       "generation": "Generation {{generation}}",
       "generationColumn": "Generation",

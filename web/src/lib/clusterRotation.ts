@@ -13,6 +13,8 @@ export const ROTATION_REFUSED_CODES = ['CLUSTER_ROTATION_REFUSED', 'UPDATE_IN_PR
 export interface RotationFailure {
   refused: boolean
   message: string
+  /** A refusal's own title, when it is not that the rotation did not start. */
+  title?: string
 }
 
 export function rotationFailure(err: unknown): RotationFailure {

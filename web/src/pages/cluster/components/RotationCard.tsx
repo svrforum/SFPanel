@@ -135,7 +135,7 @@ export function RotationFailureNote({ failure }: { failure: RotationFailure }) {
   const { t } = useTranslation()
   return (
     <div role="alert" className="rounded-xl bg-destructive/10 p-3 text-destructive space-y-1">
-      {failure.refused && <p className="text-[13px] font-medium">{t('cluster.security.refused')}</p>}
+      {failure.refused && <p className="text-[13px] font-medium">{failure.title ?? t('cluster.security.refused')}</p>}
       <p className="text-[13px] break-words">{failure.message}</p>
     </div>
   )
