@@ -1088,7 +1088,8 @@
       "joined": "{{name}} joined the cluster.",
       "expired": "The token has expired.",
       "newToken": "New token",
-      "oldLeader": "The cluster's leader runs a version without agents and made a manager token instead. Update the cluster first.",
+      "oldLeader": "The cluster's leader runs a version without agents and made a manager token instead. Update the cluster first. The token it made has been revoked.",
+      "oldLeaderNotRevoked": "The cluster's leader runs a version without agents and made a manager token instead. Update the cluster first. It is still valid: revoke it under “Add a manager instead”.",
       "advanced": "Add a manager instead",
       "managerNote": "A manager holds the cluster's JWT key, CA key and admin account. Add one only to a server you trust as much as this one."
     },

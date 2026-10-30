@@ -127,14 +127,31 @@ test('says when the agent has joined', async ({ page }) => {
 })
 
 // An older leader ignores the kind and makes a manager token: pasted into an
-// agent command, it would hand that server the cluster's secrets.
-test('refuses to show a token an old leader made', async ({ page }) => {
-  await mock(page, { tokens: [{ token: 'tok123', expires_at: hours(24), advertise_address: '192.0.2.10', grpc_port: 3629, ca_pin: pin }] })
+// agent command, it would hand that server the cluster's secrets. Nobody sees
+// it, so it is revoked straight away, once: an older leader answers an id it
+// does not know with 401, which would sign the operator out.
+// The token's id is the first 12 hex digits of its raw half (token.go's
+// tokenFingerprint, the same since v0.19.0).
+const oldRaw = '0123456789abcdef'.repeat(3)
+const oldToken = `${oldRaw}.${'f'.repeat(64)}`
+test('revokes the manager token an old leader made, once, and says so', async ({ page }) => {
+  const calls = await mock(page, { tokens: [{ token: oldToken, expires_at: hours(24), advertise_address: '192.0.2.10', grpc_port: 3629, ca_pin: pin }] })
   const dialog = await openDialog(page)
-  await expect(dialog.getByText('The cluster\'s leader runs a version without agents and made a manager token instead. Update the cluster first.')).toBeVisible()
+  await expect(dialog.getByText("The cluster's leader runs a version without agents and made a manager token instead. Update the cluster first. The token it made has been revoked.")).toBeVisible()
   await expect(dialog.getByText(/sfpanel agent join/)).toHaveCount(0)
-  await expect(dialog.getByText(/tok123/)).toHaveCount(0)
+  await expect(dialog.getByText(new RegExp(oldRaw))).toHaveCount(0)
   await expect(dialog.getByText('Waiting for the agent to join…')).toHaveCount(0)
+  // Re-renders (the countdown ticks every second) do not revoke again.
+  await page.waitForTimeout(2500)
+  expect(calls.filter((c) => c.method === 'DELETE').map((c) => c.path)).toEqual(['/cluster/tokens/0123456789ab'])
+})
+
+test('says an old leader\'s token is still valid when it could not be revoked', async ({ page }) => {
+  const calls = await mock(page, { revokeStatus: 404, tokens: [{ token: oldToken, expires_at: hours(24), advertise_address: '192.0.2.10', grpc_port: 3629, ca_pin: pin }] })
+  const dialog = await openDialog(page)
+  await expect(dialog.getByText(/It is still valid: revoke it under “Add a manager instead”\.$/)).toBeVisible()
+  await expect(dialog.getByText(/has been revoked/)).toHaveCount(0)
+  expect(calls.filter((c) => c.method === 'DELETE').map((c) => c.path)).toEqual(['/cluster/tokens/0123456789ab'])
 })
 
 test('offers a new token once the old one expires', async ({ page }) => {

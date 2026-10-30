@@ -30,6 +30,8 @@ interface Minted {
   token: ClusterTokenResponse
   /** The nodes there were when the token came back; null when that list could not be had. */
   before: string[] | null
+  /** An older leader's manager token was taken back. */
+  revoked: boolean
 }
 
 // The add-agent dialog. Each opening makes an agent token (the server's
@@ -73,6 +75,7 @@ function AddAgentBody({ localId, onJoined, onClose }: { localId: string; onJoine
   const [nameInput, setNameInput] = useState('')
   const [joined, setJoined] = useState<ClusterNode | null>(null)
   const [tokensChanged, setTokensChanged] = useState(0)
+  const [oldTokenRevoked, setOldTokenRevoked] = useState(false)
 
   // One token per attempt. The request is kept across the effect's re-run, so
   // StrictMode's second mount waits for the same token instead of making
@@ -85,19 +88,30 @@ function AddAgentBody({ localId, onJoined, onClose }: { localId: string; onJoine
   useEffect(() => {
     let live = true
     minting.current ??= api.createClusterToken(undefined, 'agent').then(async (tok) => {
+      // An older leader ignores the kind and makes a manager token nobody
+      // here will see: take it back now rather than leave it valid for a
+      // day. Here, in the chain, so it runs once per token: that leader
+      // answers an id it does not know with 401, which signs the operator
+      // out. The id is the first 12 hex digits of the raw half (token.go's
+      // tokenFingerprint, unchanged since v0.19.0).
+      let revoked = false
+      if (tok.kind !== 'agent') {
+        revoked = await api.revokeClusterToken(tok.token.split('.')[0].slice(0, 12)).then(() => true, () => false)
+      }
       let before: string[] | null = null
       try {
         before = ((await api.getClusterNodes()).nodes ?? []).map((n) => n.id)
       } catch {
         // The first poll that answers takes the baseline instead.
       }
-      return { token: tok, before }
+      return { token: tok, before, revoked }
     })
     minting.current.then(
-      ({ token: tok, before }) => {
+      ({ token: tok, before, revoked }) => {
         if (!live) return
         baseline.current = before ? new Set(before) : null
         setToken(tok)
+        setOldTokenRevoked(revoked)
         setTokensChanged((n) => n + 1)
       },
       (err) => { if (live) setError(message(err)) },
@@ -192,7 +206,7 @@ function AddAgentBody({ localId, onJoined, onClose }: { localId: string; onJoine
     main = (
       <div role="alert" className="rounded-xl bg-warning/10 text-warning p-4 flex items-start gap-2">
         <AlertTriangle className="h-4 w-4 mt-0.5 shrink-0" />
-        <p className="text-[13px]">{t('cluster.addAgent.oldLeader')}</p>
+        <p className="text-[13px]">{t(oldTokenRevoked ? 'cluster.addAgent.oldLeader' : 'cluster.addAgent.oldLeaderNotRevoked')}</p>
       </div>
     )
   } else if (expired) {
