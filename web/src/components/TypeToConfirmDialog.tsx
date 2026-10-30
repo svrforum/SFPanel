@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useState, type ReactNode } from 'react'
 import { useTranslation } from 'react-i18next'
 import { AlertTriangle } from 'lucide-react'
 import {
@@ -22,6 +22,10 @@ interface TypeToConfirmDialogProps {
   confirmLabel: string
   loading?: boolean
   onConfirm: () => void
+  /** Replaces the generic "To confirm, type:" when the phrase needs naming ("the node name"). */
+  prompt?: string
+  /** What the action changes, drawn under the description and above the field. */
+  children?: ReactNode
 }
 
 /**
@@ -40,6 +44,8 @@ export function TypeToConfirmDialog({
   confirmLabel,
   loading,
   onConfirm,
+  prompt,
+  children,
 }: TypeToConfirmDialogProps) {
   const { t } = useTranslation()
   const [typed, setTyped] = useState('')
@@ -67,9 +73,11 @@ export function TypeToConfirmDialog({
           {description && <DialogDescription>{description}</DialogDescription>}
         </DialogHeader>
 
+        {children}
+
         <div className="space-y-2">
           <p className="text-sm text-muted-foreground">
-            {t('common.typeToConfirm.prompt')}{' '}
+            {prompt ? `${prompt}:` : t('common.typeToConfirm.prompt')}{' '}
             <span className="font-mono font-semibold text-foreground">{confirmPhrase}</span>
           </p>
           <Input

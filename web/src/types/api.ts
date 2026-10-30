@@ -1,3 +1,5 @@
+import type { ApiWarning } from '@/lib/warnings'
+
 // API Response wrapper
 export interface ApiResponse<T> {
   success: boolean
@@ -1047,6 +1049,20 @@ export interface ClusterStatus {
   // (indicating a partition / lost quorum). UI surfaces a "stale data"
   // badge so operators know not to fully trust the numbers.
   stale?: boolean
+}
+
+// POST /cluster/nodes/:id/convert and …/promote answer 202 once the change
+// has started; the node list says when it is done.
+export interface ClusterConvertResponse {
+  message: string
+  node_id: string
+  // CLUSTER_MANAGER_BACKUPS when the node keeps backups taken as a manager.
+  warnings?: ApiWarning[]
+}
+
+export interface ClusterPromoteResponse {
+  message: string
+  node_id: string
 }
 
 export interface ClusterNodesResponse {

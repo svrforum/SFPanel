@@ -41,6 +41,8 @@ import type {
   ClusterStatus,
   ClusterOverview,
   ClusterNodesResponse,
+  ClusterConvertResponse,
+  ClusterPromoteResponse,
   ClusterTokenResponse,
   ClusterTokenInfo,
   MigratePreflightReport,
@@ -2585,6 +2587,15 @@ class ApiClient {
       method: 'POST',
       body: JSON.stringify({ target_node_id: targetNodeId }),
     })
+  }
+
+  // 202: the change has started. The node list says when it is done.
+  convertClusterNode(id: string) {
+    return this.request<ClusterConvertResponse>(`/cluster/nodes/${encodeURIComponent(id)}/convert`, { method: 'POST' })
+  }
+
+  promoteClusterNode(id: string) {
+    return this.request<ClusterPromoteResponse>(`/cluster/nodes/${encodeURIComponent(id)}/promote`, { method: 'POST' })
   }
 
   disbandCluster() {

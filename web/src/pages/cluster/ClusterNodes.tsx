@@ -1,8 +1,8 @@
-import { useCallback, useMemo, useState } from 'react'
+import { useCallback, useMemo, useRef, useState } from 'react'
 import { useSearchParams } from 'react-router-dom'
 import { useVisibleInterval } from '@/hooks/useVisibleInterval'
 import { useTranslation } from 'react-i18next'
-import { Server, RefreshCw, AlertTriangle, Plus } from 'lucide-react'
+import { Server, RefreshCw, AlertTriangle, Plus, Loader2 } from 'lucide-react'
 import { api } from '@/lib/api'
 import type { ClusterNode, ClusterStatus, ClusterNodeMetrics } from '@/types/api'
 import { useConfirm } from '@/components/ConfirmDialog'
@@ -13,6 +13,7 @@ import { toast } from 'sonner'
 import { cn } from '@/lib/utils'
 import {
   GROUP_LABEL,
+  ROLE_CHANGE_TIMEOUT_MS,
   filterFromQuery,
   filterNodes,
   isAgent,
@@ -22,6 +23,7 @@ import {
   referenceVersion,
   sortNodes,
   type NodeFilter,
+  type RoleChange,
 } from '@/lib/clusterNodes'
 import { NodeLabelsDialog } from './components/NodeLabelsDialog'
 import { EditNodeAddressDialog } from './components/EditNodeAddressDialog'
@@ -30,6 +32,9 @@ import { KindBadge } from './components/KindBadge'
 import { NodeFilterBar } from './components/NodeFilterBar'
 import { NodeCard, NodeGroup, NodeStatus, NodeVersion } from './components/NodeCard'
 import { AddAgentDialog } from './components/AddAgentDialog'
+import { ConvertNodeDialog } from './components/ConvertNodeDialog'
+import { PromoteNodeDialog } from './components/PromoteNodeDialog'
+import { RoleChangeProgress } from './components/RoleChangeProgress'
 
 const message = (err: unknown) => (err instanceof Error ? err.message : String(err))
 
@@ -58,6 +63,15 @@ export default function ClusterNodes() {
   // Address editing
   const [addressDialogOpen, setAddressDialogOpen] = useState(false)
   const [addressNode, setAddressNode] = useState<ClusterNode | null>(null)
+  // Conversion and promotion
+  const [convertOpen, setConvertOpen] = useState(false)
+  const [convertNode, setConvertNode] = useState<ClusterNode | null>(null)
+  const [promoteOpen, setPromoteOpen] = useState(false)
+  const [promoteNode, setPromoteNode] = useState<ClusterNode | null>(null)
+  // The changes the page follows. Kept in this page only: a reload forgets
+  // them, and the list still shows where each node ended up.
+  const [changes, setChanges] = useState<(RoleChange & { done?: boolean })[]>([])
+  const following = useRef(false)
 
   // Background refreshes don't toggle the page-level loading spinner —
   // only the initial mount and the Refresh button do. Calling
@@ -93,6 +107,24 @@ export default function ClusterNodes() {
 
   // Load on mount + poll every 15s while visible (paused when the tab is hidden).
   useVisibleInterval(loadNodes, 15000)
+
+  // Every 3s while a conversion or promotion is under way, only the list. A
+  // conversion takes a voter out of Raft and a promotion adds one, so the
+  // managers may be electing a leader: a 503 or any other miss is not shown,
+  // the next poll asks again. Past the timeout the 15s poll is enough.
+  const followChanges = () => {
+    const now = Date.now()
+    if (following.current || !changes.some((c) => !c.done && now - c.startedAt <= ROLE_CHANGE_TIMEOUT_MS)) return
+    following.current = true
+    api.getClusterNodes()
+      .then((res) => {
+        setNodes(res.nodes ?? [])
+        setLocalId(res.local_id)
+      })
+      .catch(() => {})
+      .finally(() => { following.current = false })
+  }
+  useVisibleInterval(followChanges, 3000)
 
   const leaderId = status?.leader_id ?? ''
   const versions = useMemo(() => new Map(metrics.map((m) => [m.node_id, m.version])), [metrics])
@@ -135,6 +167,22 @@ export default function ClusterNodes() {
     }
   }
 
+  const startChange = (node: ClusterNode, target: RoleChange['target']) => {
+    setChanges((prev) => [
+      ...prev.filter((c) => c.nodeId !== node.id),
+      { nodeId: node.id, name: node.name, target, startedAt: Date.now() },
+    ])
+  }
+
+  const changeDone = useCallback((nodeId: string) => {
+    setChanges((prev) => prev.map((c) => (c.nodeId === nodeId ? { ...c, done: true } : c)))
+    changed()
+  }, [changed])
+
+  const dismissChange = useCallback((nodeId: string) => {
+    setChanges((prev) => prev.filter((c) => c.nodeId !== nodeId))
+  }, [])
+
   // Closed, the dialog is not asked for again by a reload of the same address.
   const setAddAgent = (open: boolean) => {
     setAddOpen(open)
@@ -155,6 +203,16 @@ export default function ClusterNodes() {
   const openAddressDialog = (node: ClusterNode) => {
     setAddressNode(node)
     setAddressDialogOpen(true)
+  }
+
+  const openConvertDialog = (node: ClusterNode) => {
+    setConvertNode(node)
+    setConvertOpen(true)
+  }
+
+  const openPromoteDialog = (node: ClusterNode) => {
+    setPromoteNode(node)
+    setPromoteOpen(true)
   }
 
   // Only an answer that says so means "not a cluster". Before the first answer,
@@ -203,8 +261,16 @@ export default function ClusterNodes() {
       onAddress={openAddressDialog}
       onTransfer={handleTransferLeadership}
       onRemove={handleRemove}
+      onConvert={openConvertDialog}
+      onPromote={openPromoteDialog}
     />
   )
+
+  // A converting node leaves Raft before it registers as an agent, and for
+  // that moment the list does not have it: its row stays, saying so.
+  const absent = changes.filter((c) => !c.done && !nodes.some((n) => n.id === c.nodeId))
+  const startedText = (c: RoleChange) =>
+    c.target === 'agent' ? t('cluster.convert.started', { name: c.name }) : t('cluster.promote.started', { name: c.name })
 
   const seen = (node: ClusterNode) => lastSeenAgo(node.last_seen, i18n.language) || '—'
 
@@ -233,6 +299,23 @@ export default function ClusterNodes() {
             <p className="text-[13px] font-medium">{t('cluster.nodes.loadFailed')}</p>
             <p className="text-[12px] opacity-80 mt-0.5 break-words">{nodesError}</p>
           </div>
+        </div>
+      )}
+
+      {changes.length > 0 && (
+        <div className="space-y-2">
+          {changes.map((c) => (
+            <RoleChangeProgress
+              key={c.nodeId}
+              nodeId={c.nodeId}
+              name={c.name}
+              target={c.target}
+              startedAt={c.startedAt}
+              nodes={nodes}
+              onDone={changeDone}
+              onDismiss={dismissChange}
+            />
+          ))}
         </div>
       )}
 
@@ -280,6 +363,19 @@ export default function ClusterNodes() {
                     <TableCell>{menu(node)}</TableCell>
                   </TableRow>
                 ))}
+                {absent.map((c) => (
+                  <TableRow key={`absent-${c.nodeId}`}>
+                    <TableCell>
+                      <span data-node-name className="text-[13px] font-medium">{c.name}</span>
+                    </TableCell>
+                    <TableCell colSpan={8} className="text-[13px] text-muted-foreground">
+                      <span className="inline-flex items-center gap-2">
+                        <Loader2 className="h-3.5 w-3.5 animate-spin" aria-hidden />
+                        {startedText(c)}
+                      </span>
+                    </TableCell>
+                  </TableRow>
+                ))}
               </TableBody>
             </Table>
           </div>
@@ -297,6 +393,15 @@ export default function ClusterNodes() {
                 labels={labelChips(node)}
                 menu={menu(node)}
               />
+            ))}
+            {absent.map((c) => (
+              <div key={`absent-${c.nodeId}`} className="bg-card rounded-2xl card-shadow p-4 space-y-1">
+                <p className="text-[13px] font-medium">{c.name}</p>
+                <p className="text-[12px] text-muted-foreground inline-flex items-center gap-2">
+                  <Loader2 className="h-3.5 w-3.5 animate-spin" aria-hidden />
+                  {startedText(c)}
+                </p>
+              </div>
             ))}
           </div>
         </>
@@ -317,6 +422,22 @@ export default function ClusterNodes() {
         onOpenChange={setAddressDialogOpen}
         node={addressNode}
         onSaved={changed}
+      />
+
+      <ConvertNodeDialog
+        open={convertOpen}
+        onOpenChange={setConvertOpen}
+        node={convertNode}
+        localId={localId}
+        nodes={nodes}
+        onStarted={(node) => startChange(node, 'agent')}
+      />
+
+      <PromoteNodeDialog
+        open={promoteOpen}
+        onOpenChange={setPromoteOpen}
+        node={promoteNode}
+        onStarted={(node) => startChange(node, 'manager')}
       />
     </div>
   )

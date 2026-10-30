@@ -1074,6 +1074,36 @@
       "advanced": "Add a manager instead",
       "managerNote": "A manager holds the cluster's JWT key, CA key and admin account. Add one only to a server you trust as much as this one."
     },
+    "convert": {
+      "menu": "Convert to agent",
+      "leaderHint": "The leader cannot be converted. Transfer leadership first.",
+      "title": "Convert {{name}} to an agent",
+      "intro": "It keeps its node ID, name and labels and is managed from here as an agent. It gives up its vote and the cluster's secrets.",
+      "erased": "Erased on that server",
+      "erasedList": "Raft data and snapshots · the cluster CA key and join tokens · the internal proxy secret · its manager certificate and key · config.yaml.bak and sfpanel.db.bak",
+      "kept": "Kept",
+      "keptList": "Stacks, containers and files · scheduled backups (those taken as a manager hold the cluster's secrets until they are rotated)",
+      "noLogin": "That server's panel stops serving this interface and its sign-in. Its local account is removed when it starts as an agent.",
+      "thisManager": "This is the manager your browser is on: this page goes away when the conversion is done. Follow it from another manager, {{address}}.",
+      "typeName": "Type the node name to confirm",
+      "started": "Converting {{name}}…",
+      "refused": "The conversion was refused",
+      "noAnswer": "The node did not answer. Check the node list in a minute; if it is still a manager, convert it again.",
+      "timeout": "Not done yet. Check the node list; if it is still a manager, convert it again.",
+      "doneCard": "{{name}} is an agent now. It held the cluster's JWT key and internal proxy secret: rotate them.",
+      "toSecurity": "Rotate secrets"
+    },
+    "promote": {
+      "menu": "Promote to manager",
+      "title": "Promote {{name}} to a manager",
+      "body": "A manager receives the cluster's JWT key, CA key and admin account: promote only a server you trust as much as this one. It votes once the leader reaches its Raft port (its cluster port + 1, 3630 by default) — open it first.",
+      "started": "Promoting {{name}}…",
+      "refused": "The promotion was refused",
+      "noAnswer": "The agent did not answer. Check the node list in a minute; if it is still an agent, promote it again.",
+      "timeout": "Not done yet. Check the node list; if it is still an agent, promote it again.",
+      "raftPort": "{{name}} is a manager but not voting yet: the leader cannot reach its Raft port.",
+      "done": "{{name}} is a voting manager now."
+    },
     "leave": {
       "action": "Leave cluster",
       "confirm": "This node will leave the cluster and the service will restart. Continue?",

@@ -13,7 +13,10 @@ import {
   nodeGroup,
   nodeGroups,
   nodeRoleKind,
+  otherManagerAddress,
   referenceVersion,
+  roleChangeFailure,
+  roleChangePhase,
   sortNodes,
 } from './clusterNodes'
 
@@ -191,5 +194,73 @@ describe('detectJoined', () => {
     const named = node({ id: 'agent-3', name: 'agent-07', kind: 'agent', role: '' })
     expect(detectJoined(before, [...known, other], 'agent-07')).toBeUndefined()
     expect(detectJoined(before, [...known, other, named], 'agent-07')).toBe(named)
+  })
+})
+
+describe('roleChangePhase', () => {
+  const min = 60_000
+  const convert = { nodeId: 'm-2', target: 'agent' as const, startedAt: 0 }
+  const promote = { nodeId: 'a-1', target: 'manager' as const, startedAt: 0 }
+
+  it('a conversion is done once the node answers as an agent', () => {
+    expect(roleChangePhase(convert, [node({ id: 'm-2', kind: 'manager' })], min)).toBe('running')
+    // Between leaving Raft and registering again the node is not listed at all.
+    expect(roleChangePhase(convert, [], min)).toBe('running')
+    expect(roleChangePhase(convert, [node({ id: 'm-2', kind: 'agent', role: '', status: 'offline' })], min)).toBe('running')
+    expect(roleChangePhase(convert, [node({ id: 'm-2', kind: 'agent', role: '' })], min)).toBe('done')
+  })
+
+  it('a conversion that has not ended in three minutes has timed out', () => {
+    expect(roleChangePhase(convert, [node({ id: 'm-2', kind: 'manager' })], 3 * min)).toBe('running')
+    expect(roleChangePhase(convert, [node({ id: 'm-2', kind: 'manager' })], 3 * min + 1)).toBe('timeout')
+    expect(roleChangePhase(convert, [node({ id: 'm-2', kind: 'agent', role: '' })], 10 * min)).toBe('done')
+  })
+
+  it('a promotion is done once the node votes, not when it is a manager', () => {
+    expect(roleChangePhase(promote, [node({ id: 'a-1', kind: 'agent', role: '' })], min)).toBe('running')
+    expect(roleChangePhase(promote, [node({ id: 'a-1', kind: 'manager', role: 'nonvoter' })], min)).toBe('running')
+    expect(roleChangePhase(promote, [node({ id: 'a-1', kind: 'manager', role: 'voter' })], min)).toBe('done')
+  })
+
+  it('a manager not voting after two minutes points at the Raft port, never at a timeout', () => {
+    const nonvoter = [node({ id: 'a-1', kind: 'manager', role: 'nonvoter' })]
+    expect(roleChangePhase(promote, nonvoter, 2 * min + 1)).toBe('raftPort')
+    expect(roleChangePhase(promote, nonvoter, 30 * min)).toBe('raftPort')
+    // Still an agent: asking again is the answer.
+    expect(roleChangePhase(promote, [node({ id: 'a-1', kind: 'agent', role: '' })], 3 * min + 1)).toBe('timeout')
+  })
+})
+
+describe('roleChangeFailure', () => {
+  const err = (status: number, code: string, message: string) => Object.assign(new Error(message), { status, code })
+
+  it('a refusal carries its reason in the message', () => {
+    expect(roleChangeFailure(err(409, 'CLUSTER_CONVERT_REFUSED', 'a rotation is pending'), 'CLUSTER_CONVERT_REFUSED'))
+      .toEqual({ kind: 'refused', message: 'a rotation is pending' })
+    expect(roleChangeFailure(err(502, 'CLUSTER_PROMOTE_REFUSED', 'not an agent'), 'CLUSTER_PROMOTE_REFUSED'))
+      .toEqual({ kind: 'refused', message: 'not an agent' })
+  })
+
+  it('a node that did not answer is not a refusal: the change may be under way', () => {
+    expect(roleChangeFailure(err(502, 'INTERNAL_ERROR', 'EOF'), 'CLUSTER_CONVERT_REFUSED').kind).toBe('noAnswer')
+    // The same code from anything else is an ordinary failure.
+    expect(roleChangeFailure(err(500, 'INTERNAL_ERROR', 'cluster CA unavailable'), 'CLUSTER_CONVERT_REFUSED'))
+      .toEqual({ kind: 'other', message: 'cluster CA unavailable' })
+    expect(roleChangeFailure(err(409, 'CLUSTER_PROMOTE_REFUSED', 'x'), 'CLUSTER_CONVERT_REFUSED').kind).toBe('other')
+  })
+})
+
+describe('otherManagerAddress', () => {
+  it('names another manager that answers', () => {
+    const nodes = [
+      node({ id: 'm-1', kind: 'manager', api_address: '192.0.2.1:3628', status: 'offline' }),
+      node({ id: 'm-2', kind: 'manager', api_address: '192.0.2.2:3628' }),
+      node({ id: 'a-1', kind: 'agent', role: '', api_address: '198.51.100.1:3628' }),
+      node({ id: 'm-3', api_address: '192.0.2.3:3628' }),
+    ]
+    expect(otherManagerAddress(nodes, 'm-2')).toBe('192.0.2.3:3628')
+    // None answers: one that may come back is better than nothing.
+    expect(otherManagerAddress(nodes.slice(0, 3), 'm-2')).toBe('192.0.2.1:3628')
+    expect(otherManagerAddress([nodes[1], nodes[2]], 'm-2')).toBe('')
   })
 })

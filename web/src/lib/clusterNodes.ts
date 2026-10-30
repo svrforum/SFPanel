@@ -171,3 +171,67 @@ export function lastSeenAgo(value: string, lang: string, now = Date.now()): stri
   if (Number.isNaN(ms) || ms <= 0) return ''
   return relativeSince(value, lang, now)
 }
+
+/** A conversion (to an agent) or a promotion (to a manager) the page follows. */
+export interface RoleChange {
+  nodeId: string
+  name: string
+  target: 'agent' | 'manager'
+  /** Date.now() when the server answered 202. */
+  startedAt: number
+}
+
+export type RoleChangePhase = 'running' | 'raftPort' | 'timeout' | 'done'
+
+/** Past this, a change that has not ended is not going to without help. */
+export const ROLE_CHANGE_TIMEOUT_MS = 3 * 60_000
+/** A promoted node that restarted as a manager but does not vote by then is cut off from the leader's Raft. */
+export const RAFT_PORT_HINT_MS = 2 * 60_000
+
+/**
+ * Where a conversion or promotion stands, read from the node list. The server
+ * answers 202 before the node has done anything, so the list is the only
+ * account of it. A converted node is done when it answers as an agent; between
+ * leaving Raft and registering again it is not listed at all, which is still
+ * running. A promoted node is done when it votes: as a manager that does not
+ * vote it is past its restart, and only the leader's way to its Raft port is
+ * missing — asking again would not help, so that never times out.
+ */
+export function roleChangePhase(change: Pick<RoleChange, 'nodeId' | 'target' | 'startedAt'>, nodes: ClusterNode[], now: number): RoleChangePhase {
+  const node = nodes.find((n) => n.id === change.nodeId)
+  const elapsed = now - change.startedAt
+  if (change.target === 'agent') {
+    if (node && isAgent(node) && node.status === 'online') return 'done'
+  } else if (node && isManager(node)) {
+    if (node.role === 'voter') return 'done'
+    if (node.role === 'nonvoter') return elapsed > RAFT_PORT_HINT_MS ? 'raftPort' : 'running'
+  }
+  return elapsed > ROLE_CHANGE_TIMEOUT_MS ? 'timeout' : 'running'
+}
+
+export interface RoleChangeFailure {
+  /**
+   * refused: the server's message is the reason. noAnswer: the leader could
+   * not hear the node's answer — a converting node may have left before it
+   * was heard — so the change may be under way. other: anything else.
+   */
+  kind: 'refused' | 'noAnswer' | 'other'
+  message: string
+}
+
+export function roleChangeFailure(err: unknown, refusedCode: string): RoleChangeFailure {
+  const { status, code } = (err ?? {}) as { status?: number; code?: string }
+  const message = err instanceof Error ? err.message : String(err)
+  if (code === refusedCode) return { kind: 'refused', message }
+  if (status === 502 && code === 'INTERNAL_ERROR') return { kind: 'noAnswer', message }
+  return { kind: 'other', message }
+}
+
+/**
+ * The address of a manager other than this one, for an operator whose browser
+ * is on the manager being converted. One that answers if there is one.
+ */
+export function otherManagerAddress(nodes: ClusterNode[], excludeId: string): string {
+  const others = nodes.filter((n) => isManager(n) && n.id !== excludeId)
+  return (others.find((n) => n.status === 'online') ?? others[0])?.api_address ?? ''
+}
