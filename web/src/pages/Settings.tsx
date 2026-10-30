@@ -26,7 +26,7 @@ export default function Settings() {
   const [clusterEnabled, setClusterEnabled] = useState(false)
 
   useEffect(() => {
-    api.getClusterStatus(true)
+    api.getClusterStatus()
       .then((s) => setClusterEnabled(s.enabled))
       .catch(() => {})
   }, [])

@@ -65,7 +65,7 @@ export function RulesSection({ channels }: { channels: AlertChannel[] }) {
     // The node list is the cluster's, and only managers serve /cluster/*: with
     // an agent selected, ?node= is refused. So this manager answers, and its
     // local_id is its own — the node being edited is the one selected.
-    api.getClusterNodes(true)
+    api.getClusterNodes()
       .then((res) => {
         setClusterNodes((res.nodes ?? []).map((n) => ({ id: n.id, name: n.name || n.id })))
         setLocalNodeId(api.currentNode ?? res.local_id ?? null)

@@ -209,7 +209,7 @@ export default function DockerStacks({ clusterMode = false }: { clusterMode?: bo
   useEffect(() => {
     // local: cluster membership is the same from any node; don't proxy this to a
     // remote currentNode just to count nodes.
-    api.getClusterStatus(true)
+    api.getClusterStatus()
       .then((s) => setClusterNodeCount(s.enabled ? (s.node_count ?? 0) : 0))
       .catch(() => setClusterNodeCount(0))
   }, [])
@@ -246,7 +246,7 @@ export default function DockerStacks({ clusterMode = false }: { clusterMode?: bo
     if (!nid) { setCurrentNodeName(null); return }
     // local: node names are the same from any node — resolve locally instead of
     // proxying this lookup to the remote node we're trying to name.
-    api.getClusterNodes(true)
+    api.getClusterNodes()
       .then((d) => setCurrentNodeName(d.nodes.find((n) => n.id === nid)?.name ?? null))
       .catch(() => setCurrentNodeName(null))
   }, [clusterMode])

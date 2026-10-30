@@ -2,6 +2,7 @@ import { useState, useEffect, useRef, useCallback } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useVisibleInterval } from '@/hooks/useVisibleInterval'
 import { api } from '@/lib/api'
+import { NODE_CHANGED, type NodeChangedDetail } from '@/lib/nodeSelection'
 import type { ClusterStatus, ClusterNode } from '@/types/api'
 import SidebarSkeleton from '@/components/SidebarSkeleton'
 import TreePanel, { type TreeSelection } from './TreePanel'
@@ -50,7 +51,7 @@ export default function ClusterSidebar({ status, panelVersion, onLogout, onNodeC
   const syncing = useRef(false)
 
   const loadNodes = useCallback(() => {
-    api.getClusterNodes(true)
+    api.getClusterNodes()
       .then((data) => {
         setNodes(data.nodes)
         setNodesError(false)
@@ -75,13 +76,14 @@ export default function ClusterSidebar({ status, panelVersion, onLogout, onNodeC
     localStorage.setItem(MENU_COLLAPSE_KEY, String(menuCollapsed))
   }, [menuCollapsed])
 
-  // Re-highlight the tree when another surface switches to a remote node (e.g.
-  // the cluster stacks page drilling into a peer's stack). Only remote ids are
-  // synced: currentNode === null is ambiguous (local node vs datacenter), so we
-  // leave the tree's own selection alone there rather than guess.
+  // Re-highlight the tree when another surface switches node (e.g. the cluster
+  // stacks page drilling into a peer's stack). An event naming its node is
+  // followed, the local one included. A bare event only says currentNode, and
+  // null there is ambiguous (local node vs datacenter), so the tree's own
+  // selection is left alone rather than guessed.
   useEffect(() => {
-    const handler = () => {
-      const nid = api.currentNode
+    const handler = (e: Event) => {
+      const nid = (e as CustomEvent<NodeChangedDetail | undefined>).detail?.nodeId ?? api.currentNode
       if (!nid) return
       setSelection((prev) => {
         if (prev.type === 'node' && prev.nodeId === nid) return prev
@@ -89,8 +91,8 @@ export default function ClusterSidebar({ status, panelVersion, onLogout, onNodeC
         return { type: 'node', nodeId: nid }
       })
     }
-    window.addEventListener('sfpanel:node-changed', handler)
-    return () => window.removeEventListener('sfpanel:node-changed', handler)
+    window.addEventListener(NODE_CHANGED, handler)
+    return () => window.removeEventListener(NODE_CHANGED, handler)
   }, [])
 
   // Handle selection changes

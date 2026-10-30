@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { api } from '@/lib/api'
+import { NODE_CHANGED, type NodeChangedDetail } from '@/lib/nodeSelection'
 import type { ClusterStatus, ClusterNode } from '@/types/api'
 
 export interface ClusterNodesState {
@@ -34,13 +35,13 @@ export function useClusterNodes(): ClusterNodesState {
   // cluster had recovered. The drawer calls this again each time it opens.
   const reload = useCallback(() => {
     api
-      .getClusterStatus(true)
+      .getClusterStatus()
       .then((status) => {
         setClusterStatus(status)
         if (status.enabled && status.local_id) {
           setLocalId(status.local_id)
           api
-            .getClusterNodes(true)
+            .getClusterNodes()
             .then((data) => setNodes(data.nodes))
             .catch(() => {})
         }
@@ -61,8 +62,13 @@ export function useClusterNodes(): ClusterNodesState {
       initialRef.current = false
       return
     }
-    window.dispatchEvent(new Event('sfpanel:node-changed'))
-  }, [selectedNode])
+    // Name the local node too, so the tree can highlight it: null alone does
+    // not tell it from the datacenter. localId stays out of the deps — it
+    // loading must not rebroadcast and remount the page.
+    window.dispatchEvent(
+      new CustomEvent<NodeChangedDetail>(NODE_CHANGED, { detail: { nodeId: selectedNode ?? localId } }),
+    )
+  }, [selectedNode]) // eslint-disable-line react-hooks/exhaustive-deps
 
   const currentNode = selectedNode
     ? nodes.find((n) => n.id === selectedNode)

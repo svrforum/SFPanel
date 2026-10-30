@@ -741,7 +741,7 @@ export default function Files() {
       setNodeName(null)
       return
     }
-    api.getClusterNodes(true)
+    api.getClusterNodes()
       .then((data) => {
         if (cancelled) return
         const node = data?.nodes?.find((n) => n.id === api.currentNode)

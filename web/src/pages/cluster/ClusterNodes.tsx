@@ -34,9 +34,9 @@ export default function ClusterNodes() {
       // local:true pins the datacenter-scope calls to this node so local_id and
       // the leader-gated action buttons stay correct while a remote node is
       // selected (?node=).
-      api.getClusterStatus(true),
-      api.getClusterNodes(true).catch(() => ({ nodes: [], local_id: '', is_leader: false })),
-      api.getClusterOverview(true).catch(() => null),
+      api.getClusterStatus(),
+      api.getClusterNodes().catch(() => ({ nodes: [], local_id: '', is_leader: false })),
+      api.getClusterOverview().catch(() => null),
     ]).then(([s, data, overview]) => {
       setStatus(s)
       setNodes(data.nodes)

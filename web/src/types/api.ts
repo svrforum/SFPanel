@@ -1000,7 +1000,10 @@ export interface ClusterNode {
   name: string
   api_address: string
   grpc_address: string
-  role: 'voter' | 'nonvoter'
+  // Absent from an older leader, whose nodes are all managers. Read it through
+  // lib/clusterNodes, never by testing role: an agent's role is empty.
+  kind?: 'manager' | 'agent'
+  role: 'voter' | 'nonvoter' | ''
   status: 'online' | 'suspect' | 'offline' | 'joining'
   labels?: Record<string, string>
   joined_at: string
@@ -1024,6 +1027,8 @@ export interface ClusterOverview {
   leader_id: string
   nodes: ClusterNode[]
   metrics?: ClusterNodeMetrics[]
+  // The leader's cached latest release. Absent from an older leader.
+  latest_version?: string
 }
 
 export interface ClusterStatus {
@@ -1048,6 +1053,8 @@ export interface ClusterNodesResponse {
   nodes: ClusterNode[]
   local_id: string
   is_leader: boolean
+  // Served from the local FSM without the leader's confirmation (see ClusterStatus.stale).
+  stale?: boolean
 }
 
 export interface ClusterTokenResponse {

@@ -73,7 +73,7 @@ export default function Layout() {
 
   const loadClusterStatus = useCallback(() => {
     if (notClustered.current) return
-    api.getClusterStatus(true)
+    api.getClusterStatus()
       .then((status) => {
         if (!status.enabled) notClustered.current = true
         setClusterStatus(status)

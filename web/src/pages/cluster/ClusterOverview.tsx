@@ -52,9 +52,9 @@ export default function ClusterOverview() {
     Promise.all([
       // local:true pins the datacenter-scope status to this node so local_id /
       // is_leader stay correct even while a remote node is selected (?node=).
-      api.getClusterStatus(true),
-      api.getClusterOverview(true).catch(() => null),
-      api.getClusterEvents(20, true).catch(() => ({ events: [] })),
+      api.getClusterStatus(),
+      api.getClusterOverview().catch(() => null),
+      api.getClusterEvents(20).catch(() => ({ events: [] })),
     ]).then(([s, o, e]) => {
       setStatus(s)
       setOverview(o)

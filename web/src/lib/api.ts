@@ -464,7 +464,10 @@ class ApiClient {
     }
 
     let url = `${this.apiBase}${path}`
-    if (this._currentNode && !local) {
+    // Cluster routes are answered by the manager this browser is attached to,
+    // whatever node is selected: with ?node= an agent refused them (409) and
+    // another manager ran them as itself — "leave" took that manager out.
+    if (this._currentNode && !local && !path.startsWith('/cluster/')) {
       const separator = url.includes('?') ? '&' : '?'
       url += `${separator}node=${encodeURIComponent(this._currentNode)}`
     }
@@ -2459,8 +2462,8 @@ class ApiClient {
   }
 
   // Cluster
-  getClusterStatus(local?: boolean) {
-    return this.request<ClusterStatus>('/cluster/status', { local })
+  getClusterStatus() {
+    return this.request<ClusterStatus>('/cluster/status')
   }
 
   getClusterInterfaces() {
@@ -2481,12 +2484,12 @@ class ApiClient {
     })
   }
 
-  getClusterOverview(local?: boolean) {
-    return this.request<ClusterOverview>('/cluster/overview', { local })
+  getClusterOverview() {
+    return this.request<ClusterOverview>('/cluster/overview')
   }
 
-  getClusterNodes(local?: boolean) {
-    return this.request<ClusterNodesResponse>('/cluster/nodes', { local })
+  getClusterNodes() {
+    return this.request<ClusterNodesResponse>('/cluster/nodes')
   }
 
   createClusterToken(ttl?: string, kind: 'manager' | 'agent' = 'manager') {
@@ -2535,9 +2538,9 @@ class ApiClient {
     return this.request<TerminalInfo>('/terminal/info')
   }
 
-  getClusterEvents(limit?: number, local?: boolean) {
+  getClusterEvents(limit?: number) {
     const params = limit ? `?limit=${limit}` : ''
-    return this.request<ClusterEventsResponse>(`/cluster/events${params}`, { local })
+    return this.request<ClusterEventsResponse>(`/cluster/events${params}`)
   }
 
   updateClusterNodeLabels(nodeId: string, labels: Record<string, string>) {
