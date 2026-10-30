@@ -1116,7 +1116,7 @@
       "refused": "The promotion was refused",
       "noAnswer": "The agent did not answer. Check the node list in a minute; if it is still an agent, promote it again.",
       "timeout": "Not done yet. Check the node list; if it is still an agent, promote it again.",
-      "raftPort": "{{name}} is a manager but not voting yet: the leader cannot reach its Raft port.",
+      "raftPort": "{{name}} is a manager but not voting yet. Check that the leader can reach its Raft port.",
       "done": "{{name}} is a voting manager now."
     },
     "security": {

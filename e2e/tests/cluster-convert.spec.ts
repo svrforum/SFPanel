@@ -221,7 +221,7 @@ test('promotes an agent and explains a closed Raft port', async ({ page }) => {
   await expect(progress(page)).toContainText('Promoting agent-01…')
   await expect(progress(page)).not.toContainText('not voting yet')
   await page.clock.fastForward(2 * 60_000)
-  await expect(progress(page)).toContainText('agent-01 is a manager but not voting yet: the leader cannot reach its Raft port.')
+  await expect(progress(page)).toContainText('agent-01 is a manager but not voting yet. Check that the leader can reach its Raft port.')
   // Waiting on the port is not a timeout.
   await expect(progress(page)).not.toContainText('Not done yet')
 
