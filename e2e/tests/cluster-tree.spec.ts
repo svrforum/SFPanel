@@ -22,7 +22,7 @@ const agents = Array.from({ length: 40 }, (_, k) => {
 // Listed out of order on purpose: the tree sorts.
 const nodes = [...agents.slice().reverse(), ...managers.slice().reverse()]
 
-async function mock(page: Page, opts: { storage?: Record<string, string>; list?: () => unknown[]; nodesDown?: boolean } = {}) {
+async function mock(page: Page, opts: { storage?: Record<string, string>; list?: () => unknown[]; nodesDown?: boolean; versions?: Record<string, string> } = {}) {
   const requests: string[] = []
   await page.addInitScript((storage) => {
     sessionStorage.setItem('token', 'fixture-token')
@@ -48,6 +48,7 @@ async function mock(page: Page, opts: { storage?: Record<string, string>; list?:
     }
     else if (path === '/cluster/overview') data = { name: 'lab', node_count: nodes.length, leader_id: 'm-1', nodes, metrics: [] }
     else if (path === '/cluster/events') data = { events: [] }
+    else if (path === '/system/overview' && opts.versions) data = { version: opts.versions[url.searchParams.get('node') ?? 'm-1'] }
     else if (url.searchParams.get('node') === 'gone') {
       // What the manager answers for a node it does not know (proxy.go).
       await route.fulfill({ status: 400, json: { success: false, error: { code: 'INVALID_REQUEST', message: 'Node not found: gone' } } })
@@ -179,6 +180,20 @@ test('the node menu does not call a node unknown before the list says so', async
   await expect.poll(() => requests.filter((r) => r === '/cluster/nodes').length).toBeGreaterThan(0)
   await expect(page.getByRole('link', { name: 'Dashboard' }).first()).toBeVisible()
   await expect(page.getByText('Unknown node')).toHaveCount(0)
+})
+
+// The footer showed the version of the node selected when the page loaded,
+// whichever node was open after that.
+test('the version under the tree is the open node\'s', async ({ page }) => {
+  await mock(page, { storage: EXPANDED, versions: { 'm-1': '0.80.0', 'agent-5': '0.79.3' } })
+  await page.goto('/cluster/overview')
+  const footer = page.getByRole('button', { name: 'Logout' }).locator('..')
+  await expect(footer).toHaveText('v0.80.0')
+
+  await page.locator('[data-tree-node]', { hasText: /^agent-5$/ }).click()
+  await expect(footer).toHaveText('v0.79.3')
+  await page.locator('[data-tree-node]', { hasText: /^m-1$/ }).click()
+  await expect(footer).toHaveText('v0.80.0')
 })
 
 test('shows a change the page reports at once', async ({ page }) => {

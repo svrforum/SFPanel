@@ -108,15 +108,27 @@ export default function Layout() {
     // so this one call covers what Layout used to do with two: getSystemInfo
     // + checkUpdate. Eliminates one GitHub round-trip per dashboard mount
     // (checkUpdate hits the release index).
+    // Again on every node switch: the version shown is the open node's, and
+    // the Dashboard reuses this payload only for the node it was fetched for.
+    // An answer for the node left behind is dropped.
+    let stale = false
     const node = api.currentNode
     api.getDashboardOverview()
       .then((data) => {
-        if (data.version) setPanelVersion(data.version)
-        if (data.update_info) setUpdateAvailable(data.update_info.update_available)
+        if (stale) return
+        setPanelVersion(data.version || '')
+        setUpdateAvailable(!!data.update_info?.update_available)
         setOverview({ data, node, at: Date.now() })
       })
-      .catch(() => setOverview({ data: null, node, at: Date.now() }))
-  }, [])
+      .catch(() => {
+        if (stale) return
+        // Not the previous node's version under this one's name.
+        setPanelVersion('')
+        setUpdateAvailable(false)
+        setOverview({ data: null, node, at: Date.now() })
+      })
+    return () => { stale = true }
+  }, [nodeKey])
 
   const outletContext = useMemo<LayoutOutletContext>(() => ({ overview }), [overview])
 
