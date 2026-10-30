@@ -1185,7 +1185,7 @@
       "ungrouped": "그룹 없음",
       "search": "노드 검색",
       "noMatch": "일치하는 노드가 없습니다.",
-      "nodeGone": "{{id}}이(가) 클러스터에 없어 이 노드를 보여 줍니다."
+      "nodeGone": "{{id}}이(가) 더 이상 클러스터에 없어 이 노드를 대신 보여 줍니다."
     },
     "status": {
       "online": "온라인",
@@ -1326,7 +1326,7 @@
     "updating": "업데이트 중...",
     "updateStep": {
       "downloading": "다운로드 중...",
-      "verifying": "릴리스를 확인하는 중…",
+      "verifying": "릴리스 확인 중...",
       "extracting": "압축 해제 중...",
       "replacing": "바이너리 교체 중...",
       "restarting": "서비스 재시작 중...",
@@ -3064,8 +3064,8 @@
       "udp": "UDP",
       "both": "TCP/UDP",
       "lockoutBodyPve": "이 변경을 적용하면 Proxmox 웹 화면(8006)이 막혀 이 노드를 관리할 수 없게 됩니다. 먼저 8006을 허용하는 규칙을 추가하세요.",
-      "lockoutBodyCluster_one": "이렇게 하면 다른 노드가 이 노드에 닿는 클러스터 포트 {{cluster_ports}}가 닫힙니다. 먼저 허용하거나, 확실할 때만 그대로 적용하세요.",
-      "lockoutBodyCluster_other": "이렇게 하면 다른 노드가 이 노드에 닿는 클러스터 포트 {{cluster_ports}}가 닫힙니다. 먼저 허용하거나, 확실할 때만 그대로 적용하세요."
+      "lockoutBodyCluster_one": "이렇게 하면 다른 노드가 이 노드에 닿는 클러스터 포트({{cluster_ports}})가 닫힙니다. 먼저 허용하거나, 확실할 때만 그대로 적용하세요.",
+      "lockoutBodyCluster_other": "이렇게 하면 다른 노드가 이 노드에 닿는 클러스터 포트({{cluster_ports}})가 닫힙니다. 먼저 허용하거나, 확실할 때만 그대로 적용하세요."
     },
     "ports": {
       "title": "열린 포트",

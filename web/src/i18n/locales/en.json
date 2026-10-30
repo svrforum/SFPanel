@@ -1328,7 +1328,7 @@
     "updating": "Updating...",
     "updateStep": {
       "downloading": "Downloading...",
-      "verifying": "Verifying the release…",
+      "verifying": "Verifying release...",
       "extracting": "Extracting...",
       "replacing": "Replacing binary...",
       "restarting": "Restarting service...",
