@@ -6,6 +6,17 @@ The format is loosely based on [Keep a Changelog](https://keepachangelog.com/), 
 
 ---
 
+## [0.79.3] – 2026-10-30
+
+### Fixed
+
+- **Requests a node relays to another node at the same moment no longer cut each other off.** When a node held no live connection to the target — none yet, or one idle for five minutes — requests that arrived together each opened one and closed the one they found, which was the connection another of them had just been given; their retries did the same to each other. All of them failed with "grpc: the client connection is closing", so a page opened on a follower, or on another node chosen in the node picker, came up with 503 and 504 errors, the cluster's node list among them. They now share one connection, and a retry drops only the connection its own request failed on.
+- **The phone's node picker comes back once the leader answers again.** The picker at the top of the More drawer asked for the node list once, when the page loaded, and stayed hidden until a reload when that answer was an error. It now asks each time the drawer opens.
+
+### Upgrading
+
+- Update every node; the cluster update takes them one at a time.
+
 ## [0.79.2] – 2026-10-30
 
 ### Security
