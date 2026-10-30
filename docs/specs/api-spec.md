@@ -4595,7 +4595,7 @@ data: {"phase":"complete","line":"Update completed successfully"}
 | `stack-exists` | 대상에 동일 id 스택이 이미 존재 (`overwriteAcked`로 승인 필요) |
 | `source-version` | 원본 에이전트가 원본 세션이 없는 이전 릴리스(`migrate-source/info`가 404이거나 `session_version`이 없음) — 에이전트를 올려야 합니다. 원본의 사실을 받지 못했으므로 이 차단 하나만 옵니다 |
 | `target-version` | 원본이 에이전트인데 대상이 이관 정책을 모르는 이전 릴리스(`target-info`에 `import_policy`가 없음) — 그런 대상은 에이전트의 번들을 번들의 말대로, 매니저의 규칙으로 받으므로 보내지 않습니다. 대상을 올려야 합니다 |
-| `compose-forbidden` | 원본이 에이전트이고 스택이 금지 계층(`/etc/sfpanel`·`/var/lib/sfpanel`·`/root/.ssh`·`/etc/sudoers.d` 바인드 — 패널 자신의 비밀)을 요청함. 메시지에 항목을 `, `로 나열합니다(`the stack binds the panel's own secrets, which no target takes: …`). 이 계층은 `acknowledgedRisks`로도 풀리지 않아 대상이 원본을 멈춘 뒤 `COMPOSE_FORBIDDEN`으로 거부하므로, 원본을 멈추기 전에 막습니다. 에이전트가 보낸 목록(`migrate-source/info`의 `forbidden_findings`)이며, 빠뜨려도 지금처럼 대상이 거부합니다. `forbidden_findings`를 보내지 않는 이전 릴리스의 에이전트가 원본이면 이 차단은 오지 않습니다 |
+| `compose-forbidden` | 스택이 금지 계층(`/etc/sfpanel`·`/var/lib/sfpanel`·`/root/.ssh`·`/etc/sudoers.d` 바인드 — 패널 자신의 비밀)을 요청함. 메시지에 항목을 `, `로 나열합니다(`the stack binds the panel's own secrets, which no target takes: …`). 이 계층은 `acknowledgedRisks`로도 풀리지 않아 대상이 원본을 멈춘 뒤 `COMPOSE_FORBIDDEN`으로 거부하므로, 원본을 멈추기 전에 막습니다. 원본이 매니저면 그 매니저가 compose 파일과 resolved 문서를 직접 읽어 판단합니다. 원본이 에이전트면 에이전트가 보낸 목록(`migrate-source/info`의 `forbidden_findings`)이며, 빠뜨려도 지금처럼 대상이 거부합니다. `forbidden_findings`를 보내지 않는 이전 릴리스의 에이전트가 원본이면 이 차단은 오지 않습니다 |
 
 **경고 코드 (`warnings` — 승인 후 진행 가능):**
 | 코드 | 조건 |

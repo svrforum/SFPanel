@@ -110,9 +110,15 @@ func (h *Handler) brokeredPreflight(ctx context.Context, src, project, targetNod
 	// instead. Still the agent's word — one that leaves it out is refused by
 	// the target as before.
 	if len(info.ForbiddenFindings) > 0 {
-		report.Blocks = append(report.Blocks, PreflightFinding{Code: "compose-forbidden", Message: "the stack binds the panel's own secrets, which no target takes: " + strings.Join(info.ForbiddenFindings, ", ")})
+		report.Blocks = append(report.Blocks, composeForbiddenBlock(info.ForbiddenFindings))
 	}
 	return report, nil
+}
+
+// composeForbiddenBlock is a pre-flight's block for a stack in the forbidden
+// tier, which every target refuses whoever sent it.
+func composeForbiddenBlock(findings []string) PreflightFinding {
+	return PreflightFinding{Code: "compose-forbidden", Message: "the stack binds the panel's own secrets, which no target takes: " + strings.Join(findings, ", ")}
 }
 
 // sourceVersionBlocked is the whole report for a source that serves no

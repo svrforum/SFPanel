@@ -595,6 +595,12 @@ func (h *Handler) gatherPreflight(ctx context.Context, project, targetNodeID, us
 	if !reached {
 		report.Warnings = append(report.Warnings, targetUnreachable)
 	}
+	// The target refuses the forbidden tier from any source, but only once
+	// this one has stopped, packaged and sent the stack: block here, reading
+	// the compose file and its resolved form as an agent source does.
+	if _, forbidden := h.composeFindings(ctx, project); len(forbidden) > 0 {
+		report.Blocks = append(report.Blocks, composeForbiddenBlock(forbidden))
+	}
 	return report, nil
 }
 

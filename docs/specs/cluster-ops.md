@@ -776,8 +776,7 @@ leaves the source running.
 the bundle, which is the source's: whether to replace a stack or a volume it
 already has (the operator's overwrite acknowledgement), which risky findings
 the operator was shown and acknowledged, and whether the bundle came from an
-agent.
-They travel as headers of the import request (`X-SFPanel-Migration-*`),
+agent. They travel as headers of the import request (`X-SFPanel-Migration-*`),
 which only a manager can send: the request is signed with the target's key,
 and an agent holds no other node's. A bundle's own overwrite flag counts only
 when no such header came, from a manager on a release from before them.
@@ -791,12 +790,15 @@ become root on the node its stack moves to:
   the pre-flight showed, and the target refuses (`COMPOSE_RISKY`), naming
   them, every risky finding of the compose file or of its resolved form that
   is not on the list. The list the dialog shows is the agent's own word; an
-  agent that leaves a finding out gets it refused, not acknowledged. A manager's stack is checked for the forbidden tier
-  only, as before: it passed the risky tier when it was created. The
-  forbidden tier — binds of `/etc/sfpanel`, `/var/lib/sfpanel`, `/root/.ssh`
-  or `/etc/sudoers.d` — is refused for every source, and so is a stack
-  whose resolved form `docker compose config` cannot produce on the target
-  (`COMPOSE_ERROR`): what it binds is unknown.
+  agent that leaves a finding out gets it refused, not acknowledged. A
+  manager's stack is checked for the forbidden tier only, as before: it
+  passed the risky tier when it was created. The forbidden tier — binds of
+  `/etc/sfpanel`, `/var/lib/sfpanel`, `/root/.ssh` or `/etc/sudoers.d` — is
+  refused for every source, and the pre-flight blocks it
+  (`compose-forbidden`) before the source stops, from the compose file and
+  its resolved form. A stack whose resolved form `docker compose config`
+  cannot produce on the target is refused too (`COMPOSE_ERROR`): what it
+  binds is unknown.
 - Bind data is restored into the stack's own directory only, and a stack
   that binds a path outside it is refused. A manager's absolute binds are
   still written to the same paths on the target, outside the protected

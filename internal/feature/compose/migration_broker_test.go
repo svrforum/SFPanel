@@ -14,6 +14,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"os"
+	"path/filepath"
 	"runtime"
 	"strconv"
 	"strings"
@@ -658,6 +659,54 @@ func TestABrokeredPreflightBlocksAForbiddenAgentStack(t *testing.T) {
 	}
 	if !strings.Contains(forbidden.Message, "/etc/sfpanel") {
 		t.Errorf("the block %q does not name /etc/sfpanel", forbidden.Message)
+	}
+}
+
+// A manager's own stack meets the same forbidden tier at the target, and its
+// pre-flight did not look: the source stopped, packaged and sent the stack,
+// the target refused it, and the source started again — downtime for nothing.
+// It blocks now, as a brokered one does, whether the compose file shows the
+// bind or only its .env does.
+func TestAManagersPreflightBlocksAForbiddenStack(t *testing.T) {
+	const forbidden = "services:\n  web:\n    image: nginx:fake\n    volumes:\n      - /etc/sfpanel:/loot\n"
+	for _, tc := range []struct{ name, file, resolved string }{
+		{"in the compose file", forbidden, forbidden},
+		{"once resolved", "services:\n  web:\n    image: nginx:fake\n    volumes:\n      - ${DATA}:/loot\n", forbidden},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			dst := newFakeTarget(t, true)
+			h, dockerLog := brokerHandler(t, brokerCluster(t, newFakeSource(t), dst))
+			if err := os.MkdirAll(filepath.Join(h.ComposePath, "demo"), 0o755); err != nil {
+				t.Fatal(err)
+			}
+			if err := os.WriteFile(filepath.Join(h.ComposePath, "demo", "docker-compose.yml"), []byte(tc.file), 0o644); err != nil {
+				t.Fatal(err)
+			}
+			t.Setenv("FAKE_RESOLVED_YAML", tc.resolved)
+
+			report, err := h.gatherPreflight(t.Context(), "demo", "a2", "alice", false)
+			if err != nil {
+				t.Fatal(err)
+			}
+			var block *PreflightFinding
+			for i := range report.Blocks {
+				if report.Blocks[i].Code == "compose-forbidden" {
+					block = &report.Blocks[i]
+				}
+			}
+			if block == nil || !strings.Contains(block.Message, "the stack binds the panel's own secrets, which no target takes: ") ||
+				!strings.Contains(block.Message, "/etc/sfpanel") {
+				t.Fatalf("no compose-forbidden block naming /etc/sfpanel: %+v", report)
+			}
+
+			out := runMigrate(t, h, `{"targetNodeId":"a2","disposition":"retain"}`)
+			if log := readFile(t, dockerLog); strings.Contains(log, " stop") {
+				t.Fatalf("the source was stopped:\n%s\nSSE:\n%s", log, out)
+			}
+			if imports, _, _, _ := dst.seen(); imports != 0 || !strings.Contains(out, "pre-flight blocked") || !strings.Contains(out, "compose-forbidden") {
+				t.Fatalf("%d imports; the migration does not end on the block:\n%s", imports, out)
+			}
+		})
 	}
 }
 
