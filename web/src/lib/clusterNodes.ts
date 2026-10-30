@@ -75,13 +75,14 @@ export function compareVersions(a: string, b: string): number {
 }
 
 /**
- * The version a node is measured against: the leader's cached latest release
- * when it sent one, otherwise the newest version running in the cluster (an
- * older leader sends no latest_version).
+ * The version a node is measured against: the newer of the leader's cached
+ * latest release and the newest version running in the cluster. An older
+ * leader sends no latest_version, and the cache can be behind: the leader
+ * checks hourly and only while leading, while an update fetches the release
+ * itself, so a node can already run one the cache has not seen.
  */
 export function referenceVersion(latest: string | undefined, versions: (string | undefined)[]): string | undefined {
-  if (latest) return latest
-  let best: string | undefined
+  let best: string | undefined = latest || undefined
   for (const v of versions) {
     if (!v || !parseVersion(v)) continue
     if (best === undefined || compareVersions(v, best) > 0) best = v

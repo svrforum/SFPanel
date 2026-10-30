@@ -71,6 +71,17 @@ describe('versions', () => {
     expect(referenceVersion('0.80.0', ['0.79.3'])).toBe('0.80.0')
     expect(referenceVersion(undefined, [undefined])).toBeUndefined()
   })
+
+  it('takes a running version newer than the leader\'s cached release', () => {
+    // The leader checks hourly, and only while leading: a node updated since
+    // runs a release its cache has not seen.
+    const reference = referenceVersion('0.79.4', ['0.79.4', '0.80.0', '0.79.4'])
+    expect(reference).toBe('0.80.0')
+    expect(isOutdated('0.79.4', reference)).toBe(true)
+    expect(isOutdated('0.80.0', reference)).toBe(false)
+    // An older running version leaves the cached release in place.
+    expect(referenceVersion('0.80.0', ['0.79.4', 'dev', undefined])).toBe('0.80.0')
+  })
 })
 
 describe('groups', () => {
