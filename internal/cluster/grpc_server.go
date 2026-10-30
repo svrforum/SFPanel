@@ -588,7 +588,7 @@ func (s *GRPCServer) serveHeartbeat(stream grpc.BidiStreamingServer[pb.Heartbeat
 			}
 			timer.Reset(idleTimeout)
 
-			s.manager.GetHeartbeat().RecordHeartbeat(&NodeMetrics{
+			s.manager.GetHeartbeat().RecordStreamPing(&NodeMetrics{
 				NodeID:         result.ping.NodeId,
 				CPUPercent:     result.ping.CpuPercent,
 				MemoryPercent:  result.ping.MemoryPercent,
@@ -603,11 +603,8 @@ func (s *GRPCServer) serveHeartbeat(stream grpc.BidiStreamingServer[pb.Heartbeat
 				// What a re-rotation of the managers' secret goes by; only a
 				// manager's means anything.
 				ProxyGeneration: result.ping.ProxyGeneration,
-			})
-			if !counted {
-				counted = true
-				s.manager.GetHeartbeat().StreamOpened(peerCN)
-			}
+			}, !counted)
+			counted = true
 			// The ping's time is the sender's clock, in seconds — a manager's
 			// and an agent's alike.
 			s.manager.noteClockSkew(result.ping.NodeId, result.ping.Timestamp)

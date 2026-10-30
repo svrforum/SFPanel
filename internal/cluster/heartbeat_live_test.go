@@ -18,19 +18,7 @@ func TestAManagerWhoseStreamEndedIsDownForARotation(t *testing.T) {
 	mgr, _ := jwtLeader(t)
 	addTestNode(t, mgr.raft.GetFSM(), Node{ID: "m2", Name: "m2", Kind: KindManager, Role: RoleVoter})
 	s := &GRPCServer{manager: mgr}
-	// open runs one heartbeat stream from m2 until the returned stop.
-	open := func() (stop func()) {
-		ctx, cancel := context.WithCancel(context.Background())
-		stream := &scriptedHeartbeatStream{ctx: ctxWithPeerCN(ctx, "m2"), in: make(chan *pb.HeartbeatPing, 1)}
-		done := make(chan error, 1)
-		go func() { done <- s.Heartbeat(stream) }()
-		stream.in <- &pb.HeartbeatPing{NodeId: "m2", Version: "test", Capabilities: []string{CapAgents, CapJWTRotation}, Timestamp: time.Now().Unix()}
-		waitFor(t, "a pong to m2", func() bool { return stream.pongCount() > 0 })
-		return func() {
-			cancel()
-			<-done
-		}
-	}
+	open := func() (stop func()) { return openHeartbeatStream(t, s, "m2") }
 
 	stop := open()
 	if _, err := mgr.RotateJWTKey(); err != nil {
@@ -53,6 +41,40 @@ func TestAManagerWhoseStreamEndedIsDownForARotation(t *testing.T) {
 	}
 }
 
+// openHeartbeatStream runs one heartbeat stream from id until the returned
+// stop, once it has pinged and been answered.
+func openHeartbeatStream(t *testing.T, s *GRPCServer, id string) (stop func()) {
+	t.Helper()
+	ctx, cancel := context.WithCancel(context.Background())
+	stream := &scriptedHeartbeatStream{ctx: ctxWithPeerCN(ctx, id), in: make(chan *pb.HeartbeatPing, 1)}
+	done := make(chan error, 1)
+	go func() { done <- s.Heartbeat(stream) }()
+	stream.in <- &pb.HeartbeatPing{NodeId: id, Version: "test", Capabilities: []string{CapAgents, CapJWTRotation}, Timestamp: time.Now().Unix()}
+	waitFor(t, "a pong to "+id, func() bool { return stream.pongCount() > 0 })
+	return func() {
+		cancel()
+		<-done
+	}
+}
+
+// The server counts a stream at its first ping, with the ping: a node whose
+// new stream has pinged is up when its old one ends.
+func TestANodeThatReconnectedIsUpWhenItsOldStreamEnds(t *testing.T) {
+	mgr, _ := jwtLeader(t)
+	addTestNode(t, mgr.raft.GetFSM(), Node{ID: "m2", Name: "m2", Kind: KindManager, Role: RoleVoter})
+	s := &GRPCServer{manager: mgr}
+	stopOld := openHeartbeatStream(t, s, "m2")
+	stopNew := openHeartbeatStream(t, s, "m2")
+	stopOld()
+	if got := mgr.GetHeartbeat().LiveHealth()["m2"]; got != StatusOnline {
+		t.Fatalf("its new stream open: %s", got)
+	}
+	stopNew()
+	if got := mgr.GetHeartbeat().LiveHealth()["m2"]; got != StatusOffline {
+		t.Fatalf("with neither open: %s", got)
+	}
+}
+
 func managerViews(st JWTRotationStatus) string {
 	var b strings.Builder
 	for _, v := range st.Managers {
@@ -67,28 +89,46 @@ func managerViews(st JWTRotationStatus) string {
 }
 
 // A node that reconnects opens its new stream before its old one ends, or
-// after: neither is an outage once it has pinged on the new one.
-func TestAnEndedStreamBesideAnOpenOneIsNoOutage(t *testing.T) {
-	hm := NewHeartbeatManager(time.Second, time.Minute)
-	hm.RecordHeartbeat(&NodeMetrics{NodeID: "m2"})
-	hm.StreamOpened("m2")
-	hm.RecordHeartbeat(&NodeMetrics{NodeID: "m2"})
-	hm.StreamOpened("m2")
-	hm.StreamEnded("m2")
-	if got := hm.LiveHealth()["m2"]; got != StatusOnline {
-		t.Fatalf("the old stream ending beside the new one: %s", got)
-	}
-	hm.StreamEnded("m2")
-	if got := hm.LiveHealth()["m2"]; got != StatusOffline {
-		t.Fatalf("with no stream left: %s", got)
-	}
-	if got := hm.CheckHealth()["m2"]; got != StatusOnline {
-		t.Fatalf("the node list's health changed too: %s", got)
-	}
-	hm.RecordHeartbeat(&NodeMetrics{NodeID: "m2"})
-	if got := hm.LiveHealth()["m2"]; got != StatusOnline {
-		t.Fatalf("after a ping on a new stream: %s", got)
-	}
+// after: neither is an outage once it has pinged on the new one. The ping was
+// recorded and the stream counted apart, and the old stream's end between
+// them held the node offline, its new stream open, until its next ping.
+func TestAReconnectIsNoOutageInEitherOrder(t *testing.T) {
+	t.Run("the old stream ends before the new one's first ping", func(t *testing.T) {
+		hm := NewHeartbeatManager(time.Second, time.Minute)
+		hm.RecordStreamPing(&NodeMetrics{NodeID: "m2"}, true)
+		hm.StreamEnded("m2")
+		if got := hm.LiveHealth()["m2"]; got != StatusOffline {
+			t.Fatalf("between the two streams: %s", got)
+		}
+		hm.RecordStreamPing(&NodeMetrics{NodeID: "m2"}, true)
+		if got := hm.LiveHealth()["m2"]; got != StatusOnline {
+			t.Fatalf("after the new stream's first ping: %s", got)
+		}
+		hm.StreamEnded("m2")
+		if got := hm.LiveHealth()["m2"]; got != StatusOffline {
+			t.Fatalf("with no stream left: %s", got)
+		}
+	})
+	t.Run("the old stream ends after the new one's first ping", func(t *testing.T) {
+		hm := NewHeartbeatManager(time.Second, time.Minute)
+		hm.RecordStreamPing(&NodeMetrics{NodeID: "m2"}, true)
+		hm.RecordStreamPing(&NodeMetrics{NodeID: "m2"}, true)
+		hm.StreamEnded("m2")
+		if got := hm.LiveHealth()["m2"]; got != StatusOnline {
+			t.Fatalf("the old stream ending beside the new one: %s", got)
+		}
+		hm.StreamEnded("m2")
+		if got := hm.LiveHealth()["m2"]; got != StatusOffline {
+			t.Fatalf("with no stream left: %s", got)
+		}
+		if got := hm.CheckHealth()["m2"]; got != StatusOnline {
+			t.Fatalf("the node list's health changed too: %s", got)
+		}
+		hm.RecordStreamPing(&NodeMetrics{NodeID: "m2"}, true)
+		if got := hm.LiveHealth()["m2"]; got != StatusOnline {
+			t.Fatalf("after a ping on a new stream: %s", got)
+		}
+	})
 }
 
 // A leave counts the voters that would remain by the same measure: a voter
@@ -98,8 +138,7 @@ func TestALeaveDoesNotCountAVoterWhoseStreamEnded(t *testing.T) {
 	hb := mgr.GetHeartbeat()
 	for _, id := range []string{"m2", "m3"} {
 		addTestNode(t, mgr.raft.GetFSM(), Node{ID: id, Name: id, Kind: KindManager, Role: RoleVoter})
-		hb.RecordHeartbeat(&NodeMetrics{NodeID: id})
-		hb.StreamOpened(id)
+		hb.RecordStreamPing(&NodeMetrics{NodeID: id}, true)
 	}
 	if reason, refuse := mgr.WouldDropBelowQuorumOnLeave(); refuse {
 		t.Fatalf("with both up: %s", reason)

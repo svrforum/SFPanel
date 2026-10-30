@@ -67,8 +67,7 @@ func TestTheQuorumGuardDoesNotCountAVoterWhoseStreamEnded(t *testing.T) {
 		if err := mgr.GetRaft().Apply(cluster.Command{Type: cluster.CmdAddNode, Value: v}, 5*time.Second); err != nil {
 			t.Fatal(err)
 		}
-		hb.RecordHeartbeat(&cluster.NodeMetrics{NodeID: id})
-		hb.StreamOpened(id)
+		hb.RecordStreamPing(&cluster.NodeMetrics{NodeID: id}, true)
 	}
 	h := newHandler("0.80.0")
 	h.SetClusterMgr(mgr)

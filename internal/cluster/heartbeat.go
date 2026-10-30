@@ -46,11 +46,20 @@ func (hm *HeartbeatManager) RecordHeartbeat(m *NodeMetrics) {
 	delete(hm.dropped, m.NodeID)
 }
 
-// StreamOpened counts a heartbeat stream that has delivered its first ping.
-func (hm *HeartbeatManager) StreamOpened(nodeID string) {
+// RecordStreamPing is RecordHeartbeat for a ping on a heartbeat stream, and
+// counts the stream at its first. Both under one lock: recorded and counted
+// apart, a node's old stream could end between its new stream's first ping
+// and its count, and LiveHealth then held the node offline, its new stream
+// open, until it pinged again.
+func (hm *HeartbeatManager) RecordStreamPing(m *NodeMetrics, first bool) {
 	hm.mu.Lock()
 	defer hm.mu.Unlock()
-	hm.streams[nodeID]++
+	if first {
+		hm.streams[m.NodeID]++
+	}
+	hm.metrics[m.NodeID] = m
+	hm.lastSeen[m.NodeID] = time.Now()
+	delete(hm.dropped, m.NodeID)
 }
 
 // StreamEnded is the end of one. A node with none left open has dropped
