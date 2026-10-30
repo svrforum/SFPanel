@@ -358,3 +358,23 @@ test('says a refused stop did not stop the rotation', async ({ page }) => {
   await expect(alert).toContainText(why)
   await expect(alert).not.toContainText('The rotation did not start')
 })
+
+// The tab row scrolls on a phone but hides its scrollbar, and the last tab was
+// cut to "Se…" while it was the page open: reached from a link or a bookmark,
+// nothing showed which tab it was or that the row scrolls.
+test.describe('phone', () => {
+  test.use({ viewport: { width: 360, height: 780 }, hasTouch: true })
+
+  test('the open tab is scrolled into the row', async ({ page }) => {
+    await mock(page)
+    await page.goto('/cluster/security')
+    const tab = page.getByRole('main').getByRole('link', { name: 'Security' })
+    await expect(tab).toHaveAttribute('aria-current', 'page')
+    const row = tab.locator('..')
+    await expect.poll(async () => {
+      const [t, r] = await Promise.all([tab.boundingBox(), row.boundingBox()])
+      if (!t || !r) return 'unmeasured'
+      return t.x >= r.x - 0.5 && t.x + t.width <= r.x + r.width + 0.5 ? 'inside' : `tab ${t.x}..${t.x + t.width}, row ${r.x}..${r.x + r.width}`
+    }).toBe('inside')
+  })
+})

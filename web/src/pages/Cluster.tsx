@@ -1,16 +1,25 @@
-import { NavLink, Outlet } from 'react-router-dom'
+import { useEffect, useRef } from 'react'
+import { NavLink, Outlet, useLocation } from 'react-router-dom'
 import { useTranslation } from 'react-i18next'
 import { cn } from '@/lib/utils'
 import { CLUSTER_TAB_ITEMS } from '@/components/cluster/datacenterMenu'
 
 export default function Cluster() {
   const { t } = useTranslation()
+  const { pathname } = useLocation()
+  const row = useRef<HTMLDivElement>(null)
+
+  // The row hides its scrollbar, so a tab opened from a link or a bookmark
+  // could sit cut off past the edge with nothing to say the row scrolls.
+  useEffect(() => {
+    row.current?.querySelector<HTMLElement>('[aria-current="page"]')?.scrollIntoView({ block: 'nearest', inline: 'nearest' })
+  }, [pathname])
 
   return (
     <div className="space-y-6">
       <h1 className="text-[22px] font-bold tracking-tight">{t('cluster.title')}</h1>
       {/* Four tabs do not fit a phone's width: the row scrolls rather than cutting the last off. */}
-      <div className="flex items-center gap-1 overflow-x-auto no-scrollbar">
+      <div ref={row} className="flex items-center gap-1 overflow-x-auto no-scrollbar">
         {CLUSTER_TAB_ITEMS.map((tab) => (
           <NavLink
             key={tab.to}
