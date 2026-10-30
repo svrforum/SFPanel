@@ -1,4 +1,4 @@
-import { Layers, LayoutDashboard, Server, Settings, type LucideIcon } from 'lucide-react'
+import { Layers, LayoutDashboard, Server, Settings, ShieldCheck, type LucideIcon } from 'lucide-react'
 
 export interface DatacenterMenuItem {
   to: string
@@ -17,6 +17,7 @@ export const CLUSTER_TAB_ITEMS: DatacenterMenuItem[] = [
   { to: '/cluster/overview', labelKey: 'cluster.nav.overview', icon: LayoutDashboard },
   { to: '/cluster/nodes', labelKey: 'cluster.nav.nodes', icon: Server },
   { to: '/cluster/stacks', labelKey: 'cluster.nav.stacks', icon: Layers },
+  { to: '/cluster/security', labelKey: 'cluster.nav.security', icon: ShieldCheck },
 ]
 
 /** The sidebar additionally links to datacenter-scoped settings. */

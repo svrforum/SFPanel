@@ -45,6 +45,8 @@ import type {
   ClusterNodesResponse,
   ClusterConvertResponse,
   ClusterPromoteResponse,
+  ClusterRotationStatus,
+  CARotation,
   ClusterTokenResponse,
   ClusterTokenInfo,
   MigratePreflightReport,
@@ -2608,6 +2610,38 @@ class ApiClient {
     return this.request<ClusterExitResponse>('/cluster/disband', {
       method: 'POST',
     })
+  }
+
+  // Secret rotations run on the leader (another manager passes them on) and
+  // are followed through getClusterRotation. The JWT one answers 200 as the
+  // last answer of this session: the server has ended every session.
+  getClusterRotation() {
+    return this.request<ClusterRotationStatus>('/cluster/rotation')
+  }
+
+  rotateClusterJWT() {
+    return this.request<{ generation: number; message: string }>('/cluster/rotate/jwt', { method: 'POST' })
+  }
+
+  // 202: the leader moves it on a step at a time.
+  rotateClusterProxy() {
+    return this.request<{ generation: number; message: string }>('/cluster/rotate/proxy', { method: 'POST' })
+  }
+
+  rotateClusterAgentKeys() {
+    return this.request<{ generation: number; message: string }>('/cluster/rotate/agent-keys', { method: 'POST' })
+  }
+
+  // phaseTimeout is a Go duration (15m, 1h); without one the leader allows 30 minutes.
+  rotateClusterCA(phaseTimeout?: string) {
+    return this.request<{ rotation: CARotation; message: string }>('/cluster/rotate/ca', {
+      method: 'POST',
+      body: JSON.stringify(phaseTimeout ? { phase_timeout: phaseTimeout } : {}),
+    })
+  }
+
+  abortClusterCARotation() {
+    return this.request<{ rotation: CARotation; message: string }>('/cluster/rotate/ca/abort', { method: 'POST' })
   }
 
   // leaderId targets the leader explicitly — the orchestration only runs

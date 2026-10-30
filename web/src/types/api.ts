@@ -1090,6 +1090,89 @@ export interface ClusterNodesResponse {
   stale?: boolean
 }
 
+// GET /cluster/rotation: where the cluster's four secret rotations stand,
+// node by node. Secrets go by generation and CAs by pin (sha256:<hex>); no
+// secret is ever in it. Only the leader answers.
+export interface ClusterRotationStatus {
+  jwt: {
+    generation: number
+    rotated_at?: string
+    managers: RotationManager[]
+  }
+  proxy: {
+    generation: number
+    phase?: 'next' | 'switched' | 'done' | string
+    switched_at?: string
+    // next only: the managers the switch waits for, with why.
+    waiting?: string[]
+    managers: RotationManager[]
+  }
+  agent_keys: {
+    generation: number
+    started_at?: string
+    pending: number
+    agents: RotationAgent[]
+  }
+  ca: {
+    current_pin: string
+    raft_tls: boolean
+    // Absent on a cluster that never rotated its CA.
+    rotation?: CARotationView
+  }
+}
+
+export interface RotationManager {
+  id: string
+  name: string
+  online: boolean
+  // The generation it runs (JWT) or the newest it accepts (proxy); absent when
+  // its heartbeat has not said.
+  generation?: number
+  can_rotate: boolean
+}
+
+export interface RotationAgent {
+  id: string
+  name: string
+  online: boolean
+  pending: boolean
+  issued: boolean
+  can_rotate: boolean
+}
+
+export type CAPhase = 'trust' | 'reissue' | 'promote' | 'done' | 'rollback' | 'drop' | 'aborted'
+
+// The CA rotation record as POST /cluster/rotate/ca and …/abort answer it.
+export interface CARotation {
+  id: string
+  seq: number
+  phase: CAPhase | string
+  old_pin?: string
+  next_pin?: string
+  started_at?: string
+  phase_at?: string
+  phase_timeout_seconds?: number
+  // Going back only: the node that ran out the phase, or "aborted by the operator".
+  reason?: string
+}
+
+export interface CARotationView extends CARotation {
+  // trust and reissue: when the phase goes back unless it completes.
+  deadline?: string
+  waiting?: string[]
+  nodes: CANodeView[]
+}
+
+export interface CANodeView {
+  id: string
+  name: string
+  kind: string
+  online: boolean
+  trusts: string[]
+  cert_ca: string
+  can_rotate: boolean
+}
+
 export interface ClusterTokenResponse {
   token: string
   // The kind of node the token admits. Absent from an older leader, which

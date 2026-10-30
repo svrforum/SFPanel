@@ -47,6 +47,7 @@ const Cluster = lazy(() => import('@/pages/Cluster'))
 const ClusterOverview = lazy(() => import('@/pages/cluster/ClusterOverview'))
 const ClusterNodes = lazy(() => import('@/pages/cluster/ClusterNodes'))
 const ClusterStacks = lazy(() => import('@/pages/cluster/ClusterStacks'))
+const ClusterSecurity = lazy(() => import('@/pages/cluster/ClusterSecurity'))
 const AppStore = lazy(() => import('@/pages/AppStore'))
 const Packages = lazy(() => import('@/pages/Packages'))
 const Settings = lazy(() => import('@/pages/Settings'))
@@ -190,6 +191,7 @@ export default function App() {
                   <Route path="nodes" element={<ClusterNodes />} />
                   <Route path="stacks" element={<ClusterStacks />} />
                   <Route path="stacks/:node/:name" element={<ClusterStacks />} />
+                  <Route path="security" element={<ClusterSecurity />} />
                   {/* The token page became the add-agent dialog; old bookmarks open it. */}
                   <Route path="tokens" element={<Navigate to="/cluster/nodes?add=agent" replace />} />
                 </Route>

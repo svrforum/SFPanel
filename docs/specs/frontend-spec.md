@@ -48,6 +48,7 @@
 | `/cluster/nodes` | ClusterNodes | O | Cluster | 노드 목록 + 제거/리더 이전/라벨 편집. **(v0.19.0)** 노드 **advertised 주소 인라인 편집**(`api.updateClusterNodeAddress`) + 로컬 노드 행에서 **클러스터 떠나기**(quorum-loss force 오버라이드, `api.leaveCluster(force?)`). **에이전트 추가** 버튼(`components/AddAgentDialog.tsx`, `?add=agent`로도 열림): 열 때마다 에이전트 토큰(`api.createClusterToken(undefined, 'agent')`, 서버 기본 24시간)을 만들고 `sfpanel agent join` / `install.sh --agent` 두 줄(`agentJoinCommands`, sudo 없이·이름 선택, 이름은 `NODE_NAME_PATTERN`)과 남은 시간을 보인다. 토큰 직후의 노드 ID 집합과 3초마다 받는 목록을 비교(`detectJoined`)해 새 에이전트가 보이면 완료 화면 + 노드 열기. 응답에 `kind`가 없으면(예전 리더 = 매니저 토큰) 명령 대신 업데이트 안내. 닫아도 토큰은 폐기하지 않는다. "대신 매니저 추가" 접힘 절에 매니저 토큰 만들기(`ManagerTokenSection`, `joinCommands`)와 대기 토큰 목록·폐기(`PendingTokens`, 종류 열; 폐기 404 = 이미 쓰였거나 만료, 목록만 다시 받음). 행 메뉴의 **에이전트로 전환**(온라인 매니저, 리더는 비활성 + 안내; `ConvertNodeDialog` — 지워지는 것·남는 것, 이 브라우저가 붙은 매니저면 다른 매니저 주소, 노드 이름 입력)과 **매니저로 승격**(온라인 에이전트; `PromoteNodeDialog` — 받는 비밀, Raft 포트). 202 뒤 `RoleChangeProgress`가 3초마다 목록만 다시 받아(503 등 실패는 무시) `roleChangePhase`로 판정: 전환은 온라인 에이전트, 승격은 투표자면 끝. 승격된 매니저가 2분 넘게 비투표자면 Raft 포트 안내, 3분 안에 끝나지 않으면 시간 초과 안내. 전환 중 목록에서 잠시 빠진 노드는 자리 행으로 남는다. 전환이 끝나면 비밀 교체(`/cluster/security`)로 가는 카드. 거부(`CLUSTER_CONVERT_REFUSED`·`CLUSTER_PROMOTE_REFUSED`)는 대화상자 안에 제목 + 서버 이유, 502 `INTERNAL_ERROR`는 목록을 보라는 안내 |
 | `/cluster/stacks` | ClusterStacks | O | Cluster | (v0.47.0) 클러스터 전 노드 compose 스택 집계 뷰 (`api.getClusterStacks` — 노드별 그룹, 불달 노드는 에러 표시 + 빈 목록) |
 | `/cluster/stacks/:node/:name` | ClusterStacks | O | Cluster | (v0.48.0) 마스터-디테일 — 스택 선택 시 소유 노드 스코프로 단일노드 Docker 스택 상세를 재사용(`clusterMode` prop). 소유 노드가 URL에 포함되어 동명 스택 오타겟 방지 |
+| `/cluster/security` | ClusterSecurity | O | Cluster | 클러스터 비밀 교체(①-2). 카드 넷 — JWT 키·내부 프록시 비밀·에이전트 키·클러스터 CA — 이 `api.getClusterRotation()`을 5초마다(`useVisibleInterval`) 받아 세대·단계·기다리는 노드(서버 문장 그대로)·노드별 표(온라인, 세대/새 키/믿는 CA·인증서 CA, 교체를 따라가는지)를 보인다(`RotationCard`, 휴대폰은 카드). JWT는 위험 확인 뒤 200이면 이 세션도 끝났으므로 `api.clearToken()` → `/login`. 프록시·에이전트 키는 확인 뒤 202, 이어지는 폴링이 단계를 보인다. CA는 클러스터 이름 입력(`TypeToConfirmDialog`) + 단계 기한 선택(15m/30m/1h/2h)으로 시작하고 `CARotationStepper`가 trust → reissue → promote → done(되돌아가면 rollback → drop → aborted와 이유)을 그린다. trust·reissue에서만 기한·카운트다운과 [멈추고 현재 CA 유지]. `CLUSTER_ROTATION_REFUSED`·`UPDATE_IN_PROGRESS`는 카드(CA는 대화상자) 안에 제목 + 이유. 폴링 실패(503 리더 확인 실패 등)는 마지막 상태를 두고 경고 줄. 판정은 `lib/clusterRotation.ts` |
 | `/cluster/tokens` | — | O | Cluster | 토큰 페이지는 에이전트 추가 대화상자로 흡수되었다. 예전 주소는 `/cluster/nodes?add=agent`로 이동해 대화상자를 연다(`App.tsx`의 `Navigate`) |
 | `/docker` | Docker | O | Layout | Docker 관리 (사이드 탭 + Outlet 구조) |
 | `/docker/stacks` | DockerStacks | O | Docker | Docker Compose 스택 목록 (기본 서브라우트) |
@@ -510,7 +511,7 @@ const DockerStacks = lazy(() => import('@/pages/docker/DockerStacks'))
 | MetricsChart | `web/src/components/MetricsChart.tsx` | CPU/메모리 시계열 차트. uPlot 사용. CPU(파랑) + Memory(초록) 이중 라인. Y축 0-100%. |
 | ClusterSidebar | `web/src/components/cluster/ClusterSidebar.tsx` | 클러스터 모드 좌측 2단 트리(TreePanel+ContextMenu). 선택 시 `api.setCurrentNode` + 라우팅. 표준 사이드바를 대체. |
 | TreePanel | `web/src/components/cluster/TreePanel.tsx` | 데이터센터 루트 + 노드 목록(상태/리더/local, 로컬 우선 정렬), 접이식 52px 레일. |
-| ContextMenu | `web/src/components/cluster/ContextMenu.tsx` | 선택 범위별 메뉴(데이터센터: 개요/노드/Docker/설정 · 노드: 모듈 메뉴). |
+| ContextMenu | `web/src/components/cluster/ContextMenu.tsx` | 선택 범위별 메뉴(데이터센터: 개요/노드/Docker/보안/설정 · 노드: 모듈 메뉴). |
 | NodeSelector | `web/src/components/NodeSelector.tsx` | (레거시) 비클러스터 표준 사이드바 전용 드롭다운. 클러스터 모드에선 미사용. |
 | ContainerShell | `web/src/components/ContainerShell.tsx` | Docker 컨테이너 셸 접속. xterm.js + WebSocket(`/ws/docker/containers/{id}/exec`). 키 입력 전송, 리사이즈 이벤트 전송. |
 | ContainerLogs | `web/src/components/ContainerLogs.tsx` | Docker 컨테이너 로그 스트리밍. xterm.js(읽기 전용) + WebSocket(`/ws/docker/containers/{id}/logs`). 검색(SearchAddon), 로그 다운로드 기능. |
@@ -774,6 +775,12 @@ interface UseWebSocketOptions {
 | `clusterUpdateStream(mode, onEvent, leaderId?, waveSize?)` | POST | `/cluster/update` | (SSE) | (v0.22.0) 롤링/동시 업데이트 SSE 스트림 (per-node 스테퍼 구동). `waveSize`가 있으면 본문에 `wave_size` |
 | `convertClusterNode(id)` | POST | `/cluster/nodes/{id}/convert` | `ClusterConvertResponse` (`{ message, node_id, warnings? }`) | 매니저 → 같은 ID의 에이전트 전환 시작(202). 끝은 노드 목록으로 판정 |
 | `promoteClusterNode(id)` | POST | `/cluster/nodes/{id}/promote` | `ClusterPromoteResponse` (`{ message, node_id }`) | 에이전트 → 같은 ID의 매니저 승격 시작(202) |
+| `getClusterRotation()` | GET | `/cluster/rotation` | `ClusterRotationStatus` | 네 교체의 노드별 상태(리더가 답함, 비밀 없음) |
+| `rotateClusterJWT()` | POST | `/cluster/rotate/jwt` | `{ generation, message }` | 새 JWT 키(200). 이 세션도 끝난다 |
+| `rotateClusterProxy()` | POST | `/cluster/rotate/proxy` | `{ generation, message }` | 내부 프록시 비밀 교체 시작(202) |
+| `rotateClusterAgentKeys()` | POST | `/cluster/rotate/agent-keys` | `{ generation, message }` | 에이전트 키 교체 시작(202) |
+| `rotateClusterCA(phaseTimeout?)` | POST | `/cluster/rotate/ca` | `{ rotation: CARotation, message }` | CA 교체 시작(202), 본문 `{ phase_timeout }` |
+| `abortClusterCARotation()` | POST | `/cluster/rotate/ca/abort` | `{ rotation: CARotation, message }` | promote 전의 CA 교체를 멈추고 현재 CA 유지(202) |
 
 ### 디스크 관리
 | 메서드 | HTTP | 경로 | 반환 타입 | 설명 |
