@@ -1014,7 +1014,7 @@ func clusterRotate(args []string) {
 	}
 	raw, err := callLocalAPI(cfg, req.method, req.path, body)
 	if err != nil {
-		log.Fatalf("Rotate failed: %v", err)
+		log.Fatal(rotateFailure(err))
 	}
 	fmt.Println(string(raw))
 	switch rest[0] {
@@ -1023,6 +1023,18 @@ func clusterRotate(args []string) {
 	case "ca", "proxy", "agent-keys":
 		fmt.Println("Follow it with: sfpanel cluster rotate status")
 	}
+}
+
+// rotateFailure is what a failed rotate says. This node's panel knows every
+// rotation, so a 404 "No such endpoint" is the leader's: during a rolling
+// update, which updates the leader last, it still runs a release from before
+// them, and the bare 404 sent operators looking for a typo.
+func rotateFailure(err error) string {
+	msg := fmt.Sprintf("Rotate failed: %v", err)
+	if strings.Contains(err.Error(), "404") && strings.Contains(err.Error(), "No such endpoint") {
+		msg += "\nThe leader runs a release from before secret rotation: update it too — a cluster update does the leader last — then rotate."
+	}
+	return msg
 }
 
 // caRotationOnDisk reports whether ca.crt under certDir holds more than one

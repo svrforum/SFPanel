@@ -1,6 +1,7 @@
 package main
 
 import (
+	"errors"
 	"net"
 	"net/http"
 	"os"
@@ -126,5 +127,19 @@ func TestTheCLIInitStartsTheJWTKeyAtGenerationZero(t *testing.T) {
 	}
 	if !saved.Cluster.Enabled || saved.Auth.JWTGeneration != 0 {
 		t.Fatalf("saved enabled %v, generation %d", saved.Cluster.Enabled, saved.Auth.JWTGeneration)
+	}
+}
+
+// During a rolling update the leader is updated last, and a rotation asked of
+// an updated manager got only the old leader's 404.
+func TestARotationTheLeaderDoesNotKnowSaysWhy(t *testing.T) {
+	hint := "The leader runs a release from before secret rotation"
+	old := errors.New(`server returned 404 Not Found: {"success":false,"error":{"code":"NOT_FOUND","message":"No such endpoint"}}`)
+	if msg := rotateFailure(old); !strings.Contains(msg, "No such endpoint") || !strings.Contains(msg, hint) {
+		t.Fatalf("the old leader's 404: %q", msg)
+	}
+	refused := errors.New(`server returned 409 Conflict: {"success":false,"error":{"code":"CLUSTER_ROTATION_REFUSED","message":"waiting for m2 (offline)"}}`)
+	if msg := rotateFailure(refused); strings.Contains(msg, hint) {
+		t.Fatalf("a refusal read as an old leader: %q", msg)
 	}
 }
