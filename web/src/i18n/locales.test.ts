@@ -66,3 +66,26 @@ describe('translation keys', () => {
     expect(unfilled).toEqual([])
   })
 })
+
+// A Korean particle follows the sound the word before it ends on: a version
+// ending in 1 takes 로 where one ending in 0 takes 으로, a port number 8080
+// reads 팔천팔십 and takes 으로. After a value the string cannot know, it is
+// written for both (을(를), 이(가), (으)로) or kept off the value.
+function strings(tree: unknown, prefix = ''): [string, string][] {
+  if (typeof tree === 'string') return [[prefix, tree]]
+  if (!tree || typeof tree !== 'object') return []
+  return Object.entries(tree).flatMap(([k, v]) => strings(v, prefix ? `${prefix}.${k}` : k))
+}
+
+// Values from a closed set the particle is right for: ⌘V / Ctrl+V end in 브이.
+const KNOWN_ENDING = new Set(['terminal.menu.pasteBlocked'])
+
+describe('Korean particles', () => {
+  it('none after a value depends on how the value ends', () => {
+    const wrong = strings(ko)
+      .filter(([key]) => !KNOWN_ENDING.has(key))
+      .filter(([, s]) => /\}\} ?(으로|로|을|를|이|가|은|는|과|와)(?=[\s,.!?)…]|$)/.test(s))
+      .map(([key, s]) => `${key}: ${s}`)
+    expect(wrong).toEqual([])
+  })
+})
