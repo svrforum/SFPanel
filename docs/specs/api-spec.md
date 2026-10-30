@@ -2522,7 +2522,7 @@ Compose 프로젝트 삭제.
 Compose 프로젝트 시작 (`docker compose up -d`).
 
 - **인증 필요**: 예
-- **배포 직전 재검사**: `.env` 치환까지 끝난 설정(`docker compose config`)이 `/etc/sfpanel`, `/var/lib/sfpanel`, `/root/.ssh`, `/etc/sudoers.d`를 바인드하면 시작이 거부됩니다. 저장 시점 검사는 `${VAR}` 형태의 텍스트만 보므로, 금지 계층이 실제로 강제되는 지점은 여기입니다. 응답은 `COMPOSE_ERROR` (500)이고 메시지에 해당 경로가 담깁니다. 설정을 해석할 수 없으면 검사를 건너뛰고 `up`이 그대로 실패합니다.
+- **배포 직전 재검사**: `.env` 치환까지 끝난 설정(`docker compose config`)이 `/etc/sfpanel`, `/var/lib/sfpanel`, `/root/.ssh`, `/etc/sudoers.d`를 바인드하면 시작이 거부됩니다. 저장 시점 검사는 `${VAR}` 형태의 텍스트만 보므로, 금지 계층이 실제로 강제되는 지점은 여기입니다. 응답은 `COMPOSE_ERROR` (500)이고 메시지에 해당 경로가 담깁니다. 설정을 해석할 수 없거나 해석된 문서를 읽을 수 없어도 무엇을 바인드하는지 모르므로 시작을 거부합니다(같은 `COMPOSE_ERROR` (500), 메시지에 compose의 이유). 이 검사는 `up`에만 걸리므로 깨진 프로젝트도 중지·`down`·삭제는 됩니다.
 
 **Response (200):**
 ```json
@@ -3262,7 +3262,7 @@ Fail2ban jail 중지 (비활성화).
 
 **재인증 (고급 모드):** `password`는 로그인과 같은 계정으로 확인합니다 — 클러스터에서는 복제된 계정이 먼저입니다. 시도는 로그인과 같은 주소별 한도에 들어가서, 1분 안에 다섯 번 실패하면 그 주소는 5분 동안 `429`를 받습니다(로그인도 함께). 성공하면 한도가 초기화됩니다. 대상이 에이전트(`?node=<에이전트 ID>`)이면 에이전트에는 계정이 없으므로 요청을 받은 매니저가 확인하고, 비밀번호 없이 확인했다는 증명만 에이전트에 보냅니다(위 "`?node=`가 에이전트일 때"). 이때 아래 재인증 거부는 매니저가 답하며, 요청은 에이전트에 닿지 않습니다.
 
-**배포 직전 재검사 (심플·고급 공통):** compose 파일과 `.env`를 쓴 뒤 `pull` 전에 `docker compose config`로 해석한 문서를 금지 계층으로 한 번 더 검사합니다. 저장 시점 검사는 `${UPLOAD_LOCATION}` 같은 텍스트만 보고, 심플 모드는 그 값을 비밀번호 재확인 없이 운영자가 정하기 때문입니다. 해석된 문서가 `/etc/sfpanel`, `/var/lib/sfpanel`, `/root/.ssh`, `/etc/sudoers.d`를 바인드하면 스테이징한 디렉터리를 정리하고 위 고급 모드와 같은 모양의 `{stage:"prepare", success:false, done:true}` 이벤트(`code`는 `COMPOSE_FORBIDDEN`)로 스트림을 끝냅니다. 설정을 해석할 수 없으면 검사를 건너뛰고 설치가 계속됩니다 — `up`이 같은 오류를 더 정확한 메시지로 보고합니다.
+**배포 직전 재검사 (심플·고급 공통):** compose 파일과 `.env`를 쓴 뒤 `pull` 전에, 그리고 `pull`이 끝난 뒤 `up` 직전에 다시, `docker compose config`로 해석한 문서를 금지 계층으로 검사합니다(`pull`에 걸리는 몇 분 사이에 `PUT /docker/compose/:project/env`가 그 스택의 `.env`를 바꿀 수 있으므로). 저장 시점 검사는 `${UPLOAD_LOCATION}` 같은 텍스트만 보고, 심플 모드는 그 값을 비밀번호 재확인 없이 운영자가 정하기 때문입니다. 해석된 문서가 `/etc/sfpanel`, `/var/lib/sfpanel`, `/root/.ssh`, `/etc/sudoers.d`를 바인드하면 스테이징한 디렉터리를 정리하고 위 고급 모드와 같은 모양의 `{stage:"prepare", success:false, done:true}` 이벤트(`code`는 `COMPOSE_FORBIDDEN`)로 스트림을 끝냅니다. 설정을 해석할 수 없거나 해석된 문서를 읽을 수 없으면 무엇을 바인드하는지 모르므로 같은 방식으로 거부합니다(`code`는 `COMPOSE_ERROR`, 메시지에 compose의 이유). `config`가 해석하지 못하는 문서는 `up`도 올리지 못하므로 정상적인 설치가 잃는 것은 없습니다.
 
 **스트림 종료/에러** (스트림 시작 전 사전 검사):
 | 코드 | HTTP 상태 | 조건 |
@@ -4759,7 +4759,7 @@ data: {"phase":"rollback","message":"transfer/restore failed; source restarted: 
 | `X-SFPanel-Migration-Ack-Risks` | base64(JSON 문자열 배열) | 운영자가 승인한 위험 계층 항목의 문장 (`acknowledgedRisks`). 경로에 따옴표·쉼표·비ASCII가 있어도 그대로 전달되도록 base64로 싣습니다. 읽을 수 없는 값은 아무것도 승인하지 않습니다 |
 | `X-SFPanel-Migration-Source-Kind` | `manager` \| `agent` | 원본의 종류. `manager`가 아닌 값은 모두 `agent`(더 엄격한 쪽)로 봅니다 |
 
-**모든 원본:** compose는 금지 계층(`/etc/sfpanel`, `/var/lib/sfpanel`, `/root/.ssh`, `/etc/sudoers.d` 바인드)을 거부합니다(`400 COMPOSE_FORBIDDEN`). 매니저의 스택은 만들 때 위험 계층을 거쳤으므로 금지 계층만 검사합니다. 이미지 아카이브는 스택이 쓰는 태그만 설정할 수 있습니다 — `docker load`는 아카이브가 이름 붙인 태그를 모두 설정하므로, 다른 태그를 담은 아카이브는 적재하지 않습니다(다이제스트로 지정한 이미지는 태그가 없어야 함).
+**모든 원본:** compose는 금지 계층(`/etc/sfpanel`, `/var/lib/sfpanel`, `/root/.ssh`, `/etc/sudoers.d` 바인드)을 거부합니다(`400 COMPOSE_FORBIDDEN`). 매니저의 스택은 만들 때 위험 계층을 거쳤으므로 금지 계층만 검사합니다. 원문에 더해 .env 주입 뒤의 resolved 문서를 데이터 복원 전과 `up` 직전에 한 번씩 만들어 검사하며, 만들 수 없으면 무엇을 바인드하는지 모르므로 `400 COMPOSE_ERROR`(`resolved compose unavailable, so it cannot be checked: …`)로 거부합니다. 이미지 아카이브는 스택이 쓰는 태그만 설정할 수 있습니다 — `docker load`는 아카이브가 이름 붙인 태그를 모두 설정하므로, 다른 태그를 담은 아카이브는 적재하지 않습니다(다이제스트로 지정한 이미지는 태그가 없어야 함).
 
 **원본이 에이전트일 때 더해지는 규칙** — 에이전트의 root가 이관으로 다른 노드의 root가 되지 않도록:
 - compose의 위험 계층(`privileged`, 호스트 네임스페이스, docker.sock 등)은 항목마다 그 문장이 `Ack-Risks` 목록에 있어야 합니다. 없는 항목이 하나라도 있으면 그 항목을 모두 이름 대어 `400 COMPOSE_RISKY`. 원문과 .env 주입 뒤 resolved 문서를 같은 계층으로 검사합니다.
@@ -4784,7 +4784,7 @@ data: {"phase":"rollback","message":"transfer/restore failed; source restarted: 
 | `MISSING_FIELDS` | 400 | `X-SFPanel-Migration-Sha256` 없음 |
 | `COMPOSE_ERROR` | 400 | 번들을 읽을 수 없음(`bundle: …` — 체크섬 불일치, 경로 이탈, 크기 상한 초과 등) 또는 번들에 compose 파일이 없음 |
 | `INVALID_NAME` | 400 | 번들의 스택 id가 유효하지 않음 |
-| `COMPOSE_FORBIDDEN` · `COMPOSE_RISKY` | 400 | compose 안전성 검사 거부(위의 계층). 해석할 수 없는 compose는 `COMPOSE_ERROR` |
+| `COMPOSE_FORBIDDEN` · `COMPOSE_RISKY` | 400 | compose 안전성 검사 거부(위의 계층). 해석할 수 없는 compose, 또는 `docker compose config`로 resolved 문서를 만들 수 없는 경우는 `COMPOSE_ERROR` |
 | `ALREADY_EXISTS` | 409 | 같은 스택의 import가 진행 중, 공유 볼륨을 다른 이관이 복원 중, 같은 id 스택이 있는데 덮어쓰기 승인이 없음, 에이전트의 이미지 태그를 대상이 다른 이미지로 가짐 |
 | `COMPOSE_ERROR` | 500 | 덮어쓰기 백업·정의 복원 실패, 데이터 복원 실패(`restore data: …` — 이미지 아카이브의 태그, 에이전트 스택의 스택 밖 바인드, 덮어쓰기 승인 없는 기존 볼륨 포함), `up` 실패, 헬스체크 실패. 부분 복원분은 정리됩니다 |
 | `INTERNAL_ERROR` | 500 | 스테이징 디렉터리를 만들 수 없음 |

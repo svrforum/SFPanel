@@ -96,3 +96,40 @@ func TestAnAgentImportTakesOnlyTheAcknowledgedFindings(t *testing.T) {
 		t.Fatalf("%d %s: a manager's stack stopped before up\n%s", rec.Code, rec.Body, log)
 	}
 }
+
+// flakyConfigDocker is docker whose `config` fails on call $FAKE_FAIL_ON. It
+// resolves the stack as it is for the import's two checks and, from the third
+// call — `up`'s own, which holds the forbidden tier only — as a privileged
+// one, as the bundle's .env could make it. `up` is logged (and fails, there
+// being no daemon in a test).
+const flakyConfigDocker = `#!/bin/sh
+echo "$*" >> "$FAKE_DOCKER_LOG"
+case "$*" in
+  *" up -d") echo "no daemon in a test" >&2; exit 1 ;;
+  "compose -f "*" config")
+    n=$(cat "$FAKE_DOCKER_LOG.n" 2>/dev/null || echo 0); n=$((n+1)); echo $n > "$FAKE_DOCKER_LOG.n"
+    if [ "$n" = "$FAKE_FAIL_ON" ]; then echo "transient resolver failure" >&2; exit 1; fi
+    if [ "$n" -ge 3 ]; then printf 'services:\n  web:\n    image: nginx:fake\n    privileged: true\n'; else cat "$3"; fi ;;
+esac
+exit 0
+`
+
+// An import's resolved re-checks were skipped when the config would not
+// resolve, and `up` checks the forbidden tier only: an agent's stack went up
+// privileged, unacknowledged, when either check's resolve failed. Each
+// refuses now, with the resolver's reason.
+func TestAnImportRefusesWhatItCannotResolve(t *testing.T) {
+	for _, failOn := range []string{"1", "2"} {
+		t.Run("config call "+failOn+" fails", func(t *testing.T) {
+			t.Setenv("FAKE_FAIL_ON", failOn)
+			rec, log := importWith(t, "services:\n  web:\n    image: nginx:fake\n", importPolicy{AgentSource: true}, flakyConfigDocker)
+			body := rec.Body.String()
+			if rec.Code != http.StatusBadRequest || !strings.Contains(body, `"code":"`+response.ErrComposeError+`"`) || !strings.Contains(body, "transient resolver failure") {
+				t.Fatalf("%d %s, want 400 %s with the resolver's reason\n%s", rec.Code, body, response.ErrComposeError, log)
+			}
+			if strings.Contains(log, " up -d") {
+				t.Fatalf("the stack went up:\n%s", log)
+			}
+		})
+	}
+}

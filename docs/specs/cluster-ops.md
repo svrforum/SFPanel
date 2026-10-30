@@ -794,7 +794,9 @@ become root on the node its stack moves to:
   agent that leaves a finding out gets it refused, not acknowledged. A manager's stack is checked for the forbidden tier
   only, as before: it passed the risky tier when it was created. The
   forbidden tier — binds of `/etc/sfpanel`, `/var/lib/sfpanel`, `/root/.ssh`
-  or `/etc/sudoers.d` — is refused for every source.
+  or `/etc/sudoers.d` — is refused for every source, and so is a stack
+  whose resolved form `docker compose config` cannot produce on the target
+  (`COMPOSE_ERROR`): what it binds is unknown.
 - Bind data is restored into the stack's own directory only, and a stack
   that binds a path outside it is refused. A manager's absolute binds are
   still written to the same paths on the target, outside the protected

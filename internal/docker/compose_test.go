@@ -62,14 +62,15 @@ func TestGuardIgnoresEverythingButUp(t *testing.T) {
 	}
 }
 
-func TestGuardIsBestEffortWhenTheConfigCannotResolve(t *testing.T) {
+// A config that cannot be resolved binds nothing anyone has checked. It used
+// to pass: a `config` that failed or timed out lifted the boundary for the
+// `up` behind it. It is refused, with the resolver's reason.
+func TestGuardRefusesWhatItCannotResolve(t *testing.T) {
 	m := &ComposeManager{}
 	m.resolveConfig = func(context.Context, string) (string, error) { return "", errors.New("missing env file") }
-	// `up` would fail with the same error and say it better; turning a
-	// resolve failure into a refusal would block deploys for a reason that
-	// has nothing to do with the tier.
-	if err := m.guardResolvedCompose(context.Background(), "stack", []string{"up", "-d"}); err != nil {
-		t.Errorf("resolve failure became a refusal: %v", err)
+	err := m.guardResolvedCompose(context.Background(), "stack", []string{"up", "-d"})
+	if err == nil || !strings.Contains(err.Error(), "missing env file") {
+		t.Errorf("a resolve failure passed the guard, or its reason was lost: %v", err)
 	}
 }
 
@@ -166,26 +167,23 @@ func TestGuardRefusesAForbiddenBindBehindAComposeWarning(t *testing.T) {
 	}
 }
 
-func TestGuardIsBestEffortWhenTheResolvedConfigCannotBeParsed(t *testing.T) {
+func TestGuardRefusesAResolvedConfigItCannotRead(t *testing.T) {
 	m := &ComposeManager{}
 	m.resolveConfig = func(context.Context, string) (string, error) {
-		// Whatever leaves the document unreadable — here the pollution this
-		// round removed, so the guard stays safe even if some other writer
-		// re-introduces it.
-		return composeWarning + "\nservices:\n  a:\n    image: x\n", nil
+		// Whatever leaves the document unreadable — here compose's stderr
+		// read in with it, which the resolver no longer does.
+		return "level=warning\n\tservices: [\n", nil
 	}
-	// Unreadable says nothing about the forbidden tier, and `up` re-resolves
-	// the same file and reports the real problem. Turning a parse failure into
-	// a refusal would block deploys for a reason that is not the tier.
-	if err := m.guardResolvedCompose(context.Background(), "stack", []string{"up", "-d"}); err != nil {
-		t.Errorf("an unparseable resolved config became a refusal: %v", err)
+	// Unreadable is unchecked: what it binds is unknown, so it does not go up.
+	if err := m.guardResolvedCompose(context.Background(), "stack", []string{"up", "-d"}); err == nil {
+		t.Error("an unreadable resolved config passed the guard")
 	}
 }
 
 // The resolver reads files already on disk, and it runs before anything is
 // deployed. runComposeStdout's own cap is the deploy budget — five minutes —
 // so a `docker compose config` that wedges would hold the deploy for all of it
-// before this best-effort guard gave up. The guard hands the resolver its own
+// before this guard gave up. The guard hands the resolver its own
 // deadline instead.
 func TestGuardBoundsTheResolverWithItsOwnDeadline(t *testing.T) {
 	m := &ComposeManager{}

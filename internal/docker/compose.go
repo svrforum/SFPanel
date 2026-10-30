@@ -7,7 +7,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
-	"log/slog"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -540,8 +539,12 @@ const resolveConfigTimeout = 60 * time.Second
 // check of its own). The App Store runs its own `docker compose up` and
 // carries the same check itself, in appstore.guardResolvedInstall.
 // Forbidden tier only: risky content was acknowledged when it was saved.
-// Best-effort — a project whose config will not resolve fails in `up` with a
-// better message than this guard could give.
+// A project whose config will not resolve, or resolves to something
+// unreadable, is refused too: what it binds is unknown, and letting it
+// through made the boundary a matter of making `config` fail or time out
+// while `up` did not. A config that cannot resolve does not come up either.
+// Only `up` is held here, so stop, down and remove still work on a broken
+// project.
 func (m *ComposeManager) guardResolvedCompose(ctx context.Context, name string, args []string) error {
 	if len(args) == 0 || args[0] != "up" {
 		// `up` is the only verb that deploys the resolved document; nothing
@@ -561,18 +564,11 @@ func (m *ComposeManager) guardResolvedCompose(ctx context.Context, name string, 
 	defer cancel()
 	resolved, err := m.resolveConfig(resolveCtx, name)
 	if err != nil {
-		return nil
+		return fmt.Errorf("could not resolve the compose file to check what it binds: %w", err)
 	}
 	report, err := composex.Analyze(resolved)
 	if err != nil {
-		// Unreadable is not forbidden. Analyze fails when the document could
-		// not be parsed at all, which says nothing about the tier — and `up`
-		// resolves the very same file a moment later and reports the real
-		// problem far better than this guard could. Refusing here would turn
-		// every parse hiccup into a deploy refusal that names no path.
-		slog.Warn("resolved compose could not be parsed; forbidden-tier check skipped",
-			"component", "compose", "stack", name, "error", err)
-		return nil
+		return fmt.Errorf("could not read the resolved compose file to check what it binds: %w", err)
 	}
 	return report.Error(true)
 }

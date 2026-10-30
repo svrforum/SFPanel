@@ -385,19 +385,19 @@ func stagedStack(t *testing.T, h *Handler) string {
 // The staged compose says ${UPLOAD_LOCATION}; only the .env beside it knows
 // that expands to the directory holding the JWT signing secret and the cluster
 // CA key, and `up` resolves that same .env. This also pins the stdout-only
-// read: merged with compose's stderr the document does not parse, the guard
-// would skip as best-effort, and the bind would deploy.
+// read: merged with compose's stderr the document does not parse, and the
+// refusal would name no path.
 func TestGuardResolvedInstall_RefusesWhatTheEnvExpandedTo(t *testing.T) {
 	h := newHandler(t)
 	composePath := stagedStack(t, h)
 	fakeComposeConfig(t, "name: demo\nservices:\n  immich:\n    image: x\n    volumes:\n      - type: bind\n        source: /etc/sfpanel\n        target: /usr/src/app/upload\n")
 
-	err := h.guardResolvedInstall(context.Background(), composePath)
+	code, err := h.guardResolvedInstall(context.Background(), composePath)
 	if err == nil {
 		t.Fatal("install accepted a resolved compose binding /etc/sfpanel")
 	}
-	if !strings.Contains(err.Error(), "/etc/sfpanel") {
-		t.Errorf("refusal %q does not name the path", err)
+	if !strings.Contains(err.Error(), "/etc/sfpanel") || code != response.ErrComposeForbidden {
+		t.Errorf("refusal %s %q does not name the path as the forbidden tier", code, err)
 	}
 }
 
@@ -408,21 +408,74 @@ func TestGuardResolvedInstall_AcceptsAnOrdinaryStack(t *testing.T) {
 	composePath := stagedStack(t, h)
 	fakeComposeConfig(t, "name: demo\nservices:\n  app:\n    image: x\n    volumes:\n      - type: bind\n        source: /opt/stacks/demo/data\n        target: /data\n")
 
-	if err := h.guardResolvedInstall(context.Background(), composePath); err != nil {
+	if _, err := h.guardResolvedInstall(context.Background(), composePath); err != nil {
 		t.Errorf("an ordinary stack was refused: %v", err)
 	}
 }
 
-// Best-effort: a resolver that cannot run says nothing about the tier, and the
-// `pull` and `up` that follow report the real problem better than a refusal
-// naming no path would.
-func TestGuardResolvedInstall_IsBestEffortWhenTheConfigCannotResolve(t *testing.T) {
+// A config that cannot be resolved binds nothing anyone has checked, and was
+// let through: a `config` that failed or timed out lifted the boundary for an
+// `up` that had ten minutes. It is refused, with compose's own words.
+func TestGuardResolvedInstall_RefusesWhatItCannotResolve(t *testing.T) {
 	h := newHandler(t)
 	composePath := stagedStack(t, h)
-	t.Setenv("PATH", t.TempDir()) // no docker at all
+	bin := t.TempDir()
+	stub := "#!/bin/sh\necho 'service \"app\" refers to undefined volume data' >&2\nexit 15\n"
+	if err := os.WriteFile(filepath.Join(bin, "docker"), []byte(stub), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("PATH", bin)
 
-	if err := h.guardResolvedInstall(context.Background(), composePath); err != nil {
-		t.Errorf("a resolver failure became a refusal: %v", err)
+	code, err := h.guardResolvedInstall(context.Background(), composePath)
+	if err == nil || code != response.ErrComposeError || !strings.Contains(err.Error(), "undefined volume data") {
+		t.Fatalf("got %q %v, want %s with compose's reason", code, err, response.ErrComposeError)
+	}
+	// So does a document that resolves to something unreadable.
+	fakeComposeConfig(t, "not: [a compose")
+	if code, err := h.guardResolvedInstall(context.Background(), composePath); err == nil || code != response.ErrComposeError {
+		t.Fatalf("an unreadable resolved document: %q %v", code, err)
+	}
+}
+
+// envSwapDocker is docker for an install whose .env is rewritten during the
+// pull, as PUT /docker/compose/:project/env can: `config` resolves the stack's
+// .env as it stands, `pull` rewrites it to bind /etc/sfpanel, and `up` is
+// logged (and fails, there being no daemon in a test).
+const envSwapDocker = `#!/bin/sh
+echo "$*" >> "$FAKE_DOCKER_LOG"
+dir=$(dirname "$3")
+case "$*" in
+  *" pull") printf 'DATA=/etc/sfpanel\n' > "$dir/.env" ;;
+  *" config") . "$dir/.env"; printf 'services:\n  app:\n    image: x\n    volumes:\n      - type: bind\n        source: %s\n        target: /data\n' "$DATA" ;;
+  *" up -d") exit 1 ;;
+esac
+exit 0
+`
+
+// The check before the pull passed; the pull takes minutes, and in them the
+// stack's .env was rewritten to bind /etc/sfpanel. The install's own `up`
+// deployed it without looking again.
+func TestInstallApp_ChecksAgainBeforeUp(t *testing.T) {
+	bin := t.TempDir()
+	logPath := filepath.Join(t.TempDir(), "docker.log")
+	if err := os.WriteFile(filepath.Join(bin, "docker"), []byte(envSwapDocker), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("PATH", bin+string(os.PathListSeparator)+os.Getenv("PATH"))
+	t.Setenv("FAKE_DOCKER_LOG", logPath)
+	h := newAdvancedHandler(t, "correct-horse")
+
+	body := `{"advanced":true,"password":"correct-horse","compose":"services:\n  app:\n    image: x\n    volumes:\n      - ${DATA}:/data\n","env_raw":"DATA=/srv/demo-data\n"}`
+	out := installAdvanced(t, h, body)
+	log, _ := os.ReadFile(logPath)
+	if !strings.Contains(string(log), " pull") {
+		t.Fatalf("the install stopped before the pull, so the check before up was not reached:\n%s\n%s", log, out)
+	}
+	if strings.Contains(string(log), " up -d") || !strings.Contains(out, `"code":"COMPOSE_FORBIDDEN"`) || !strings.Contains(out, "/etc/sfpanel") {
+		t.Fatalf("up ran, or the refusal does not name /etc/sfpanel as the forbidden tier:\n%s\n%s", log, out)
+	}
+	if _, err := os.Stat(filepath.Join(h.ComposePath, "demo")); !os.IsNotExist(err) {
+		t.Errorf("refused install left the stack directory behind: %v", err)
 	}
 }
 
@@ -460,7 +513,9 @@ func TestInstallApp_RefusesWhatTheResolvedConfigBinds(t *testing.T) {
 // detached context so a closed browser tab does not abandon a half-installed
 // stack — which means a guard bound to the request would be lifted by the
 // cheapest possible move: POST the install, close the connection, and let the
-// resolver fail into the best-effort skip while `up` deploys the bind.
+// resolver fail into what was then a best-effort skip while `up` deployed the
+// bind. A resolver failure is refused now, but this still pins that the
+// refusal is the forbidden tier's, as the guard on installCtx finds it.
 func TestInstallApp_RefusesEvenWhenTheClientHangsUp(t *testing.T) {
 	h := newAdvancedHandler(t, "correct-horse")
 	fakeComposeConfig(t, "name: demo\nservices:\n  app:\n    image: x\n    volumes:\n      - type: bind\n        source: /etc/sfpanel\n        target: /data\n")

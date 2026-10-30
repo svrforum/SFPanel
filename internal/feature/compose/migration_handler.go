@@ -90,6 +90,21 @@ func importComposeCode(content string) string {
 	return response.ErrComposeRisky
 }
 
+// resolvedImportCheck is checkImportCompose on stackID as `up` will resolve
+// it, .env and all. It answers the refusal's code and message, or "" for
+// none; a config that cannot be resolved is refused (COMPOSE_ERROR), as
+// nothing of it has been checked.
+func (h *Handler) resolvedImportCheck(ctx context.Context, stackID string, p importPolicy) (code, msg string) {
+	resolved, err := h.Compose.GetResolvedConfigYAML(ctx, stackID)
+	if err != nil {
+		return response.ErrComposeError, "resolved compose unavailable, so it cannot be checked: " + err.Error()
+	}
+	if verr := checkImportCompose(resolved, p); verr != nil {
+		return importComposeCode(resolved), "resolved compose rejected: " + verr.Error()
+	}
+	return "", ""
+}
+
 // MigrateImport (POST /docker/compose/migrate-import) receives a migration
 // bundle from a source node over the authenticated cluster channel, verifies
 // its checksum, runs the compose safety validator, restores the stack
@@ -198,20 +213,19 @@ func (h *Handler) MigrateImport(c echo.Context) error {
 	// Re-validate the RESOLVED compose (after .env interpolation). The raw-text
 	// check above can be bypassed by a hostile/edited .env that injects a
 	// forbidden bind via ${VAR} substitution, and the target's `up` re-resolves
-	// with that .env. Best-effort: if the config can't be resolved here, `up`
-	// would surface the same error, so fall back to the raw check rather than
-	// failing on a transient resolve error. Same tiers as the raw check — the
-	// risky tier only when the source is an agent and the operator has not acked.
-	if resolved, rerr := h.Compose.GetResolvedConfigYAML(opCtx, m.StackID); rerr == nil {
-		if verr := checkImportCompose(resolved, policy); verr != nil {
-			_ = os.RemoveAll(stackDir)
-			if backup != "" {
-				if err := os.Rename(backup, stackDir); err != nil {
-					slog.Error("resolved-compose reject: restoring prior definition from backup failed", "component", "compose", "stack", m.StackID, "error", err)
-				}
+	// with that .env. Same tiers as the raw check — the risky tier only when
+	// the source is an agent, for what the operator did not acknowledge. A
+	// config that will not resolve is refused: `up` holds the forbidden tier
+	// only, so skipping here let an agent's risky stack up whenever this
+	// resolve failed and up's did not.
+	if code, msg := h.resolvedImportCheck(opCtx, m.StackID, policy); code != "" {
+		_ = os.RemoveAll(stackDir)
+		if backup != "" {
+			if err := os.Rename(backup, stackDir); err != nil {
+				slog.Error("resolved-compose reject: restoring prior definition from backup failed", "component", "compose", "stack", m.StackID, "error", err)
 			}
-			return response.Fail(c, http.StatusBadRequest, importComposeCode(resolved), response.SanitizeOutput("resolved compose rejected: "+verr.Error()))
 		}
+		return response.Fail(c, http.StatusBadRequest, code, response.SanitizeOutput(msg))
 	}
 
 	// Restore images + volume/bind data BEFORE up. Each archive was sha256-verified
@@ -238,11 +252,9 @@ func (h *Handler) MigrateImport(c echo.Context) error {
 	// its .env, one an include reads, or a compose file name the panel reads
 	// before the bundle's — and `up` holds the forbidden tier only, so an
 	// agent's risky stack would go up without the operator's acknowledgement.
-	if resolved, rerr := h.Compose.GetResolvedConfigYAML(opCtx, m.StackID); rerr == nil {
-		if verr := checkImportCompose(resolved, policy); verr != nil {
-			h.failedImportData(m.StackID, backup, createdVols, prebaks)
-			return response.Fail(c, http.StatusBadRequest, importComposeCode(resolved), response.SanitizeOutput("resolved compose rejected: "+verr.Error()))
-		}
+	if code, msg := h.resolvedImportCheck(opCtx, m.StackID, policy); code != "" {
+		h.failedImportData(m.StackID, backup, createdVols, prebaks)
+		return response.Fail(c, http.StatusBadRequest, code, response.SanitizeOutput(msg))
 	}
 	if _, err := h.Compose.Up(opCtx, m.StackID); err != nil {
 		h.failedImportData(m.StackID, backup, createdVols, prebaks)

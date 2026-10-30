@@ -963,12 +963,11 @@ func (h *Handler) InstallApp(c echo.Context) error {
 	// tier only: the risky tier was answered above, before anything was written.
 	//
 	// On installCtx, not the request's: everything below survives a client
-	// disconnect, so a guard that died with the request would be lifted by
-	// hanging up — the resolver would fail, the check would skip as
-	// best-effort, and the `up` would deploy the bind anyway.
-	if verr := h.guardResolvedInstall(installCtx, composePath); verr != nil {
+	// disconnect, so a guard that died with the request would refuse every
+	// install whose client hung up.
+	if code, verr := h.guardResolvedInstall(installCtx, composePath); verr != nil {
 		cleanup()
-		sendRefusal("Refused compose file: "+verr.Error(), response.ErrComposeForbidden)
+		sendRefusal("Refused compose file: "+verr.Error(), code)
 		return nil
 	}
 
@@ -978,6 +977,15 @@ func (h *Handler) InstallApp(c echo.Context) error {
 		// later with a less precise "image not found" error.
 		cleanup()
 		send("pull", "Failed to pull images", true, false)
+		return nil
+	}
+
+	// Again, right before `up`: the pull takes minutes, and in them
+	// PUT /docker/compose/:project/env can rewrite this stack's .env with no
+	// check of its own. What `up` resolves is what is checked now.
+	if code, verr := h.guardResolvedInstall(installCtx, composePath); verr != nil {
+		cleanup()
+		sendRefusal("Refused compose file: "+verr.Error(), code)
 		return nil
 	}
 
@@ -1011,28 +1019,28 @@ func (h *Handler) InstallApp(c echo.Context) error {
 }
 
 // guardResolvedInstall refuses an install whose RESOLVED compose binds one of
-// the panel's own secrets. The staged stack is on disk at this point, so the
-// document can be resolved exactly as `up` will resolve it, .env and all.
+// the panel's own secrets, and says with which code. The staged stack is on
+// disk at this point, so the document can be resolved exactly as `up` will
+// resolve it, .env and all.
 //
-// Best-effort, like the compose module's deploy guard: a config that will not
-// resolve, or one that comes back unreadable, says nothing about the tier, and
-// the `pull` and `up` that follow report the real problem far better than a
-// refusal naming no path could. Refusing here on a parse hiccup would block
-// ordinary installs for a reason that is not the boundary.
-func (h *Handler) guardResolvedInstall(ctx context.Context, composePath string) error {
+// A config that will not resolve, or comes back unreadable, is refused too
+// (COMPOSE_ERROR, with compose's own words): what it binds is unknown, and
+// letting it through made the boundary a matter of making `config` fail or
+// time out while `up`, with ten minutes, did not. A document `config` cannot
+// resolve does not come up either, so an ordinary install loses nothing.
+func (h *Handler) guardResolvedInstall(ctx context.Context, composePath string) (string, error) {
 	resolved, err := h.resolvedComposeYAML(ctx, composePath)
 	if err != nil {
-		slog.Warn("resolved compose unavailable; forbidden-tier check skipped",
-			"component", "appstore", "compose_path", composePath, "error", err)
-		return nil
+		return response.ErrComposeError, fmt.Errorf("could not resolve it to check what it binds: %w", err)
 	}
 	report, err := composex.Analyze(resolved)
 	if err != nil {
-		slog.Warn("resolved compose could not be parsed; forbidden-tier check skipped",
-			"component", "appstore", "compose_path", composePath, "error", err)
-		return nil
+		return response.ErrComposeError, fmt.Errorf("could not read it as resolved to check what it binds: %w", err)
 	}
-	return report.Error(true)
+	if err := report.Error(true); err != nil {
+		return response.ErrComposeForbidden, err
+	}
+	return "", nil
 }
 
 // resolvedComposeYAML returns what `docker compose config` makes of the staged
