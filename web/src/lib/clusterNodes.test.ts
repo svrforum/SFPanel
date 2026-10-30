@@ -18,6 +18,7 @@ import {
   roleChangeFailure,
   roleChangePhase,
   sortNodes,
+  treeSections,
 } from './clusterNodes'
 
 function node(over: Partial<ClusterNode> & { id: string }): ClusterNode {
@@ -262,5 +263,56 @@ describe('otherManagerAddress', () => {
     // None answers: one that may come back is better than nothing.
     expect(otherManagerAddress(nodes.slice(0, 3), 'm-2')).toBe('192.0.2.1:3628')
     expect(otherManagerAddress([nodes[1], nodes[2]], 'm-2')).toBe('')
+  })
+})
+
+describe('treeSections', () => {
+  const grouped = (name: string, group: string, over: Partial<ClusterNode> = {}) =>
+    node({ id: name, name, labels: { group }, ...over })
+  const view = (sections: ReturnType<typeof treeSections>) =>
+    sections.map((s) => [s.key, s.kind, s.group, s.nodes.map((n) => n.name)])
+
+  it('draws a cluster of managers alone as one section', () => {
+    expect(view(treeSections([manager('m-2'), manager('m-1')], 'm-2', ''))).toEqual([
+      ['managers', 'managers', undefined, ['m-2', 'm-1']],
+    ])
+  })
+
+  it('puts managers first, then each agent group by name, then agents without one', () => {
+    const nodes = [
+      agent('agent-10'),
+      grouped('agent-3', 'web', { kind: 'agent', role: '' }),
+      grouped('agent-2', 'db', { kind: 'agent', role: '' }),
+      agent('agent-9'),
+      grouped('agent-1', 'db', { kind: 'agent', role: '' }),
+      manager('m-1'),
+      manager('m-2'),
+    ]
+    expect(view(treeSections(nodes, 'm-2', ''))).toEqual([
+      ['managers', 'managers', undefined, ['m-2', 'm-1']],
+      ['group:db', 'group', 'db', ['agent-1', 'agent-2']],
+      ['group:web', 'group', 'web', ['agent-3']],
+      ['ungrouped', 'ungrouped', undefined, ['agent-9', 'agent-10']],
+    ])
+  })
+
+  it('keeps a manager with a group in the managers section only', () => {
+    const nodes = [grouped('m-1', 'db'), grouped('agent-1', 'web', { kind: 'agent', role: '' })]
+    expect(view(treeSections(nodes, 'm-1', ''))).toEqual([
+      ['managers', 'managers', undefined, ['m-1']],
+      ['group:web', 'group', 'web', ['agent-1']],
+    ])
+  })
+
+  it('leaves out a section the search empties', () => {
+    const nodes = [manager('m-1'), grouped('agent-1', 'db', { kind: 'agent', role: '' }), grouped('agent-37', 'web', { kind: 'agent', role: '' }), agent('agent-2')]
+    expect(view(treeSections(nodes, 'm-1', 'AGENT-37'))).toEqual([
+      ['group:web', 'group', 'web', ['agent-37']],
+    ])
+    // The search reads labels as filterNodes does.
+    expect(view(treeSections(nodes, 'm-1', 'group=db'))).toEqual([
+      ['group:db', 'group', 'db', ['agent-1']],
+    ])
+    expect(treeSections(nodes, 'm-1', 'nothing')).toEqual([])
   })
 })

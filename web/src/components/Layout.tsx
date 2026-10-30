@@ -7,6 +7,7 @@ import { useTranslation } from 'react-i18next'
 import { api } from '@/lib/api'
 import { cn } from '@/lib/utils'
 import { NAV_ITEMS, isTerminalRoute } from '@/lib/navigation'
+import { NODE_CHANGED, type NodeChangedDetail } from '@/lib/nodeSelection'
 import { useVisibleInterval } from '@/hooks/useVisibleInterval'
 import { ErrorBoundary } from '@/components/ErrorBoundary'
 import ClusterSidebar from '@/components/cluster/ClusterSidebar'
@@ -54,15 +55,15 @@ export default function Layout() {
   const location = useLocation()
   const isTerminal = isTerminalRoute(location.pathname)
 
-  const handleNodeChanged = useCallback(() => {
+  const handleNodeChanged = useCallback((nodeId: string | null) => {
     setNodeKey((k) => k + 1)
-    window.dispatchEvent(new Event('sfpanel:node-changed'))
+    window.dispatchEvent(new CustomEvent<NodeChangedDetail>(NODE_CHANGED, { detail: { nodeId } }))
   }, [])
 
   useEffect(() => {
     const handler = () => setNodeKey((k) => k + 1)
-    window.addEventListener('sfpanel:node-changed', handler)
-    return () => window.removeEventListener('sfpanel:node-changed', handler)
+    window.addEventListener(NODE_CHANGED, handler)
+    return () => window.removeEventListener(NODE_CHANGED, handler)
   }, [])
 
   // Latched once the server definitively says "not clustered". A standalone

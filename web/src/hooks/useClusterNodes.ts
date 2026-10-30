@@ -53,13 +53,31 @@ export function useClusterNodes(): ClusterNodesState {
     reload()
   }, [reload])
 
+  // Follow a switch made elsewhere (the desktop tree, a node that left the
+  // cluster) so the picker does not keep naming a node the page no longer
+  // shows. Taken over without a broadcast: the switch already made one.
+  const syncing = useRef(false)
+  useEffect(() => {
+    const handler = () => {
+      const current = api.currentNode
+      setSelectedNode((prev) => {
+        if (prev === current) return prev
+        syncing.current = true
+        return current
+      })
+    }
+    window.addEventListener(NODE_CHANGED, handler)
+    return () => window.removeEventListener(NODE_CHANGED, handler)
+  }, [])
+
   // Skip the broadcast for the initial mount sync — only user-driven
   // selection changes should remount the page outlet.
   const initialRef = useRef(true)
   useEffect(() => {
     api.setCurrentNode(selectedNode)
-    if (initialRef.current) {
+    if (initialRef.current || syncing.current) {
       initialRef.current = false
+      syncing.current = false
       return
     }
     // Name the local node too, so the tree can highlight it: null alone does

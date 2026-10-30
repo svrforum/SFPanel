@@ -195,6 +195,8 @@ jobs:
             tests/cluster-overview.spec.ts \
             tests/cluster-security.spec.ts \
             tests/mobile-node-picker.spec.ts \
+            tests/cluster-tree.spec.ts \
+            tests/cluster-follower-actions.spec.ts \
             tests/alert-settings.spec.ts \
             tests/terminal-select-text.spec.ts \
             tests/terminal-links.spec.ts \

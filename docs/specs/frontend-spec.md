@@ -13,7 +13,7 @@
 - **프레임워크**: React 19 + TypeScript + Vite 8 (rolldown 기반)
 - **스타일**: Tailwind CSS v4 + shadcn/ui (일부 컴포넌트) + Toss 디자인 시스템 영향 (컬러, 라운딩, 그림자)
 - **다크모드**: `web/src/lib/theme.ts` — light/dark/system 3-상태, localStorage `sfpanel-theme`, `<html>`에 `.dark` 클래스 토글, `index.html` 인라인 pre-paint 스크립트로 플래시 방지, system 모드는 OS 변경 라이브 추종 (v0.53.0)
-- **모바일 셸**: BottomNav + MobileHeader + MoreMenu (`useIsMobile` 훅) — md 미만에서 사이드바 대신 하단 네비게이션 (v0.9 동기화 당시 누락분)
+- **모바일 셸**: BottomNav + MoreMenu — md 미만에서 사이드바 대신 하단 네비게이션. 상단 헤더는 없고, 클러스터 모드의 노드 선택은 MoreMenu 서랍 위쪽의 선택기가 맡는다
 - **상태 관리**: React hooks (useState, useEffect, useCallback, useRef, useMemo)
 - **라우팅**: React Router v7 (BrowserRouter)
 - **국제화**: react-i18next + i18next-browser-languagedetector (한국어/영어)
@@ -509,10 +509,9 @@ const DockerStacks = lazy(() => import('@/pages/docker/DockerStacks'))
 | Layout | `web/src/components/Layout.tsx` | 인증된 페이지의 공통 레이아웃. 좌측 사이드바(네비게이션 12항목 + 접기/펼치기 + 로그아웃) + 우측 메인 콘텐츠(Outlet). NavLink로 활성 상태 표시. 사이드바 접기 상태 localStorage 영속화. |
 | MetricsCard | `web/src/components/MetricsCard.tsx` | 메트릭 표시 카드. 아이콘 + 제목 + 값 + 프로그레스 바(80% 초과 빨강, 60% 초과 노랑, 그 외 파랑). |
 | MetricsChart | `web/src/components/MetricsChart.tsx` | CPU/메모리 시계열 차트. uPlot 사용. CPU(파랑) + Memory(초록) 이중 라인. Y축 0-100%. |
-| ClusterSidebar | `web/src/components/cluster/ClusterSidebar.tsx` | 클러스터 모드 좌측 2단 트리(TreePanel+ContextMenu). 선택 시 `api.setCurrentNode` + 라우팅. 표준 사이드바를 대체. |
-| TreePanel | `web/src/components/cluster/TreePanel.tsx` | 데이터센터 루트 + 노드 목록(상태/리더/local, 로컬 우선 정렬), 접이식 52px 레일. |
+| ClusterSidebar | `web/src/components/cluster/ClusterSidebar.tsx` | 클러스터 모드 좌측 2단 트리(TreePanel+ContextMenu). 선택 시 `api.setCurrentNode` + 라우팅 + `sfpanel:node-changed`(detail `{ nodeId }`, 데이터센터는 `null`). 표준 사이드바를 대체. 노드 목록은 15초 폴링 + `sfpanel:cluster-changed`를 들으면 바로 다시 받는다. 고른 노드(`api.currentNode`)가 성공한 목록에 없으면(제거·전환, 예전에 저장된 값 포함) 이 노드로 돌아오고 토스트로 알린다. |
+| TreePanel | `web/src/components/cluster/TreePanel.tsx` | 데이터센터 루트 + 노드 트리. 에이전트가 있으면 구역으로 묶는다(`treeSections`: 매니저 → 에이전트 그룹 이름순 → 그룹 없음, 구역 머리는 접을 수 있고 `sfpanel-tree-collapsed`에 남음). 노드가 8대를 넘으면 검색. 접이식 52px 레일은 노드 점 열이 세로로 스크롤되고 로그아웃은 아래에 고정. |
 | ContextMenu | `web/src/components/cluster/ContextMenu.tsx` | 선택 범위별 메뉴(데이터센터: 개요/노드/Docker/보안/설정 · 노드: 모듈 메뉴). |
-| NodeSelector | `web/src/components/NodeSelector.tsx` | (레거시) 비클러스터 표준 사이드바 전용 드롭다운. 클러스터 모드에선 미사용. |
 | ContainerShell | `web/src/components/ContainerShell.tsx` | Docker 컨테이너 셸 접속. xterm.js + WebSocket(`/ws/docker/containers/{id}/exec`). 키 입력 전송, 리사이즈 이벤트 전송. |
 | ContainerLogs | `web/src/components/ContainerLogs.tsx` | Docker 컨테이너 로그 스트리밍. xterm.js(읽기 전용) + WebSocket(`/ws/docker/containers/{id}/logs`). 검색(SearchAddon), 로그 다운로드 기능. |
 | ComposeEditor | `web/src/components/ComposeEditor.tsx` | YAML/텍스트 에디터. Monaco Editor 래퍼. 높이 400px, vs-dark 테마, 미니맵 비활성화, 자동 레이아웃. Props: `value`, `onChange`, `language`(기본값 'yaml'). |
@@ -522,7 +521,7 @@ const DockerStacks = lazy(() => import('@/pages/docker/DockerStacks'))
 | PromptDialog | `web/src/components/PromptDialog.tsx` | (v0.36.0) 네이티브 `window.prompt` 대체. `PromptProvider`(`App.tsx` 마운트) + `usePrompt()` 훅이 `prompt(opts) => Promise<string \| null>`를 반환. `PromptOptions`: `title`, `description?`, `placeholder?`, `defaultValue?`, `password?`(마스킹 입력), `confirmLabel?`, `cancelLabel?`. disable-2FA 재인증·appstore 고급 설치 재인증 등 파괴/인증 플로우에서 사용. |
 | TypeToConfirmDialog | `web/src/components/TypeToConfirmDialog.tsx` | (v0.30.0) 비가역 작업 게이트. 정확한 이름(디바이스/배열/클러스터명)을 입력해야 파괴 버튼이 활성화. Props: `open`, `onOpenChange`, `title`, `description?`, `confirmPhrase`(입력해야 할 정확한 문자열), `confirmLabel`, `loading?`, `onConfirm`. 적용: 디스크 포맷, 파티션 삭제, RAID 배열 삭제, 클러스터 disband. |
 | Skeleton | `web/src/components/ui/skeleton.tsx` | (v0.33.0) 로딩 스켈레톤 플레이스홀더. `bg-accent animate-pulse rounded-md` div 래퍼. `className` props로 형태 지정. 목록 페이지 첫 로드 시에만 표시(백그라운드 갱신 시 미표시). |
-| BottomNav / MobileHeader / MoreMenu | `web/src/components/BottomNav.tsx` 외 | 모바일 셸 네비게이션 — md 미만에서 사이드바 대신 하단 탭 바 + 상단 헤더 + "더보기" 시트 (v0.9 동기화 당시 누락분) |
+| BottomNav / MoreMenu | `web/src/components/BottomNav.tsx`, `MoreMenu.tsx` | 모바일 셸 네비게이션 — md 미만에서 사이드바 대신 하단 탭 바 + "더보기" 서랍. 클러스터 모드에서 서랍 위쪽은 노드 선택기(`useClusterNodes`, 열 때마다 목록을 다시 받음): 트리와 같은 구역 머리, 8대 초과 시 검색 |
 | ErrorBoundary | `web/src/components/ErrorBoundary.tsx` | 전역 렌더 오류 경계 — 페이지 크래시를 지역화된 오류 화면으로 격리 |
 | ComposeLogs | `web/src/components/ComposeLogs.tsx` | 스택 실시간 로그 스트리밍 (`/ws/docker/compose/:project/logs`, `service` 필터) — DockerStacks/ClusterStacks에서 사용 |
 | MobileTerminalBar | `web/src/components/MobileTerminalBar.tsx` | (v0.53.0) Terminal 페이지에서 추출된 모바일 특수키 바 (Esc/Tab/Ctrl/Alt 토글, 방향키 등) |
@@ -1215,17 +1214,20 @@ interface InstalledApp {
 
 ### localStorage 영속화 키
 
+액세스·리프레시 토큰(`token`, `refresh_token`)은 localStorage가 아니라 **sessionStorage**에 있다(`ApiClient`, 예전 localStorage 값은 처음 읽을 때 옮기고 지운다).
+
 | 키 | 용도 | 관리 위치 |
 |----|------|----------|
-| `token` | JWT 액세스 토큰 | `ApiClient` (login/logout) |
 | `sfpanel_server_url` | Tauri 모드에서 원격 서버 URL | `Connect.tsx`, `ApiClient` |
-| `sfpanel_current_node` | 클러스터 원격 노드 ID (`?node=` 자동 주입) | `ClusterSidebar`(`api.setCurrentNode`), `ApiClient` |
+| `sfpanel_current_node` | 클러스터 원격 노드 ID (`?node=` 자동 주입, `/cluster/*` 제외). 클러스터를 떠난 노드면 사이드바가 지운다 | `ApiClient.setCurrentNode` — 호출: `ClusterSidebar`, `useClusterNodes`(서랍), `lib/nodeSelection.openNode`, `DockerStacks` |
 | `sfpanel_language` | i18next 선택 언어 | `Settings.tsx`, i18next detector |
 | `sfpanel-sidebar-collapsed` | 사이드바 접기 상태 | `Layout.tsx` |
+| `sfpanel-cluster-mode` | 마지막으로 안 클러스터 모드(`true`/`false`) — 새로고침 때 `/cluster/status` 답 전에 맞는 사이드바를 그린다 | `Layout.tsx` |
 | `sfpanel-theme` | (v0.53.0) 테마 선호 (light/dark/system) | `lib/theme.ts` |
 | `sfpanel_terminal_active:<node>` | (v0.53.0) 터미널 활성 항목 `tmux:<id>` / `pty:<id>` — 노드별 네임스페이스(`<node>` = nodeId 또는 `local`). 옛 `sfpanel_terminal_tabs:<node>`(임시 탭 목록)는 더 이상 쓰지 않고 페이지를 열 때 지운다 | `Terminal.tsx` |
 | `sfpanel_terminal_fontsize` | 터미널 글꼴 크기 (전역, 노드 무관) | `Terminal.tsx` |
 | `sfpanel-cluster-tree-collapsed` / `sfpanel-cluster-menu-collapsed` / `sfpanel-cluster-selection` | 클러스터 사이드바 트리/메뉴 접힘 + 선택 상태 (트리 기본값은 접힘) | `ClusterSidebar.tsx` |
+| `sfpanel-tree-collapsed` | 펼친 트리에서 접은 구역의 key JSON 배열(`managers`, `group:<이름>`, `ungrouped`) | `TreePanel.tsx` |
 | `sfpanel_file_path` | 파일 관리자 마지막 경로 | `Files.tsx` |
 
 ---

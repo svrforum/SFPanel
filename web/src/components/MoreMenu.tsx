@@ -1,10 +1,13 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { useNavigate, useLocation } from 'react-router-dom'
 import { useTranslation } from 'react-i18next'
 import { Drawer } from 'vaul'
-import { LogOut, Monitor, ChevronDown } from 'lucide-react'
+import { LogOut, Monitor, ChevronDown, Search } from 'lucide-react'
+import { Input } from '@/components/ui/input'
+import { sectionLabel } from '@/components/cluster/treeSection'
 import { cn, nodeStatusColor } from '@/lib/utils'
 import { MORE_MENU_ITEMS } from '@/lib/navigation'
+import { isAgent, treeSections } from '@/lib/clusterNodes'
 import { api } from '@/lib/api'
 import { useClusterNodes } from '@/hooks/useClusterNodes'
 
@@ -49,6 +52,13 @@ export default function MoreMenu({ open, onOpenChange }: MoreMenuProps) {
   const { t } = useTranslation()
   const { clusterStatus, nodes, localId, selectedNode, currentNode, selectNode, reload } = useClusterNodes()
   const [nodeOpen, setNodeOpen] = useState(false)
+  const [query, setQuery] = useState('')
+  // The tree's sections, without its folding: a drawer has no room to keep it.
+  const sections = useMemo(
+    () => treeSections(nodes, clusterStatus?.leader_id ?? '', query),
+    [nodes, clusterStatus?.leader_id, query],
+  )
+  const headed = nodes.some(isAgent)
 
   // The picker shows only with a node list; ask for it again on every open.
   useEffect(() => {
@@ -60,6 +70,7 @@ export default function MoreMenu({ open, onOpenChange }: MoreMenuProps) {
   const handleNodeSelect = (nodeId: string) => {
     selectNode(nodeId === localId ? null : nodeId)
     setNodeOpen(false)
+    setQuery('')
   }
 
   const handleNavigate = (path: string) => {
@@ -99,24 +110,51 @@ export default function MoreMenu({ open, onOpenChange }: MoreMenuProps) {
                 </button>
                 {nodeOpen && (
                   <div className="mt-1 rounded-xl bg-secondary/30 py-1">
-                    {nodes.map((node) => (
-                      <button
-                        key={node.id}
-                        onClick={() => handleNodeSelect(node.id)}
-                        className={cn(
-                          'flex items-center gap-2 w-full px-3 py-2 text-[13px] transition-colors rounded-lg outline-none focus-visible:ring-2 focus-visible:ring-ring/40',
-                          (selectedNode === node.id || (!selectedNode && node.id === localId))
-                            ? 'bg-primary/10 text-primary'
-                            : 'text-foreground/80'
-                        )}
-                      >
-                        <span className={cn('h-2 w-2 rounded-full shrink-0', nodeStatusColor(node.status))} />
-                        <span className="truncate">{node.name}</span>
-                        {node.id === localId && (
-                          <span className="text-[10px] text-muted-foreground">({t('layout.cluster.localNode')})</span>
-                        )}
-                      </button>
-                    ))}
+                    {nodes.length > 8 && (
+                      <div className="relative px-2 pt-1 pb-1.5">
+                        <Search className="absolute left-5 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground pointer-events-none" />
+                        <Input
+                          type="search"
+                          value={query}
+                          onChange={(e) => setQuery(e.target.value)}
+                          placeholder={t('cluster.tree.search')}
+                          aria-label={t('cluster.tree.search')}
+                          className="pl-9 h-9 rounded-xl bg-card border-0 text-[13px]"
+                        />
+                      </div>
+                    )}
+                    {sections.map((section) => {
+                      const rows = section.nodes.map((node) => (
+                        <button
+                          key={node.id}
+                          onClick={() => handleNodeSelect(node.id)}
+                          className={cn(
+                            'flex items-center gap-2 w-full px-3 py-2 text-[13px] transition-colors rounded-lg outline-none focus-visible:ring-2 focus-visible:ring-ring/40',
+                            (selectedNode === node.id || (!selectedNode && node.id === localId))
+                              ? 'bg-primary/10 text-primary'
+                              : 'text-foreground/80'
+                          )}
+                        >
+                          <span className={cn('h-2 w-2 rounded-full shrink-0', nodeStatusColor(node.status))} />
+                          <span className="truncate">{node.name}</span>
+                          {node.id === localId && (
+                            <span className="text-[10px] text-muted-foreground">({t('layout.cluster.localNode')})</span>
+                          )}
+                        </button>
+                      ))
+                      // A cluster of managers alone keeps its plain list.
+                      if (!headed) return rows
+                      const label = sectionLabel(section, t)
+                      return (
+                        <section key={section.key} aria-label={label}>
+                          <p className="px-3 pt-2 pb-1 text-[11px] font-semibold text-muted-foreground">{label}</p>
+                          {rows}
+                        </section>
+                      )
+                    })}
+                    {sections.length === 0 && (
+                      <p className="px-3 py-2 text-[13px] text-muted-foreground">{t('cluster.tree.noMatch')}</p>
+                    )}
                   </div>
                 )}
               </div>

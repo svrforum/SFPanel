@@ -134,6 +134,35 @@ export function filterNodes(nodes: ClusterNode[], f: NodeFilter): ClusterNode[] 
   })
 }
 
+export interface TreeSection {
+  key: string
+  kind: 'managers' | 'group' | 'ungrouped'
+  group?: string
+  nodes: ClusterNode[]
+}
+
+/**
+ * The sidebar tree and the phone's node picker in sections: the managers, then
+ * each agent group by name, then the agents without one. A manager is listed
+ * among the managers whatever its group — there are one to three of them, and
+ * a group section is where the agents of a kind are found. A section the
+ * search leaves empty is not drawn. A cluster without agents is one managers
+ * section, which the tree draws without a heading, as it always has.
+ */
+export function treeSections(nodes: ClusterNode[], leaderId: string, query: string): TreeSection[] {
+  const shown = sortNodes(filterNodes(nodes, { ...ALL_NODES, query }), leaderId)
+  const managers = shown.filter(isManager)
+  const agents = shown.filter(isAgent)
+  const sections: TreeSection[] = []
+  if (managers.length) sections.push({ key: 'managers', kind: 'managers', nodes: managers })
+  for (const group of nodeGroups(agents)) {
+    sections.push({ key: `group:${group}`, kind: 'group', group, nodes: agents.filter((n) => nodeGroup(n) === group) })
+  }
+  const ungrouped = agents.filter((n) => !nodeGroup(n))
+  if (ungrouped.length) sections.push({ key: 'ungrouped', kind: 'ungrouped', nodes: ungrouped })
+  return sections
+}
+
 /**
  * The agent that joined with the token the add-agent dialog handed out: a node
  * that was not in the list when the token was made, and is an agent. Given a

@@ -7,8 +7,11 @@ import { api } from '@/lib/api'
 export const NODE_CHANGED = 'sfpanel:node-changed'
 
 export interface NodeChangedDetail {
-  /** The node to highlight; the local node's own id when it is the local one. */
-  nodeId: string
+  /**
+   * The node to highlight; the local node's own id when it is the local one.
+   * null when the tree chose the datacenter, which is no node at all.
+   */
+  nodeId: string | null
 }
 
 /**

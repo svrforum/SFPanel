@@ -73,7 +73,8 @@
       "nodeCount": "{{count}}개 노드",
       "online": "온라인",
       "offline": "오프라인",
-      "suspect": "점검 중"
+      "suspect": "점검 중",
+      "unknownNode": "알 수 없는 노드"
     },
     "mobileNav": {
       "dashboard": "대시보드",
@@ -1177,7 +1178,12 @@
       "node": "노드",
       "local": "로컬",
       "toggleNodes": "노드 목록 접기/펼치기",
-      "nodesUnavailable": "노드 목록을 가져올 수 없음"
+      "nodesUnavailable": "노드 목록을 가져올 수 없음",
+      "managers": "매니저",
+      "ungrouped": "그룹 없음",
+      "search": "노드 검색",
+      "noMatch": "일치하는 노드가 없습니다.",
+      "nodeGone": "{{id}}이(가) 클러스터에 없어 이 노드를 보여 줍니다."
     },
     "status": {
       "online": "온라인",

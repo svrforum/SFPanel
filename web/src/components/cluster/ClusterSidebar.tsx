@@ -1,5 +1,7 @@
 import { useState, useEffect, useRef, useCallback } from 'react'
 import { useNavigate } from 'react-router-dom'
+import { useTranslation } from 'react-i18next'
+import { toast } from 'sonner'
 import { useVisibleInterval } from '@/hooks/useVisibleInterval'
 import { api } from '@/lib/api'
 import { NODE_CHANGED, type NodeChangedDetail } from '@/lib/nodeSelection'
@@ -17,11 +19,13 @@ interface ClusterSidebarProps {
   status: ClusterStatus | null
   panelVersion: string
   onLogout: () => void
-  onNodeChanged: () => void
+  /** The node now shown, or null for the datacenter. */
+  onNodeChanged: (nodeId: string | null) => void
 }
 
 export default function ClusterSidebar({ status, panelVersion, onLogout, onNodeChanged }: ClusterSidebarProps) {
   const navigate = useNavigate()
+  const { t } = useTranslation()
   const [nodes, setNodes] = useState<ClusterNode[]>([])
   const [nodesError, setNodesError] = useState(false)
   // Collapsed by default (a 2-3 node tree is mostly empty otherwise); a user who
@@ -45,9 +49,10 @@ export default function ClusterSidebar({ status, panelVersion, onLogout, onNodeC
   const localId = status?.local_id ?? ''
 
   const initialLoad = useRef(true)
-  // Set when the selection is being synced FROM an external node switch (the
-  // cluster stacks page), so the selection effect updates the highlight only and
-  // does NOT re-run its navigate / setCurrentNode side effects.
+  // Set when the selection is being synced FROM a node switch made elsewhere
+  // (the phone's drawer, a node list's "Open node", a node that left), so the
+  // selection effect updates the highlight only and does NOT re-run its
+  // navigate / setCurrentNode side effects.
   const syncing = useRef(false)
 
   const loadNodes = useCallback(() => {
@@ -55,6 +60,16 @@ export default function ClusterSidebar({ status, panelVersion, onLogout, onNodeC
       .then((data) => {
         setNodes(data.nodes)
         setNodesError(false)
+        // The node being shown left the cluster (removed, or converted and not
+        // back yet), whether picked now or remembered from an earlier visit:
+        // every page would ask the manager for it and be told "Node not found".
+        // Show this node instead. An empty list says nothing about who is in it.
+        const current = api.currentNode
+        if (current && data.nodes.length > 0 && !data.nodes.some((n) => n.id === current)) {
+          api.setCurrentNode(null)
+          window.dispatchEvent(new CustomEvent<NodeChangedDetail>(NODE_CHANGED, { detail: { nodeId: data.local_id } }))
+          toast.warning(t('cluster.tree.nodeGone', { id: current }))
+        }
       })
       .catch(() => {
         // Keep the last good list and flag the failure. Substituting an empty
@@ -62,11 +77,17 @@ export default function ClusterSidebar({ status, panelVersion, onLogout, onNodeC
         // cluster has no nodes", with nothing on screen to say otherwise.
         setNodesError(true)
       })
-  }, [])
+  }, [t])
 
   // Load on mount + poll every 15s while visible (paused when the tab is hidden).
   // Status itself comes from Layout — this only refreshes the node list.
   useVisibleInterval(loadNodes, 15000)
+  // A page that changed the cluster (a node removed, labels edited) says so;
+  // the tree shows it now rather than at the next poll.
+  useEffect(() => {
+    window.addEventListener('sfpanel:cluster-changed', loadNodes)
+    return () => window.removeEventListener('sfpanel:cluster-changed', loadNodes)
+  }, [loadNodes])
 
   useEffect(() => {
     localStorage.setItem(TREE_COLLAPSE_KEY, String(treeCollapsed))
@@ -76,11 +97,12 @@ export default function ClusterSidebar({ status, panelVersion, onLogout, onNodeC
     localStorage.setItem(MENU_COLLAPSE_KEY, String(menuCollapsed))
   }, [menuCollapsed])
 
-  // Re-highlight the tree when another surface switches node (e.g. the cluster
-  // stacks page drilling into a peer's stack). An event naming its node is
-  // followed, the local one included. A bare event only says currentNode, and
-  // null there is ambiguous (local node vs datacenter), so the tree's own
-  // selection is left alone rather than guessed.
+  // Re-highlight the tree when another surface switches node (the phone's
+  // drawer, a node list's "Open node", the fallback above). An event naming
+  // its node is followed, the local one included. A bare event (or one naming
+  // the datacenter) only says currentNode, and null there is ambiguous (local
+  // node vs datacenter), so the tree's own selection is left alone rather
+  // than guessed.
   useEffect(() => {
     const handler = (e: Event) => {
       const nid = (e as CustomEvent<NodeChangedDetail | undefined>).detail?.nodeId ?? api.currentNode
@@ -113,13 +135,13 @@ export default function ClusterSidebar({ status, panelVersion, onLogout, onNodeC
 
     if (selection.type === 'datacenter') {
       api.setCurrentNode(null)
-      onNodeChanged()
+      onNodeChanged(null)
       navigate('/cluster/overview')
     } else {
       const targetNodeId = selection.nodeId
       const isLocal = targetNodeId === localId
       api.setCurrentNode(isLocal ? null : targetNodeId)
-      onNodeChanged()
+      onNodeChanged(targetNodeId)
       navigate('/dashboard')
     }
   }, [selection]) // eslint-disable-line react-hooks/exhaustive-deps
@@ -132,7 +154,7 @@ export default function ClusterSidebar({ status, panelVersion, onLogout, onNodeC
   }
 
   const selectedNodeName = selection.type === 'node'
-    ? nodes.find(n => n.id === selection.nodeId)?.name || 'Unknown'
+    ? nodes.find(n => n.id === selection.nodeId)?.name || t('layout.cluster.unknownNode')
     : ''
 
   return (

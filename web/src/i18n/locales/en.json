@@ -73,7 +73,8 @@
       "nodeCount": "{{count}} nodes",
       "online": "Online",
       "offline": "Offline",
-      "suspect": "Suspect"
+      "suspect": "Suspect",
+      "unknownNode": "Unknown node"
     },
     "mobileNav": {
       "dashboard": "Dashboard",
@@ -1179,7 +1180,12 @@
       "node": "Node",
       "local": "local",
       "toggleNodes": "Toggle node list",
-      "nodesUnavailable": "Node list unavailable"
+      "nodesUnavailable": "Node list unavailable",
+      "managers": "Managers",
+      "ungrouped": "No group",
+      "search": "Search nodes",
+      "noMatch": "No matching nodes",
+      "nodeGone": "{{id}} is no longer in the cluster, so this node is shown instead."
     },
     "status": {
       "online": "Online",
