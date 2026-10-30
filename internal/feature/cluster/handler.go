@@ -1164,8 +1164,7 @@ func (h *Handler) proxyToLeaderTimeout(c echo.Context, timeout time.Duration) (*
 		slog.Warn("cluster proxy: first attempt failed, retrying",
 			"component", "cluster", "addr", leaderAddr,
 			"path", proxyPath, "error", err)
-		pool.Remove(leaderAddr)
-		client, dialErr := pool.Get(leaderAddr)
+		client, dialErr := pool.Redial(leaderAddr, client)
 		if dialErr != nil {
 			slog.Error("cluster proxy: reconnect failed", "component", "cluster",
 				"addr", leaderAddr, "path", proxyPath, "error", dialErr)
@@ -1175,7 +1174,7 @@ func (h *Handler) proxyToLeaderTimeout(c echo.Context, timeout time.Duration) (*
 		if err != nil {
 			slog.Error("cluster proxy: retry failed", "component", "cluster",
 				"addr", leaderAddr, "path", proxyPath, "error", err)
-			pool.Remove(leaderAddr)
+			pool.Discard(leaderAddr, client)
 			return nil, fmt.Errorf("proxy: %w", err)
 		}
 	}

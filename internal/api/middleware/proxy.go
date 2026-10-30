@@ -667,8 +667,7 @@ func proxyToNodeGRPC(c echo.Context, targetNode *cluster.Node, mgr *cluster.Mana
 		slog.Warn("cluster proxy: first attempt failed, retrying",
 			"component", "cluster", "target", targetNode.Name,
 			"addr", targetNode.GRPCAddress, "path", req.URL.Path, "error", err)
-		pool.Remove(targetNode.GRPCAddress)
-		client, err = pool.Get(targetNode.GRPCAddress)
+		client, err = pool.Redial(targetNode.GRPCAddress, client)
 		if err != nil {
 			slog.Error("cluster proxy: reconnect failed", "component", "cluster",
 				"target", targetNode.Name, "addr", targetNode.GRPCAddress,
@@ -680,7 +679,7 @@ func proxyToNodeGRPC(c echo.Context, targetNode *cluster.Node, mgr *cluster.Mana
 			slog.Error("cluster proxy: retry failed", "component", "cluster",
 				"target", targetNode.Name, "addr", targetNode.GRPCAddress,
 				"path", req.URL.Path, "error", err)
-			pool.Remove(targetNode.GRPCAddress)
+			pool.Discard(targetNode.GRPCAddress, client)
 			return response.Fail(c, http.StatusGatewayTimeout, response.ErrInternalError, "Proxy request failed: "+err.Error())
 		}
 	}

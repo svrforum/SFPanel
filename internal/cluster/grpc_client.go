@@ -174,7 +174,18 @@ func (p *ConnPool) Get(address string) (*GRPCClient, error) {
 	}
 
 	p.mu.Lock()
-	// Close old connection if exists
+	// Callers that found no live entry dial at the same time — a page load
+	// sends several proxied requests at once. The first to get here pools its
+	// connection and the rest use that one. Closing the pooled entry instead
+	// closed the connection an earlier caller had just been handed, and its
+	// request failed with "grpc: the client connection is closing".
+	if cur, ok := p.conns[address]; ok && time.Since(time.Unix(0, cur.lastUsed.Load())) < connIdleTimeout {
+		cur.lastUsed.Store(time.Now().UnixNano())
+		p.mu.Unlock()
+		client.Close()
+		return cur.client, nil
+	}
+	// Close the idle connection this one replaces
 	if old, ok := p.conns[address]; ok {
 		old.client.Close()
 	}
@@ -194,6 +205,26 @@ func (p *ConnPool) Remove(address string) {
 		entry.client.Close()
 		delete(p.conns, address)
 	}
+}
+
+// Discard closes and removes the pooled connection to address if it is still
+// failed, the one a request did not go through on. Requests that failed
+// together each discard it; by the time the later ones do, the pool may hold
+// the connection an earlier one re-dialed, and that one stays.
+func (p *ConnPool) Discard(address string, failed *GRPCClient) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	if entry, ok := p.conns[address]; ok && entry.client == failed {
+		entry.client.Close()
+		delete(p.conns, address)
+	}
+}
+
+// Redial is the retry after a request on failed did not go through: a fresh
+// connection, or the one another retry already dialed in its place.
+func (p *ConnPool) Redial(address string, failed *GRPCClient) (*GRPCClient, error) {
+	p.Discard(address, failed)
+	return p.Get(address)
 }
 
 // Close closes all pooled connections and stops the cleanup goroutine.
