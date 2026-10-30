@@ -6,6 +6,21 @@ The format is loosely based on [Keep a Changelog](https://keepachangelog.com/), 
 
 ---
 
+## [0.79.1] – 2026-10-30
+
+### Security
+
+- **A WebSocket the panel refuses is no longer opened behind the refusal.** The check in front of the metrics, container log, container exec, compose log, cluster overview and log stream WebSockets answered a request without a valid ticket, session or token with 401, and then upgraded it all the same: the check reported no error once its answer was written, and every handler went on to the upgrade. A client that read past the 401 had the stream, container exec included. The terminal and AI session WebSockets use another check and were not affected. Update every node.
+- **An advanced app install with a wrong password stops at the refusal.** The re-authentication answered 401, and the install went on to the compose checks and, past them, to pulling and starting the stack. A stolen session needed no password for an advanced install.
+
+### Fixed
+
+- **An update the quorum guard refuses stops there.** A single node's update that would leave the cluster without a quorum was answered 409 and then went on to download and install the release. The coordinated cluster update skips this guard by design and is unaffected.
+
+### Upgrading
+
+- Update every node; the cluster update takes them one at a time. Nothing else changes: configuration, cluster traffic and the API stay as they were.
+
 ## [0.79.0] – 2026-10-19
 
 ### Security
