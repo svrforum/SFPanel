@@ -137,7 +137,9 @@ test('waits for the selected node, not this one', async ({ page }) => {
 
   m.setVersion('0.80.0')
   await page.clock.runFor(2100)
-  await expect.poll(() => page.evaluate(() => (window as unknown as { before?: boolean }).before)).toBeUndefined()
+  // A read the reload cuts short throws, and a poll does not retry a throw:
+  // count it as not reloaded yet and read the new page next time.
+  await expect.poll(() => page.evaluate(() => (window as unknown as { before?: boolean }).before).catch(() => 'reloading')).toBeUndefined()
 })
 
 test('names the node it updates', async ({ page }) => {

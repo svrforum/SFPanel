@@ -148,7 +148,9 @@ test('a scheduled backup restore asks the cluster question and waits for the nod
 
   m.setDown(false)
   await page.clock.runFor(2100)
-  await expect.poll(() => page.evaluate(() => (window as unknown as { before?: boolean }).before)).toBeUndefined()
+  // A read the reload cuts short throws, and a poll does not retry a throw:
+  // count it as not reloaded yet and read the new page next time.
+  await expect.poll(() => page.evaluate(() => (window as unknown as { before?: boolean }).before).catch(() => 'reloading')).toBeUndefined()
 })
 
 test('an upload restore waits for the selected node, not this one', async ({ page }) => {
@@ -171,7 +173,9 @@ test('an upload restore waits for the selected node, not this one', async ({ pag
 
   m.setDown(false)
   await page.clock.runFor(2100)
-  await expect.poll(() => page.evaluate(() => (window as unknown as { before?: boolean }).before)).toBeUndefined()
+  // A read the reload cuts short throws, and a poll does not retry a throw:
+  // count it as not reloaded yet and read the new page next time.
+  await expect.poll(() => page.evaluate(() => (window as unknown as { before?: boolean }).before).catch(() => 'reloading')).toBeUndefined()
 })
 
 test("a manager's backup download says it holds the cluster's JWT key", async ({ page }) => {
