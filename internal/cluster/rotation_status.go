@@ -150,7 +150,7 @@ func (m *Manager) jwtRotationStatus(state ClusterState) JWTRotationStatus {
 			st.RotatedAt = &at
 		}
 	}
-	health := m.heartbeat.CheckHealth()
+	health := m.heartbeat.LiveHealth()
 	for id, n := range state.Nodes {
 		if !n.IsManager() {
 			continue
@@ -212,7 +212,7 @@ func (m *Manager) agentKeyRotationStatus(state ClusterState) AgentKeyRotationSta
 		at := rec.StartedAt
 		st.StartedAt = &at
 	}
-	health := m.heartbeat.CheckHealth()
+	health := m.heartbeat.LiveHealth()
 	for id, n := range state.Nodes {
 		if n.IsManager() {
 			continue

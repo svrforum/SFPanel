@@ -91,7 +91,7 @@ func (m *Manager) managersNotReadyForAgents(state ClusterState) []string {
 // report capability on its heartbeat. One not heard from may be down, and
 // come back running a release that cannot follow.
 func (m *Manager) nodesNotReady(state ClusterState, capability string, agents bool) []string {
-	health := m.heartbeat.CheckHealth()
+	health := m.heartbeat.LiveHealth()
 	var waiting []string
 	for id, n := range state.Nodes {
 		if id == m.nodeID || (!agents && !n.IsManager()) {

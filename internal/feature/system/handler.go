@@ -917,7 +917,7 @@ func (h *Handler) clusterUpdateQuorumGuard(c echo.Context) error {
 		return nil
 	}
 	local := mgr.LocalNodeID()
-	health := hb.CheckHealth()
+	health := hb.LiveHealth()
 	// A node whose heartbeat says "offline" or "suspect" is treated as
 	// already down, so taking another voter offline must still leave a
 	// quorum among the survivors that Raft can see.

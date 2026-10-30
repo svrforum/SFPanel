@@ -110,7 +110,11 @@ each with one command on a manager whose service is running:
 leader. Before it writes anything the leader checks that every node the
 rotation changes can follow it; a refusal is `409 CLUSTER_ROTATION_REFUSED`,
 nothing having changed, and names whom it waits for and why
-(`… waiting for peer-2 (offline), web-03 (0.79.0)`).
+(`… waiting for peer-2 (offline), web-03 (0.79.0)`). A manager that stops
+is offline to a rotation at once, as its heartbeat stream to the leader ends,
+while the node list keeps it online until its last ping is three minutes old.
+Converting or promoting a node, a leave and a panel update judge the voters
+the same way.
 `sudo sfpanel cluster rotate status` (`GET /api/v1/cluster/rotation`) shows
 where each node stands in each of them, by generation and fingerprint — never
 a secret.

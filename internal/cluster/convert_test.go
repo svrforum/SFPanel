@@ -66,6 +66,11 @@ func TestAConversionIsRefusedWhereItsRegistrationWouldBe(t *testing.T) {
 		{name: "another manager not ready for agents", others: []Node{{ID: "m3", Name: "m3", Kind: KindManager, Role: RoleNonVoter, GRPCAddress: "192.0.2.30:3629"}},
 			want: ErrManagersNotReadyForAgents, reason: "m3 (not heard from)"},
 		{name: "a version from before agents", caps: []string{}, reason: "predates agents"},
+		// Its last ping is still inside the timeout; its stream ended.
+		{name: "a manager stopped a moment ago", setup: func(t *testing.T) {
+			mgr.GetHeartbeat().StreamOpened("m2")
+			mgr.GetHeartbeat().StreamEnded("m2")
+		}, reason: "m2 is offline"},
 		{name: "no room for another agent", others: []Node{{ID: "a1", Name: "a1", Kind: KindAgent, GRPCAddress: "192.0.2.40:3629"}},
 			setup: func(t *testing.T) {
 				mgr.config.MaxAgents = 1

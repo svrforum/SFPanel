@@ -551,6 +551,15 @@ func (s *GRPCServer) serveHeartbeat(stream grpc.BidiStreamingServer[pb.Heartbeat
 	member := time.NewTicker(membershipRecheck)
 	defer member.Stop()
 
+	// Counted from its first ping, so that a stream refused at that ping says
+	// nothing about a node that is up on another (LiveHealth).
+	counted := false
+	defer func() {
+		if counted {
+			s.manager.GetHeartbeat().StreamEnded(peerCN)
+		}
+	}()
+
 	for {
 		select {
 		case result := <-recvCh:
@@ -595,6 +604,10 @@ func (s *GRPCServer) serveHeartbeat(stream grpc.BidiStreamingServer[pb.Heartbeat
 				// manager's means anything.
 				ProxyGeneration: result.ping.ProxyGeneration,
 			})
+			if !counted {
+				counted = true
+				s.manager.GetHeartbeat().StreamOpened(peerCN)
+			}
 			// The ping's time is the sender's clock, in seconds — a manager's
 			// and an agent's alike.
 			s.manager.noteClockSkew(result.ping.NodeId, result.ping.Timestamp)

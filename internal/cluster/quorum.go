@@ -60,7 +60,7 @@ func (m *Manager) WouldDropBelowQuorumOnLeave() (string, bool) {
 		return "", false
 	}
 	state := m.raft.GetFSM().GetState()
-	health := m.heartbeat.CheckHealth()
+	health := m.heartbeat.LiveHealth()
 
 	voters := make(map[string]NodeStatus, len(state.Nodes))
 	for id, node := range state.Nodes {

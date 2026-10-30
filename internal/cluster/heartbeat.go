@@ -13,6 +13,11 @@ type HeartbeatManager struct {
 	mu       sync.RWMutex
 	metrics  map[string]*NodeMetrics
 	lastSeen map[string]time.Time
+	// streams counts each node's open heartbeat streams to this manager, and
+	// dropped holds the nodes whose last one ended since they last pinged
+	// (LiveHealth).
+	streams  map[string]int
+	dropped  map[string]bool
 	interval time.Duration
 	timeout  time.Duration
 	stopCh   chan struct{}
@@ -23,6 +28,8 @@ func NewHeartbeatManager(interval, timeout time.Duration) *HeartbeatManager {
 	return &HeartbeatManager{
 		metrics:  make(map[string]*NodeMetrics),
 		lastSeen: make(map[string]time.Time),
+		streams:  make(map[string]int),
+		dropped:  make(map[string]bool),
 		interval: interval,
 		timeout:  timeout,
 		stopCh:   make(chan struct{}),
@@ -36,6 +43,45 @@ func (hm *HeartbeatManager) RecordHeartbeat(m *NodeMetrics) {
 
 	hm.metrics[m.NodeID] = m
 	hm.lastSeen[m.NodeID] = time.Now()
+	delete(hm.dropped, m.NodeID)
+}
+
+// StreamOpened counts a heartbeat stream that has delivered its first ping.
+func (hm *HeartbeatManager) StreamOpened(nodeID string) {
+	hm.mu.Lock()
+	defer hm.mu.Unlock()
+	hm.streams[nodeID]++
+}
+
+// StreamEnded is the end of one. A node with none left open has dropped
+// until it pings again: a node that stops closes its stream at once, and a
+// cut connection fails within the keepalive's thirty seconds.
+func (hm *HeartbeatManager) StreamEnded(nodeID string) {
+	hm.mu.Lock()
+	defer hm.mu.Unlock()
+	if hm.streams[nodeID] > 1 {
+		hm.streams[nodeID]--
+		return
+	}
+	delete(hm.streams, nodeID)
+	hm.dropped[nodeID] = true
+}
+
+// LiveHealth is CheckHealth for what an operator starts — a rotation, a
+// conversion, a leave, an update — and the rotation status beside it: a node
+// whose heartbeat streams to this manager have all ended is offline, though
+// its last ping stays inside the timeout for minutes. A manager stopped a
+// minute before a JWT rotation passed its gate. Not for the node list or a
+// rotation's own progress: a stream also ends when its node reconnects, and
+// that is no outage there.
+func (hm *HeartbeatManager) LiveHealth() map[string]NodeStatus {
+	health := hm.CheckHealth()
+	hm.mu.RLock()
+	defer hm.mu.RUnlock()
+	for id := range hm.dropped {
+		health[id] = StatusOffline
+	}
+	return health
 }
 
 // GetMetrics returns the latest metrics for a node.
@@ -126,6 +172,8 @@ func (hm *HeartbeatManager) RemoveNode(nodeID string) {
 	defer hm.mu.Unlock()
 	delete(hm.metrics, nodeID)
 	delete(hm.lastSeen, nodeID)
+	delete(hm.streams, nodeID)
+	delete(hm.dropped, nodeID)
 }
 
 // Done returns a channel that is closed when the heartbeat manager stops.

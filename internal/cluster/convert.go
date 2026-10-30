@@ -57,7 +57,7 @@ func (m *Manager) ReadyForAgentConversion(id string) error {
 		name = id
 	}
 	// The node leaves and registers again itself, on code that knows agents.
-	health := m.heartbeat.CheckHealth()
+	health := m.heartbeat.LiveHealth()
 	switch met := m.heartbeat.GetMetrics(id); {
 	case met == nil:
 		return refuseConversion(fmt.Errorf("%s has not been heard from: it leaves the cluster and registers again itself, so it must be online", name))
@@ -420,7 +420,7 @@ func (m *Manager) PrepareManagerPromotion(id string) (*JoinToken, error) {
 	if name == "" {
 		name = id
 	}
-	health := m.heartbeat.CheckHealth()
+	health := m.heartbeat.LiveHealth()
 	switch met := m.heartbeat.GetMetrics(id); {
 	case met == nil:
 		return nil, refusePromotion(fmt.Errorf("%s has not been heard from: it joins the cluster again itself, so it must be online", name))
