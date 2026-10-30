@@ -3023,6 +3023,7 @@
     "title": "Firewall",
     "lockout": {
       "title": "This change may lock you out",
+      "titleCluster": "This change may cut this node off from the cluster",
       "warning": "Only proceed if you are sure you can still reach this server (e.g. a non-standard SSH port, console access, or a separate allow rule). Proceeding overrides the safety guard.",
       "proceed": "Proceed anyway"
     },

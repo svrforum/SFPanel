@@ -360,7 +360,10 @@ export default function FirewallRules() {
     setEditTarget(rule)
   }
 
-  const handleEditRule = async () => {
+  // force: the operator went ahead past the lockout guard, which covers both
+  // halves of the edit — the delete of the old allow is refused for the same
+  // port the replacement closes.
+  const handleEditRule = async (force = false) => {
     if (!editTarget || !isFormValid(editForm)) return
     setEditing(true)
     try {
@@ -374,10 +377,10 @@ export default function FirewallRules() {
         from: editForm.from.trim() || 'any',
         to: '',
         comment: editForm.comment.trim(),
-      })
+      }, force)
       // Replacement is active — now remove the old rule.
       try {
-        await api.deleteFirewallRule(editTarget.number)
+        await api.deleteFirewallRule(editTarget.number, force)
       } catch (delErr: unknown) {
         // New rule is in place; the old one just couldn't be removed. Surface it
         // so the operator can delete the leftover duplicate manually.
@@ -386,10 +389,13 @@ export default function FirewallRules() {
       }
       setEditTarget(null)
       await fetchRules()
+      clearLockout()
     } catch (addErr: unknown) {
       // Add failed — the original rule is untouched, so the firewall is unchanged.
-      const message = addErr instanceof Error ? addErr.message : t('common.error')
-      toast.error(t('firewall.rules.editAddFailed') + ': ' + message)
+      if (!handleLockoutError(addErr, () => handleEditRule(true))) {
+        const message = addErr instanceof Error ? addErr.message : t('common.error')
+        toast.error(t('firewall.rules.editAddFailed') + ': ' + message)
+      }
     } finally {
       setEditing(false)
     }
@@ -673,7 +679,8 @@ export default function FirewallRules() {
               {t('common.cancel')}
             </Button>
             <Button
-              onClick={handleEditRule}
+              // Not onClick={handleEditRule}: the click event would arrive as force.
+              onClick={() => handleEditRule()}
               disabled={editing || !isFormValid(editForm)}
               className="rounded-xl"
             >

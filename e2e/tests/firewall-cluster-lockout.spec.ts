@@ -19,7 +19,7 @@ const lockout = (message: string, clusterPorts: string) => ({
 const denyRefusal = lockout('Refusing to deny port 3629 — this would close cluster port 3629, which the rest of the cluster reaches this node on. Pass ?force=true to confirm.', '3629')
 const enableRefusal = lockout('Enabling UFW with no ALLOW rule for cluster port(s) 3629, 3630 would cut this node off from the rest of its cluster. Add an allow rule first, or pass ?force=true to confirm.', '3629, 3630')
 
-async function open(page: Page, at: '/firewall/rules' | '/firewall/ports', active: boolean) {
+async function open(page: Page, at: '/firewall/rules' | '/firewall/ports', active: boolean, shown = rules) {
   const posts: string[] = []
   await page.addInitScript(() => {
     sessionStorage.setItem('token', 'fixture-token')
@@ -36,11 +36,18 @@ async function open(page: Page, at: '/firewall/rules' | '/firewall/ports', activ
       else await route.fulfill(path === '/firewall/enable' ? enableRefusal : denyRefusal)
       return
     }
+    if (req.method() === 'DELETE') {
+      // Deleting the only allow for a cluster port is refused the same way.
+      posts.push(`DELETE ${path}${url.search}`)
+      if (url.searchParams.get('force') === 'true') await route.fulfill({ json: { success: true, data: { message: 'ok' } } })
+      else await route.fulfill(lockout('Deleting this rule would leave no ALLOW for cluster port(s) 3629, which the rest of the cluster reaches this node on. Pass ?force=true to confirm.', '3629'))
+      return
+    }
     let data: unknown = {}
     if (path === '/auth/setup-status') data = { setup_required: false }
     else if (path === '/cluster/status') data = { enabled: false }
     else if (path === '/firewall/status') data = { active, default_incoming: 'deny', default_outgoing: 'allow', installed: true, manager: 'ufw' }
-    else if (path === '/firewall/rules') data = { rules, total: rules.length }
+    else if (path === '/firewall/rules') data = { rules: shown, total: shown.length }
     else if (path === '/firewall/ports') data = { ports, total: ports.length }
     await route.fulfill({ json: { success: true, data } })
   })
@@ -52,11 +59,15 @@ async function open(page: Page, at: '/firewall/rules' | '/firewall/ports', activ
 const clusterBody = (ports: string) => ports.includes(',')
   ? `This would close cluster ports ${ports}, which the other nodes use to reach this one. Allow them first, or apply it anyway only if you are sure.`
   : `This would close cluster port ${ports}, which the other nodes use to reach this one. Allow it first, or apply it anyway only if you are sure.`
-const lockoutDialog = (page: Page) => page.getByRole('dialog').filter({ hasText: 'This change may lock you out' })
+// Titled for the cluster, not "may lock you out": the operator can still reach
+// the server, so the generic "proceed only if you can still reach it" test
+// would pass while the node drops out of its cluster.
+const lockoutDialog = (page: Page) => page.getByRole('dialog').filter({ hasText: 'This change may cut this node off from the cluster' })
 
 async function expectClusterLockout(page: Page, ports: string) {
   await expect(lockoutDialog(page).getByText(clusterBody(ports))).toBeVisible()
   await expect(lockoutDialog(page).getByText(/SSH \(22\)/)).toHaveCount(0)
+  await expect(lockoutDialog(page).getByText(/lock you out|can still reach this server/)).toHaveCount(0)
 }
 
 async function deny(page: Page, dialogName: string) {
@@ -93,4 +104,26 @@ test('the ports page words the same refusal and can go ahead', async ({ page }) 
   await lockoutDialog(page).getByRole('button', { name: 'Proceed anyway' }).click()
   await expect.poll(() => posts).toEqual(['/firewall/rules', '/firewall/rules?force=true'])
   await expect(lockoutDialog(page)).toHaveCount(0)
+})
+
+// Editing adds the replacement first, so the same refusal comes from the add;
+// it was a toast in the SSH wording with no way to go ahead. Going ahead
+// forces the delete of the old allow too, which the guard refuses for the
+// same port.
+test('editing an allowed cluster port into a deny asks the same way', async ({ page }) => {
+  const posts = await open(page, '/firewall/rules', true, [
+    ...rules,
+    { number: 2, to: '3629/tcp', action: 'ALLOW IN', from: 'Anywhere', v6: false },
+  ])
+  await page.getByRole('row', { name: /3629\/tcp/ }).getByRole('button', { name: 'Edit Rule' }).click()
+  const edit = page.getByRole('dialog', { name: 'Edit Rule' })
+  await edit.getByRole('combobox').first().click()
+  await page.getByRole('option', { name: 'Deny' }).click()
+  await edit.getByRole('button', { name: 'Save' }).click()
+  await expectClusterLockout(page, '3629')
+  expect(posts).toEqual(['/firewall/rules'])
+  await lockoutDialog(page).getByRole('button', { name: 'Proceed anyway' }).click()
+  await expect.poll(() => posts).toEqual(['/firewall/rules', '/firewall/rules?force=true', 'DELETE /firewall/rules/2?force=true'])
+  await expect(lockoutDialog(page)).toHaveCount(0)
+  await expect(edit).toHaveCount(0)
 })

@@ -26,7 +26,7 @@ import {
  */
 export function useLockoutGuard() {
   const { t } = useTranslation()
-  const [lockout, setLockout] = useState<{ message: string; busy: boolean; retry: () => Promise<void> } | null>(null)
+  const [lockout, setLockout] = useState<{ message: string; cluster: boolean; busy: boolean; retry: () => Promise<void> } | null>(null)
 
   const handleLockoutError = useCallback((err: unknown, retry: () => Promise<void>): boolean => {
     const e = err as ApiError
@@ -35,7 +35,7 @@ export function useLockoutGuard() {
         // "3629, 3630": a denied port names one, enabling every one left closed.
         ? t('firewall.rules.lockoutBodyCluster', { cluster_ports: e.details.cluster_ports, count: e.details.cluster_ports.split(',').length })
         : e.details?.port === '8006' ? t('firewall.rules.lockoutBodyPve') : e.message
-      setLockout({ message, busy: false, retry })
+      setLockout({ message, cluster: !!e.details?.cluster_ports, busy: false, retry })
       return true
     }
     return false
@@ -47,11 +47,16 @@ export function useLockoutGuard() {
     <Dialog open={!!lockout} onOpenChange={(open) => !open && setLockout(null)}>
       <DialogContent>
         <DialogHeader>
-          <DialogTitle className="text-destructive">{t('firewall.lockout.title')}</DialogTitle>
+          <DialogTitle className="text-destructive">
+            {lockout?.cluster ? t('firewall.lockout.titleCluster') : t('firewall.lockout.title')}
+          </DialogTitle>
+          {/* A cluster port lockout leaves the operator's own access alone, so
+              the generic "only if you can still reach this server" test would
+              pass while the node drops out; its body already says "only if
+              you are sure". */}
           <DialogDescription className="whitespace-pre-line">
             {lockout?.message}
-            {'\n\n'}
-            {t('firewall.lockout.warning')}
+            {!lockout?.cluster && <>{'\n\n'}{t('firewall.lockout.warning')}</>}
           </DialogDescription>
         </DialogHeader>
         <DialogFooter className="gap-2">

@@ -56,6 +56,7 @@ test('a lockout refusal is worded in the panel language', async ({ page }) => {
   await page.getByRole('dialog').getByRole('button', { name: 'Enable' }).click()
   const lockout = page.getByRole('dialog').filter({ hasText: 'This change may lock you out' })
   await expect(lockout.getByText(/This change would block incoming SSH \(22\) or panel access/)).toBeVisible()
+  await expect(lockout.getByText(/Only proceed if you are sure you can still reach this server/)).toBeVisible()
   await expect(page.getByText(/force=true/)).toHaveCount(0)
 })
 
