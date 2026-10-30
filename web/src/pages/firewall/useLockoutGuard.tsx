@@ -26,7 +26,10 @@ import {
  */
 export function useLockoutGuard() {
   const { t } = useTranslation()
+  // The refusal outlives `open`, so the closing animation shows it rather
+  // than the standalone title over an empty body.
   const [lockout, setLockout] = useState<{ message: string; cluster: boolean; busy: boolean; retry: () => Promise<void> } | null>(null)
+  const [open, setOpen] = useState(false)
 
   const handleLockoutError = useCallback((err: unknown, retry: () => Promise<void>): boolean => {
     const e = err as ApiError
@@ -36,15 +39,16 @@ export function useLockoutGuard() {
         ? t('firewall.rules.lockoutBodyCluster', { cluster_ports: e.details.cluster_ports, count: e.details.cluster_ports.split(',').length })
         : e.details?.port === '8006' ? t('firewall.rules.lockoutBodyPve') : e.message
       setLockout({ message, cluster: !!e.details?.cluster_ports, busy: false, retry })
+      setOpen(true)
       return true
     }
     return false
   }, [t])
 
-  const clearLockout = useCallback(() => setLockout(null), [])
+  const clearLockout = useCallback(() => setOpen(false), [])
 
   const lockoutDialog = (
-    <Dialog open={!!lockout} onOpenChange={(open) => !open && setLockout(null)}>
+    <Dialog open={open} onOpenChange={setOpen}>
       <DialogContent>
         <DialogHeader>
           <DialogTitle className="text-destructive">
@@ -60,14 +64,14 @@ export function useLockoutGuard() {
           </DialogDescription>
         </DialogHeader>
         <DialogFooter className="gap-2">
-          <Button variant="outline" onClick={() => setLockout(null)} className="rounded-xl">
+          <Button variant="outline" onClick={() => setOpen(false)} className="rounded-xl">
             {t('common.cancel')}
           </Button>
           <Button
             variant="destructive"
             disabled={lockout?.busy}
             onClick={async () => {
-              if (!lockout) return
+              if (!open || !lockout) return
               setLockout((l) => (l ? { ...l, busy: true } : l))
               try {
                 await lockout.retry()

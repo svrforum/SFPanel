@@ -69,8 +69,9 @@ export default function ClusterOverview() {
   const [disbandOpen, setDisbandOpen] = useState(false)
   const [disbanding, setDisbanding] = useState(false)
   // What a leave or a disband could not do. It stays until it is read, and
-  // the wait for the restart starts only then.
-  const [exitWarnings, setExitWarnings] = useState<{ title: string; warnings: ApiWarning[] } | null>(null)
+  // the wait for the restart starts only then. It outlives `open`, so the
+  // closing animation shows the warnings rather than an empty dialog.
+  const [exitWarnings, setExitWarnings] = useState<{ title: string; warnings: ApiWarning[]; open: boolean } | null>(null)
   const waveHintId = useId()
 
   // Per-node address editing
@@ -171,7 +172,7 @@ export default function ClusterOverview() {
       // toast would go with the reload, so the names stay on screen and the
       // wait for the restart starts once they have been read.
       if (res.warnings?.length) {
-        setExitWarnings({ title: t('cluster.overview.disbandWarningsTitle'), warnings: res.warnings })
+        setExitWarnings({ title: t('cluster.overview.disbandWarningsTitle'), warnings: res.warnings, open: true })
         return
       }
       reloadWhenBack()
@@ -182,7 +183,7 @@ export default function ClusterOverview() {
   }
 
   const closeExitWarnings = () => {
-    setExitWarnings(null)
+    setExitWarnings((w) => w && { ...w, open: false })
     reloadWhenBack()
   }
 
@@ -237,7 +238,7 @@ export default function ClusterOverview() {
   const left = (warnings: ApiWarning[] | undefined) => {
     toast.success(t('cluster.leave.success'))
     if (warnings?.length) {
-      setExitWarnings({ title: t('cluster.leave.warningsTitle'), warnings })
+      setExitWarnings({ title: t('cluster.leave.warningsTitle'), warnings, open: true })
       return
     }
     reloadWhenBack()
@@ -247,7 +248,7 @@ export default function ClusterOverview() {
   // next status read (a tab shown again) turns the page into the init form,
   // and the warnings must not go with the cluster view.
   const exitWarningsDialog = (
-    <Dialog open={!!exitWarnings} onOpenChange={(open) => { if (!open) closeExitWarnings() }}>
+    <Dialog open={!!exitWarnings?.open} onOpenChange={(open) => { if (!open) closeExitWarnings() }}>
       <DialogContent>
         <DialogHeader>
           <DialogTitle className="text-warning">{exitWarnings?.title}</DialogTitle>
