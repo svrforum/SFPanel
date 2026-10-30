@@ -138,7 +138,7 @@ test('shows where each rotation stands', async ({ page }) => {
   const proxy = card(page, 'proxy')
   await expect(proxy).toContainText('Generation 2')
   await expect(proxy.getByTestId('phase')).toHaveText('next')
-  await expect(proxy.getByRole('list', { name: 'Waiting for' })).toHaveText('manager-02 (offline)')
+  await expect(proxy.getByRole('list', { name: 'Waiting for' })).toHaveText('manager-02: offline')
 
   const keys = card(page, 'agent-keys')
   await expect(keys).toContainText('1 agent still to switch')
@@ -149,7 +149,7 @@ test('shows where each rotation stands', async ({ page }) => {
 
   const ca = card(page, 'ca')
   await expect(ca.locator('[aria-current="step"]')).toHaveText('reissue')
-  await expect(ca.getByRole('list', { name: 'Waiting for' })).toHaveText('agent-01 (still presents a certificate from the current CA)')
+  await expect(ca.getByRole('list', { name: 'Waiting for' })).toHaveText('agent-01: still presents a certificate from the current CA')
   await expect(ca).toContainText('Goes back at 09:51 AM unless the phase completes')
   await expect(ca.getByTestId('countdown')).toHaveText('21:00')
   // The agent still presents a certificate from the current CA, the manager from the next.

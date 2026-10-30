@@ -1143,6 +1143,18 @@
       "deadline": "이 단계가 끝나지 않으면 {{time}}에 되돌아갑니다",
       "refused": "교체를 시작하지 못했습니다",
       "abortRefused": "교체를 멈추지 못했습니다",
+      "waitingLine": {
+        "offline": "{{name}}: 오프라인",
+        "notHeard": "{{name}}: 응답 없음",
+        "oldVersion": "{{name}}: {{version}}, 교체를 지원하지 않는 버전 — 업데이트하세요",
+        "notHeardSince": "{{name}}: {{phase}} 단계 시작 뒤 응답 없음",
+        "nextSecret": "{{name}}: 아직 다음 비밀을 받지 않음",
+        "trustNext": "{{name}}: 아직 다음 CA를 신뢰하지 않음",
+        "certCurrent": "{{name}}: 아직 현재 CA의 인증서를 씀",
+        "trustsOld": "{{name}}: 아직 이전 CA를 신뢰함",
+        "certNext": "{{name}}: 아직 다음 CA의 인증서를 씀",
+        "trustsNext": "{{name}}: 아직 다음 CA를 신뢰함"
+      },
       "rotate": "교체",
       "generation": "세대 {{generation}}",
       "generationColumn": "세대",

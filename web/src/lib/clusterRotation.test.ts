@@ -1,5 +1,8 @@
 import { describe, expect, it } from 'vitest'
-import { caActive, caCanAbort, caStepper, countdown, pinRole, rotationFailure, shortPin } from './clusterRotation'
+import i18next from 'i18next'
+import en from '@/i18n/locales/en.json'
+import ko from '@/i18n/locales/ko.json'
+import { caActive, caCanAbort, caStepper, countdown, pinRole, rotationFailure, shortPin, waitingLine } from './clusterRotation'
 
 const refusal = (status: number, code: string, message: string) =>
   Object.assign(new Error(message), { status, code })
@@ -87,5 +90,45 @@ describe('pinRole and shortPin', () => {
   it('shortens a pin to its first twelve hex digits', () => {
     expect(shortPin(`sha256:${'0123456789abcdef'.repeat(4)}`)).toBe('0123456789ab…')
     expect(shortPin('sha256:abc')).toBe('abc')
+  })
+})
+
+describe('waitingLine', () => {
+  const i18n = i18next.createInstance()
+  void i18n.init({ lng: 'en', resources: { en: { translation: en }, ko: { translation: ko } }, interpolation: { escapeValue: false } })
+  const en_ = i18n.getFixedT('en')
+  const ko_ = i18n.getFixedT('ko')
+
+  // Every reason the leader writes (agent_register.go, proxy_rotation.go,
+  // ca_rotation.go), in both languages.
+  it.each([
+    ['agent-03 (offline)', 'agent-03: offline', 'agent-03: 오프라인'],
+    ['agent-03 (not heard from)', 'agent-03: not heard from', 'agent-03: 응답 없음'],
+    ['agent-04 (0.79.3)', 'agent-04: runs 0.79.3, which cannot follow a rotation — update it', 'agent-04: 0.79.3, 교체를 지원하지 않는 버전 — 업데이트하세요'],
+    ['agent-04 (0.80.0-rc1)', 'agent-04: runs 0.80.0-rc1, which cannot follow a rotation — update it', 'agent-04: 0.80.0-rc1, 교체를 지원하지 않는 버전 — 업데이트하세요'],
+    ['agent-04 (v0.79.4)', 'agent-04: runs v0.79.4, which cannot follow a rotation — update it', 'agent-04: v0.79.4, 교체를 지원하지 않는 버전 — 업데이트하세요'],
+    ['agent-05 (not heard from since the rollback phase began)', 'agent-05: not heard from since the rollback phase began', 'agent-05: rollback 단계 시작 뒤 응답 없음'],
+    ['manager-02 (has not taken the next secret yet)', 'manager-02: has not taken the next secret yet', 'manager-02: 아직 다음 비밀을 받지 않음'],
+    ['agent-01 (does not trust the next CA yet)', 'agent-01: does not trust the next CA yet', 'agent-01: 아직 다음 CA를 신뢰하지 않음'],
+    ['agent-01 (still presents a certificate from the current CA)', 'agent-01: still presents a certificate from the current CA', 'agent-01: 아직 현재 CA의 인증서를 씀'],
+    ['agent-01 (still trusts the old CA)', 'agent-01: still trusts the old CA', 'agent-01: 아직 이전 CA를 신뢰함'],
+    ['agent-01 (still presents a certificate from the next CA)', 'agent-01: still presents a certificate from the next CA', 'agent-01: 아직 다음 CA의 인증서를 씀'],
+    ['agent-01 (still trusts the next CA)', 'agent-01: still trusts the next CA', 'agent-01: 아직 다음 CA를 신뢰함'],
+  ])('words %s', (line, inEnglish, inKorean) => {
+    expect(waitingLine(line, en_)).toBe(inEnglish)
+    expect(waitingLine(line, ko_)).toBe(inKorean)
+  })
+
+  it('shows any other line as the leader sent it', () => {
+    for (const line of [
+      'agent-01 (has gone to lunch)',
+      'agent-01 ()',
+      'agent-01',
+      'agent-01 (offline) and more',
+      'agent-01 (not heard from since the  phase began)',
+    ]) {
+      expect(waitingLine(line, en_)).toBe(line)
+      expect(waitingLine(line, ko_)).toBe(line)
+    }
   })
 })

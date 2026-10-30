@@ -3,7 +3,7 @@ import { useTranslation } from 'react-i18next'
 import { Check, X, type LucideIcon } from 'lucide-react'
 import { StatusPill } from '@/components/StatusPill'
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
-import type { RotationFailure } from '@/lib/clusterRotation'
+import { waitingLine, type RotationFailure } from '@/lib/clusterRotation'
 
 /** What every rotation lists for a node: who it is, whether it is up, whether it can follow. */
 export interface RotationRow {
@@ -19,8 +19,9 @@ export interface RotationColumn<R> {
 }
 
 // One secret's card on the security page: where its rotation stands, whom it
-// waits for, and each node's part in it. The leader's waiting lines are shown
-// as sent — they carry the node's name and the reason.
+// waits for, and each node's part in it. The leader's waiting lines carry the
+// node's name and the reason; a reason this page knows is worded in its
+// language, any other is shown as sent.
 export function RotationCard<R extends RotationRow>({ id, icon: Icon, title, summary, action, failure, waiting, columns, rows, children }: {
   /** data-testid suffix: rotation-<id>. */
   id: string
@@ -74,7 +75,7 @@ export function RotationCard<R extends RotationRow>({ id, icon: Icon, title, sum
         <div className="rounded-xl bg-warning/10 text-warning p-3 space-y-1">
           <p className="text-[11px] uppercase tracking-wider font-medium">{t('cluster.security.waiting')}</p>
           <ul aria-label={t('cluster.security.waiting')} className="text-[13px] space-y-0.5">
-            {waiting.map((w) => <li key={w} className="break-words">{w}</li>)}
+            {waiting.map((w) => <li key={w} className="break-words">{waitingLine(w, t)}</li>)}
           </ul>
         </div>
       )}

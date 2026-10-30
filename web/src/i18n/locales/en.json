@@ -1145,6 +1145,18 @@
       "deadline": "Goes back at {{time}} unless the phase completes",
       "refused": "The rotation did not start",
       "abortRefused": "The rotation was not stopped",
+      "waitingLine": {
+        "offline": "{{name}}: offline",
+        "notHeard": "{{name}}: not heard from",
+        "oldVersion": "{{name}}: runs {{version}}, which cannot follow a rotation — update it",
+        "notHeardSince": "{{name}}: not heard from since the {{phase}} phase began",
+        "nextSecret": "{{name}}: has not taken the next secret yet",
+        "trustNext": "{{name}}: does not trust the next CA yet",
+        "certCurrent": "{{name}}: still presents a certificate from the current CA",
+        "trustsOld": "{{name}}: still trusts the old CA",
+        "certNext": "{{name}}: still presents a certificate from the next CA",
+        "trustsNext": "{{name}}: still trusts the next CA"
+      },
       "rotate": "Rotate",
       "generation": "Generation {{generation}}",
       "generationColumn": "Generation",

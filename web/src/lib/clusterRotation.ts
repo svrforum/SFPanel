@@ -1,3 +1,4 @@
+import type { TFunction } from 'i18next'
 import type { CARotation } from '@/types/api'
 
 // What the security page reads from GET /cluster/rotation and from a refused
@@ -21,6 +22,37 @@ export function rotationFailure(err: unknown): RotationFailure {
   const { code } = (err ?? {}) as { code?: string }
   const message = err instanceof Error ? err.message : String(err)
   return { refused: !!code && ROTATION_REFUSED_CODES.includes(code), message }
+}
+
+// The reasons the leader gives for a node a rotation waits for, word for word
+// (agent_register.go, proxy_rotation.go, ca_rotation.go). Any other is shown
+// as sent: a newer leader may give one this page does not know.
+const WAITING_REASONS: Record<string, string> = {
+  'offline': 'cluster.security.waitingLine.offline',
+  'not heard from': 'cluster.security.waitingLine.notHeard',
+  'has not taken the next secret yet': 'cluster.security.waitingLine.nextSecret',
+  'does not trust the next CA yet': 'cluster.security.waitingLine.trustNext',
+  'still presents a certificate from the current CA': 'cluster.security.waitingLine.certCurrent',
+  'still trusts the old CA': 'cluster.security.waitingLine.trustsOld',
+  'still presents a certificate from the next CA': 'cluster.security.waitingLine.certNext',
+  'still trusts the next CA': 'cluster.security.waitingLine.trustsNext',
+}
+
+/**
+ * One of the leader's waiting lines, "<name> (<reason>)", in the page's
+ * language. A bare version as the reason means the node runs a release that
+ * cannot rotate. The phase is the leader's word, as the CA stepper shows it.
+ */
+export function waitingLine(line: string, t: TFunction): string {
+  const m = /^(.+) \(([^()]+)\)$/.exec(line)
+  if (!m) return line
+  const [, name, reason] = m
+  const key = WAITING_REASONS[reason]
+  if (key) return t(key, { name })
+  const since = /^not heard from since the (\S+) phase began$/.exec(reason)
+  if (since) return t('cluster.security.waitingLine.notHeardSince', { name, phase: since[1] })
+  if (/^v?\d[\w.+-]*$/.test(reason)) return t('cluster.security.waitingLine.oldVersion', { name, version: reason })
+  return line
 }
 
 /** The way forward, and the branch a stopped or timed-out rotation takes back. */
