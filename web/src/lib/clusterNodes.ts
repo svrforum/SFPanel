@@ -1,4 +1,5 @@
 import type { ClusterNode } from '@/types/api'
+import { relativeSince } from '@/lib/aiSessions'
 
 // The one place the cluster screens decide what a node is: its kind, role,
 // group and whether its version is behind. Keeping it here means the table,
@@ -131,4 +132,32 @@ export function filterNodes(nodes: ClusterNode[], f: NodeFilter): ClusterNode[] 
     const fields = [n.name, n.api_address, n.grpc_address, ...Object.entries(n.labels ?? {}).map(([k, v]) => `${k}=${v}`)]
     return fields.some((field) => field.toLowerCase().includes(q))
   })
+}
+
+/**
+ * The filter a link asked for: the overview's "offline agents" opens the list
+ * with ?kind=agent&status=offline. A value this page does not know falls back
+ * to "all" rather than hiding every node. An empty group means "no group",
+ * as it does in NodeFilter.
+ */
+export function filterFromQuery(params: URLSearchParams): NodeFilter {
+  const kind = params.get('kind')
+  const status = params.get('status')
+  return {
+    kind: kind === 'manager' || kind === 'agent' ? kind : 'all',
+    status: status === 'online' || status === 'offline' ? status : 'all',
+    group: params.has('group') ? (params.get('group') ?? '').trim() : null,
+    query: params.get('q') ?? '',
+  }
+}
+
+/**
+ * "5 minutes ago" for a node's last heartbeat, or '' when it never sent one.
+ * A node that has not answered carries Go's zero time, which parses as a real
+ * date in year 1 and would read as "2025 years ago".
+ */
+export function lastSeenAgo(value: string, lang: string, now = Date.now()): string {
+  const ms = new Date(value).getTime()
+  if (Number.isNaN(ms) || ms <= 0) return ''
+  return relativeSince(value, lang, now)
 }

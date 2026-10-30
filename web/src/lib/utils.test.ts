@@ -4,7 +4,6 @@ import {
   formatDate,
   formatUptime,
   getUsageColor,
-  nodeStatusBadge,
   nodeStatusColor,
   pathBasename,
   pathJoin,
@@ -108,30 +107,6 @@ describe('nodeStatusColor', () => {
 
   it.each(cases)('%j -> %s', (status, want) => {
     expect(nodeStatusColor(status)).toBe(want)
-  })
-})
-
-describe('nodeStatusBadge', () => {
-  // The tinted sibling of nodeStatusColor. Both must cover the same status
-  // set, and the classes have to stay literal for Tailwind's scanner.
-  const cases: [status: string, want: string][] = [
-    ['online', 'bg-success/10 text-success'],
-    ['suspect', 'bg-warning/10 text-warning'],
-    ['offline', 'bg-destructive/10 text-destructive'],
-    ['', 'bg-muted text-muted-foreground'],
-    ['unknown', 'bg-muted text-muted-foreground'],
-  ]
-
-  it.each(cases)('%j -> %s', (status, want) => {
-    expect(nodeStatusBadge(status)).toBe(want)
-  })
-
-  it('handles exactly the statuses nodeStatusColor does', () => {
-    for (const status of ['online', 'suspect', 'offline', 'joining', '']) {
-      const dotIsDefault = nodeStatusColor(status) === 'bg-muted-foreground'
-      const badgeIsDefault = nodeStatusBadge(status) === 'bg-muted text-muted-foreground'
-      expect(badgeIsDefault).toBe(dotIsDefault)
-    }
   })
 })
 

@@ -1011,7 +1011,26 @@
       "leaderTransferred": "{{name}} 노드로 리더십이 이전되었습니다",
       "editAddress": "주소 편집",
       "addressUpdated": "노드 주소가 업데이트되었습니다",
-      "addLabel": "라벨 추가"
+      "addLabel": "라벨 추가",
+      "kind": "종류",
+      "outdated": "최신 아님",
+      "outdatedTitle": "최신: {{version}}",
+      "lastSeen": "마지막 응답",
+      "group": "그룹",
+      "noGroup": "그룹 없음",
+      "filterKind": "종류",
+      "filterStatus": "상태",
+      "filterGroup": "그룹",
+      "all": "전체",
+      "managers": "매니저",
+      "agents": "에이전트",
+      "online": "온라인",
+      "offline": "오프라인",
+      "search": "이름·주소·라벨 검색",
+      "shown": "{{total}}대 중 {{shown}}대",
+      "noMatch": "조건에 맞는 노드가 없습니다.",
+      "loadFailed": "노드 목록을 새로 받지 못했습니다. 마지막 목록입니다.",
+      "loadError": "노드 목록을 불러오지 못했습니다."
     },
     "tokens": {
       "generateTitle": "참가 토큰 생성",
@@ -1055,6 +1074,12 @@
     "role": {
       "voter": "투표 노드",
       "nonvoter": "비투표 노드"
+    },
+    "kind": {
+      "leader": "리더",
+      "manager": "매니저",
+      "nonvoter": "매니저(비투표)",
+      "agent": "에이전트"
     },
     "errors": {
       "routeNotOnAgent": "클러스터 관리는 매니저에서 합니다. 데이터센터나 매니저를 먼저 고르세요.",

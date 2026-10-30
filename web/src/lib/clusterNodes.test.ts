@@ -3,10 +3,12 @@ import type { ClusterNode } from '@/types/api'
 import {
   ALL_NODES,
   compareVersions,
+  filterFromQuery,
   filterNodes,
   isAgent,
   isManager,
   isOutdated,
+  lastSeenAgo,
   nodeGroup,
   nodeGroups,
   nodeRoleKind,
@@ -132,5 +134,35 @@ describe('filterNodes', () => {
 
   it('combines the filters', () => {
     expect(ids({ kind: 'agent', status: 'offline', group: '' })).toEqual(['a2'])
+  })
+})
+
+describe('filterFromQuery', () => {
+  it('starts from every node when the address says nothing', () => {
+    expect(filterFromQuery(new URLSearchParams(''))).toEqual(ALL_NODES)
+  })
+
+  it('takes the overview link\'s kind and status, and a group and query', () => {
+    expect(filterFromQuery(new URLSearchParams('kind=agent&status=offline&group=db&q=edge'))).toEqual({
+      kind: 'agent', status: 'offline', group: 'db', query: 'edge',
+    })
+  })
+
+  it('reads an empty group as "no group", and ignores values it does not know', () => {
+    expect(filterFromQuery(new URLSearchParams('group=&kind=robot&status=asleep'))).toEqual({ ...ALL_NODES, group: '' })
+  })
+})
+
+describe('lastSeenAgo', () => {
+  const now = Date.parse('2026-10-31T12:00:00Z')
+
+  it('says how long ago a node answered', () => {
+    expect(lastSeenAgo('2026-10-31T11:55:00Z', 'en', now)).toBe('5 minutes ago')
+  })
+
+  it('has nothing to say for a node that never answered', () => {
+    // Go's zero time parses as a real date in year 1.
+    expect(lastSeenAgo('0001-01-01T00:00:00Z', 'en', now)).toBe('')
+    expect(lastSeenAgo('', 'en', now)).toBe('')
   })
 })

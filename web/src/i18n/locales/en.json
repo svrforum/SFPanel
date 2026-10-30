@@ -1013,7 +1013,26 @@
       "leaderTransferred": "Leadership transferred to {{name}}",
       "editAddress": "Edit address",
       "addressUpdated": "Node address updated",
-      "addLabel": "Add label"
+      "addLabel": "Add label",
+      "kind": "Kind",
+      "outdated": "Outdated",
+      "outdatedTitle": "Latest: {{version}}",
+      "lastSeen": "Last seen",
+      "group": "Group",
+      "noGroup": "No group",
+      "filterKind": "Kind",
+      "filterStatus": "Status",
+      "filterGroup": "Group",
+      "all": "All",
+      "managers": "Managers",
+      "agents": "Agents",
+      "online": "Online",
+      "offline": "Offline",
+      "search": "Search name, address or label",
+      "shown": "{{shown}} of {{total}}",
+      "noMatch": "No node matches these filters.",
+      "loadFailed": "Could not refresh the node list. Showing the last one.",
+      "loadError": "Could not load the node list."
     },
     "tokens": {
       "generateTitle": "Generate Join Token",
@@ -1057,6 +1076,12 @@
     "role": {
       "voter": "Voter",
       "nonvoter": "Non-voter"
+    },
+    "kind": {
+      "leader": "Leader",
+      "manager": "Manager",
+      "nonvoter": "Manager (not voting)",
+      "agent": "Agent"
     },
     "errors": {
       "routeNotOnAgent": "Cluster management runs on a manager. Choose the datacenter or a manager first.",
