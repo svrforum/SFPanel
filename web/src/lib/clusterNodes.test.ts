@@ -3,6 +3,7 @@ import type { ClusterNode } from '@/types/api'
 import {
   ALL_NODES,
   compareVersions,
+  detectJoined,
   filterFromQuery,
   filterNodes,
   isAgent,
@@ -164,5 +165,31 @@ describe('lastSeenAgo', () => {
     // Go's zero time parses as a real date in year 1.
     expect(lastSeenAgo('0001-01-01T00:00:00Z', 'en', now)).toBe('')
     expect(lastSeenAgo('', 'en', now)).toBe('')
+  })
+})
+
+describe('detectJoined', () => {
+  const before = new Set(['m-1', 'agent-1'])
+  const known = [node({ id: 'm-1' }), node({ id: 'agent-1', kind: 'agent', role: '' })]
+
+  it('finds an agent that was not there when the token was made', () => {
+    const fresh = node({ id: 'agent-2', name: 'agent-07', kind: 'agent', role: '' })
+    expect(detectJoined(before, [...known, fresh])).toBe(fresh)
+  })
+
+  it('ignores the agents that were already there', () => {
+    expect(detectJoined(before, known)).toBeUndefined()
+  })
+
+  // Somebody else may add a manager meanwhile; it did not use this token.
+  it('ignores a new manager, and a record with no kind', () => {
+    expect(detectJoined(before, [...known, node({ id: 'm-2', kind: 'manager' }), node({ id: 'm-3' })])).toBeUndefined()
+  })
+
+  it('with a name, waits for that name only', () => {
+    const other = node({ id: 'agent-2', name: 'agent-08', kind: 'agent', role: '' })
+    const named = node({ id: 'agent-3', name: 'agent-07', kind: 'agent', role: '' })
+    expect(detectJoined(before, [...known, other], 'agent-07')).toBeUndefined()
+    expect(detectJoined(before, [...known, other, named], 'agent-07')).toBe(named)
   })
 })

@@ -45,10 +45,10 @@
 | `/appstore` (모달) | AppStoreDetailModal | O | AppStore 내장 | 앱 상세 + 설치 모달 (SSE 설치 진행률) |
 | `/cluster` | Cluster | O | Layout | 클러스터 관리 (사이드 탭 + Outlet 구조) |
 | `/cluster/overview` | ClusterOverview | O | Cluster | 클러스터 개요 + 초기화 + **disband(TypeToConfirm, v0.30.0)**. **(v0.31.0)** 마운트 시 1회 fetch 후 `/ws/cluster/overview` WebSocket으로 status+overview+recent events 통합 스냅샷 수신(기존 15s 3회 폴링 대체, follower는 `stale` 플래그+배너). **(v0.22.0)** 클러스터 업데이트 뷰는 **per-node 스테퍼 + 전체 진행률 바**(완료/전체, 실패 수; 구조화 SSE 기반 — `api.clusterUpdateStream`) |
-| `/cluster/nodes` | ClusterNodes | O | Cluster | 노드 목록 + 제거/리더 이전/라벨 편집. **(v0.19.0)** 노드 **advertised 주소 인라인 편집**(`api.updateClusterNodeAddress`) + 로컬 노드 행에서 **클러스터 떠나기**(quorum-loss force 오버라이드, `api.leaveCluster(force?)`) |
+| `/cluster/nodes` | ClusterNodes | O | Cluster | 노드 목록 + 제거/리더 이전/라벨 편집. **(v0.19.0)** 노드 **advertised 주소 인라인 편집**(`api.updateClusterNodeAddress`) + 로컬 노드 행에서 **클러스터 떠나기**(quorum-loss force 오버라이드, `api.leaveCluster(force?)`). **에이전트 추가** 버튼(`components/AddAgentDialog.tsx`, `?add=agent`로도 열림): 열 때마다 에이전트 토큰(`api.createClusterToken(undefined, 'agent')`, 서버 기본 24시간)을 만들고 `sfpanel agent join` / `install.sh --agent` 두 줄(`agentJoinCommands`, sudo 없이·이름 선택, 이름은 `NODE_NAME_PATTERN`)과 남은 시간을 보인다. 토큰 직후의 노드 ID 집합과 3초마다 받는 목록을 비교(`detectJoined`)해 새 에이전트가 보이면 완료 화면 + 노드 열기. 응답에 `kind`가 없으면(예전 리더 = 매니저 토큰) 명령 대신 업데이트 안내. 닫아도 토큰은 폐기하지 않는다. "대신 매니저 추가" 접힘 절에 매니저 토큰 만들기(`ManagerTokenSection`, `joinCommands`)와 대기 토큰 목록·폐기(`PendingTokens`, 종류 열; 폐기 404 = 이미 쓰였거나 만료, 목록만 다시 받음) |
 | `/cluster/stacks` | ClusterStacks | O | Cluster | (v0.47.0) 클러스터 전 노드 compose 스택 집계 뷰 (`api.getClusterStacks` — 노드별 그룹, 불달 노드는 에러 표시 + 빈 목록) |
 | `/cluster/stacks/:node/:name` | ClusterStacks | O | Cluster | (v0.48.0) 마스터-디테일 — 스택 선택 시 소유 노드 스코프로 단일노드 Docker 스택 상세를 재사용(`clusterMode` prop). 소유 노드가 URL에 포함되어 동명 스택 오타겟 방지 |
-| `/cluster/tokens` | ClusterTokens | O | Cluster | 참가 토큰 생성 + join 명령어 표시. **(v0.19.0)** 발급된 토큰 **목록/취소**(마스킹된 값 + 짧은 지문만 노출; `api.listClusterTokens`, `api.revokeClusterToken`). "sudo 없이 root로 실행" 체크박스가 두 명령에서 sudo를 뺀다 — Proxmox VE처럼 sudo가 없는 서버용(`pages/cluster/joinCommands.ts`) |
+| `/cluster/tokens` | — | O | Cluster | 토큰 페이지는 에이전트 추가 대화상자로 흡수되었다. 예전 주소는 `/cluster/nodes?add=agent`로 이동해 대화상자를 연다(`App.tsx`의 `Navigate`) |
 | `/docker` | Docker | O | Layout | Docker 관리 (사이드 탭 + Outlet 구조) |
 | `/docker/stacks` | DockerStacks | O | Docker | Docker Compose 스택 목록 (기본 서브라우트) |
 | `/docker/stacks/:name` | DockerStacks | O | Docker | 스택 상세 (서비스 목록, YAML 편집, 로그, 셸) |
@@ -510,7 +510,7 @@ const DockerStacks = lazy(() => import('@/pages/docker/DockerStacks'))
 | MetricsChart | `web/src/components/MetricsChart.tsx` | CPU/메모리 시계열 차트. uPlot 사용. CPU(파랑) + Memory(초록) 이중 라인. Y축 0-100%. |
 | ClusterSidebar | `web/src/components/cluster/ClusterSidebar.tsx` | 클러스터 모드 좌측 2단 트리(TreePanel+ContextMenu). 선택 시 `api.setCurrentNode` + 라우팅. 표준 사이드바를 대체. |
 | TreePanel | `web/src/components/cluster/TreePanel.tsx` | 데이터센터 루트 + 노드 목록(상태/리더/local, 로컬 우선 정렬), 접이식 52px 레일. |
-| ContextMenu | `web/src/components/cluster/ContextMenu.tsx` | 선택 범위별 메뉴(데이터센터: 개요/노드/토큰/설정 · 노드: 모듈 메뉴). |
+| ContextMenu | `web/src/components/cluster/ContextMenu.tsx` | 선택 범위별 메뉴(데이터센터: 개요/노드/Docker/설정 · 노드: 모듈 메뉴). |
 | NodeSelector | `web/src/components/NodeSelector.tsx` | (레거시) 비클러스터 표준 사이드바 전용 드롭다운. 클러스터 모드에선 미사용. |
 | ContainerShell | `web/src/components/ContainerShell.tsx` | Docker 컨테이너 셸 접속. xterm.js + WebSocket(`/ws/docker/containers/{id}/exec`). 키 입력 전송, 리사이즈 이벤트 전송. |
 | ContainerLogs | `web/src/components/ContainerLogs.tsx` | Docker 컨테이너 로그 스트리밍. xterm.js(읽기 전용) + WebSocket(`/ws/docker/containers/{id}/logs`). 검색(SearchAddon), 로그 다운로드 기능. |

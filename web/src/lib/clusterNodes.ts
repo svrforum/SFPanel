@@ -135,6 +135,16 @@ export function filterNodes(nodes: ClusterNode[], f: NodeFilter): ClusterNode[] 
 }
 
 /**
+ * The agent that joined with the token the add-agent dialog handed out: a node
+ * that was not in the list when the token was made, and is an agent. Given a
+ * name, only a node of that name — another agent may join meanwhile with a
+ * token somebody else made. A new manager never is: it did not use this token.
+ */
+export function detectJoined(before: ReadonlySet<string>, nodes: ClusterNode[], name?: string): ClusterNode | undefined {
+  return nodes.find((n) => !before.has(n.id) && isAgent(n) && (!name || n.name === name))
+}
+
+/**
  * The filter a link asked for: the overview's "offline agents" opens the list
  * with ?kind=agent&status=offline. A value this page does not know falls back
  * to "all" rather than hiding every node. An empty group means "no group",

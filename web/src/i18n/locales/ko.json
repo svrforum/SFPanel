@@ -894,8 +894,7 @@
     "nav": {
       "overview": "개요",
       "nodes": "노드",
-      "stacks": "Docker",
-      "tokens": "토큰"
+      "stacks": "Docker"
     },
     "notEnabled": {
       "title": "클러스터가 활성화되지 않았습니다",
@@ -1037,8 +1036,6 @@
       "groupHint": "같은 그룹의 노드는 함께 묶여 보입니다."
     },
     "tokens": {
-      "generateTitle": "참가 토큰 생성",
-      "generateDescription": "새 노드를 클러스터에 추가하기 위한 1회용 토큰을 생성합니다",
       "ttl": "유효 기간",
       "generate": "토큰 생성",
       "generatedToken": "생성된 토큰",
@@ -1054,7 +1051,26 @@
       "revokeConfirm": "이 참가 토큰을 폐기하시겠습니까? 노드가 더 이상 이 토큰으로 참가할 수 없습니다.",
       "revoked": "토큰이 폐기되었습니다",
       "createdBy": "생성자",
-      "copyFailed": "클립보드 복사에 실패했습니다"
+      "copyFailed": "클립보드 복사에 실패했습니다",
+      "token": "토큰"
+    },
+    "addAgent": {
+      "button": "에이전트 추가",
+      "title": "에이전트 추가",
+      "intro": "새 서버에서 아래 명령 중 하나를 실행하세요. 에이전트는 여기서 관리되며 클러스터 비밀을 갖지 않습니다.",
+      "installAndJoin": "SFPanel이 없는 서버",
+      "join": "SFPanel이 있는 서버",
+      "name": "이름(선택)",
+      "nameHint": "이름이 없으면 호스트 이름을 씁니다.",
+      "nameInvalid": "영문·숫자·점·대시·밑줄, 영문이나 숫자로 시작, 63자 이하.",
+      "remaining": "토큰 남은 시간 {{time}}",
+      "waiting": "에이전트가 가입하기를 기다리는 중…",
+      "joined": "{{name}}이(가) 클러스터에 가입했습니다.",
+      "expired": "토큰이 만료되었습니다.",
+      "newToken": "새 토큰",
+      "oldLeader": "클러스터의 리더가 에이전트를 모르는 버전이라 매니저 토큰을 만들었습니다. 클러스터를 먼저 업데이트하세요.",
+      "advanced": "대신 매니저 추가",
+      "managerNote": "매니저는 클러스터의 JWT 키·CA 키·관리자 계정을 갖습니다. 이 서버만큼 믿는 서버에만 추가하세요."
     },
     "leave": {
       "action": "클러스터 떠나기",

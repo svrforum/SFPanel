@@ -866,7 +866,7 @@ SQLite (WAL 모드, busy_timeout 5000ms, `SetMaxOpenConns(4)`, 추가 프래그�
 | Dashboard | `web/src/pages/Dashboard.tsx` | 시스템 대시보드 |
 | AppStore | `web/src/pages/AppStore.tsx` | 앱스토어 (원클릭 Docker 앱 설치, `/appstore/:appId` 딥링크) |
 | Cluster | `web/src/pages/Cluster.tsx` | 클러스터 관리 셸 (사이드 탭 + Outlet) |
-| ClusterOverview / ClusterNodes / ClusterStacks / ClusterTokens | `web/src/pages/cluster/` | 클러스터 개요 / 노드 관리 / (v0.47.0) 전 노드 스택 집계 / 참가 토큰 |
+| ClusterOverview / ClusterNodes / ClusterStacks | `web/src/pages/cluster/` | 클러스터 개요 / 노드 관리(에이전트 추가 대화상자가 참가 토큰을 맡음) / (v0.47.0) 전 노드 스택 집계 |
 | Docker | `web/src/pages/Docker.tsx` | Docker 관리 (탭: Stacks, Containers, Images, Volumes, Networks) |
 | DockerStacks | `web/src/pages/docker/DockerStacks.tsx` | Docker Compose 스택 관리 |
 | DockerContainers | `web/src/pages/docker/DockerContainers.tsx` | 컨테이너 관리 (독립형 컨테이너 생성은 페이지 내 CreateContainerDialog — 별도 페이지 아님) |

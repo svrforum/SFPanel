@@ -2,7 +2,7 @@ import { useCallback, useMemo, useState } from 'react'
 import { useSearchParams } from 'react-router-dom'
 import { useVisibleInterval } from '@/hooks/useVisibleInterval'
 import { useTranslation } from 'react-i18next'
-import { Server, RefreshCw, AlertTriangle } from 'lucide-react'
+import { Server, RefreshCw, AlertTriangle, Plus } from 'lucide-react'
 import { api } from '@/lib/api'
 import type { ClusterNode, ClusterStatus, ClusterNodeMetrics } from '@/types/api'
 import { useConfirm } from '@/components/ConfirmDialog'
@@ -29,13 +29,14 @@ import { NodeRowMenu } from './components/NodeRowMenu'
 import { KindBadge } from './components/KindBadge'
 import { NodeFilterBar } from './components/NodeFilterBar'
 import { NodeCard, NodeGroup, NodeStatus, NodeVersion } from './components/NodeCard'
+import { AddAgentDialog } from './components/AddAgentDialog'
 
 const message = (err: unknown) => (err instanceof Error ? err.message : String(err))
 
 export default function ClusterNodes() {
   const { t, i18n } = useTranslation()
   const confirm = useConfirm()
-  const [searchParams] = useSearchParams()
+  const [searchParams, setSearchParams] = useSearchParams()
   const [status, setStatus] = useState<ClusterStatus | null>(null)
   // null until the first list arrives: a failed refresh keeps the last one.
   const [nodes, setNodes] = useState<ClusterNode[] | null>(null)
@@ -47,6 +48,9 @@ export default function ClusterNodes() {
   // Read once: the overview's links open the list already filtered, and from
   // then on the filter is the page's own and the address is left alone.
   const [filter, setFilter] = useState<NodeFilter>(() => filterFromQuery(searchParams))
+
+  // The old token page's address lands here with ?add=agent (App.tsx).
+  const [addOpen, setAddOpen] = useState(() => searchParams.get('add') === 'agent')
 
   // Label editing
   const [labelDialogOpen, setLabelDialogOpen] = useState(false)
@@ -131,6 +135,18 @@ export default function ClusterNodes() {
     }
   }
 
+  // Closed, the dialog is not asked for again by a reload of the same address.
+  const setAddAgent = (open: boolean) => {
+    setAddOpen(open)
+    if (!open && searchParams.has('add')) {
+      setSearchParams((prev) => {
+        const next = new URLSearchParams(prev)
+        next.delete('add')
+        return next
+      }, { replace: true })
+    }
+  }
+
   const openLabelDialog = (node: ClusterNode) => {
     setLabelNode(node)
     setLabelDialogOpen(true)
@@ -198,10 +214,16 @@ export default function ClusterNodes() {
         <span className="inline-flex items-center px-3 py-1 rounded-full text-[13px] font-semibold bg-primary/10 text-primary">
           {t('cluster.nodes.count', { count: nodes.length })}
         </span>
-        <Button variant="outline" size="sm" className="rounded-xl" onClick={refresh} disabled={loading}>
-          <RefreshCw className={cn("h-4 w-4 mr-1", loading && "animate-spin")} />
-          {t('common.refresh')}
-        </Button>
+        <div className="flex items-center gap-2">
+          <Button variant="outline" size="sm" className="rounded-xl" onClick={refresh} disabled={loading}>
+            <RefreshCw className={cn("h-4 w-4 mr-1", loading && "animate-spin")} />
+            {t('common.refresh')}
+          </Button>
+          <Button size="sm" className="rounded-xl" onClick={() => setAddAgent(true)}>
+            <Plus className="h-4 w-4 mr-1" />
+            {t('cluster.addAgent.button')}
+          </Button>
+        </div>
       </div>
 
       {nodesError && (
@@ -287,6 +309,8 @@ export default function ClusterNodes() {
         node={labelNode}
         onSaved={changed}
       />
+
+      <AddAgentDialog open={addOpen} onOpenChange={setAddAgent} localId={localId} onJoined={changed} />
 
       <EditNodeAddressDialog
         open={addressDialogOpen}

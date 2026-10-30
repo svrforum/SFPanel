@@ -896,8 +896,7 @@
     "nav": {
       "overview": "Overview",
       "nodes": "Nodes",
-      "stacks": "Docker",
-      "tokens": "Tokens"
+      "stacks": "Docker"
     },
     "notEnabled": {
       "title": "Cluster not enabled",
@@ -1039,8 +1038,6 @@
       "groupHint": "Nodes with the same group are listed together."
     },
     "tokens": {
-      "generateTitle": "Generate Join Token",
-      "generateDescription": "Create a single-use token for adding a new node to the cluster",
       "ttl": "TTL",
       "generate": "Generate Token",
       "generatedToken": "Generated Token",
@@ -1056,7 +1053,26 @@
       "revokeConfirm": "Revoke this join token? Nodes can no longer use it to join.",
       "revoked": "Token revoked",
       "createdBy": "Created by",
-      "copyFailed": "Failed to copy to clipboard"
+      "copyFailed": "Failed to copy to clipboard",
+      "token": "Token"
+    },
+    "addAgent": {
+      "button": "Add agent",
+      "title": "Add an agent",
+      "intro": "Run one of these on the new server. An agent is managed from here and holds none of the cluster's secrets.",
+      "installAndJoin": "Server without SFPanel",
+      "join": "Server with SFPanel",
+      "name": "Name (optional)",
+      "nameHint": "Without a name the agent takes its host name.",
+      "nameInvalid": "Letters, digits, dot, dash and underscore; starts with a letter or digit; up to 63.",
+      "remaining": "Token valid for {{time}}",
+      "waiting": "Waiting for the agent to join…",
+      "joined": "{{name}} joined the cluster.",
+      "expired": "The token has expired.",
+      "newToken": "New token",
+      "oldLeader": "The cluster's leader runs a version without agents and made a manager token instead. Update the cluster first.",
+      "advanced": "Add a manager instead",
+      "managerNote": "A manager holds the cluster's JWT key, CA key and admin account. Add one only to a server you trust as much as this one."
     },
     "leave": {
       "action": "Leave cluster",
