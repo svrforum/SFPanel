@@ -224,6 +224,9 @@ var Upgrader = websocket.Upgrader{
 	CheckOrigin: sameOriginOrEmpty,
 }
 
+// authenticateWS checks a log stream's upgrade. A refusal writes the 401 and
+// returns auth.ErrUnauthenticatedWS, which the caller returns before it reads
+// the source or upgrades: c.JSON's own error is nil once it has written.
 func authenticateWS(c echo.Context, jwtSecret string) error {
 	if auth.IsInternalProxyRequest(c.Request()) {
 		return nil
@@ -231,7 +234,10 @@ func authenticateWS(c echo.Context, jwtSecret string) error {
 	if user := auth.AuthenticateWSRequest(c.Request(), jwtSecret); user != "" {
 		return nil
 	}
-	return c.JSON(http.StatusUnauthorized, map[string]string{"error": "unauthorized"})
+	if err := c.JSON(http.StatusUnauthorized, map[string]string{"error": "unauthorized"}); err != nil {
+		return err
+	}
+	return auth.ErrUnauthenticatedWS
 }
 
 // countFileLines returns the total number of lines in a log file.

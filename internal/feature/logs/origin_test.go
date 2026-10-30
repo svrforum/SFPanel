@@ -1,8 +1,14 @@
 package logs
 
 import (
+	"errors"
 	"net/http"
+	"net/http/httptest"
+	"strings"
 	"testing"
+
+	"github.com/labstack/echo/v4"
+	"github.com/svrforum/SFPanel/internal/auth"
 )
 
 // The logs WS upgrader used to allow ALL origins; it now mirrors
@@ -39,5 +45,17 @@ func TestSameOriginOrEmpty(t *testing.T) {
 					tc.host, tc.origin, got, tc.want)
 			}
 		})
+	}
+}
+
+// A log stream the check refuses stops at the 401. It used to go on behind
+// it — authenticateWS answered with c.JSON's error, nil once written — to
+// read the source and upgrade.
+func TestALogStreamWithoutCredentialsStopsAtTheRefusal(t *testing.T) {
+	rec := httptest.NewRecorder()
+	c := echo.New().NewContext(httptest.NewRequest(http.MethodGet, "/ws/logs", nil), rec)
+	err := LogStreamWS(func() string { return strings.Repeat("k", 32) }, nil)(c)
+	if !errors.Is(err, auth.ErrUnauthenticatedWS) || rec.Code != http.StatusUnauthorized || strings.Contains(rec.Body.String(), "missing source") {
+		t.Fatalf("err %v, status %d, body %q", err, rec.Code, rec.Body.String())
 	}
 }

@@ -940,9 +940,17 @@ func (h *Handler) clusterUpdateQuorumGuard(c echo.Context) error {
 		"survivors_if_we_leave", survivors,
 		"quorum", quorum,
 		"remote_ip", c.RealIP())
-	return response.Fail(c, http.StatusConflict, response.ErrUpdateInProgress,
-		fmt.Sprintf("Refusing update: %d of %d voters would remain online (quorum=%d). Use /cluster/update for a coordinated rolling update, or pass ?force=true to override.", survivors, totalVoters, quorum))
+	if err := response.Fail(c, http.StatusConflict, response.ErrUpdateInProgress,
+		fmt.Sprintf("Refusing update: %d of %d voters would remain online (quorum=%d). Use /cluster/update for a coordinated rolling update, or pass ?force=true to override.", survivors, totalVoters, quorum)); err != nil {
+		return err
+	}
+	return errUpdateRefused
 }
+
+// errUpdateRefused says the quorum guard has written its 409: the update stops
+// there. response.Fail's own error is nil once it has written, and the update
+// used to go on behind the refusal.
+var errUpdateRefused = errors.New("update refused: the cluster would lose its quorum")
 
 // countManagerVoters counts the manager voters the FSM lists — the set Raft
 // takes its majority from — this node among them even before it is listed.
