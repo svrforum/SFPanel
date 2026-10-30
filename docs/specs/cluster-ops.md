@@ -555,11 +555,12 @@ curl -fsSL https://raw.githubusercontent.com/svrforum/SFPanel/main/scripts/insta
   (`agent.key`, 0600) under `cluster.cert_dir` — removing the key rotation's
   state an earlier membership left there (`agent-key-rotation.json`) — and
   restarts a running sfpanel, which comes back as an agent.
-- Once the config names the server an agent, the join removes the panel's
-  local `admin` account: an agent has no login, and on a server that was a
-  manager — after `cluster leave`, or a conversion that stopped short — the
-  account is the cluster admin's, its password hash, TOTP seed and recovery
-  codes with it. A join that stops before then leaves it.
+- The agent removes the panel's local `admin` account when it boots as an
+  agent: an agent has no login, and on a server that was a manager — after
+  `cluster leave`, or a conversion that stopped short — the account is the
+  cluster admin's, its password hash, TOTP seed and recovery codes with it.
+  Not before: until sfpanel restarts — after `--no-restart`, or a restart that
+  failed — the standalone panel goes on serving, and its account with it.
 - Before the token travels, the join checks that the panel's certificate
   verifies against the panel's CA for the advertise IP, where the managers
   reach the panel, and for 127.0.0.1, where the agent's own gRPC server
@@ -657,9 +658,9 @@ node; the leader watches the managers' pings the same way.
    rotation's state (`agent-key-rotation.json`) and the link's state are
    deleted, and a running service restarts. Without `--yes` it
    only lists what it would do. The installer's `uninstall` runs the reset
-   itself. The panel has no admin account then — the join removed it — so
-   it asks for one as a fresh install does, from loopback or a private
-   network: create it straight away.
+   itself. The panel has no admin account then — the agent removed it at
+   boot — so it asks for one as a fresh install does, from loopback or a
+   private network: create it straight away. The reset says so too.
 
 An agent cannot take itself out of the cluster: a reset on its own leaves its
 record on the managers, and the command says how to remove it.
@@ -884,9 +885,9 @@ A leader starts one conversion at a time.
    `peers.json` and `peers.info` in `cluster.data_dir`; and the
    `config.yaml.bak` and `sfpanel.db.bak` an update leaves.
 7. It registers as an agent under its own ID with the token, and the leader
-   gives the new record the name, labels and join time it recorded. Then it
-   removes the local `admin` account: an agent has no login.
-8. It restarts as an agent (`Restart=always` starts it again).
+   gives the new record the name, labels and join time it recorded.
+8. It restarts as an agent (`Restart=always` starts it again), and the agent
+   removes the local `admin` account as it boots: an agent has no login.
 
 It is over when the node list shows the node as an agent. The node may be the
 one the browser is connected to — the CLI on that node needs it — but the
@@ -910,12 +911,14 @@ carry on from another manager.
   go, or a registration the leader refuses (a leader elected since the
   conversion began does not have its token): the node restarts as a
   standalone panel, as a leave leaves one. Sign in to it with the cluster's
-  account; it holds none of the cluster's keys and no manager certificate.
-  Its log names what failed, and on the managers the node has only gone from
-  the node list. Remove any file the log names, then join it with
+  account. After a refused registration it holds none of the cluster's keys
+  and no manager certificate; after a file that would not go, it holds
+  exactly the files its log names. On the managers the node has only gone
+  from the node list. Remove any file the log names, then join it with
   `sudo sfpanel agent join` and a token from
-  `sudo sfpanel cluster token --agent`, which removes the account. It comes
-  back as a new node, with a new ID and without its labels.
+  `sudo sfpanel cluster token --agent`. It comes back as a new node, with a
+  new ID and without its labels, and removes the account when it boots as an
+  agent.
 
 **Backups.** The scheduled backups beside the database
 (`/var/lib/sfpanel/backups`) are the operator's and stay where they are; when

@@ -256,11 +256,12 @@ type ConvertRequest struct {
 //     and key, and the copies an update leaves of the config and the
 //     database.
 //  5. It registers under its own ID and name (AgentJoinEngine), which writes
-//     the agent's files and config and then removes the local admin account
-//     step 1 kept: an agent has no login.
+//     the agent's files and config.
 //
 // The caller restarts the process afterwards whatever the outcome: a node
-// runs one role per boot.
+// runs one role per boot. The account step 1 kept stays until then: the agent
+// removes it when it boots, once no setup screen is served (forgetAccounts in
+// cmd/sfpanel).
 func ConvertToAgent(mgr *Manager, cfg *config.Config, cfgPath string, db *sql.DB, version string, req ConvertRequest) error {
 	// Refused while nothing has changed: every config write below needs it.
 	if cfgPath == "" {
@@ -278,7 +279,7 @@ func ConvertToAgent(mgr *Manager, cfg *config.Config, cfgPath string, db *sql.DB
 	if err := mgr.Leave(); err != nil {
 		return fmt.Errorf("leave the cluster: %w", err)
 	}
-	return convertLeftManager(id, name, cfg, cfgPath, db, version, req)
+	return convertLeftManager(id, name, cfg, cfgPath, version, req)
 }
 
 // keepClusterAdmin makes the cluster's admin account, with its 2FA recovery
@@ -310,7 +311,7 @@ func keepClusterAdmin(m *Manager, db *sql.DB) error {
 
 // convertLeftManager is the rest of a conversion, once the node has left the
 // cluster: steps 3 to 5 of ConvertToAgent.
-func convertLeftManager(id, name string, cfg *config.Config, cfgPath string, db *sql.DB, version string, req ConvertRequest) error {
+func convertLeftManager(id, name string, cfg *config.Config, cfgPath string, version string, req ConvertRequest) error {
 	log := slog.With("component", "cluster", "node_id", id)
 
 	// The manager config names a membership the leave has ended. Saved
@@ -342,10 +343,7 @@ func convertLeftManager(id, name string, cfg *config.Config, cfgPath string, db 
 	}
 
 	log.Info("converting to an agent: registering under its own ID", "step", "register")
-	// With db the registration removes the local account once it has
-	// committed, and not before: every stop until then boots a standalone
-	// panel its operator signs in to.
-	e := &AgentJoinEngine{Config: cfg, ConfigPath: cfgPath, DB: db, Version: version, Name: name, NodeID: id, CheckPanelCert: req.CheckPanelCert}
+	e := &AgentJoinEngine{Config: cfg, ConfigPath: cfgPath, Version: version, Name: name, NodeID: id, CheckPanelCert: req.CheckPanelCert}
 	if _, err := e.Execute(req.Manager, req.Token, req.Advertise, req.Pin, req.PanelCA); err != nil {
 		return fmt.Errorf("register as an agent: %w — this server is a standalone panel now: %s", err, join)
 	}
@@ -358,8 +356,8 @@ func convertLeftManager(id, name string, cfg *config.Config, cfgPath string, db 
 // certificate and key, which leaving does not revoke and the managers' Raft
 // port goes on taking from a manager; and the copies an update leaves of the
 // config and the database. It removes what it can, and names what would not
-// go. The local admin account stays until the agent is registered
-// (AgentJoinEngine.DB).
+// go. The local admin account stays: a stop from here boots a standalone panel
+// its operator signs in to with it, and an agent removes it at boot.
 func wipeManagerSecrets(cfg *config.Config, cfgPath string) error {
 	removed, err := WipeManagerFiles(&cfg.Cluster)
 	errs := []error{err}

@@ -25,6 +25,7 @@ import (
 	"github.com/svrforum/SFPanel/internal/cluster"
 	pb "github.com/svrforum/SFPanel/internal/cluster/proto"
 	"github.com/svrforum/SFPanel/internal/config"
+	"github.com/svrforum/SFPanel/internal/db"
 	"github.com/svrforum/SFPanel/internal/paneltls"
 )
 
@@ -306,7 +307,7 @@ func TestStartAgentNeedsItsKey(t *testing.T) {
 	if err := os.Remove(filepath.Join(s.cfg.Cluster.CertDir, "agent.key")); err != nil {
 		t.Fatal(err)
 	}
-	rt, err := startAgent(s.cfg, "test", nil, nil)
+	rt, err := startAgent(s.cfg, "test", nil, nil, nil)
 	if !errors.Is(err, os.ErrNotExist) {
 		if rt != nil {
 			rt.Stop()
@@ -315,12 +316,35 @@ func TestStartAgentNeedsItsKey(t *testing.T) {
 	}
 }
 
+// An agent has no login: the account of the panel it was goes when it boots
+// as an agent — by then no setup screen is served — whatever its role before.
+func TestAnAgentBootRemovesTheLocalAccount(t *testing.T) {
+	s := newAgentSetup(t, clusterAddr(t))
+	database, err := db.Open(filepath.Join(t.TempDir(), "sfpanel.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { database.Close() })
+	if _, err := database.Exec(`INSERT INTO admin (username, password, totp_secret) VALUES ('admin', 'cluster-hash', 'SEED')`); err != nil {
+		t.Fatal(err)
+	}
+	rt, err := startAgent(s.cfg, "test", database, nil, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(rt.Stop)
+	var n int
+	if err := database.QueryRow(`SELECT COUNT(*) FROM admin`).Scan(&n); err != nil || n != 0 {
+		t.Fatalf("local accounts after the agent's boot: %d %v", n, err)
+	}
+}
+
 // A manager's request reaches the agent's panel through the gRPC server on
 // the agent's cluster address, signed for the loopback hop with the agent's
 // key — the one key its panel takes.
 func TestAgentTakesItsManagersRequests(t *testing.T) {
 	s := newAgentSetup(t, clusterAddr(t))
-	rt, err := startAgent(s.cfg, "test", nil, nil)
+	rt, err := startAgent(s.cfg, "test", nil, nil, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -419,7 +443,7 @@ func startRemovingLeader(t *testing.T, tm *cluster.TLSManager) string {
 func TestRemovalClosesTheAgentsClusterSide(t *testing.T) {
 	s := newAgentSetup(t, clusterAddr(t))
 	s.cfg.Cluster.Managers = []config.ManagerRef{{ID: "m1", GRPCAddress: startRemovingLeader(t, s.manager)}}
-	rt, err := startAgent(s.cfg, "test", nil, nil)
+	rt, err := startAgent(s.cfg, "test", nil, nil, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -463,7 +487,7 @@ func TestARemovedAgentServesLoopbackOnly(t *testing.T) {
 	if err := (&cluster.AgentState{Removed: true}).Save(filepath.Join(s.cfg.Cluster.DataDir, "agent-state.json")); err != nil {
 		t.Fatal(err)
 	}
-	rt, err := startAgent(s.cfg, "test", nil, nil)
+	rt, err := startAgent(s.cfg, "test", nil, nil, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -493,7 +517,7 @@ func TestStartAgentRefusesAnAddressItCannotListenOn(t *testing.T) {
 	s := newAgentSetup(t, "127.0.0.1")
 	for _, adv := range []string{"", "0.0.0.0", "::"} {
 		s.cfg.Cluster.AdvertiseAddress = adv
-		rt, err := startAgent(s.cfg, "test", nil, nil)
+		rt, err := startAgent(s.cfg, "test", nil, nil, nil)
 		if err == nil {
 			rt.Stop()
 			t.Fatalf("%q: started", adv)
@@ -563,7 +587,7 @@ func TestStartAgentWaitsForItsAddress(t *testing.T) {
 	orig := agentAddressWait
 	agentAddressWait = 0
 	t.Cleanup(func() { agentAddressWait = orig })
-	rt, err := startAgent(s.cfg, "test", nil, nil)
+	rt, err := startAgent(s.cfg, "test", nil, nil, nil)
 	if err == nil {
 		rt.Stop()
 		t.Fatal("started")

@@ -52,15 +52,9 @@ func TestAgentJoin(t *testing.T) {
 	settleRotation(t, mgr)
 	tok, _ := mgr.CreateJoinToken(time.Hour, KindAgent)
 	e, path := agentJoinTarget(t)
-	e.DB = localAdmins(t, e.Config.Database.Path)
 	res, err := e.Execute(addr, tok.Token, "192.0.2.10", pin, panelCAPEM(t))
 	if err != nil {
 		t.Fatal(err)
-	}
-	// An agent has no login, and a former manager's account is the cluster
-	// admin's.
-	if got := adminRows(t, e.DB); len(got) != 0 {
-		t.Fatalf("local accounts: %v", got)
 	}
 	node := mgr.raft.GetFSM().GetNode(res.NodeID)
 	if node == nil || node.Kind != KindAgent {
@@ -95,7 +89,6 @@ func TestAgentJoinWrongPin(t *testing.T) {
 	settleRotation(t, mgr)
 	tok, _ := mgr.CreateJoinToken(time.Hour, KindAgent)
 	e, path := agentJoinTarget(t)
-	e.DB = localAdmins(t, e.Config.Database.Path)
 	before, _ := os.ReadFile(path)
 	_, err := e.Execute(addr, tok.Token, "192.0.2.10", "sha256:"+strings.Repeat("00", 32), panelCAPEM(t))
 	if err == nil || !strings.Contains(err.Error(), "fingerprint does not match") {
@@ -103,9 +96,6 @@ func TestAgentJoinWrongPin(t *testing.T) {
 	}
 	if after, _ := os.ReadFile(path); string(after) != string(before) {
 		t.Fatal("config changed")
-	}
-	if got := fmt.Sprint(adminRows(t, e.DB)); got != "[map[codes:<null> password:hash totp:SEED username:admin]]" {
-		t.Fatalf("local accounts: %s", got)
 	}
 	if _, err := os.Stat(filepath.Join(e.Config.Cluster.CertDir, "agent.key")); !errors.Is(err, os.ErrNotExist) {
 		t.Fatal("files written")

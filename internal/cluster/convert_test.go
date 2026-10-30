@@ -257,11 +257,6 @@ func TestAManagerConvertsToAnAgent(t *testing.T) {
 			t.Errorf("%s stayed", p)
 		}
 	}
-	// An agent has no login: the account a stop would have signed in with
-	// goes once it is registered.
-	if got := adminRows(t, database); len(got) != 0 {
-		t.Fatalf("local accounts: %v", got)
-	}
 	certPEM, err := os.ReadFile(filepath.Join(cfg.Config.Cluster.CertDir, "node.crt"))
 	if err != nil {
 		t.Fatal(err)
@@ -362,13 +357,12 @@ func TestAConversionWhoseLeaveFailsChangesNothing(t *testing.T) {
 // gone: from there every stop lands on a standalone panel. A file that cannot
 // be removed ends the conversion before it registers — an agent keeps no
 // cluster key — and 'agent join' on the standalone panel names the file. The
-// panel keeps its account: one with none would open first-run setup.
+// wipe goes on past it: the manager's certificate and key go all the same.
 func TestAConversionThatCannotWipeEndsStandalone(t *testing.T) {
 	if os.Geteuid() == 0 {
 		t.Skip("root removes files from a read-only directory")
 	}
 	cfg, path := leftManagerConfig(t)
-	database := localAdmins(t, cfg.Database.Path)
 	snap := filepath.Join(cfg.Cluster.DataDir, "snapshots")
 	_ = os.Remove(snap)
 	stuck := filepath.Join(snap, "2-10-1700000000")
@@ -383,16 +377,13 @@ func TestAConversionThatCannotWipeEndsStandalone(t *testing.T) {
 	}
 	t.Cleanup(func() { _ = os.Chmod(stuck, 0o700) })
 	manager := closedAddr(t)
-	err := convertLeftManager("m2", "m2", cfg, path, database, "test", ConvertRequest{Token: "tok", Pin: "sha256:" + strings.Repeat("ab", 32), Manager: manager, Advertise: "127.0.0.1"})
+	err := convertLeftManager("m2", "m2", cfg, path, "test", ConvertRequest{Token: "tok", Pin: "sha256:" + strings.Repeat("ab", 32), Manager: manager, Advertise: "127.0.0.1"})
 	if err == nil || !strings.Contains(err.Error(), snap) || strings.Contains(err.Error(), manager) {
 		t.Fatalf("a wipe that fails: %v", err)
 	}
 	saved := loadSaved(t, path)
 	if saved.Cluster.Enabled || saved.Cluster.IsAgent() || saved.Auth.JWTSecret == strings.Repeat("c", 64) {
 		t.Fatalf("saved config: enabled=%v role=%q, the cluster's JWT key kept: %v", saved.Cluster.Enabled, saved.Cluster.Role, saved.Auth.JWTSecret == strings.Repeat("c", 64))
-	}
-	if got := fmt.Sprint(adminRows(t, database)); got != "[map[codes:<null> password:hash totp:SEED username:admin]]" {
-		t.Fatalf("local accounts: %s", got)
 	}
 	for _, p := range managerIdentity(&cfg.Cluster) {
 		if _, err := os.Lstat(p); err == nil {
@@ -401,21 +392,21 @@ func TestAConversionThatCannotWipeEndsStandalone(t *testing.T) {
 	}
 }
 
-// A registration that fails after the wipe leaves a standalone panel as a
-// leave does: with its account, which its operator signs in with, and none of
-// a manager's secrets — no manager files, no manager certificate and key,
-// which the managers' Raft port would still take, and no copy an update left
-// of the config or the database.
-func TestAConversionWhoseRegistrationFailsEndsStandaloneWithItsAccountAndNoManagerSecret(t *testing.T) {
+// A registration that fails after the wipe leaves a standalone panel holding
+// none of a manager's secrets: no manager files, no manager certificate and
+// key, which the managers' Raft port would still take, and no copy an update
+// left of the config or the database. The account it signs in with is the
+// one the conversion kept before it left
+// (TestARefusedConversionEndsAPanelSignedInToWithTheClustersAccount).
+func TestAConversionWhoseRegistrationFailsEndsStandaloneWithoutAManagersSecrets(t *testing.T) {
 	cfg, path := leftManagerConfig(t)
-	database := localAdmins(t, cfg.Database.Path)
 	baks := []string{path + ".bak", cfg.Database.Path + ".bak"}
 	for _, p := range baks {
 		if err := os.WriteFile(p, []byte("x"), 0o600); err != nil {
 			t.Fatal(err)
 		}
 	}
-	err := convertLeftManager("m2", "m2", cfg, path, database, "test", ConvertRequest{Token: "tok", Pin: "sha256:" + strings.Repeat("ab", 32), Manager: closedAddr(t), Advertise: "127.0.0.1"})
+	err := convertLeftManager("m2", "m2", cfg, path, "test", ConvertRequest{Token: "tok", Pin: "sha256:" + strings.Repeat("ab", 32), Manager: closedAddr(t), Advertise: "127.0.0.1"})
 	if err == nil || !strings.Contains(err.Error(), "standalone") {
 		t.Fatalf("a registration that fails: %v", err)
 	}
@@ -423,9 +414,6 @@ func TestAConversionWhoseRegistrationFailsEndsStandaloneWithItsAccountAndNoManag
 		if _, err := os.Lstat(p); err == nil {
 			t.Errorf("%s stayed", p)
 		}
-	}
-	if got := fmt.Sprint(adminRows(t, database)); got != "[map[codes:<null> password:hash totp:SEED username:admin]]" {
-		t.Fatalf("local accounts: %s", got)
 	}
 	if saved := loadSaved(t, path); saved.Cluster.Enabled || saved.Auth.JWTSecret == strings.Repeat("c", 64) {
 		t.Fatalf("saved config: enabled=%v, the cluster's JWT key kept: %v", saved.Cluster.Enabled, saved.Auth.JWTSecret == strings.Repeat("c", 64))

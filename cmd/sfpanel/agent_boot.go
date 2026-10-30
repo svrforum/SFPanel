@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"database/sql"
 	"errors"
 	"fmt"
 	"log/slog"
@@ -33,11 +34,35 @@ type agentRuntime struct {
 	cancel       context.CancelFunc // ends the link; set by StartLink
 }
 
-// startAgent installs the agent's key, loads its link to the managers and
-// starts its gRPC server. The link is not started here: StartLink does that
+// forgetAccounts removes the local admin account: an agent has no login, and
+// the account of the panel it was — the cluster admin's, on a server that was
+// a manager — would sit in its database with its password hash, TOTP seed and
+// recovery codes. It goes here, once the server boots as an agent, and not at
+// the join or the conversion: removed while that panel still ran, it would
+// have left the panel's first-run setup open until the restart, or for good
+// after 'agent join --no-restart'. A failure is logged and the agent starts:
+// it serves no login to use the account with.
+func forgetAccounts(database *sql.DB) {
+	if database == nil {
+		return
+	}
+	res, err := database.Exec(`DELETE FROM admin`)
+	if err != nil {
+		slog.Warn("the local admin account stayed; an agent has no login: delete the rows of the admin table by hand",
+			"component", "agent", "error", err)
+		return
+	}
+	if n, _ := res.RowsAffected(); n > 0 {
+		slog.Info("removed the local admin account: an agent has no login", "component", "agent", "accounts", n)
+	}
+}
+
+// startAgent removes the local admin account (forgetAccounts), installs the
+// agent's key, loads its link to the managers and starts its gRPC server. The link is not started here: StartLink does that
 // once the panel's listeners and the removal hook are in place. An error ends
 // the boot — an agent never comes up as a standalone panel instead (main).
-func startAgent(cfg *config.Config, version string, collect func() (cpu, mem, disk float64, containers int), panelCA func() ([]byte, error)) (*agentRuntime, error) {
+func startAgent(cfg *config.Config, version string, database *sql.DB, collect func() (cpu, mem, disk float64, containers int), panelCA func() ([]byte, error)) (*agentRuntime, error) {
+	forgetAccounts(database)
 	allowed, err := parseAllowedSources(cfg.Cluster.AgentAllowedSources)
 	if err != nil {
 		return nil, err

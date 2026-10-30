@@ -261,7 +261,7 @@ func main() {
 	var agentRT *agentRuntime
 	switch {
 	case cfg.Cluster.IsAgent():
-		rt, err := startAgent(cfg, version, localMetricsCollector(dockerConn), panelCAReader(cfg))
+		rt, err := startAgent(cfg, version, database, localMetricsCollector(dockerConn), panelCAReader(cfg))
 		if err != nil {
 			// Unlike a manager, never standalone: that panel opens a login
 			// and a setup screen on a server whose operators sign in on its

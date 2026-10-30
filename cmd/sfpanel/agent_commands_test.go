@@ -70,16 +70,10 @@ func TestParseAgentJoinArgs(t *testing.T) {
 func TestAgentJoinPreparesThePanelThroughPaneltls(t *testing.T) {
 	cfg := &config.Config{}
 	cfg.Server.TLS.Dir = filepath.Join(t.TempDir(), "tls")
-	cfg.Database.Path = filepath.Join(t.TempDir(), "sfpanel.db")
 	e, ca, turnedOn, err := prepareAgentJoin(cfg, agentJoinArgs{ConfigPath: "/srv/sfpanel.yaml", Name: "web-7"})
 	if err != nil || !turnedOn || !cfg.Server.TLS.Enabled || !strings.Contains(string(ca), "BEGIN CERTIFICATE") {
 		t.Fatalf("turned on %v, enabled %v: %v", turnedOn, cfg.Server.TLS.Enabled, err)
 	}
-	// The join gets the database, to remove the local admin account with.
-	if e.DB == nil {
-		t.Fatal("no database: the join would leave the local admin account")
-	}
-	t.Cleanup(func() { e.DB.Close() })
 	if e.Config != cfg || e.ConfigPath != "/srv/sfpanel.yaml" || e.Name != "web-7" || e.Version != version || e.CheckPanelCert == nil {
 		t.Fatalf("engine %+v", e)
 	}
@@ -238,6 +232,10 @@ func TestAgentResetPlan(t *testing.T) {
 	}
 	if !strings.Contains(plan, path) || strings.Contains(plan, "cluster remove") {
 		t.Fatalf("plan for a removed agent:\n%s", plan)
+	}
+	// The panel comes back with no account, its setup open until one is made.
+	if !strings.Contains(plan, noAccountNote) {
+		t.Fatalf("the plan does not say the panel has no account:\n%s", plan)
 	}
 	if left := agentFilesLeft(cfg); len(left) != 6 {
 		t.Fatalf("the plan removed files: %v left", left)

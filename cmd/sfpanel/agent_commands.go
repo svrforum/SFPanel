@@ -20,7 +20,6 @@ import (
 
 	"github.com/svrforum/SFPanel/internal/cluster"
 	"github.com/svrforum/SFPanel/internal/config"
-	"github.com/svrforum/SFPanel/internal/db"
 	"github.com/svrforum/SFPanel/internal/paneltls"
 )
 
@@ -141,9 +140,6 @@ func agentJoin(args []string) {
 	if err != nil {
 		log.Fatal(err)
 	}
-	if engine.DB != nil {
-		defer engine.DB.Close()
-	}
 	fmt.Printf("Joining the cluster at %s as an agent...\n", a.Manager)
 	res, err := engine.Execute(a.Manager, a.Token, a.Advertise, a.Pin, panelCA)
 	if err != nil {
@@ -188,14 +184,6 @@ func prepareAgentJoin(cfg *config.Config, a agentJoinArgs) (*cluster.AgentJoinEn
 		return nil, nil, false, err
 	}
 	engine := &cluster.AgentJoinEngine{Config: cfg, ConfigPath: a.ConfigPath, Version: version, Name: a.Name, CheckPanelCert: paneltls.CertCheck(cfg)}
-	// With the database the join removes the local admin account, as a
-	// conversion's does: an agent has no login, and the account of a server
-	// that was a manager is the cluster admin's.
-	if database, err := db.Open(cfg.Database.Path); err != nil {
-		log.Printf("Warning: failed to open the database; the local admin account is left as is: %v", err)
-	} else {
-		engine.DB = database
-	}
 	return engine, panelCA, tlsTurnedOn, nil
 }
 
@@ -438,6 +426,12 @@ func agentResetCommand(args []string) {
 	}
 }
 
+// noAccountNote is what a reset tells the operator of the account: an agent
+// removes the panel's at boot (forgetAccounts), so the standalone panel asks
+// for its first one, from loopback or a private network, as a fresh install
+// does.
+const noAccountNote = "The panel has no admin account: an agent keeps none. Its first-run setup asks for one from loopback or a private network until it is created; create it straight away."
+
 // agentReset makes an agent a standalone panel again: the config loses its
 // cluster block and gets a new JWT key, the files the join wrote and the
 // link's state go, and a running service restarts. The cluster keeps its
@@ -480,6 +474,7 @@ func agentReset(cfg *config.Config, cfgPath string) error {
 	default:
 		fmt.Println("This server is a standalone panel again once sfpanel starts.")
 	}
+	fmt.Println(noAccountNote)
 	if len(left) > 0 {
 		return fmt.Errorf("the config is a standalone panel's now, but: %w", errors.Join(left...))
 	}
@@ -512,6 +507,7 @@ func agentResetPlan(cfg *config.Config, cfgPath string) string {
 	}
 	fmt.Fprintf(&b, "  clears the cluster block of %s and gives the panel a new JWT key\n", cfgPath)
 	b.WriteString("  restarts sfpanel if it is running\n")
+	b.WriteString(noAccountNote + "\n")
 	if !removedByLeader(cfg) {
 		fmt.Fprintf(&b, "The cluster keeps its record of the node until a manager removes it ('sfpanel cluster remove %s').\n", cfg.Cluster.NodeID)
 	}
