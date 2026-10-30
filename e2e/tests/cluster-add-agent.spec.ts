@@ -105,7 +105,7 @@ test('drops sudo as root and adds a valid name', async ({ page }) => {
 
   // A name the agent would refuse: no command that cannot work.
   await name.fill('bad name!')
-  await expect(dialog.getByText('Letters, digits, dot, dash and underscore; starts with a letter or digit; up to 63.')).toBeVisible()
+  await expect(dialog.getByText('Letters, digits, dot, dash and underscore; starts with a letter or digit; up to 63 characters.')).toBeVisible()
   await expect(dialog.getByText(/sfpanel agent join/)).toHaveCount(0)
   await expect(name).toHaveAttribute('aria-invalid', 'true')
 })

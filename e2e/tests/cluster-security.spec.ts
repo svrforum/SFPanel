@@ -141,9 +141,11 @@ test('shows where each rotation stands', async ({ page }) => {
   await expect(proxy.getByRole('list', { name: 'Waiting for' })).toHaveText('manager-02 (offline)')
 
   const keys = card(page, 'agent-keys')
-  await expect(keys).toContainText('1 agent still to move')
-  await expect(keys.getByRole('row', { name: /agent-02/ })).toContainText('Does not follow rotations')
-  await expect(keys.getByRole('row', { name: /agent-01/ })).toContainText('Follows rotations')
+  await expect(keys).toContainText('1 agent still to switch')
+  await expect(keys.getByRole('columnheader', { name: 'Supports rotation' })).toBeVisible()
+  await expect(keys.getByRole('row', { name: /agent-02/ })).toContainText('Runs a version that does not support rotation')
+  await expect(keys.getByRole('row', { name: /agent-02/ })).toContainText('Switched')
+  await expect(keys.getByRole('row', { name: /agent-01/ })).toContainText('Runs a version that supports rotation')
 
   const ca = card(page, 'ca')
   await expect(ca.locator('[aria-current="step"]')).toHaveText('reissue')
@@ -201,6 +203,7 @@ test('shows why a rotation was refused', async ({ page }) => {
 
   const keys = card(page, 'agent-keys')
   await keys.getByRole('button', { name: 'Rotate' }).click()
+  await expect(page.getByRole('dialog')).toContainText('Every agent takes a new key at its next heartbeat; an offline agent takes it once it is back.')
   await page.getByRole('dialog').getByRole('button', { name: 'Rotate' }).click()
   await expect.poll(() => posts(calls)).toEqual(['/cluster/rotate/agent-keys'])
   const alert = keys.getByRole('alert')
@@ -257,7 +260,7 @@ test('a CA rotation needs the cluster name and sends the phase time', async ({ p
 
   await ca.getByRole('button', { name: 'Rotate' }).click()
   const dialog = page.getByRole('dialog')
-  await expect(dialog).toContainText('The riskiest rotation.')
+  await expect(dialog).toContainText('The riskiest rotation. Every node, agents included, must be online and run a version that supports it.')
   await expect(dialog).toContainText('past promote there is no way back')
 
   const timeout = dialog.getByRole('combobox', { name: 'Time allowed per phase' })
