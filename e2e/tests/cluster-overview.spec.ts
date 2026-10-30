@@ -4,7 +4,8 @@ import { test, expect, type Page, type WebSocketRoute } from '@playwright/test'
 // number, said nothing of agents that went offline or of nodes behind the
 // latest release, had no wave size, dropped the update's wave, target and the
 // reason it stopped, offered to force any refused leave, and showed the
-// disband's unreached agents in a toast that the reload swept away.
+// disband's unreached agents (and a leave no leader took in) in a toast that
+// the reload swept away.
 // Mocked API: two managers, four agents (agent-03 offline).
 test.use({ viewport: { width: 1400, height: 1000 }, locale: 'en-US' })
 
@@ -43,6 +44,8 @@ interface Opts {
   /** What POST /cluster/leave answers, in order; the last one repeats. */
   leave?: Reply[]
   disband?: Reply
+  /** /cluster/status answers {enabled:false}: the node restarted standalone. */
+  standalone?: boolean
 }
 
 interface Call { method: string; path: string; body: unknown }
@@ -81,6 +84,7 @@ async function mock(page: Page, opts: Opts = {}) {
     let data: unknown = {}
     if (path === '/auth/setup-status') data = { setup_required: false }
     else if (path === '/auth/ws-ticket') data = { ticket: 'fixture-ticket' }
+    else if (path === '/cluster/status' && opts.standalone) data = { enabled: false }
     else if (path === '/cluster/status') data = { enabled: true, name: 'lab', node_count: nodes.length, leader_id: 'm-1', local_id: 'm-1', is_leader: true, stale: !!opts.stale }
     else if (path === '/cluster/nodes') data = { nodes, local_id: 'm-1', is_leader: true }
     else if (path === '/cluster/overview') data = { name: 'lab', node_count: nodes.length, leader_id: 'm-1', nodes, metrics, latest_version: opts.latest }
@@ -238,4 +242,56 @@ test('keeps the disband warning on screen until it is read', async ({ page }) =>
   await expect(dialog(page)).toHaveCount(0)
   await page.clock.runFor(5_100)
   await expect.poll(() => probes.count).toBeGreaterThan(before)
+})
+
+test('keeps a leave no leader acknowledged on screen until it is read', async ({ page }) => {
+  await page.clock.install()
+  const nodeID = '3f2b9c1e-6a4d-4b8e-9f0a-1c2d3e4f5a6b'
+  const { probes } = await mock(page, {
+    leave: [ok({
+      message: 'Leaving cluster',
+      warnings: [{ code: 'CLUSTER_LEAVE_UNACKNOWLEDGED', message: 'no leader acknowledged the leave', details: { node_id: nodeID } }],
+    })],
+  })
+  await page.goto('/cluster/overview')
+  await page.getByRole('button', { name: 'Leave cluster' }).click()
+  await dialog(page).getByRole('button', { name: 'Confirm' }).click()
+
+  const warning = dialog(page)
+  await expect(warning).toContainText('You left the cluster, with one thing left to do')
+  await expect(warning).toContainText(`sudo sfpanel cluster remove ${nodeID}`)
+  // A toast would be gone in four seconds and the reload with it.
+  const before = probes.count
+  await page.clock.runFor(10_000)
+  expect(probes.count).toBe(before)
+  await expect(warning).toContainText(nodeID)
+
+  await warning.getByRole('button', { name: 'Confirm' }).click()
+  await expect(dialog(page)).toHaveCount(0)
+  await page.clock.runFor(5_100)
+  await expect.poll(() => probes.count).toBeGreaterThan(before)
+})
+
+test('keeps the disband warning when the page sees the node standalone', async ({ page }) => {
+  const opts: Opts = {
+    disband: ok({
+      message: 'Cluster disbanded.',
+      warnings: [{ code: 'CLUSTER_AGENTS_NOT_REACHED', message: 'These agents were not reached: agent-03', details: { agents: 'agent-03' } }],
+    }),
+  }
+  await mock(page, opts)
+  await page.goto('/cluster/overview')
+  await page.getByRole('button', { name: 'Disband Cluster' }).click()
+  await dialog(page).getByRole('textbox').fill('lab')
+  await dialog(page).getByRole('button', { name: 'Disband Cluster' }).click()
+  await expect(dialog(page)).toContainText('agent-03')
+
+  // The operator looks at another tab; on return the page re-reads the
+  // status, and the node now answers as a standalone panel.
+  opts.standalone = true
+  await page.evaluate(() => document.dispatchEvent(new Event('visibilitychange')))
+  // The page behind the dialog has turned into the standalone form.
+  await expect(page.getByText('Cluster not enabled')).toBeAttached()
+  await expect(dialog(page)).toContainText('The cluster is disbanded, with one thing left to do')
+  await expect(dialog(page)).toContainText('agent-03')
 })

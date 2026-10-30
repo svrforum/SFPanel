@@ -1175,7 +1175,8 @@
       "action": "Leave cluster",
       "confirm": "This node will leave the cluster and the service will restart. Continue?",
       "forceConfirm": "Leaving would drop the cluster below quorum. Force leave anyway? Remaining nodes may lose quorum.",
-      "success": "Leaving cluster. The service will restart."
+      "success": "Leaving cluster. The service will restart.",
+      "warningsTitle": "You left the cluster, with one thing left to do"
     },
     "tree": {
       "datacenter": "Datacenter",

@@ -14,7 +14,7 @@ import { usePrompt } from '@/components/PromptDialog'
 import { cn, nodeStatusColor } from '@/lib/utils'
 import { waitForServerBack } from '@/lib/restart'
 import { ALL_NODES, filterNodes, isAgent, isManager, isOutdated, nodeRoleKind, referenceVersion, sortNodes } from '@/lib/clusterNodes'
-import { toastWarnings, warningText, type ApiWarning } from '@/lib/warnings'
+import { warningText, type ApiWarning } from '@/lib/warnings'
 import { toast } from 'sonner'
 import { ClusterInitForm } from './components/ClusterInitForm'
 import { ClusterUpdateProgress } from './components/ClusterUpdateProgress'
@@ -68,7 +68,9 @@ export default function ClusterOverview() {
   const [waveSize, setWaveSize] = useState('1')
   const [disbandOpen, setDisbandOpen] = useState(false)
   const [disbanding, setDisbanding] = useState(false)
-  const [disbandWarnings, setDisbandWarnings] = useState<ApiWarning[] | null>(null)
+  // What a leave or a disband could not do. It stays until it is read, and
+  // the wait for the restart starts only then.
+  const [exitWarnings, setExitWarnings] = useState<{ title: string; warnings: ApiWarning[] } | null>(null)
   const waveHintId = useId()
 
   // Per-node address editing
@@ -169,7 +171,7 @@ export default function ClusterOverview() {
       // toast would go with the reload, so the names stay on screen and the
       // wait for the restart starts once they have been read.
       if (res.warnings?.length) {
-        setDisbandWarnings(res.warnings)
+        setExitWarnings({ title: t('cluster.overview.disbandWarningsTitle'), warnings: res.warnings })
         return
       }
       reloadWhenBack()
@@ -179,8 +181,8 @@ export default function ClusterOverview() {
     }
   }
 
-  const closeDisbandWarnings = () => {
-    setDisbandWarnings(null)
+  const closeExitWarnings = () => {
+    setExitWarnings(null)
     reloadWhenBack()
   }
 
@@ -229,12 +231,40 @@ export default function ClusterOverview() {
     setEditDialogOpen(true)
   }
 
-  // The server ends the process two seconds after it answers a leave.
+  // The server ends the process two seconds after it answers a leave. A
+  // warning names the node to remove on the leader, which a toast would take
+  // away before it could be copied: it waits in the dialog like a disband's.
   const left = (warnings: ApiWarning[] | undefined) => {
     toast.success(t('cluster.leave.success'))
-    toastWarnings(warnings, t)
+    if (warnings?.length) {
+      setExitWarnings({ title: t('cluster.leave.warningsTitle'), warnings })
+      return
+    }
     reloadWhenBack()
   }
+
+  // Rendered in every branch below: once the node restarts standalone, the
+  // next status read (a tab shown again) turns the page into the init form,
+  // and the warnings must not go with the cluster view.
+  const exitWarningsDialog = (
+    <Dialog open={!!exitWarnings} onOpenChange={(open) => { if (!open) closeExitWarnings() }}>
+      <DialogContent>
+        <DialogHeader>
+          <DialogTitle className="text-warning">{exitWarnings?.title}</DialogTitle>
+          <DialogDescription asChild>
+            <div className="space-y-2">
+              {(exitWarnings?.warnings ?? []).map((w, i) => (
+                <p key={i} className="break-words">{warningText(w, t)}</p>
+              ))}
+            </div>
+          </DialogDescription>
+        </DialogHeader>
+        <DialogFooter>
+          <Button onClick={closeExitWarnings}>{t('common.confirm')}</Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  )
 
   const handleLeave = async () => {
     if (!(await confirm({ title: t('cluster.leave.confirm'), danger: true }))) return
@@ -266,12 +296,13 @@ export default function ClusterOverview() {
         <h2 className="text-[15px] font-semibold">{t('cluster.notRunning.title')}</h2>
         <p className="text-[13px] text-muted-foreground">{t('cluster.notRunning.description')}</p>
         <code className="inline-block rounded-lg bg-secondary/60 px-3 py-1.5 text-[12px]">sudo systemctl restart sfpanel</code>
+        {exitWarningsDialog}
       </div>
     )
   }
 
   if (!status?.enabled) {
-    return <ClusterInitForm />
+    return <>{exitWarningsDialog}<ClusterInitForm /></>
   }
 
   const leaderId = status.leader_id ?? ''
@@ -561,24 +592,7 @@ export default function ClusterOverview() {
         onConfirm={handleDisband}
       />
 
-      {/* What the disband could not do, kept until it is read */}
-      <Dialog open={!!disbandWarnings} onOpenChange={(open) => { if (!open) closeDisbandWarnings() }}>
-        <DialogContent>
-          <DialogHeader>
-            <DialogTitle className="text-warning">{t('cluster.overview.disbandWarningsTitle')}</DialogTitle>
-            <DialogDescription asChild>
-              <div className="space-y-2">
-                {(disbandWarnings ?? []).map((w, i) => (
-                  <p key={i} className="break-words">{warningText(w, t)}</p>
-                ))}
-              </div>
-            </DialogDescription>
-          </DialogHeader>
-          <DialogFooter>
-            <Button onClick={closeDisbandWarnings}>{t('common.confirm')}</Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
+      {exitWarningsDialog}
     </div>
   )
 }
