@@ -192,6 +192,7 @@ jobs:
             tests/update-card.spec.ts \
             tests/maintenance-agent.spec.ts \
             tests/firewall-cluster-lockout.spec.ts \
+            tests/stack-migration-dialog.spec.ts \
             tests/cluster-nodes.spec.ts \
             tests/cluster-add-agent.spec.ts \
             tests/cluster-convert.spec.ts \

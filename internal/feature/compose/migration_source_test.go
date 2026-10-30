@@ -464,3 +464,32 @@ func TestAnAgentSourceTellsThePreflightWhatIsRisky(t *testing.T) {
 		})
 	}
 }
+
+// The forbidden tier (the panel's own secrets) no acknowledgement lifts. The
+// source names it apart from the risky tier, so the pre-flight can block the
+// migration instead of offering an acknowledgement that would not help.
+func TestAnAgentSourceTellsThePreflightWhatIsForbidden(t *testing.T) {
+	h, _ := sourceHandler(t)
+	compose := "services:\n  web:\n    image: nginx:fake\n    volumes:\n      - /etc/sfpanel:/conf\n"
+	if err := os.WriteFile(filepath.Join(h.ComposePath, "demo", "docker-compose.yml"), []byte(compose), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("FAKE_RESOLVED_YAML", "")
+	rec := sourceCall(t, h, (*Handler).MigrateSourceInfo, http.MethodGet, "demo", "/api/v1/docker/compose/demo/migrate-source/info", "")
+	var resp struct {
+		Data map[string]any `json:"data"`
+	}
+	if rec.Code != http.StatusOK || json.Unmarshal(rec.Body.Bytes(), &resp) != nil {
+		t.Fatalf("info: %d %s", rec.Code, rec.Body)
+	}
+	if _, present := resp.Data["risky_findings"]; present {
+		t.Errorf("a forbidden bind is not a risky finding: %s", rec.Body)
+	}
+	list, _ := resp.Data["forbidden_findings"].([]any)
+	if len(list) != 1 {
+		t.Fatalf("forbidden_findings = %v, want one finding naming /etc/sfpanel", resp.Data["forbidden_findings"])
+	}
+	if s, _ := list[0].(string); !strings.Contains(s, "/etc/sfpanel") {
+		t.Errorf("forbidden_findings[0] = %q, want it to name /etc/sfpanel", s)
+	}
+}

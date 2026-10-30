@@ -105,6 +105,13 @@ func (h *Handler) brokeredPreflight(ctx context.Context, src, project, targetNod
 	if len(info.RiskyFindings) > 0 {
 		report.Warnings = append(report.Warnings, PreflightFinding{Code: "compose-risky", Message: "the stack asks for host access that runs on the target as it is: " + strings.Join(info.RiskyFindings, ", ")})
 	}
+	// The forbidden tier no acknowledgement lifts, so the target would refuse
+	// it after the source has stopped and packaged the stack: block here
+	// instead. Still the agent's word — one that leaves it out is refused by
+	// the target as before.
+	if len(info.ForbiddenFindings) > 0 {
+		report.Blocks = append(report.Blocks, PreflightFinding{Code: "compose-forbidden", Message: "the stack binds the panel's own secrets, which no target takes: " + strings.Join(info.ForbiddenFindings, ", ")})
+	}
 	return report, nil
 }
 

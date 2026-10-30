@@ -40,3 +40,37 @@ export function riskLines(err: unknown): string[] {
     .map((line) => line.trim())
     .filter((line) => line.length > 0)
 }
+
+/**
+ * The findings of a migration pre-flight's `compose-risky` warning, one per
+ * line, or [] when the report has none. The server words it "<lead>: a, b" —
+ * joined with ", ", not the "; " of a refusal — and a finding quotes its
+ * service and path, so a comma inside quotes is not a break.
+ */
+export function migrationRiskLines(warnings: { code: string; message: string }[] | undefined): string[] {
+  const risky = warnings?.find((w) => w.code === 'compose-risky')
+  if (!risky) return []
+  const colon = risky.message.indexOf(': ')
+  const list = colon < 0 ? risky.message : risky.message.slice(colon + 2)
+  const lines: string[] = []
+  let current = ''
+  let quoted = false
+  for (let i = 0; i < list.length; i++) {
+    const ch = list[i]
+    if (ch === '\\' && quoted) {
+      current += ch + (list[i + 1] ?? '')
+      i++
+      continue
+    }
+    if (ch === '"') quoted = !quoted
+    if (!quoted && ch === ',' && list[i + 1] === ' ') {
+      lines.push(current)
+      current = ''
+      i++
+      continue
+    }
+    current += ch
+  }
+  lines.push(current)
+  return lines.map((line) => line.trim()).filter((line) => line.length > 0)
+}

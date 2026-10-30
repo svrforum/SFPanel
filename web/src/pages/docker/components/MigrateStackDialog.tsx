@@ -16,6 +16,10 @@ import { Button } from '@/components/ui/button'
 import { Checkbox } from '@/components/ui/checkbox'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
+import { KindBadge } from '@/pages/cluster/components/KindBadge'
+import { nodeRoleKind, sortNodes, type NodeRoleKind } from '@/lib/clusterNodes'
+import { migrationRiskLines } from '@/lib/composeRisk'
 import type { ClusterNode, MigratePreflightReport, MigratePhaseEvent, MigrateDisposition } from '@/types/api'
 
 const DISPOSITIONS: MigrateDisposition[] = ['retain', 'delete', 'clone']
@@ -39,10 +43,13 @@ export function MigrateStackDialog({
 }) {
   const { t } = useTranslation()
   const [nodes, setNodes] = useState<ClusterNode[]>([])
+  const [leaderId, setLeaderId] = useState('')
   const [sourceName, setSourceName] = useState('')
+  const [sourceKind, setSourceKind] = useState<NodeRoleKind | null>(null)
   const [targetId, setTargetId] = useState('')
   const [disposition, setDisposition] = useState<MigrateDisposition>('retain')
   const [overwriteAck, setOverwriteAck] = useState(false)
+  const [risksAck, setRisksAck] = useState(false)
   const [rateLimit, setRateLimit] = useState('') // MiB/s; '' = unlimited
   const [report, setReport] = useState<MigratePreflightReport | null>(null)
   const [checking, setChecking] = useState(false)
@@ -58,6 +65,7 @@ export function MigrateStackDialog({
     setRunning(false)
     setTargetId('')
     setOverwriteAck(false)
+    setRisksAck(false)
     setDisposition('retain')
     setRateLimit('')
     ;(async () => {
@@ -67,8 +75,12 @@ export function MigrateStackDialog({
         // is then this manager's, the source only when no node is selected.
         const [nodesRes, status] = await Promise.all([api.getClusterNodes(), api.getClusterStatus()])
         const sourceId = sourceNodeId ?? api.currentNode ?? status.local_id ?? ''
-        setSourceName((nodesRes.nodes || []).find((n) => n.id === sourceId)?.name ?? '')
-        const targets = (nodesRes.nodes || []).filter((n) => n.id !== sourceId && n.status === 'online')
+        const leader = status.leader_id ?? ''
+        const source = (nodesRes.nodes || []).find((n) => n.id === sourceId)
+        setLeaderId(leader)
+        setSourceName(source?.name ?? '')
+        setSourceKind(source ? nodeRoleKind(source, leader) : null)
+        const targets = sortNodes((nodesRes.nodes || []).filter((n) => n.id !== sourceId && n.status === 'online'), leader)
         setNodes(targets)
         if (targets.length === 1) setTargetId(targets[0].id)
       } catch {
@@ -77,14 +89,29 @@ export function MigrateStackDialog({
     })()
   }, [open, t, sourceNodeId])
 
+  const blocked = (report?.blocks?.length ?? 0) > 0
+  // The migration refuses a target the pre-flight could not reach before the
+  // source stops; starting would only show that refusal.
+  const unreachable = !!report?.warnings?.some((w) => w.code === 'target-unreachable')
+  // An agent's stack that asks for host access is refused by the target
+  // without the operator's yes, after the agent has stopped it: ask here.
+  const riskLines = migrationRiskLines(report?.warnings)
+  const otherWarnings = report?.warnings?.filter((w) => w.code !== 'compose-risky') ?? []
+  // Require a pre-flight to have been run (and passed) before Start — otherwise
+  // disk/arch/port blocks and binds/large-transfer/external-volume warnings are
+  // only enforced server-side, after the source is already stopped. Changing the
+  // target or overwrite ack clears `report`, forcing a fresh pre-flight.
+  const canStart = !!targetId && !running && !blocked && !unreachable && report !== null && (riskLines.length === 0 || risksAck)
+
   const runPreflight = async () => {
     if (!targetId) return
     setChecking(true)
     setReport(null)
+    setRisksAck(false)
     try {
       setReport(await api.migratePreflight(project, { targetNodeId: targetId, overwriteAcked: overwriteAck }, sourceNodeId))
     } catch (e) {
-      toast.error(String(e))
+      toast.error(e instanceof Error ? e.message : String(e))
     } finally {
       setChecking(false)
     }
@@ -103,6 +130,7 @@ export function MigrateStackDialog({
           targetNodeId: targetId,
           disposition,
           overwriteAcked: overwriteAck,
+          acknowledgeRisks: riskLines.length > 0 && risksAck,
           rateLimitMbps: rateLimit ? Number(rateLimit) : undefined,
         },
         (ev) => {
@@ -124,18 +152,13 @@ export function MigrateStackDialog({
         setTerminal({ phase: 'error', message: t('docker.migrate.streamEnded'), done: true })
       }
     } catch (e) {
-      setTerminal({ phase: 'error', message: String(e), done: true })
+      // A refusal before the stream (409 ALREADY_EXISTS, …) carries its reason.
+      setTerminal({ phase: 'error', message: e instanceof Error ? e.message : String(e), done: true })
     } finally {
       setRunning(false)
     }
   }
 
-  const blocked = (report?.blocks?.length ?? 0) > 0
-  // Require a pre-flight to have been run (and passed) before Start — otherwise
-  // disk/arch/port blocks and binds/large-transfer/external-volume warnings are
-  // only enforced server-side, after the source is already stopped. Changing the
-  // target or overwrite ack clears `report`, forcing a fresh pre-flight.
-  const canStart = !!targetId && !running && !blocked && report !== null
   const inForm = !running && !terminal
 
   return (
@@ -157,26 +180,33 @@ export function MigrateStackDialog({
         {inForm && (
           <div className="space-y-4">
             {sourceName && (
-              <p className="text-xs text-muted-foreground">{t('docker.migrate.fromNode', { node: sourceName })}</p>
+              <p data-testid="migrate-source" className="flex items-center gap-2 text-xs text-muted-foreground">
+                <span>{t('docker.migrate.fromNode', { node: sourceName })}</span>
+                {sourceKind && <KindBadge kind={sourceKind} />}
+              </p>
             )}
             <div className="space-y-1.5">
               <Label htmlFor="migrate-target">{t('docker.migrate.target')}</Label>
-              <select
-                id="migrate-target"
+              {/* Not a native select: an option cannot hold the kind badge. */}
+              <Select
                 value={targetId}
-                onChange={(e) => {
-                  setTargetId(e.target.value)
+                onValueChange={(v) => {
+                  setTargetId(v)
                   setReport(null)
                 }}
-                className="w-full rounded-lg border border-border bg-background px-3 py-2 text-sm outline-none focus-visible:ring-2 focus-visible:ring-ring/40 focus-visible:ring-offset-0"
               >
-                <option value="">{t('docker.migrate.selectTarget')}</option>
-                {nodes.map((n) => (
-                  <option key={n.id} value={n.id}>
-                    {n.name}
-                  </option>
-                ))}
-              </select>
+                <SelectTrigger id="migrate-target" className="w-full rounded-lg">
+                  <SelectValue placeholder={t('docker.migrate.selectTarget')} />
+                </SelectTrigger>
+                <SelectContent>
+                  {nodes.map((n) => (
+                    <SelectItem key={n.id} value={n.id}>
+                      <span>{n.name}</span>
+                      <KindBadge kind={nodeRoleKind(n, leaderId)} />
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
               {nodes.length === 0 && (
                 <p className="text-xs text-muted-foreground">{t('docker.migrate.noTargets')}</p>
               )}
@@ -241,12 +271,33 @@ export function MigrateStackDialog({
                     ))}
                   </div>
                 )}
-                {report.warnings?.length > 0 && (
+                {otherWarnings.length > 0 && (
                   <div className="text-warning">
                     <div className="font-semibold">{t('docker.migrate.warnings')}</div>
-                    {report.warnings.map((w, i) => (
+                    {otherWarnings.map((w, i) => (
                       <div key={i}>• {w.message}</div>
                     ))}
+                  </div>
+                )}
+                {unreachable && (
+                  <div className="text-destructive">{t('docker.migrate.targetUnreachable')}</div>
+                )}
+                {riskLines.length > 0 && (
+                  <div className="space-y-2 text-warning">
+                    <div className="font-semibold">{t('docker.stacks.risky.title')}</div>
+                    <div className="space-y-1 font-mono text-[12px] text-muted-foreground">
+                      {riskLines.map((line, index) => (
+                        <div key={`${index}-${line}`}>{line}</div>
+                      ))}
+                    </div>
+                    <label className="flex items-start gap-2 text-sm">
+                      <Checkbox
+                        checked={risksAck}
+                        onCheckedChange={(v) => setRisksAck(!!v)}
+                        className="mt-0.5"
+                      />
+                      <span className="text-foreground">{t('docker.migrate.ackRisks')}</span>
+                    </label>
                   </div>
                 )}
                 {report.blocks?.length === 0 && report.warnings?.length === 0 && (

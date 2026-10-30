@@ -396,6 +396,8 @@
       "blocked": "Blocked:",
       "warnings": "Warnings:",
       "preflightOk": "Pre-flight passed — ready to migrate.",
+      "ackRisks": "I understand this stack runs on the target with the host access listed above.",
+      "targetUnreachable": "The target did not answer the pre-flight, so the migration cannot start. Check the target node and run the pre-flight again.",
       "streamEnded": "The migration stream ended unexpectedly; it may still be running on the server. Check the target node.",
       "loadNodesFailed": "Failed to load cluster nodes."
     },

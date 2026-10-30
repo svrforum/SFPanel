@@ -1314,10 +1314,12 @@ class ApiClient {
   // migrateStream cold-migrates the stack to targetNodeId and streams phase
   // events (preflight → quiesce → package → transfer → restore → up →
   // healthcheck → finalize, or rollback/error on failure). `node` is the SOURCE
-  // node the stack lives on (defaults to the current node).
+  // node the stack lives on (defaults to the current node). acknowledgeRisks is
+  // the operator's yes to an agent stack's host access (the pre-flight's
+  // compose-risky warning); without it the target refuses such a stack.
   async migrateStream(
     project: string,
-    body: { targetNodeId: string; disposition: MigrateDisposition; overwriteAcked: boolean; rateLimitMbps?: number },
+    body: { targetNodeId: string; disposition: MigrateDisposition; overwriteAcked: boolean; acknowledgeRisks?: boolean; rateLimitMbps?: number },
     onEvent: (event: MigratePhaseEvent) => void,
     node?: string,
   ): Promise<void> {
@@ -1326,7 +1328,7 @@ class ApiClient {
     const res = await fetch(`${this.apiBase}/docker/compose/${encodeURIComponent(project)}/migrate${nodeParam}`, {
       method: 'POST', headers: this.streamHeaders({ 'Content-Type': 'application/json' }), body: JSON.stringify(body),
     })
-    if (!res.ok) throw new Error('Migration failed to start')
+    if (!res.ok) throw await errorFromResponse(res)
     await this.readSSEStream<MigratePhaseEvent>(res, onEvent)
   }
 

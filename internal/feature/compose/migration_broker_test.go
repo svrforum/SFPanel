@@ -628,6 +628,35 @@ func TestABrokeredPreflightWarnsOfARiskyAgentStack(t *testing.T) {
 	}
 }
 
+// An agent's stack that binds the panel's own secrets is refused by every
+// target, acknowledged or not, and without this the refusal comes only after
+// the source has stopped and packaged it. The pre-flight blocks it instead, so
+// the migration ends before the source is touched.
+func TestABrokeredPreflightBlocksAForbiddenAgentStack(t *testing.T) {
+	src, dst := newFakeSource(t), newFakeTarget(t, true)
+	src.info = func(c echo.Context) error {
+		return c.JSON(http.StatusOK, map[string]any{"success": true, "data": map[string]any{
+			"session_version": 1, "node_id": "a1", "arch": runtime.GOARCH,
+			"forbidden_findings": []string{`service "web" binds sensitive host path "/etc/sfpanel"`},
+		}})
+	}
+	h, _ := brokerHandler(t, brokerCluster(t, src, dst))
+
+	report := brokeredReport(t, h, `{"targetNodeId":"a2"}`)
+	var forbidden *PreflightFinding
+	for i := range report.Blocks {
+		if report.Blocks[i].Code == "compose-forbidden" {
+			forbidden = &report.Blocks[i]
+		}
+	}
+	if forbidden == nil {
+		t.Fatalf("no compose-forbidden block, so the source would stop before the target refuses: %+v", report)
+	}
+	if !strings.Contains(forbidden.Message, "/etc/sfpanel") {
+		t.Errorf("the block %q does not name /etc/sfpanel", forbidden.Message)
+	}
+}
+
 // What the source serves must be the bundle it announced: the target is sent
 // the announced sha with every byte, and the length is what goes out. A bundle
 // that is not that one goes nowhere, and the source hears "failed".

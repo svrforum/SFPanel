@@ -4595,6 +4595,7 @@ data: {"phase":"complete","line":"Update completed successfully"}
 | `stack-exists` | 대상에 동일 id 스택이 이미 존재 (`overwriteAcked`로 승인 필요) |
 | `source-version` | 원본 에이전트가 원본 세션이 없는 이전 릴리스(`migrate-source/info`가 404이거나 `session_version`이 없음) — 에이전트를 올려야 합니다. 원본의 사실을 받지 못했으므로 이 차단 하나만 옵니다 |
 | `target-version` | 원본이 에이전트인데 대상이 이관 정책을 모르는 이전 릴리스(`target-info`에 `import_policy`가 없음) — 그런 대상은 에이전트의 번들을 번들의 말대로, 매니저의 규칙으로 받으므로 보내지 않습니다. 대상을 올려야 합니다 |
+| `compose-forbidden` | 원본이 에이전트이고 스택이 금지 계층(`/etc/sfpanel`·`/var/lib/sfpanel`·`/root/.ssh`·`/etc/sudoers.d` 바인드 — 패널 자신의 비밀)을 요청함. 메시지에 항목을 `, `로 나열합니다(`the stack binds the panel's own secrets, which no target takes: …`). 이 계층은 `acknowledgeRisks`로도 풀리지 않아 대상이 원본을 멈춘 뒤 `COMPOSE_FORBIDDEN`으로 거부하므로, 원본을 멈추기 전에 막습니다. 에이전트가 보낸 목록(`migrate-source/info`의 `forbidden_findings`)이며, 빠뜨려도 지금처럼 대상이 거부합니다. `forbidden_findings`를 보내지 않는 이전 릴리스의 에이전트가 원본이면 이 차단은 오지 않습니다 |
 
 **경고 코드 (`warnings` — 승인 후 진행 가능):**
 | 코드 | 조건 |
@@ -4824,6 +4825,7 @@ data: {"phase":"rollback","message":"transfer/restore failed; source restarted: 
 | `has_system_bind`, `has_external_volume`, `has_abs_bind`, `has_device` | 사전 점검 경고(`system-bind`, `external-volume`, `absolute-bind-write`, `device-required`)의 근거 |
 | `estimated_bytes`, `estimated_docker_bytes` | 대상의 스택 루트에 놓일 크기(정의 + 바인드 데이터 + 여유)와 Docker 저장소에 놓일 크기(볼륨 + 이미지) |
 | `risky_findings` | 스택이 요청하는 위험 계층 항목(대상의 `COMPOSE_RISKY` 거부와 같은 문장). compose 파일과 `.env`로 해석한 설정을 대상이 읽는 그대로 둘 다 읽고, 같은 항목은 한 번만 싣습니다. 없으면 필드가 없습니다. 사전 점검의 `compose-risky` 경고의 근거 |
+| `forbidden_findings` | 스택이 요청하는 금지 계층 항목(대상의 `COMPOSE_FORBIDDEN` 거부와 같은 문장). `risky_findings`와 같은 두 문서를 같은 방식으로 읽습니다. 없으면 필드가 없습니다. 사전 점검의 `compose-forbidden` 차단의 근거 |
 
 **에러 응답:** `INVALID_NAME` 400 (유효하지 않은 프로젝트 id), `COMPOSE_ERROR` 400 (스택 설정을 해석할 수 없음).
 

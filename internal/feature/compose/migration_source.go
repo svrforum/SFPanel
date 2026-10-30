@@ -145,7 +145,8 @@ func newSessionID() string {
 // SessionVersion says this node serves migration sessions; a node from before
 // them has no such route. RiskyFindings is what the stack asks for in the
 // risky tier, which a target refuses from an agent without the operator's
-// acknowledgement; a node from before it leaves it out.
+// acknowledgement; ForbiddenFindings the forbidden tier, which every target
+// refuses whatever the operator says. A node from before them leaves them out.
 type migrateSourceInfo struct {
 	SessionVersion       int      `json:"session_version"`
 	NodeID               string   `json:"node_id"`
@@ -158,6 +159,7 @@ type migrateSourceInfo struct {
 	EstimatedBytes       int64    `json:"estimated_bytes"`
 	EstimatedDockerBytes int64    `json:"estimated_docker_bytes"`
 	RiskyFindings        []string `json:"risky_findings,omitempty"`
+	ForbiddenFindings    []string `json:"forbidden_findings,omitempty"`
 }
 
 // MigrateSourceInfo (GET /docker/compose/:project/migrate-source/info) answers
@@ -175,6 +177,7 @@ func (h *Handler) MigrateSourceInfo(c echo.Context) error {
 	if err != nil {
 		return response.Fail(c, http.StatusBadRequest, response.ErrComposeError, response.SanitizeOutput(err.Error()))
 	}
+	risky, forbidden := h.composeFindings(c.Request().Context(), project)
 	return response.OK(c, migrateSourceInfo{
 		SessionVersion:       1,
 		NodeID:               in.SourceNodeID,
@@ -186,16 +189,17 @@ func (h *Handler) MigrateSourceInfo(c echo.Context) error {
 		HasDevice:            in.HasDevice,
 		EstimatedBytes:       in.EstimatedBytes,
 		EstimatedDockerBytes: in.EstimatedDockerBytes,
-		RiskyFindings:        h.riskyFindings(c.Request().Context(), project),
+		RiskyFindings:        risky,
+		ForbiddenFindings:    forbidden,
 	})
 }
 
-// riskyFindings is the risky tier of project's compose as a target checks it
-// on import (checkImportCompose): the compose file the bundle carries, and the
-// config resolved with its .env, which can ask for what the file does not
-// show. Each finding is named once. A document that cannot be read adds
-// nothing here; the import says what is wrong with it.
-func (h *Handler) riskyFindings(ctx context.Context, project string) []string {
+// composeFindings is the risky and forbidden tiers of project's compose as a
+// target checks it on import (checkImportCompose): the compose file the bundle
+// carries, and the config resolved with its .env, which can ask for what the
+// file does not show. Each finding is named once. A document that cannot be
+// read adds nothing here; the import says what is wrong with it.
+func (h *Handler) composeFindings(ctx context.Context, project string) (risky, forbidden []string) {
 	var docs []string
 	if yamlPath, _ := h.Compose.ResolveComposeFile(ctx, project); yamlPath != "" {
 		if raw, err := os.ReadFile(yamlPath); err == nil {
@@ -205,21 +209,25 @@ func (h *Handler) riskyFindings(ctx context.Context, project string) []string {
 	if resolved, err := h.Compose.GetResolvedConfigYAML(ctx, project); err == nil {
 		docs = append(docs, resolved)
 	}
-	var findings []string
 	seen := map[string]bool{}
+	add := func(list []string, fs []composex.Finding) []string {
+		for _, f := range fs {
+			if !seen[f.Message] {
+				seen[f.Message] = true
+				list = append(list, f.Message)
+			}
+		}
+		return list
+	}
 	for _, doc := range docs {
 		report, err := composex.Analyze(doc)
 		if err != nil {
 			continue
 		}
-		for _, f := range report.Risky {
-			if !seen[f.Message] {
-				seen[f.Message] = true
-				findings = append(findings, f.Message)
-			}
-		}
+		risky = add(risky, report.Risky)
+		forbidden = add(forbidden, report.Forbidden)
 	}
-	return findings
+	return risky, forbidden
 }
 
 // MigrateSource (POST /docker/compose/:project/migrate-source, SSE) runs a
