@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { useNavigate, useLocation } from 'react-router-dom'
 import { useTranslation } from 'react-i18next'
 import { Drawer } from 'vaul'
@@ -47,8 +47,13 @@ export default function MoreMenu({ open, onOpenChange }: MoreMenuProps) {
   const navigate = useNavigate()
   const location = useLocation()
   const { t } = useTranslation()
-  const { clusterStatus, nodes, localId, selectedNode, currentNode, selectNode } = useClusterNodes()
+  const { clusterStatus, nodes, localId, selectedNode, currentNode, selectNode, reload } = useClusterNodes()
   const [nodeOpen, setNodeOpen] = useState(false)
+
+  // The picker shows only with a node list; ask for it again on every open.
+  useEffect(() => {
+    if (open) reload()
+  }, [open, reload])
 
   const clusterEnabled = clusterStatus?.enabled ?? false
 
