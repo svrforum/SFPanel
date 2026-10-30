@@ -236,16 +236,16 @@ test('offers only what a node of that kind can do', async ({ page }) => {
   await expect(bodyRows(page)).toHaveCount(43)
   // An agent cannot lead (the server answered 404) and its address is the one
   // its certificate names: neither is offered. It can become a manager.
-  expect(await menuOf(page, 'agent-7')).toEqual(['Open node', 'Edit labels', 'Promote to manager', 'Delete'])
+  expect(await menuOf(page, 'agent-7')).toEqual(['Open node', 'Edit group and labels', 'Promote to manager', 'Delete'])
   // An agent that does not answer cannot be promoted.
-  expect(await menuOf(page, 'agent-5')).toEqual(['Open node', 'Edit labels', 'Delete'])
+  expect(await menuOf(page, 'agent-5')).toEqual(['Open node', 'Edit group and labels', 'Delete'])
   // Only a voting manager takes the leadership: not a non-voter.
-  expect(await menuOf(page, 'm-2')).toEqual(['Open node', 'Edit labels', 'Edit address', 'Convert to agent', 'Delete'])
+  expect(await menuOf(page, 'm-2')).toEqual(['Open node', 'Edit group and labels', 'Edit address', 'Convert to agent', 'Delete'])
   // An older record with no kind is a voting manager.
-  expect(await menuOf(page, 'm-3')).toEqual(['Open node', 'Edit labels', 'Edit address', 'Transfer leadership', 'Convert to agent', 'Delete'])
+  expect(await menuOf(page, 'm-3')).toEqual(['Open node', 'Edit group and labels', 'Edit address', 'Transfer leadership', 'Convert to agent', 'Delete'])
   // The leader already leads, cannot be removed, and is this node; its
   // conversion is shown but held back (cluster-convert.spec.ts).
-  expect(await menuOf(page, 'm-1')).toEqual(['Open node', 'Edit labels', 'Edit address', 'Convert to agent'])
+  expect(await menuOf(page, 'm-1')).toEqual(['Open node', 'Edit group and labels', 'Edit address', 'Convert to agent'])
 })
 
 test('opens a node and lands on its dashboard', async ({ page }) => {
@@ -259,8 +259,10 @@ test('opens a node and lands on its dashboard', async ({ page }) => {
 test('edits the group as the group label', async ({ page }) => {
   const calls = await mock(page)
   await page.goto('/cluster/nodes')
-  await choose(page, 'agent-8', 'Edit labels')
+  await choose(page, 'agent-8', 'Edit group and labels')
   const dialog = page.getByRole('dialog')
+  // The group is the dialog's first field: its title names it.
+  await expect(dialog.getByRole('heading')).toHaveText(/^Edit group and labels for /)
   await expect(dialog.getByText('Nodes with the same group are listed together.')).toBeVisible()
   await dialog.getByRole('textbox', { name: 'Group' }).fill('  web  ')
   await dialog.getByRole('button', { name: 'Save' }).click()
@@ -272,7 +274,7 @@ test('edits the group as the group label', async ({ page }) => {
 test('a cleared group removes the label, and the list leaves it to the group field', async ({ page }) => {
   const calls = await mock(page)
   await page.goto('/cluster/nodes')
-  await choose(page, 'agent-7', 'Edit labels')
+  await choose(page, 'agent-7', 'Edit group and labels')
   const dialog = page.getByRole('dialog')
   await expect(dialog.getByRole('textbox', { name: 'Group' })).toHaveValue('web')
   await expect(dialog.getByText('zone = a')).toBeVisible()
@@ -306,7 +308,7 @@ test('a phone opens the same menu from a card', async ({ page }) => {
   const card = page.getByTestId('node-card').filter({ has: page.getByText('agent-7', { exact: true }) })
   await card.getByRole('button', { name: 'Node actions' }).click()
   const items = (await page.getByRole('menu').getByRole('menuitem').allInnerTexts()).map((s) => s.trim())
-  expect(items).toEqual(['Open node', 'Edit labels', 'Promote to manager', 'Delete'])
+  expect(items).toEqual(['Open node', 'Edit group and labels', 'Promote to manager', 'Delete'])
 })
 
 test("the overview offers an address edit for managers, not for an agent", async ({ page }) => {

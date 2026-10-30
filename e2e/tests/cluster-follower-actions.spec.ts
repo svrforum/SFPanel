@@ -62,7 +62,7 @@ async function actions(page: Page, r: Locator) {
   const menu = page.getByRole('menu')
   await expect(menu).toBeVisible()
   const offered = {
-    labels: await menu.getByRole('menuitem', { name: 'Edit labels' }).count(),
+    labels: await menu.getByRole('menuitem', { name: 'Edit group and labels' }).count(),
     transfer: await menu.getByRole('menuitem', { name: 'Transfer leadership' }).count(),
     remove: await menu.getByRole('menuitem', { name: 'Delete' }).count(),
   }
