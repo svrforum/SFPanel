@@ -397,8 +397,8 @@ const DockerStacks = lazy(() => import('@/pages/docker/DockerStacks'))
 - **파일**: `web/src/pages/Firewall.tsx`
 - **기능**: 방화벽(UFW) 및 Fail2ban 침입 방지 시스템 관리
   - 탭 구조: UFW Rules, Open Ports, Fail2ban, Docker, Logs
-  - **UFW Rules 탭** (`FirewallRules`): UFW 활성화/비활성화 토글, 규칙 목록 테이블 (번호/대상/동작/소스/코멘트/IPv6), 규칙 추가 다이얼로그 (action/port/protocol/from/to/comment), 규칙 삭제 확인 다이얼로그
-  - **Open Ports 탭** (`FirewallPorts`): 리스닝 TCP/UDP 포트 목록 테이블 (프로토콜/주소/포트/PID/프로세스), 선택한 포트로 UFW 규칙 직접 추가 기능 (잠금 방지 거부는 규칙 탭과 같은 `useLockoutGuard` 확인 창 — `details.cluster_ports`면 클러스터 포트 문구, 8006이면 Proxmox 문구, "그래도 진행"은 `?force=true`)
+  - **UFW Rules 탭** (`FirewallRules`): UFW 활성화/비활성화 토글, 규칙 목록 테이블 (번호/대상/동작/소스/코멘트/IPv6), 규칙 추가 다이얼로그 (action/port/protocol/from/to/comment), 규칙 삭제 확인 다이얼로그. 활성화·추가·삭제·편집이 잠금 방지 가드에 거부되면 `useLockoutGuard` 확인 창(클러스터 포트면 제목도 클러스터에서 끊길 수 있다는 문구이고 SSH 접근 기준 경고 문단은 빠진다); 편집의 "그래도 진행"은 새 규칙 추가와 이전 규칙 삭제 둘 다 `?force=true`
+  - **Open Ports 탭** (`FirewallPorts`): 리스닝 TCP/UDP 포트 목록 테이블 (프로토콜/주소/포트/PID/프로세스), 선택한 포트로 UFW 규칙 직접 추가 기능 (잠금 방지 거부는 규칙 탭과 같은 `useLockoutGuard` 확인 창 — `details.cluster_ports`면 클러스터 포트 문구와 제목, 8006이면 Proxmox 문구, "그래도 진행"은 `?force=true`)
   - **Fail2ban 탭** (`FirewallFail2ban`): Fail2ban 설치 상태 확인 및 원클릭 설치, jail 템플릿에서 생성, jail 목록 테이블 (이름/활성/차단수/총차단수), jail 상세 (설정값, 차단 IP 목록), jail 활성화/비활성화, jail 설정 편집, jail 삭제, IP 차단 해제
 - **탭 구성**:
   - rules (기본값) -> FirewallRules
@@ -509,7 +509,7 @@ const DockerStacks = lazy(() => import('@/pages/docker/DockerStacks'))
 | Layout | `web/src/components/Layout.tsx` | 인증된 페이지의 공통 레이아웃. 좌측 사이드바(네비게이션 12항목 + 접기/펼치기 + 로그아웃) + 우측 메인 콘텐츠(Outlet). NavLink로 활성 상태 표시. 사이드바 접기 상태 localStorage 영속화. |
 | MetricsCard | `web/src/components/MetricsCard.tsx` | 메트릭 표시 카드. 아이콘 + 제목 + 값 + 프로그레스 바(80% 초과 빨강, 60% 초과 노랑, 그 외 파랑). |
 | MetricsChart | `web/src/components/MetricsChart.tsx` | CPU/메모리 시계열 차트. uPlot 사용. CPU(파랑) + Memory(초록) 이중 라인. Y축 0-100%. |
-| ClusterSidebar | `web/src/components/cluster/ClusterSidebar.tsx` | 클러스터 모드 좌측 2단 트리(TreePanel+ContextMenu). 선택 시 `api.setCurrentNode` + 라우팅 + `sfpanel:node-changed`(detail `{ nodeId }`, 데이터센터는 `null`). 표준 사이드바를 대체. 노드 목록은 15초 폴링 + `sfpanel:cluster-changed`를 들으면 바로 다시 받는다. 고른 노드(`api.currentNode`)가 성공한 목록에 없으면(제거·전환, 예전에 저장된 값 포함) 이 노드로 돌아오고 토스트로 알린다. |
+| ClusterSidebar | `web/src/components/cluster/ClusterSidebar.tsx` | 클러스터 모드 좌측 2단 트리(TreePanel+ContextMenu). 선택 시 `api.setCurrentNode` + 라우팅 + `sfpanel:node-changed`(detail `{ nodeId }`, 데이터센터는 `null`). 표준 사이드바를 대체. 노드 목록은 15초 폴링 + `sfpanel:cluster-changed`를 들으면 바로 다시 받는다. 고른 노드(`api.currentNode`)가 성공한 목록에 없으면(제거·전환, 예전에 저장된 값 포함) 이 노드로 돌아오고 토스트로 알린다(직전 목록에 있던 이름으로, 처음 받은 목록이면 ID로). 메뉴 머리의 "알 수 없는 노드"는 받은 목록에 그 노드가 없을 때만 — 첫 목록 전이나 목록을 못 받는 동안은 비워 둔다. 트리 아래 버전은 Layout이 노드를 바꿀 때마다 다시 받는 `/system/overview`의 것이라 열린 노드의 버전이다. |
 | TreePanel | `web/src/components/cluster/TreePanel.tsx` | 데이터센터 루트 + 노드 트리. 에이전트가 있으면 구역으로 묶는다(`treeSections`: 매니저 → 에이전트 그룹 이름순 → 그룹 없음, 구역 머리는 접을 수 있고 `sfpanel-tree-collapsed`에 남음). 노드가 8대를 넘으면 검색. 접이식 52px 레일은 노드 점 열이 세로로 스크롤되고 로그아웃은 아래에 고정. |
 | ContextMenu | `web/src/components/cluster/ContextMenu.tsx` | 선택 범위별 메뉴(데이터센터: 개요/노드/Docker/보안/설정 · 노드: 모듈 메뉴). |
 | ContainerShell | `web/src/components/ContainerShell.tsx` | Docker 컨테이너 셸 접속. xterm.js + WebSocket(`/ws/docker/containers/{id}/exec`). 키 입력 전송, 리사이즈 이벤트 전송. |
