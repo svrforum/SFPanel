@@ -3406,7 +3406,17 @@ data: {"step":"restarting","message":"Restarting service..."}
 data: {"step":"complete","message":"Updated to v0.5.6. Restarting..."}
 ```
 
-에러 발생 시 `step`이 `"error"`인 이벤트가 전송됩니다.
+에러 발생 시 `step`이 `"error"`인 이벤트가 전송됩니다. 다른 노드로 중계된 스트림이 도중에 끊기면 중계하는 매니저가 `step` 없는 `event: error` / `data: {"message":"upstream stream interrupted"}`를 보냅니다.
+
+이미 최신 릴리스인 노드는 스트림 없이 `200 {"success":true,"data":{"status":"up_to_date"}}`(JSON)로 답합니다.
+
+**스트림 전 에러 응답:**
+| 코드 | HTTP 상태 | 조건 |
+|------|-----------|------|
+| `UPDATE_IN_PROGRESS` | 409 | 이 노드에서 다른 업데이트가 진행 중 |
+| `CLUSTER_QUORUM` | 409 | 클러스터 모드에서 이 노드가 내려가면 남는 투표자가 정족수를 이루지 못함. 메시지가 남는 투표자 수와 정족수를 말합니다. `?force=true`로 오버라이드(클러스터 업데이트는 노드마다 이것을 붙입니다) |
+| `UPDATE_DOWNGRADE_BLOCKED` | 409 | 받은 릴리스가 지금 버전보다 오래됨 |
+| `UPDATE_FAILED` | 400 / 500 / 502 | 본문의 릴리스 모양이 틀림(400), 릴리스 조회·파싱 실패(502·500), 버전 비교 불가(502) |
 
 ---
 

@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/labstack/echo/v4"
+	"github.com/svrforum/SFPanel/internal/api/response"
 	"github.com/svrforum/SFPanel/internal/cluster"
 	"github.com/svrforum/SFPanel/internal/config"
 )
@@ -56,5 +57,10 @@ func TestAnUpdateTheQuorumGuardRefusesStopsThere(t *testing.T) {
 	}
 	if err == nil || rec.Code != http.StatusConflict || !strings.Contains(body, "0 of 2 voters would remain online (quorum=2)") {
 		t.Fatalf("err %v, status %d, body %s", err, rec.Code, body)
+	}
+	// The refusal is the quorum's, by code: it shared UPDATE_IN_PROGRESS with
+	// "Another update is already running", and the update card said that.
+	if code := errorCode(t, rec); code != response.ErrClusterQuorum {
+		t.Errorf("code %q, want %q", code, response.ErrClusterQuorum)
 	}
 }

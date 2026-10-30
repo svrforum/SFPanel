@@ -896,7 +896,7 @@ func (h *Handler) RunUpdate(c echo.Context) error {
 	return nil
 }
 
-// clusterUpdateQuorumGuard returns a structured 409 when running this update
+// clusterUpdateQuorumGuard returns a 409 CLUSTER_QUORUM when running this update
 // would knock the cluster below Raft quorum. In standalone mode (no manager)
 // it's a no-op. Survivors are the currently-online voters (heartbeat status
 // == StatusOnline) less this one; the quorum they must still make is a
@@ -942,7 +942,7 @@ func (h *Handler) clusterUpdateQuorumGuard(c echo.Context) error {
 		"survivors_if_we_leave", survivors,
 		"quorum", quorum,
 		"remote_ip", c.RealIP())
-	if err := response.Fail(c, http.StatusConflict, response.ErrUpdateInProgress,
+	if err := response.Fail(c, http.StatusConflict, response.ErrClusterQuorum,
 		fmt.Sprintf("Refusing update: %d of %d voters would remain online (quorum=%d). Use /cluster/update for a coordinated rolling update, or pass ?force=true to override.", survivors, totalVoters, quorum)); err != nil {
 		return err
 	}

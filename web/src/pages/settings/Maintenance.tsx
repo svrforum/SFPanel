@@ -1,9 +1,9 @@
 import { useState, useEffect, type ChangeEvent } from 'react'
 import { useTranslation } from 'react-i18next'
-import { api } from '@/lib/api'
+import { api, type ApiError } from '@/lib/api'
 import { useConfirm } from '@/components/ConfirmDialog'
 import { formatUptime, formatBytes, downloadBlob } from '@/lib/utils'
-import { waitForServerBack } from '@/lib/restart'
+import { waitForServerBack, waitForNodeBack } from '@/lib/restart'
 import type { HostInfo, BackupScheduleConfig, BackupFile } from '@/types/api'
 import { toast } from 'sonner'
 import { Button } from '@/components/ui/button'
@@ -29,6 +29,11 @@ export default function Maintenance({ clusterEnabled }: MaintenanceProps) {
   const [updating, setUpdating] = useState(false)
   const [updateStep, setUpdateStep] = useState('')
   const [updateError, setUpdateError] = useState('')
+  // The quorum guard's own sentence: how many voters the update would leave.
+  const [updateReason, setUpdateReason] = useState('')
+  // The node the update goes to, named in cluster mode: it is the selected
+  // node, which need not be the manager this browser is on.
+  const [updateNode, setUpdateNode] = useState('')
 
   // Backup state
   const [backupLoading, setBackupLoading] = useState(false)
@@ -69,6 +74,16 @@ export default function Maintenance({ clusterEnabled }: MaintenanceProps) {
       .catch(() => { /* ignore */ })
   }, [])
 
+  useEffect(() => {
+    if (!clusterEnabled) return
+    api.getClusterNodes()
+      .then((data) => {
+        const id = api.currentNode ?? data.local_id
+        setUpdateNode(data.nodes.find((n) => n.id === id)?.name ?? '')
+      })
+      .catch(() => { /* the plain title will do */ })
+  }, [clusterEnabled])
+
   const { run: runCheckUpdate, loading: updateChecking } = useApiAction(
     api.checkUpdate.bind(api),
     {
@@ -84,26 +99,44 @@ export default function Maintenance({ clusterEnabled }: MaintenanceProps) {
 
   async function handleCheckUpdate() {
     setUpdateError('')
+    setUpdateReason('')
     await runCheckUpdate()
   }
 
   async function handleRunUpdate() {
-    if (!(await confirm({ title: t('settings.updateConfirm') }))) return
+    const named = clusterEnabled && updateNode
+    if (!(await confirm(named
+      ? { title: t('settings.updateNode', { node: updateNode }), description: t('settings.updateConfirm') }
+      : { title: t('settings.updateConfirm') }))) return
     setUpdating(true)
     setUpdateStep('')
     setUpdateError('')
+    setUpdateReason('')
+    let outcome: 'none' | 'complete' | 'error' = 'none'
+    const fail = (message: string) => {
+      outcome = 'error'
+      setUpdateError(message)
+      setUpdating(false)
+    }
     try {
-      await api.runUpdateStream((event) => {
-        setUpdateStep(event.step)
-        if (event.step === 'error') {
-          setUpdateError(event.message)
-          setUpdating(false)
+      const result = await api.runUpdateStream((event) => {
+        // No step: the cluster relay's error event, sent when the node's
+        // stream broke under it.
+        if (!event.step) {
+          fail(event.message || t('settings.updateStep.error'))
+          return
         }
+        setUpdateStep(event.step)
+        if (event.step === 'error') fail(event.message)
         if (event.step === 'complete') {
-          // Bounded wait (default 5 min) for the panel to come back after the
+          outcome = 'complete'
+          // Bounded wait (default 5 min) for the node to come back after the
           // self-restart — the old inline loop polled forever, leaving an
-          // eternal spinner when the restart failed.
-          waitForServerBack({
+          // eternal spinner when the restart failed. It asks the node that was
+          // updated, which is not this manager when another node is selected.
+          waitForNodeBack({
+            nodeId: api.currentNode,
+            fromVersion: systemInfo?.version,
             onTimeout: () => {
               setUpdating(false)
               toast.error(t('settings.updateNoReturn'))
@@ -111,9 +144,27 @@ export default function Maintenance({ clusterEnabled }: MaintenanceProps) {
           })
         }
       })
-    } catch {
+      if (result === 'up_to_date') {
+        setUpdating(false)
+        setUpdateInfo((prev) => (prev ? { ...prev, update_available: false } : prev))
+        toast.success(t('settings.upToDate'))
+      } else if (outcome === 'none') {
+        // Neither complete nor error: the node went quiet mid-update.
+        setUpdating(false)
+        setUpdateError(t('settings.updateStreamCut'))
+      }
+    } catch (err: unknown) {
+      // After complete the node restarting may cut the stream it had already
+      // finished; after an error the error says more.
+      if (outcome !== 'none') return
       setUpdating(false)
-      setUpdateError(t('settings.updateConnectionLost'))
+      const e = err as ApiError
+      if (e?.status === undefined) {
+        setUpdateError(t('settings.updateConnectionLost'))
+        return
+      }
+      setUpdateError(e.message)
+      if (e.code === 'CLUSTER_QUORUM' && e.serverMessage) setUpdateReason(e.serverMessage)
     }
   }
 
@@ -249,11 +300,23 @@ export default function Maintenance({ clusterEnabled }: MaintenanceProps) {
     }
   }
 
+  const stepLabels: Record<string, string> = {
+    downloading: t('settings.updateStep.downloading'),
+    verifying: t('settings.updateStep.verifying'),
+    extracting: t('settings.updateStep.extracting'),
+    replacing: t('settings.updateStep.replacing'),
+    restarting: t('settings.updateStep.restarting'),
+    complete: t('settings.updateStep.complete'),
+    error: t('settings.updateStep.error'),
+  }
+
   return (
     <div className="space-y-6 mt-6">
       {/* Panel Update */}
-      <div className="bg-card rounded-2xl p-6 card-shadow">
-        <h3 className="text-[15px] font-semibold">{t('settings.update')}</h3>
+      <div className="bg-card rounded-2xl p-6 card-shadow" data-testid="panel-update">
+        <h3 className="text-[15px] font-semibold">
+          {clusterEnabled && updateNode ? t('settings.updateNode', { node: updateNode }) : t('settings.update')}
+        </h3>
         <p className="text-[13px] text-muted-foreground mt-1 mb-4">{t('settings.updateDescription')}</p>
 
         <div className="flex items-center gap-6 mb-4">
@@ -270,19 +333,9 @@ export default function Maintenance({ clusterEnabled }: MaintenanceProps) {
         </div>
 
         {updating ? (
-          <div className="space-y-2">
-            <div className="flex items-center gap-2">
-              <RefreshCw className="h-4 w-4 animate-spin text-primary" />
-              <span className="text-[13px]">
-                {updateStep && t(`settings.updateStep.${updateStep}`, { defaultValue: updateStep })}
-              </span>
-            </div>
-            {updateError && (
-              <div className="flex items-center gap-2 text-destructive">
-                <AlertCircle className="h-4 w-4" />
-                <span className="text-[13px]">{updateError}</span>
-              </div>
-            )}
+          <div className="flex items-center gap-2">
+            <RefreshCw className="h-4 w-4 animate-spin text-primary" />
+            <span className="text-[13px]">{updateStep && (stepLabels[updateStep] ?? updateStep)}</span>
           </div>
         ) : (
           <div className="flex gap-2">
@@ -294,6 +347,18 @@ export default function Maintenance({ clusterEnabled }: MaintenanceProps) {
                 {t('settings.updateNow')}
               </Button>
             )}
+          </div>
+        )}
+
+        {/* Outside the progress branch: a failure ends the progress, and the
+            error used to leave the screen with it. */}
+        {updateError && (
+          <div role="alert" className="mt-3 flex items-start gap-2 text-destructive">
+            <AlertCircle className="h-4 w-4 mt-0.5 shrink-0" />
+            <div className="text-[13px] space-y-0.5">
+              <p>{updateError}</p>
+              {updateReason && <p className="text-muted-foreground">{updateReason}</p>}
+            </div>
           </div>
         )}
 

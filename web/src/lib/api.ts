@@ -822,15 +822,25 @@ class ApiClient {
     return this.request<UpdateCheckResult>('/system/update-check')
   }
 
+  // A node already on the latest release answers 200 with plain JSON and no
+  // stream: that resolves 'up_to_date'. A refusal before the stream (another
+  // update running, the quorum guard, a downgrade, an agent relay's code)
+  // rejects with its code like any request(). An event with no step is the
+  // cluster relay's `event: error` when the node's stream broke.
   async runUpdateStream(
-    onProgress: (event: { step: string; message: string }) => void
-  ): Promise<void> {
+    onProgress: (event: { step?: string; message: string }) => void
+  ): Promise<'up_to_date' | 'streamed'> {
     const res = await fetch(this.withNode('/system/update'), {
       method: 'POST',
       headers: this.streamHeaders({ 'Content-Type': 'application/json' }),
     })
-    if (!res.ok) throw new Error('Update failed')
-    await this.readSSEStream<{ step: string; message: string }>(res, onProgress)
+    if (!res.ok) throw await errorFromResponse(res)
+    if (res.headers.get('Content-Type')?.includes('application/json')) {
+      const body = await res.json().catch(() => null) as { data?: { status?: string } } | null
+      if (body?.data?.status === 'up_to_date') return 'up_to_date'
+    }
+    await this.readSSEStream<{ step?: string; message: string }>(res, onProgress)
+    return 'streamed'
   }
 
   /**

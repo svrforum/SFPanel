@@ -42,9 +42,7 @@ func TestTheQuorumGuardSeesAManagerSetAfterBoot(t *testing.T) {
 	if err := h.clusterUpdateQuorumGuard(c); err == nil && rec.Code == http.StatusOK {
 		t.Fatalf("the guard let an update through: %d %s", rec.Code, rec.Body)
 	}
-	// The guard's code is shared with "Another update is already running";
-	// the message is what says it was the quorum.
-	if body := rec.Body.String(); !strings.Contains(body, "UPDATE_IN_PROGRESS") || !strings.Contains(body, "0 of 2 voters would remain online (quorum=2)") {
+	if body := rec.Body.String(); !strings.Contains(body, "CLUSTER_QUORUM") || !strings.Contains(body, "0 of 2 voters would remain online (quorum=2)") {
 		t.Fatalf("refused for another reason: %d %s", rec.Code, rec.Body)
 	}
 }

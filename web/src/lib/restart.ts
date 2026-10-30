@@ -61,3 +61,58 @@ export function waitForServerBack(opts: WaitForServerBackOptions = {}): () => vo
     if (interval) clearInterval(interval)
   }
 }
+
+/**
+ * waitForServerBack for the node an update or restart went to. With no node
+ * selected that is this panel, and its setup probe is the answer. A selected
+ * node is reached through this manager, which answers its own probe all along:
+ * waiting on it reloaded five seconds into another node's update. So ask the
+ * node itself for its version, and take it back once it answers with another
+ * one than it had (or, without fromVersion, once it answers at all).
+ */
+export function waitForNodeBack(opts: WaitForServerBackOptions & { nodeId: string | null; fromVersion?: string }): () => void {
+  const { nodeId, fromVersion, ...rest } = opts
+  if (nodeId === null) return waitForServerBack(rest)
+  const {
+    initialDelayMs = 3000,
+    intervalMs = 2000,
+    maxAttempts = 150,
+    onBack = () => window.location.reload(),
+    onTimeout,
+  } = rest
+
+  let interval: ReturnType<typeof setInterval> | undefined
+  let cancelled = false
+  let attempts = 0
+  let done = false
+
+  const finish = (fn?: () => void) => {
+    if (done || cancelled) return
+    done = true
+    clearInterval(interval)
+    fn?.()
+  }
+
+  const timer = setTimeout(() => {
+    if (cancelled) return
+    interval = setInterval(() => {
+      attempts++
+      const last = maxAttempts > 0 && attempts >= maxAttempts
+      // getSystemInfo goes to the selected node: the client adds its ?node=.
+      api.getSystemInfo()
+        .then((info) => {
+          if (fromVersion === undefined || (info.version !== undefined && info.version !== fromVersion)) finish(onBack)
+          else if (last) finish(onTimeout)
+        })
+        .catch(() => {
+          if (last) finish(onTimeout)
+        })
+    }, intervalMs)
+  }, initialDelayMs)
+
+  return () => {
+    cancelled = true
+    clearTimeout(timer)
+    if (interval) clearInterval(interval)
+  }
+}

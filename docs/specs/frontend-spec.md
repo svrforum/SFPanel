@@ -447,7 +447,7 @@ const DockerStacks = lazy(() => import('@/pages/docker/DockerStacks'))
 >
 > - **General** (`settings/General.tsx`, account 탭 하단): 언어 변경(i18n.changeLanguage), **(v0.53.0) 테마 선택**(라이트/다크/시스템 — `lib/theme.ts` `setThemePref`).
 > - **Security** (`settings/Security.tsx`, account 탭 상단): 비밀번호 변경, 2FA 설정(QR `QRCodeSVG` from `qrcode.react`)·검증·비활성화(비활성화 시 `usePrompt`로 **비밀번호 + 현재 TOTP 코드** 입력 — `api.disable2FA(password, totpCode)`), **2FA 복구 코드** 생성/재생성·잔여 개수 표시(`api.get2FARecoveryStatus()`, `api.regenerate2FARecoveryCodes()`). (v0.34.0/v0.36.0/v0.38.0)
-> - **Maintenance** (`settings/Maintenance.tsx`, system 탭 상단): 시스템 정보, 패널 업데이트(SSE), 백업 다운로드/복원, **예약 백업 스케줄 폼 + 즉시 실행 + 아카이브 목록(다운로드/삭제)** (v0.26.0). `clusterEnabled` prop 수신.
+> - **Maintenance** (`settings/Maintenance.tsx`, system 탭 상단): 시스템 정보, 패널 업데이트(SSE — 클러스터 모드면 제목·확인 창에 업데이트할 노드 이름, 스트림 전 거부는 코드로 번역(`CLUSTER_QUORUM`은 서버 이유를 함께), `200 {status:'up_to_date'}`는 최신 안내, `complete`도 `error`도 없이 끝난 스트림과 중계의 `event: error`는 오류로, 완료 뒤 `lib/restart.ts`의 `waitForNodeBack`이 고른 노드가 다른 버전으로 답할 때까지 기다림), 백업 다운로드/복원, **예약 백업 스케줄 폼 + 즉시 실행 + 아카이브 목록(다운로드/삭제)** (v0.26.0). `clusterEnabled` prop 수신.
 > - **Performance** (`settings/Performance.tsx`, system 탭 하단): 터미널 타임아웃·업로드 한도 설정 + `SettingsTuning` 커널 튜닝 컴포넌트 래핑.
 > - **Alerts** (`settings/AlertSettings.tsx`): 알림 채널/규칙/히스토리 (아래 별도 섹션).
 > - **Audit** (`settings/Audit.tsx`): 감사 로그 뷰어(데스크톱 테이블 + **모바일 카드 폴백**, v0.35.0).
