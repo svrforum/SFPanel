@@ -3,13 +3,14 @@ import { useTranslation } from 'react-i18next'
 import { api, type ApiError } from '@/lib/api'
 import { useConfirm } from '@/components/ConfirmDialog'
 import { formatUptime, formatBytes, downloadBlob } from '@/lib/utils'
-import { waitForServerBack, waitForNodeBack } from '@/lib/restart'
+import { waitForNodeBack } from '@/lib/restart'
+import { isAgent } from '@/lib/clusterNodes'
 import type { HostInfo, BackupScheduleConfig, BackupFile } from '@/types/api'
 import { toast } from 'sonner'
 import { Button } from '@/components/ui/button'
 import { Checkbox } from '@/components/ui/checkbox'
 import { Input } from '@/components/ui/input'
-import { Download, Upload, RefreshCw, AlertCircle, Clock, Play, RotateCcw, Trash2 } from 'lucide-react'
+import { Download, Upload, RefreshCw, AlertCircle, Clock, Play, RotateCcw, Trash2, Info } from 'lucide-react'
 import { useApiAction } from '@/hooks/useApiAction'
 
 type MaintenanceProps = {
@@ -34,6 +35,9 @@ export default function Maintenance({ clusterEnabled }: MaintenanceProps) {
   // The node the update goes to, named in cluster mode: it is the selected
   // node, which need not be the manager this browser is on.
   const [updateNode, setUpdateNode] = useState('')
+  // An agent holds no Raft state and refuses a manager's backup, so its
+  // backup and restore warnings differ. Unknown (list not read) = manager.
+  const [selectedIsAgent, setSelectedIsAgent] = useState(false)
 
   // Backup state
   const [backupLoading, setBackupLoading] = useState(false)
@@ -79,7 +83,9 @@ export default function Maintenance({ clusterEnabled }: MaintenanceProps) {
     api.getClusterNodes()
       .then((data) => {
         const id = api.currentNode ?? data.local_id
-        setUpdateNode(data.nodes.find((n) => n.id === id)?.name ?? '')
+        const node = data.nodes.find((n) => n.id === id)
+        setUpdateNode(node?.name ?? '')
+        setSelectedIsAgent(!!node && isAgent(node))
       })
       .catch(() => { /* the plain title will do */ })
   }, [clusterEnabled])
@@ -168,13 +174,10 @@ export default function Maintenance({ clusterEnabled }: MaintenanceProps) {
     }
   }
 
+  // A manager's archive carries the cluster's JWT key (config.yaml) and the
+  // admin account: say so before it leaves the node. An agent's key is its own.
   async function handleDownloadBackup() {
-    // In cluster mode the local SQLite snapshot is not a complete picture:
-    // admin + jwt_secret + cluster_node state live in the Raft FSM and
-    // restoring this backup on a leader would rewind replicated state,
-    // on a follower it would desync immediately. Warn loudly before
-    // letting the operator proceed.
-    if (clusterEnabled && !(await confirm({ title: t('settings.backupClusterWarn') }))) {
+    if (clusterEnabled && !selectedIsAgent && !(await confirm({ title: t('settings.backupClusterWarn') }))) {
       return
     }
     setBackupLoading(true)
@@ -196,9 +199,7 @@ export default function Maintenance({ clusterEnabled }: MaintenanceProps) {
       e.target.value = ''
       return
     }
-    // Same cluster caveat as download — restoring a single-node backup
-    // onto a cluster member desyncs replicated state.
-    if (clusterEnabled && !(await confirm({ title: t('settings.restoreClusterWarn'), danger: true }))) {
+    if (!(await confirmClusterRestore())) {
       e.target.value = ''
       return
     }
@@ -206,25 +207,38 @@ export default function Maintenance({ clusterEnabled }: MaintenanceProps) {
     try {
       await api.restoreBackup(file)
       toast.success(t('settings.restoreSuccess'))
-      // Wait until the panel comes back, capped at 60 attempts (≈2 min) so a
-      // corrupted DB doesn't leave the user staring at a spinner forever with
-      // no error.
-      waitForServerBack({
-        maxAttempts: 60,
-        onTimeout: () => {
-          toast.error(t('settings.restoreNoReturn'))
-          setRestoreLoading(false)
-        },
-      })
+      waitForRestoredNode()
     } catch (err: unknown) {
+      setRestoreLoading(false)
       const message = err instanceof Error ? err.message : t('settings.restoreFailed')
       toast.error(message)
     } finally {
       e.target.value = ''
-      // Don't clear restoreLoading here — the polling loop is still in
-      // flight. The catch path inside the poll clears it on timeout;
-      // success reloads the page so the state is moot.
+      // Don't clear restoreLoading here — after a success the polling loop
+      // is still in flight. Its timeout clears it, a reload makes it moot,
+      // and a refusal (nothing restarts) cleared it above.
     }
+  }
+
+  // Restoring a manager's single-node backup desyncs replicated state. An
+  // agent has none; the note beside the restore button says what it refuses.
+  async function confirmClusterRestore(): Promise<boolean> {
+    if (!clusterEnabled || selectedIsAgent) return true
+    return confirm({ title: t('settings.restoreClusterWarn'), danger: true })
+  }
+
+  // The node restarts once the archive is in. Wait for that node — not this
+  // manager, which answers all along — capped at 60 attempts (≈2 min) so a
+  // corrupted DB doesn't leave the user staring at a spinner forever.
+  function waitForRestoredNode() {
+    waitForNodeBack({
+      nodeId: api.currentNode,
+      maxAttempts: 60,
+      onTimeout: () => {
+        toast.error(t('settings.restoreNoReturn'))
+        setRestoreLoading(false)
+      },
+    })
   }
 
   async function handleSaveSchedule() {
@@ -281,10 +295,15 @@ export default function Maintenance({ clusterEnabled }: MaintenanceProps) {
       description: t('settings.backupSchedule.restoreConfirm', { name }),
       danger: true,
     }))) return
+    // The same question and the same wait as an upload: it is the same restore.
+    if (!(await confirmClusterRestore())) return
+    setRestoreLoading(true)
     try {
       await api.restoreBackupFile(name)
       toast.success(t('settings.restoreSuccess'))
+      waitForRestoredNode()
     } catch (err: unknown) {
+      setRestoreLoading(false)
       toast.error(err instanceof Error ? err.message : String(err))
     }
   }
@@ -402,6 +421,13 @@ export default function Maintenance({ clusterEnabled }: MaintenanceProps) {
           </p>
         </div>
 
+        {selectedIsAgent && (
+          <div role="note" className="flex items-start gap-2 rounded-xl border border-border bg-secondary/50 p-3 mb-4 text-[13px]">
+            <Info className="h-4 w-4 mt-0.5 shrink-0 text-primary" aria-hidden="true" />
+            <p>{t('settings.restoreAgentNote')}</p>
+          </div>
+        )}
+
         <div className="flex flex-wrap gap-3">
           <Button onClick={handleDownloadBackup} disabled={backupLoading} variant="outline" className="rounded-xl">
             <Download className="h-4 w-4 mr-2" />
@@ -518,6 +544,7 @@ export default function Maintenance({ clusterEnabled }: MaintenanceProps) {
                 </Button>
                 <Button
                   onClick={() => handleRestoreBackupFile(file.name)}
+                  disabled={restoreLoading}
                   variant="outline"
                   size="sm"
                   className="rounded-xl shrink-0"

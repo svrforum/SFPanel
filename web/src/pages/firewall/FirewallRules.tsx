@@ -31,6 +31,7 @@ import {
 } from '@/components/ui/select'
 import { useConfirm } from '@/components/ConfirmDialog'
 import { normalizePort, portNeedsProtocol, validatePort, validateFrom } from './ruleValidation'
+import { useLockoutGuard } from './useLockoutGuard'
 
 interface FirewallStatus {
   active: boolean
@@ -184,9 +185,9 @@ export default function FirewallRules() {
   const [status, setStatus] = useState<FirewallStatus | null>(null)
   const [statusLoading, setStatusLoading] = useState(true)
   const [toggling, setToggling] = useState(false)
-  // Lockout-guard override: set when the backend refuses an enable/add/delete
-  // with 409 because it would block SSH/panel access. retry() re-runs with force.
-  const [lockout, setLockout] = useState<{ message: string; busy: boolean; retry: () => Promise<void> } | null>(null)
+  // Lockout-guard override: opened when the backend refuses an enable/add/delete
+  // with 409 because it would block SSH/panel or cluster access. retry() re-runs with force.
+  const { handleLockoutError, clearLockout, lockoutDialog } = useLockoutGuard()
 
   // Rules state
   const [rules, setRules] = useState<FirewallRule[]>([])
@@ -241,21 +242,6 @@ export default function FirewallRules() {
     fetchRules()
   }, [fetchStatus, fetchRules])
 
-  // handleLockoutError returns true if it consumed a 409 lockout-guard error by
-  // opening the force-override prompt; callers should toast only when it's false.
-  // Only the lockout guard can be overridden: a Proxmox host's refusal is also
-  // a 409, and forcing it would get the same answer. A refusal naming 8006 is
-  // about the Proxmox web UI, not SSH or the panel.
-  const handleLockoutError = (err: unknown, retry: () => Promise<void>): boolean => {
-    const e = err as Error & { status?: number; code?: string; details?: Record<string, string> }
-    if (e?.status === 409 && (!e.code || e.code === 'UFW_LOCKOUT')) {
-      const message = e.details?.port === '8006' ? t('firewall.rules.lockoutBodyPve') : e.message
-      setLockout({ message, busy: false, retry })
-      return true
-    }
-    return false
-  }
-
   const runToggleFirewall = async (force: boolean) => {
     if (!status) return
     setToggling(true)
@@ -267,7 +253,7 @@ export default function FirewallRules() {
       }
       await fetchStatus()
       await fetchRules()
-      setLockout(null)
+      clearLockout()
     } catch (err: unknown) {
       if (!handleLockoutError(err, () => runToggleFirewall(true))) {
         toast.error(err instanceof Error ? err.message : t('common.error'))
@@ -311,7 +297,7 @@ export default function FirewallRules() {
       setAddOpen(false)
       setAddForm(initialRuleForm)
       await fetchRules()
-      setLockout(null)
+      clearLockout()
     } catch (err: unknown) {
       if (!handleLockoutError(err, () => runAddRule(true))) {
         toast.error(err instanceof Error ? err.message : t('common.error'))
@@ -327,7 +313,7 @@ export default function FirewallRules() {
     try {
       await api.deleteFirewallRule(rule.number, force)
       await fetchRules()
-      setLockout(null)
+      clearLockout()
     } catch (err: unknown) {
       if (!handleLockoutError(err, () => runDeleteRule(rule, true))) {
         toast.error(err instanceof Error ? err.message : t('common.error'))
@@ -665,40 +651,7 @@ export default function FirewallRules() {
       )}
 
       {/* Lockout-guard force-override Dialog */}
-      <Dialog open={!!lockout} onOpenChange={(open) => !open && setLockout(null)}>
-        <DialogContent>
-          <DialogHeader>
-            <DialogTitle className="text-destructive">{t('firewall.lockout.title')}</DialogTitle>
-            <DialogDescription className="whitespace-pre-line">
-              {lockout?.message}
-              {'\n\n'}
-              {t('firewall.lockout.warning')}
-            </DialogDescription>
-          </DialogHeader>
-          <DialogFooter className="gap-2">
-            <Button variant="outline" onClick={() => setLockout(null)} className="rounded-xl">
-              {t('common.cancel')}
-            </Button>
-            <Button
-              variant="destructive"
-              disabled={lockout?.busy}
-              onClick={async () => {
-                if (!lockout) return
-                setLockout((l) => (l ? { ...l, busy: true } : l))
-                try {
-                  await lockout.retry()
-                } finally {
-                  setLockout((l) => (l ? { ...l, busy: false } : l))
-                }
-              }}
-              className="rounded-xl"
-            >
-              {lockout?.busy && <Loader2 className="h-4 w-4 animate-spin" />}
-              {t('firewall.lockout.proceed')}
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
+      {lockoutDialog}
 
       {/* Edit Rule Dialog */}
       <Dialog open={!!editTarget} onOpenChange={(open) => {

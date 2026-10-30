@@ -1255,8 +1255,9 @@
     "settingUp": "Setting up...",
     "enable2FA": "Enable 2FA",
     "reconfigure2FA": "Reconfigure 2FA",
-    "backupClusterWarn": "In cluster mode this backup captures only the local SQLite (admin/JWT secret/node state live in the Raft FSM). Restoring will desync replicated state. Continue?",
+    "backupClusterWarn": "A manager's backup holds the cluster's JWT key (config.yaml) and the admin account. Keep it somewhere safe.",
     "restoreClusterWarn": "Restoring a single-node backup onto a cluster member immediately desyncs replicated state. Disband the cluster first if you want a clean restore. Continue anyway?",
+    "restoreAgentNote": "This node is an agent: only its own backups restore here. A manager's backup is refused, and it holds the cluster's JWT key — do not upload one.",
     "restoreNoReturn": "Panel did not respond within 2 minutes of restore. Check journalctl -u sfpanel.",
     "disable2FA": "Disable 2FA",
     "confirmDisable2FA": "Disable 2FA? After this, only your password will be required to log in.",
@@ -3063,7 +3064,9 @@
       "tcp": "TCP",
       "udp": "UDP",
       "both": "TCP/UDP",
-      "lockoutBodyPve": "This change would block the Proxmox web UI (8006) and cut off this node's management. Add a rule allowing 8006 first."
+      "lockoutBodyPve": "This change would block the Proxmox web UI (8006) and cut off this node's management. Add a rule allowing 8006 first.",
+      "lockoutBodyCluster_one": "This would close cluster port {{cluster_ports}}, which the other nodes use to reach this one. Allow it first, or apply it anyway only if you are sure.",
+      "lockoutBodyCluster_other": "This would close cluster ports {{cluster_ports}}, which the other nodes use to reach this one. Allow them first, or apply it anyway only if you are sure."
     },
     "ports": {
       "title": "Open Ports",

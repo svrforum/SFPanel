@@ -29,6 +29,7 @@ import {
 } from '@/components/ui/select'
 import type { ListeningPort } from '@/types/api'
 import { validateFrom } from './ruleValidation'
+import { useLockoutGuard } from './useLockoutGuard'
 
 type SortKey = 'port' | 'process' | 'protocol' | 'address' | 'none'
 type SortDir = 'asc' | 'desc'
@@ -201,7 +202,11 @@ export default function FirewallPorts() {
   // feed the same addFirewallRule API.
   const fromError = !!ruleFrom.trim() && !validateFrom(ruleFrom)
 
-  const handleAddRule = async () => {
+  // The rules page's lockout prompt: denying a port here is refused the same
+  // way, and it was only a toast with no way to go ahead.
+  const { handleLockoutError, clearLockout, lockoutDialog } = useLockoutGuard()
+
+  const runAddRule = async (force: boolean) => {
     if (!addTarget || fromError) return
     setAdding(true)
     try {
@@ -212,16 +217,19 @@ export default function FirewallPorts() {
         from: ruleFrom.trim() || '',
         to: '',
         comment: ruleComment.trim() || '',
-      })
+      }, force)
       toast.success(t('firewall.ports.addToUFW') + ` — ${addTarget.port}/${normalizeProtocol(addTarget.protocol)}`)
       setAddTarget(null)
+      clearLockout()
     } catch (err: unknown) {
-      const message = err instanceof Error ? err.message : t('common.error')
-      toast.error(message)
+      if (!handleLockoutError(err, () => runAddRule(true))) {
+        toast.error(err instanceof Error ? err.message : t('common.error'))
+      }
     } finally {
       setAdding(false)
     }
   }
+  const handleAddRule = () => runAddRule(false)
 
   return (
     <div className="space-y-4">
@@ -433,6 +441,8 @@ export default function FirewallPorts() {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
+      {lockoutDialog}
     </div>
   )
 }

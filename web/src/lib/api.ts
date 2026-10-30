@@ -1006,8 +1006,8 @@ class ApiClient {
       headers: this.streamHeaders(),
       body: formData,
     })
-    const json = await res.json()
-    if (!json.success) throw new Error(json.error?.message || 'Restore failed')
+    // Read like request(): a refusal for the node's role is worded by its code.
+    if (!res.ok) throw await errorFromResponse(res)
   }
 
   listProcesses() {

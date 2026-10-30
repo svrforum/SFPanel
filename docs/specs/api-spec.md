@@ -2616,7 +2616,7 @@ UFW 방화벽 활성화 (`ufw --force enable`).
 | 코드 | HTTP 상태 | 조건 |
 |------|-----------|------|
 | `FIREWALL_MANAGED_BY_PVE` | 409 | Proxmox VE 호스트에서 ufw가 이미 켜져 있지 않음 (`force`로도 넘을 수 없음) |
-| `UFW_LOCKOUT` | 409 | SSH/패널 포트 허용 규칙 없음. Proxmox VE 호스트에서는 8006(웹 UI) 허용 규칙이 없을 때도 — 이때 `details.port`는 `"8006"` |
+| `UFW_LOCKOUT` | 409 | SSH/패널 포트 허용 규칙 없음. Proxmox VE 호스트에서는 8006(웹 UI) 허용 규칙이 없을 때도 — 이때 `details.port`는 `"8006"`. 클러스터 노드에서는 클러스터 포트(매니저: gRPC·Raft, 에이전트: gRPC·패널) 허용 규칙이 없을 때도 — `details.cluster_ports`가 빠진 포트 목록(`"3629, 3630"`) |
 | `UFW_ENABLE_ERROR` | 500 | UFW 활성화 실패 |
 
 ---
@@ -2737,7 +2737,7 @@ UFW 방화벽 비활성화 (`ufw disable`).
 | `INVALID_TO_ADDRESS` | 400 | 유효하지 않은 대상 IP/CIDR |
 | `INVALID_COMMENT` | 400 | 코멘트에 허용되지 않는 문자 |
 | `FIREWALL_MANAGED_BY_PVE` | 409 | Proxmox VE 호스트에서 ufw가 이미 켜져 있지 않음 |
-| `UFW_LOCKOUT` | 409 | deny/reject/limit가 SSH·패널 포트를 막음(`?force=true`로 확인). Proxmox VE 호스트에서는 8006도 — `details.port`가 `"8006"` |
+| `UFW_LOCKOUT` | 409 | deny/reject/limit가 SSH·패널 포트를 막음(`?force=true`로 확인). Proxmox VE 호스트에서는 8006도 — `details.port`가 `"8006"`. 클러스터 노드에서는 클러스터 포트도 — `details.cluster_ports`가 그 포트 하나(`"3629"`) |
 | `UFW_ADD_RULE_ERROR` | 500 | 규칙 추가 실패 |
 
 ---
@@ -2768,7 +2768,7 @@ UFW 규칙을 번호로 삭제 (`ufw --force delete <number>`).
 |------|-----------|------|
 | `INVALID_RULE_NUMBER` | 400 | 유효하지 않은 규칙 번호 (양의 정수가 아님) |
 | `FIREWALL_MANAGED_BY_PVE` | 409 | Proxmox VE 호스트에서 ufw가 이미 켜져 있지 않음 |
-| `UFW_LOCKOUT` | 409 | 마지막 SSH·패널 포트 허용 규칙 삭제(`?force=true`로 확인). Proxmox VE 호스트에서는 8006의 마지막 허용 규칙도 — `details.port`가 `"8006"` |
+| `UFW_LOCKOUT` | 409 | 마지막 SSH·패널 포트 허용 규칙 삭제(`?force=true`로 확인). Proxmox VE 호스트에서는 8006의 마지막 허용 규칙도 — `details.port`가 `"8006"`. 클러스터 노드에서는 클러스터 포트의 마지막 허용 규칙도 — `details.cluster_ports`가 이 삭제로 닫히는 포트 목록 |
 | `UFW_DELETE_ERROR` | 500 | 규칙 삭제 실패 |
 
 ---
