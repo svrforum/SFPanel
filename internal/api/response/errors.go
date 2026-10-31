@@ -532,6 +532,11 @@ const (
 	// ErrTaskRebootUnsupported is returned (HTTP 409) when a reboot step is
 	// sent to a node without systemd, which has nothing to schedule it with.
 	ErrTaskRebootUnsupported = "TASK_REBOOT_UNSUPPORTED"
+	// ErrTaskRunActive is returned (HTTP 409) when a cluster update, a CA
+	// rotation, a conversion or a promotion is asked for while a group task
+	// run is under way: each restarts or re-keys nodes under the run's steps.
+	// Details: run_id of the run it waits for.
+	ErrTaskRunActive = "TASK_RUN_ACTIVE"
 )
 
 // File manager error codes

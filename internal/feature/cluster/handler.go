@@ -105,15 +105,21 @@ type Handler struct {
 
 	// updateRunning admits one cluster update at a time. See ClusterUpdate.
 	updateRunning atomic.Bool
-	// startMu makes a cluster update's start and a CA rotation's each one
-	// step with its check on the other, as each refuses while the other
-	// runs. See ClusterUpdate and RotateCA.
+	// startMu makes the start of a cluster update, a CA rotation, a
+	// conversion, a promotion and a group task run each one step with its
+	// check on the others, as each refuses while another runs. See StartGate.
 	startMu sync.Mutex
+	// taskRunsActive names the group task run under way, or "": set by
+	// SetTaskRunsActive, read under startMu.
+	taskRunsActive func() string
 
 	// convertMu admits one conversion at a time on this leader: two for one
 	// node would each record its intent, and the one the node refused would
 	// take the other's record away. See ConvertNode.
 	convertMu sync.Mutex
+	// converting is true while a conversion admitted under startMu has not
+	// been answered, so a task run's gate sees it (Busy.Converting).
+	converting atomic.Bool
 	// callNode sends a request to another node's panel; nil is the manager's
 	// ProxyToNode. Tests replace it.
 	callNode func(ctx context.Context, nodeID, method, path string, body []byte, username string) (int, []byte, error)
@@ -1506,6 +1512,19 @@ func (h *Handler) ConvertNode(c echo.Context) error {
 		return response.Fail(c, http.StatusConflict, response.ErrClusterConvertRefused, "Another conversion is being started on this leader; try again once it has been answered")
 	}
 	defer h.convertMu.Unlock()
+	// Not under a group task run's steps: the node leaves Raft and restarts.
+	// The check and the mark are one step under startMu, so a run starting
+	// at the same moment sees this conversion, or this sees the run.
+	h.startMu.Lock()
+	runID := h.taskRunActive()
+	if runID == "" {
+		h.converting.Store(true)
+	}
+	h.startMu.Unlock()
+	if runID != "" {
+		return failTaskRunActive(c, "conversion", runID)
+	}
+	defer h.converting.Store(false)
 
 	// What the node comes back to, settled before anything is made for it.
 	caKey, err := mgr.CAPublicKey()
@@ -1723,6 +1742,13 @@ func (h *Handler) PromoteNode(c echo.Context) error {
 	if id == "" {
 		return response.Fail(c, http.StatusBadRequest, response.ErrInvalidRequest, "Node ID required")
 	}
+	// Not under a group task run's steps: the agent restarts as a manager.
+	h.startMu.Lock()
+	runID := h.taskRunActive()
+	h.startMu.Unlock()
+	if runID != "" {
+		return failTaskRunActive(c, "promotion", runID)
+	}
 
 	// What the node joins with, settled before anything is made for it.
 	caKey, err := mgr.CAPublicKey()
@@ -1824,19 +1850,26 @@ func (h *Handler) ClusterUpdate(c echo.Context) error {
 
 	// Not while the cluster CA is being replaced: an update restarts nodes,
 	// and a node restarted mid-rotation comes back on whatever its disk held.
-	// One at a time. The orchestration outlives the request that started it,
-	// so closing the tab no longer ends it — and a second click would
-	// otherwise start a second one alongside. The check and the claim are one
-	// step under startMu, as a CA rotation's check and start are: an update
-	// and a rotation arriving together would each pass their check before
+	// Nor under a group task run's steps, for the same restarts. One at a
+	// time. The orchestration outlives the request that started it, so
+	// closing the tab no longer ends it — and a second click would otherwise
+	// start a second one alongside. The checks and the claim are one step
+	// under startMu, as a CA rotation's check and start are: an update and a
+	// rotation or a run arriving together would each pass their check before
 	// the other began.
 	h.startMu.Lock()
 	rotating := mgr.CARotationActive()
-	claimed := !rotating && h.updateRunning.CompareAndSwap(false, true)
+	runID := ""
+	if !rotating {
+		runID = h.taskRunActive()
+	}
+	claimed := !rotating && runID == "" && h.updateRunning.CompareAndSwap(false, true)
 	h.startMu.Unlock()
 	switch {
 	case rotating:
 		return response.Fail(c, http.StatusConflict, response.ErrClusterCARotating, cluster.ErrCARotationInProgress.Error())
+	case runID != "":
+		return failTaskRunActive(c, "cluster update", runID)
 	case !claimed:
 		return response.Fail(c, http.StatusConflict, response.ErrUpdateInProgress, "A cluster update is already running")
 	}

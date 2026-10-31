@@ -140,14 +140,18 @@ func (h *Handler) RotateCA(c echo.Context) error {
 		phaseTimeout = d
 	}
 	// Not during a cluster update: it restarts nodes, and a node restarted
-	// mid-rotation comes back on whatever its disk held. The check and the
-	// start are one step under startMu, as an update's check and claim are:
-	// an update and a rotation arriving together would each pass their check
-	// before the other began.
+	// mid-rotation comes back on whatever its disk held. Nor under a group
+	// task run's steps, whose calls ride on the certificates it reissues. The
+	// check and the start are one step under startMu, as an update's check
+	// and claim are: an update and a rotation arriving together would each
+	// pass their check before the other began.
 	h.startMu.Lock()
 	defer h.startMu.Unlock()
 	if h.updateRunning.Load() {
 		return response.Fail(c, http.StatusConflict, response.ErrUpdateInProgress, "A cluster update is running: start the CA rotation once it has finished")
+	}
+	if runID := h.taskRunActive(); runID != "" {
+		return failTaskRunActive(c, "CA rotation", runID)
 	}
 	rot, err := mgr.StartCARotation(phaseTimeout)
 	switch {
