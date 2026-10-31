@@ -128,7 +128,7 @@ export function setApiTranslator(fn: Translator) {
 
 // codeText words an error by its code when the panel knows the code: the
 // details fill the message's placeholders, and CODE_DEFAULTS any they leave
-// empty. Any other code keeps the server's sentence.
+// out. Any other code keeps the server's sentence.
 function codeText(code: string | undefined, sent: string, details?: Record<string, string>): string {
   if (!code || !CODE_MESSAGES[code]) return sent
   const defaults = Object.fromEntries(Object.entries(CODE_DEFAULTS[code] ?? {}).map(([name, key]) => [name, translate(key, key)]))

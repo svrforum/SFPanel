@@ -127,8 +127,9 @@
 | `CLUSTER_ROUTE_NOT_ON_AGENT` | 409 | `?node=`가 에이전트를 가리키는 `/cluster/*` 요청 |
 | `CLUSTER_AGENT_AUTH_FAILED` | 502 | 에이전트로 서명할 키가 복제 상태에 없거나, 에이전트가 요청을 401로 거부했다 — 에이전트의 시계가 이 매니저와 30초 넘게 어긋나면 서명이 거부된다(양쪽 NTP 확인). 401을 그대로 넘기면 브라우저가 이 매니저의 세션을 끝내므로 502로 바꾼다 |
 | `CLUSTER_AGENT_PANEL_INSECURE` | 502 | 에이전트 패널의 CA가 복제 상태에 없어 평문 HTTP로만 중계할 수 있다 — 보내지 않는다 |
+| `CLUSTER_NODE_UNREACHABLE` | 502 | 이 매니저가 최근 3분 안에 한 도달 검사에서 그 에이전트에 닿지 못했다 — 다이얼해 시간 초과를 기다리지 않고 바로 거부한다. `details.name`은 노드 이름(없으면 ID)이다. 그 에이전트와 같은 망(LAN·Tailscale)에 있는 매니저의 화면에서 열면 된다. 검사 결과가 없거나 오래됐거나 그 에이전트를 검사하지 않았으면, 그리고 대상이 매니저이면 지금처럼 중계를 시도한다 |
 
-WebSocket 중계는 업그레이드 전에 같은 이유로 거부하며, 이때 응답은 `502`와 `{"error": "<이유>"}`입니다.
+WebSocket 중계는 업그레이드 전에 같은 이유로 거부하며, 이때 응답은 `502`와 `{"error": "<이유>"}`입니다. `CLUSTER_NODE_UNREACHABLE`만은 HTTP 요청과 같은 오류 봉투(`{"success": false, "error": {"code", "message", "details"}}`)로 답합니다.
 
 ### 감사 로그 제외
 
