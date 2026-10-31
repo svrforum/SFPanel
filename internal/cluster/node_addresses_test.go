@@ -42,6 +42,24 @@ func TestANodeWithoutAddressesHasItsGRPCHost(t *testing.T) {
 	}
 }
 
+// A node that moved (verifySelfAddress and UpdateNodeAddress change only its
+// gRPC address) is listed at its new address first, where other nodes dial,
+// before the leader's next tick rewrites the list.
+func TestAMovedNodeIsListedAtItsNewAddressFirst(t *testing.T) {
+	f := NewFSM()
+	addTestNode(t, f, Node{ID: "m1", GRPCAddress: "192.0.2.10:3629", APIAddress: "192.0.2.10:3628"})
+	applyNodeUpdate(t, f, Node{ID: "m1", Addresses: []string{"192.0.2.10", "100.64.0.10"}})
+	applyNodeUpdate(t, f, Node{ID: "m1", GRPCAddress: "192.0.2.20:3629", APIAddress: "192.0.2.20:3628"})
+	if got, want := f.GetNode("m1").AllAddresses(), []string{"192.0.2.20", "192.0.2.10", "100.64.0.10"}; !slices.Equal(got, want) {
+		t.Fatalf("got %v, want %v", got, want)
+	}
+	// A registered address written in another form is listed once.
+	n := &Node{GRPCAddress: "[2001:DB8::10]:3629", Addresses: []string{"2001:db8::10", "100.64.0.10"}}
+	if got, want := n.AllAddresses(), []string{"2001:db8::10", "100.64.0.10"}; !slices.Equal(got, want) {
+		t.Fatalf("got %v, want %v", got, want)
+	}
+}
+
 // What AllAddresses returns is the caller's: changing it leaves the record as
 // it was.
 func TestAllAddressesIsACopy(t *testing.T) {

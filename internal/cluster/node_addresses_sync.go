@@ -130,11 +130,13 @@ func (m *Manager) syncOneNodeAddresses(nodeID string, reported []string) {
 	if n == nil || !n.IsManager() {
 		return
 	}
-	primary := primaryHost(n)
-	if ip := net.ParseIP(primary); ip != nil {
-		primary = ip.String()
+	// A manager registered at a name keeps that one address: the list holds
+	// IPs only.
+	primary := net.ParseIP(primaryHost(n))
+	if primary == nil {
+		return
 	}
-	list := []string{primary}
+	list := []string{primary.String()}
 	for _, a := range reported {
 		if ip := net.ParseIP(a); ip != nil {
 			a = ip.String()

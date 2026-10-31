@@ -122,6 +122,27 @@ func TestAnAddressReportIsCheckedBeforeItIsWritten(t *testing.T) {
 	}
 }
 
+// A manager registered at a name (cluster init --advertise takes one, and its
+// certificate names it) keeps that one address: the list holds IPs only, and
+// refusing its report on every tick would only fill the log.
+func TestAManagerRegisteredAtANameIsLeftAsItIs(t *testing.T) {
+	nodes, _ := inmemRaft(t, "m1")
+	if err := nodes[0].Apply(Command{Type: CmdAddNode, Value: mustJSON(Node{ID: "m1", Kind: KindManager, Role: RoleVoter, GRPCAddress: "panel.example:3629"})}, 5*time.Second); err != nil {
+		t.Fatal(err)
+	}
+	logs := captureLogs(t)
+	m := &Manager{raft: nodes[0], nodeID: "m1"}
+	m.syncOneNodeAddresses("m1", []string{"panel.example", "100.64.0.1"})
+	for _, line := range strings.Split(logs.String(), "\n") {
+		if strings.Contains(line, "cannot record a node's addresses") && strings.Contains(line, " node_id=m1 ") {
+			t.Fatalf("the leader refused the report of a manager registered at a name: %s", line)
+		}
+	}
+	if got := nodes[0].GetFSM().GetNode("m1").Addresses; got != nil {
+		t.Fatalf("the record gained addresses: %v", got)
+	}
+}
+
 // Only the leader writes node records.
 func TestAFollowerDoesNotSetNodeAddresses(t *testing.T) {
 	leader, addr, token, pin := realLeader(t)

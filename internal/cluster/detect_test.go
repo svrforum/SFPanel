@@ -47,14 +47,15 @@ func TestDetectAdvertiseAddress_LeaderDial(t *testing.T) {
 	}
 }
 
-func TestTailscaleAddressesKeepsOnlyCGNATAddressesOnStableUpInterfaces(t *testing.T) {
+func TestTailscaleAddressesKeepsTailnetAddressesOnStableUpInterfaces(t *testing.T) {
 	tests := []struct {
 		name  string
 		iface IfaceAddr
 		want  bool
 	}{
 		{"tailscale0 is kept", IfaceAddr{Name: "tailscale0", IP: net.ParseIP("100.64.0.10"), Up: true}, true},
-		{"the interface name does not matter", IfaceAddr{Name: "eth1", IP: net.ParseIP("100.64.0.11"), Up: true}, true},
+		{"the range counts on any interface", IfaceAddr{Name: "eth1", IP: net.ParseIP("100.64.0.11"), Up: true}, true},
+		{"a tailscale interface counts outside the range", IfaceAddr{Name: "tailscale0", IP: net.ParseIP("198.51.100.10"), Up: true}, true},
 		{"a LAN address is not Tailscale", IfaceAddr{Name: "eth0", IP: net.ParseIP("192.0.2.10"), Up: true}, false},
 		{"a down interface is not reached", IfaceAddr{Name: "tailscale0", IP: net.ParseIP("100.64.0.12")}, false},
 		{"a container veth is ephemeral", IfaceAddr{Name: "veth1", IP: net.ParseIP("100.64.0.13"), Up: true}, false},

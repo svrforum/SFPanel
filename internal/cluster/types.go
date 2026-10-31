@@ -55,18 +55,26 @@ type Node struct {
 func (n *Node) IsManager() bool { return n.Kind == "" || n.Kind == KindManager }
 
 // AllAddresses returns every IP the node can be reached at (LAN, Tailscale):
-// its recorded Addresses, or the host of its gRPC address on a record from
-// before the field. The slice is the caller's own; the FSM's record shares
-// nothing with it.
+// the host of its gRPC address first, then the rest of its recorded
+// Addresses; a record from before the field has only the first. The gRPC
+// host leads even while Addresses still starts where the node moved from —
+// verifySelfAddress and UpdateNodeAddress change only the gRPC address —
+// until the leader's next tick rewrites the list. The slice is the caller's
+// own; the FSM's record shares nothing with it.
 func (n *Node) AllAddresses() []string {
-	if len(n.Addresses) > 0 {
-		return slices.Clone(n.Addresses)
+	var out []string
+	if host, _, err := net.SplitHostPort(n.GRPCAddress); err == nil && host != "" {
+		if ip := net.ParseIP(host); ip != nil {
+			host = ip.String()
+		}
+		out = append(out, host)
 	}
-	host, _, err := net.SplitHostPort(n.GRPCAddress)
-	if err != nil || host == "" {
-		return nil
+	for _, a := range n.Addresses {
+		if !slices.Contains(out, a) {
+			out = append(out, a)
+		}
 	}
-	return []string{host}
+	return out
 }
 
 // ClusterState holds the full cluster state managed by Raft FSM.

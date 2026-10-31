@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"net"
 	"slices"
+	"strings"
 	"time"
 
 	"github.com/svrforum/SFPanel/internal/paneltls"
@@ -83,19 +84,21 @@ type IfaceAddr struct {
 	Up, Loopback bool
 }
 
-// TailscaleAddresses returns, sorted and once each, the IPv4 addresses in
-// the Tailscale range (100.64.0.0/10) that others can reach this host at:
-// on an interface that is up, not loopback, and not one Docker creates and
+// TailscaleAddresses returns, sorted and once each, the IPv4 addresses a
+// tailnet gives this host that others can reach it at: any address in the
+// Tailscale range (100.64.0.0/10) — Tailscale's interface is not always
+// tailscale0 — and any address on an interface named tailscale*, which a
+// self-hosted control server can number from another range. Only on an
+// interface that is up, not loopback, and not one Docker creates and
 // destroys with a stack (paneltls.EphemeralInterface, the rule the panel
-// certificate's addresses follow). The range decides, not the interface
-// name: Tailscale's interface is not always tailscale0. IPv6 is left out.
+// certificate's addresses follow). IPv6 is left out.
 func TailscaleAddresses(ifaces []IfaceAddr) []string {
 	var out []string
 	for _, a := range ifaces {
 		if !a.Up || a.Loopback || paneltls.EphemeralInterface(a.Name) {
 			continue
 		}
-		if ip4 := a.IP.To4(); ip4 != nil && IsTailscaleIP(ip4) {
+		if ip4 := a.IP.To4(); ip4 != nil && (IsTailscaleIP(ip4) || strings.HasPrefix(a.Name, "tailscale")) {
 			out = append(out, ip4.String())
 		}
 	}
