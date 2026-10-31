@@ -21,6 +21,16 @@ func shortenReachProbes(t *testing.T, d time.Duration) {
 	t.Cleanup(func() { reachInterval = old })
 }
 
+// shortenReachRetry probes again every d, for one test, while an agent is out
+// of reach. Registered before the test's managers, the restore runs after
+// they stop.
+func shortenReachRetry(t *testing.T, d time.Duration) {
+	t.Helper()
+	old := reachRetryInterval
+	reachRetryInterval = d
+	t.Cleanup(func() { reachRetryInterval = old })
+}
+
 // probeManager is a manager on a one-node Raft whose FSM holds agents.
 func probeManager(t *testing.T, agents ...Node) *Manager {
 	t.Helper()
@@ -157,6 +167,32 @@ func TestOnlyAFreshProbeThatFailedAnAgentCallsItUnreachable(t *testing.T) {
 	if m.Unreachable("far") {
 		t.Fatal("a stale probe still calls far unreachable")
 	}
+}
+
+// An agent out of reach is probed again soon, not at the next round a
+// minute on: one back from a restart must not stay refused as unreachable,
+// or count against this manager, for that minute.
+func TestAnAgentOutOfReachIsProbedAgainSoon(t *testing.T) {
+	shortenReachProbes(t, time.Hour) // the next round would never come
+	shortenReachRetry(t, 100*time.Millisecond)
+	m := probeManager(t, Node{ID: "a1", GRPCAddress: "192.0.2.10:3629"})
+	var up atomic.Bool
+	m.reachDial = func(ctx context.Context, network, addr string) (net.Conn, error) {
+		if !up.Load() {
+			return nil, errors.New("connection refused")
+		}
+		c, s := net.Pipe()
+		_ = s.Close()
+		return c, nil
+	}
+	m.startReachProbes()
+	t.Cleanup(func() {
+		m.heartbeat.Stop()
+		m.reachWG.Wait()
+	})
+	waitUntil(t, 5*time.Second, "the first probe to miss a1", func() bool { return m.Unreachable("a1") })
+	up.Store(true)
+	waitUntil(t, 5*time.Second, "a1, back, to be reached again", func() bool { return !m.Unreachable("a1") })
 }
 
 // A follower probes the agents in the FSM and its pings carry those it

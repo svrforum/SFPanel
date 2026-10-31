@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
+	"maps"
 	"net"
 	"net/http"
 	"slices"
@@ -25,6 +26,12 @@ import (
 // reachInterval is how often a manager probes the agents. A variable so a
 // test can shorten it.
 var reachInterval = 60 * time.Second
+
+// reachRetryInterval is the wait for the next probe instead while an agent
+// is out of reach: one back from a restart is refused as unreachable, and
+// counts against this manager, for this long at most rather than a whole
+// interval. A variable so a test can shorten it.
+var reachRetryInterval = 10 * time.Second
 
 const (
 	// reachFresh is how long a probe counts: three missed rounds and what a
@@ -49,13 +56,14 @@ type reachResult struct {
 	At     time.Time
 }
 
-// startReachProbes probes the agents now and every reachInterval, in a
-// goroutine of its own — a dial that hangs must not hold up the heartbeat —
-// until the manager stops; shutdown waits for it.
+// startReachProbes probes the agents now and every reachInterval — every
+// reachRetryInterval while one is out of reach — in a goroutine of its own,
+// since a dial that hangs must not hold up the heartbeat, until the manager
+// stops; shutdown waits for it.
 func (m *Manager) startReachProbes() {
 	ctx, cancel := context.WithCancel(context.Background())
 	done := m.heartbeat.Done()
-	interval := reachInterval
+	interval, retry := reachInterval, min(reachRetryInterval, reachInterval)
 	m.reachWG.Add(1)
 	safe.Go("cluster-agent-reach", func() {
 		defer m.reachWG.Done()
@@ -68,13 +76,16 @@ func (m *Manager) startReachProbes() {
 			}
 			cancel()
 		})
-		ticker := time.NewTicker(interval)
-		defer ticker.Stop()
 		for {
-			m.probeAgents(ctx)
+			wait := interval
+			if res := m.probeAgents(ctx); slices.Contains(slices.Collect(maps.Values(res.Agents)), false) {
+				wait = retry
+			}
+			timer := time.NewTimer(wait)
 			select {
-			case <-ticker.C:
+			case <-timer.C:
 			case <-ctx.Done():
+				timer.Stop()
 				return
 			}
 		}

@@ -848,9 +848,10 @@ records for the manager is added by the running service on its next tick.
 
 Every manager probes every agent in the cluster, online or not, every 60
 seconds: a bare TCP connect to the agent's gRPC port and close, without TLS,
-three seconds per dial, eight agents at once. The agent's log stays quiet. A
-manager reports the agents it reached on its heartbeat ping, and a probe
-counts for three minutes.
+three seconds per dial, eight agents at once. The agent's log stays quiet.
+While an agent is out of reach the next probe comes after 10 seconds, so one
+back from a restart is found within seconds. A manager reports the agents it
+reached on its heartbeat ping, and a probe counts for three minutes.
 
 A request for an agent that this manager's fresh probe could not reach is
 refused at once with `502 CLUSTER_NODE_UNREACHABLE`, naming the agent, instead
@@ -858,7 +859,9 @@ of timing out after thirty seconds over gRPC or minutes over a relay. That
 holds for every relayed request — event streams, file transfers and
 WebSockets included, a WebSocket before its upgrade. The panel says to open
 it on a manager on the agent's network (LAN or Tailscale). Without a fresh
-probe of that agent, the relay is sent and the dial decides, as before.
+probe of that agent, the relay is sent and the dial decides, as before. An
+agent that has just come back can be refused this way for up to the 10
+seconds until the next probe.
 
 ### The leader goes to the manager that reaches the most agents
 
