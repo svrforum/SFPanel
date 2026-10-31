@@ -27,34 +27,75 @@ func isProtectedServiceUnit(name string) bool {
 	return sysguard.IsProtectedSystemdUnit(name)
 }
 
+// Refusal is a unit action turned down before systemctl ran, worded as the
+// endpoints answer it: the HTTP status, the error code and its details.
+type Refusal struct {
+	Status  int
+	Code    string
+	Message string
+	Details map[string]string
+}
+
+func (r *Refusal) Error() string { return r.Message }
+
+// UnitGuard says whether action ("start", "stop", "restart", "enable" or
+// "disable") may run on the unit name on the host info describes; nil when it
+// may. It is the Services page's guard, and a task job's service step calls it
+// too, so both refuse the same units for the same reasons:
+//
+//   - a name that is not a .service unit (400 INVALID_NAME);
+//   - stop, restart or disable of the panel's own units (403
+//     PERMISSION_DENIED);
+//   - stop, restart or disable the platform's policy (sysguard.UnitPolicy)
+//     refuses (403 SERVICE_PROTECTED), or holds until the operator has
+//     confirmed by typing the unit's name (409 SERVICE_CONFIRM_REQUIRED
+//     unless confirmed).
+//
+// start and enable are guarded by the name alone.
+func UnitGuard(info platform.Info, name, action string, confirmed bool) *Refusal {
+	if !validServiceName.MatchString(name) {
+		return &Refusal{Status: http.StatusBadRequest, Code: response.ErrInvalidName, Message: "Invalid service name"}
+	}
+	switch action {
+	case "start", "enable":
+		return nil
+	case sysguard.ActionStop, sysguard.ActionRestart, sysguard.ActionDisable:
+	default:
+		return &Refusal{Status: http.StatusBadRequest, Code: response.ErrInvalidRequest,
+			Message: fmt.Sprintf("Unknown service action %q", action)}
+	}
+	if isProtectedServiceUnit(name) {
+		return &Refusal{Status: http.StatusForbidden, Code: response.ErrPermissionDenied,
+			Message: fmt.Sprintf("Refusing to %s protected unit %q via the panel API", action, name)}
+	}
+	switch tier, hint := sysguard.UnitPolicy(info, name, action); tier {
+	case sysguard.TierRefuse:
+		msg := fmt.Sprintf("Refusing to %s %s: the host, its cluster or its guests depend on it", action, name)
+		if hint != "" {
+			msg += fmt.Sprintf(". To apply network changes, run '%s' instead", hint)
+		}
+		return &Refusal{Status: http.StatusForbidden, Code: response.ErrServiceProtected, Message: msg,
+			Details: map[string]string{"unit": name, "hint": hint}}
+	case sysguard.TierConfirm:
+		if !confirmed {
+			return &Refusal{Status: http.StatusConflict, Code: response.ErrServiceConfirmRequired,
+				Message: fmt.Sprintf("Type %s to confirm: it is needed to manage this host or run its guests", name),
+				Details: map[string]string{"unit": name}}
+		}
+	}
+	return nil
+}
+
 // guardUnitAction answers the request itself, and reports true, when op on
-// the unit must not run: the panel's own units are refused outright, and the
-// host-critical ones by the platform's policy (sysguard.UnitPolicy) — either
-// refused, or held until the operator has typed the unit's name, which the
-// page sends back as ?confirm=<unit>.
+// the unit must not run (UnitGuard). The page confirms a unit that needs it
+// by sending its name back as ?confirm=<unit>.
 //
 // It reports refusal with a bool, not through the error: response.Fail
 // returns nil once the 403 is written, and the "if err != nil" this replaced
 // therefore never fired — the refusal went out and the unit was stopped anyway.
 func guardUnitAction(c echo.Context, name, op string) (bool, error) {
-	if isProtectedServiceUnit(name) {
-		return true, response.Fail(c, http.StatusForbidden, response.ErrPermissionDenied,
-			fmt.Sprintf("Refusing to %s protected unit %q via the panel API", op, name))
-	}
-	switch tier, hint := sysguard.UnitPolicy(platform.Get(), name, op); tier {
-	case sysguard.TierRefuse:
-		msg := fmt.Sprintf("Refusing to %s %s: the host, its cluster or its guests depend on it", op, name)
-		if hint != "" {
-			msg += fmt.Sprintf(". To apply network changes, run '%s' instead", hint)
-		}
-		return true, response.FailWith(c, http.StatusForbidden, response.ErrServiceProtected, msg,
-			map[string]string{"unit": name, "hint": hint})
-	case sysguard.TierConfirm:
-		if c.QueryParam("confirm") != name {
-			return true, response.FailWith(c, http.StatusConflict, response.ErrServiceConfirmRequired,
-				fmt.Sprintf("Type %s to confirm: it is needed to manage this host or run its guests", name),
-				map[string]string{"unit": name})
-		}
+	if r := UnitGuard(platform.Get(), name, op, c.QueryParam("confirm") == name); r != nil {
+		return true, response.FailWith(c, r.Status, r.Code, r.Message, r.Details)
 	}
 	return false, nil
 }

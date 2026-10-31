@@ -159,6 +159,13 @@ func validatePathForWrite(p string) error {
 	return nil
 }
 
+// ValidatePathForWrite is validatePathForWrite for a task job's file step:
+// the file manager's own write guard, so both refuse the same paths for the
+// same reasons.
+func ValidatePathForWrite(p string) error {
+	return validatePathForWrite(p)
+}
+
 // writeProtectedPrefixes are the few subtrees the file API must not write into
 // even though it may write everywhere else.
 //

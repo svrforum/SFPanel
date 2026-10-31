@@ -47,6 +47,10 @@ import (
 const (
 	txUpgrade = "upgrade"
 	txInstall = "install"
+	txRemove  = "remove"
+	// txLists refreshes the package lists and nothing else: a task job's
+	// "update". It runs in the panel, as the refresh before an upgrade does.
+	txLists = "update"
 
 	txSuccess     = "success"
 	txFailed      = "failed"
@@ -267,6 +271,10 @@ func (tx *aptTx) successLine() string {
 		return ">>> Packages upgraded successfully"
 	case txInstall:
 		return ">>> " + strings.Join(tx.packages, " ") + " installed successfully"
+	case txRemove:
+		return ">>> " + strings.Join(tx.packages, " ") + " removed successfully"
+	case txLists:
+		return ">>> Package lists updated"
 	}
 	return ">>> The package transaction completed successfully"
 }
@@ -388,6 +396,24 @@ func (h *Handler) currentTxLocked() *aptTx {
 	return tx
 }
 
+// txLocked is the transaction id, or with id empty the current one; nil when
+// there is no such transaction. One that is neither running nor the last this
+// process ran is read from its log, which says how it ended. Called with txMu
+// held.
+func (h *Handler) txLocked(id string) *aptTx {
+	tx := h.currentTxLocked()
+	if id != "" && (tx == nil || tx.id != id) {
+		// An earlier one: its log says how it ended.
+		tx = nil
+		if _, err := os.Stat(filepath.Join(txLogDir, id+".log")); err == nil {
+			tx = loadTx(txLogDir, id)
+			tx.running = true
+			tx.finishFromLog()
+		}
+	}
+	return tx
+}
+
 // runningTx is the transaction running now, or nil.
 func (h *Handler) runningTx() *aptTx {
 	h.txMu.Lock()
@@ -462,6 +488,14 @@ func (h *Handler) runTx(tx *aptTx, update bool) {
 		h.invalidateStatus()
 	}()
 	if update && !h.txUpdate(tx) {
+		return
+	}
+	if tx.kind == txLists {
+		// The refresh was the transaction. The marker is how a panel that
+		// restarts later reads that it succeeded.
+		tx.note(txExitMarker + "0")
+		code := 0
+		tx.finish(txSuccess, &code, tx.successLine())
 		return
 	}
 	tx.note(">>> " + tx.command)
@@ -568,24 +602,17 @@ var launchDirect = func(tx *aptTx) (func(), error) {
 
 // failTx answers a transaction that could not be started.
 func failTx(c echo.Context, err error, code string) error {
-	var running *txRunningError
-	switch {
-	case errors.As(err, &running):
-		return txRunningFail(c, running.tx)
-	case errors.Is(err, exec.ErrDpkgLocked):
-		return response.Fail(c, http.StatusConflict, code,
-			"Another package manager operation is in progress; try again shortly")
-	default:
-		return response.Fail(c, http.StatusInternalServerError, code,
-			"Failed to start the package transaction: "+response.SanitizeOutput(err.Error()))
+	if r := txRefusal(err, code); r != nil {
+		return r.write(c)
 	}
+	return response.Fail(c, http.StatusInternalServerError, code,
+		"Failed to start the package transaction: "+response.SanitizeOutput(err.Error()))
 }
 
 // txRunningFail refuses a request whose apt would meet a running
-// transaction's lock. The details let the page offer to follow it.
+// transaction's lock.
 func txRunningFail(c echo.Context, tx txView) error {
-	return response.FailWith(c, http.StatusConflict, response.ErrAPTTransactionRunning,
-		"A package transaction ("+tx.Kind+") is already running", map[string]string{"id": tx.ID, "kind": tx.Kind})
+	return txRunningRefusal(tx).write(c)
 }
 
 // sseReady checks the response can stream, before anything is started.
@@ -737,16 +764,7 @@ func (h *Handler) FollowTransaction(c echo.Context) error {
 	}
 
 	h.txMu.Lock()
-	tx := h.currentTxLocked()
-	if id != "" && (tx == nil || tx.id != id) {
-		// An earlier one: its log says how it ended.
-		tx = nil
-		if _, err := os.Stat(filepath.Join(txLogDir, id+".log")); err == nil {
-			tx = loadTx(txLogDir, id)
-			tx.running = true
-			tx.finishFromLog()
-		}
-	}
+	tx := h.txLocked(id)
 	h.txMu.Unlock()
 	if tx == nil {
 		return response.Fail(c, http.StatusNotFound, response.ErrNotFound, "No package transaction")

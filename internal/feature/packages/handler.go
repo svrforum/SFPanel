@@ -339,9 +339,16 @@ func upgradeArgv(packages []string) []string {
 
 // installArgv is the apt-get command line of an install, the one
 // exec.AptInstall runs.
-func installArgv(name string) []string {
+func installArgv(names ...string) []string {
 	argv := append([]string{"apt-get"}, exec.AptDpkgOptions...)
-	return append(argv, "install", "-y", "--", name)
+	argv = append(argv, "install", "-y", "--")
+	return append(argv, names...)
+}
+
+// removeArgv is the apt-get command line of a removal, the one
+// exec.AptRemove runs.
+func removeArgv(names ...string) []string {
+	return append([]string{"apt-get", "remove", "-y", "--"}, names...)
 }
 
 // ---------- InstallPackage ----------
@@ -436,8 +443,8 @@ var dockerEngines = map[string]bool{"docker.io": true, "docker-ce": true, "moby-
 // upgrade of one already there names its old version in brackets first.
 var aptSimInstall = regexp.MustCompile(`(?m)^Inst (\S+) \(`)
 
-// dockerEngineOnPVE names the Docker engine that installing name would put on
-// a Proxmox VE host, or is "". dockerd turns forwarding on and sets the
+// dockerEngineOnPVE names the Docker engine that installing names would put
+// on a Proxmox VE host, or is "". dockerd turns forwarding on and sets the
 // FORWARD policy to DROP, which the guests' routed traffic passes through, and
 // their bridged traffic too wherever bridge filtering is on. An engine already
 // installed is managed as usual.
@@ -445,15 +452,20 @@ var aptSimInstall = regexp.MustCompile(`(?m)^Inst (\S+) \(`)
 // Asked of apt itself, in a simulation that changes nothing: another package
 // can bring the engine as a dependency or a recommendation (on Ubuntu,
 // docker-buildx depends on docker.io and docker-compose-v2 recommends it),
-// which a list of names would let through. A simulation that fails (no such
-// package) leaves the name itself to go by.
-func (h *Handler) dockerEngineOnPVE(name string) string {
+// which a list of names would let through. Several names are one simulation,
+// as they are one install. A simulation that fails (no such package) leaves
+// the names themselves to go by.
+func (h *Handler) dockerEngineOnPVE(names ...string) string {
 	if !platform.Get().PVE {
 		return ""
 	}
-	out, err := h.Cmd.RunWithEnv(exec.AptParseEnv(), "apt-get", "-s", "install", "--", name)
-	if err != nil && dockerEngines[name] {
-		return name
+	out, err := h.Cmd.RunWithEnv(exec.AptParseEnv(), "apt-get", append([]string{"-s", "install", "--"}, names...)...)
+	if err != nil {
+		for _, name := range names {
+			if dockerEngines[name] {
+				return name
+			}
+		}
 	}
 	for _, m := range aptSimInstall.FindAllStringSubmatch(out, -1) {
 		if dockerEngines[m[1]] {
@@ -465,9 +477,7 @@ func (h *Handler) dockerEngineOnPVE(name string) string {
 
 // failDockerOnPVE refuses to put a Docker engine on a Proxmox VE host.
 func failDockerOnPVE(c echo.Context, engine string) error {
-	return response.FailWith(c, http.StatusConflict, response.ErrDockerOnPVE,
-		"Docker is not installed on a Proxmox VE host ("+engine+"): its FORWARD DROP policy can cut the guests off the network. Install it in a VM or LXC container.",
-		map[string]string{"package": engine})
+	return dockerOnPVERefusal(engine).write(c)
 }
 
 // ---------- RemovePackage ----------
