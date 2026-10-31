@@ -418,8 +418,9 @@ func unitRunning(state string) bool {
 // the exit marker on its log's last line says; without a marker it was
 // interrupted: the command did not get to say how it ended, which is not a
 // success. A job that ran inside the panel — no unit — was interrupted when
-// the panel stopped. A job waiting on its reboot is left for the boot-ID
-// check. Then the old jobs are swept. Runners are registered first.
+// the panel stopped. A job waiting on its reboot succeeded once this is
+// another boot, and is waited on again otherwise (recoverRebooting). Then
+// the old jobs are swept. Runners are registered first.
 func (h *Handler) Recover() {
 	rows, err := h.DB.Query(`SELECT `+recordColumns+` FROM task_jobs WHERE status = ?`, tasks.JobRunning)
 	if err != nil {
@@ -464,6 +465,7 @@ func (h *Handler) Recover() {
 			logger.Error("settling a job left running", "id", id, "error", err)
 		}
 	}
+	h.recoverRebooting()
 	if err := h.sweep(); err != nil {
 		logger.Warn("sweeping old jobs", "error", err)
 	}

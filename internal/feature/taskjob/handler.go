@@ -38,6 +38,9 @@ import (
 // transactions' logs.
 const DefaultLogDir = "/var/log/sfpanel/task-jobs"
 
+// DefaultBootIDPath is where the kernel says which boot this is.
+const DefaultBootIDPath = "/proc/sys/kernel/random/boot_id"
+
 // idPattern is a job ID: the run ID (UTC time and six hex digits), then the
 // step's index, counted from 0.
 var idPattern = regexp.MustCompile(`^[0-9]{8}-[0-9]{6}-[0-9a-f]{6}-[0-9]{1,2}$`)
@@ -66,6 +69,20 @@ type Resumer interface {
 	Resume(ctx context.Context, job *Job) error
 }
 
+// Refuser is a Runner that turns some steps away before a job is recorded,
+// with the HTTP status and code POST /task-jobs answers: a refusal the
+// engine reads as such, not as a step that ran and failed.
+type Refuser interface {
+	Refuse(spec tasks.JobSpec) *Refusal
+}
+
+// Refusal is a step a Refuser turned away.
+type Refusal struct {
+	Status  int
+	Code    string
+	Message string
+}
+
 // Handler serves /api/v1/task-jobs.
 type Handler struct {
 	DB  *sql.DB
@@ -75,6 +92,10 @@ type Handler struct {
 	// Platform says what kind of host this is, for runners whose guards
 	// differ on Proxmox VE.
 	Platform func() platform.Info
+	// Compose is the compose module, for stack steps.
+	Compose StackRunner
+	// BootIDPath is where the kernel says which boot this is.
+	BootIDPath string
 
 	now     func() time.Time
 	bootID  func() string
@@ -89,16 +110,18 @@ type Handler struct {
 
 // New returns a Handler for the step kinds this node runs.
 func New(db *sql.DB, cmd exec.Commander, logDir string, platformInfo func() platform.Info) *Handler {
-	return &Handler{
-		DB:       db,
-		Cmd:      cmd,
-		LogDir:   logDir,
-		Platform: platformInfo,
-		now:      time.Now,
-		bootID:   readBootID,
-		runners:  map[string]Runner{},
-		cancels:  map[string]context.CancelFunc{},
+	h := &Handler{
+		DB:         db,
+		Cmd:        cmd,
+		LogDir:     logDir,
+		Platform:   platformInfo,
+		BootIDPath: DefaultBootIDPath,
+		now:        time.Now,
+		runners:    map[string]Runner{},
+		cancels:    map[string]context.CancelFunc{},
 	}
+	h.bootID = h.readBootID
+	return h
 }
 
 // Register makes r the runner of kind's steps. Runners are registered
@@ -122,9 +145,10 @@ func (h *Handler) launch(job *Job, fn func(ctx context.Context, job *Job) error)
 	}()
 }
 
-// readBootID is the kernel's ID for this boot, which a reboot changes.
-func readBootID() string {
-	b, err := os.ReadFile("/proc/sys/kernel/random/boot_id")
+// readBootID is the kernel's ID for this boot, which a reboot changes; ""
+// when it cannot be read.
+func (h *Handler) readBootID() string {
+	b, err := os.ReadFile(h.BootIDPath)
 	if err != nil {
 		return ""
 	}
@@ -143,8 +167,9 @@ func refuseNotCluster(c echo.Context) error {
 
 // StartJob starts a job: POST /task-jobs with a tasks.JobSpec. 201 and the
 // job for a new ID; 200 and the job that is there for an ID the node has;
-// 409 TASK_NODE_BUSY while another job holds the node. The runner goes on
-// after the answer.
+// 409 TASK_NODE_BUSY while another job holds the node; the refusal of a
+// runner that turns the step away (Refuser), before anything is recorded.
+// The runner goes on after the answer.
 func (h *Handler) StartJob(c echo.Context) error {
 	if !auth.IsInternalProxyRequest(c.Request()) {
 		return refuseNotCluster(c)
@@ -169,6 +194,12 @@ func (h *Handler) StartJob(c echo.Context) error {
 		h.startMu.Unlock()
 		logger.Error("reading a job", "id", spec.ID, "error", err)
 		return response.Fail(c, http.StatusInternalServerError, response.ErrDBError, "Could not read the node's jobs")
+	}
+	if refuser, ok := runner.(Refuser); ok {
+		if ref := refuser.Refuse(spec); ref != nil {
+			h.startMu.Unlock()
+			return response.Fail(c, ref.Status, ref.Code, ref.Message)
+		}
 	}
 	if holder, err := h.active(); err != nil {
 		h.startMu.Unlock()

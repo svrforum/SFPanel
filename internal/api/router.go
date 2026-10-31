@@ -687,11 +687,18 @@ func NewRouter(database *sql.DB, auditWriter *sfdb.AsyncWriter, alertManager *fe
 	// here as a job. Managers and agents both serve it, to signed cluster
 	// calls only (the handlers check), and no manager relays it for ?node=
 	// (ClusterProxyMiddleware). Command and packages steps run in units of
-	// their own; the jobs the last process left running are taken back, or
-	// settled, once the runners are registered.
+	// their own; service, file and stack steps go through the guards of the
+	// Services page, the file manager and the compose endpoints; a reboot
+	// waits for the next boot. The jobs the last process left running are
+	// taken back, or settled, once the runners are registered.
 	taskJobHandler := featureTaskJob.New(database, cmd, featureTaskJob.DefaultLogDir, platform.Get)
+	taskJobHandler.Compose = composeManager
 	taskJobHandler.Register(tasks.StepCommand, featureTaskJob.NewCommandRunner(cmd))
 	taskJobHandler.Register(tasks.StepPackages, featureTaskJob.NewPackageRunner(packagesHandler, cmd))
+	taskJobHandler.Register(tasks.StepService, featureTaskJob.NewServiceRunner(cmd, platform.Get))
+	taskJobHandler.Register(tasks.StepFile, featureTaskJob.FileRunner{})
+	taskJobHandler.Register(tasks.StepStack, featureTaskJob.StackStepRunner{})
+	taskJobHandler.Register(tasks.StepReboot, featureTaskJob.NewRebootRunner(cmd, platform.Get))
 	taskJobHandler.Recover()
 	taskJobs := authorized.Group("/task-jobs")
 	taskJobs.POST("", taskJobHandler.StartJob)

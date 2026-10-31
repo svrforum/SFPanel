@@ -116,7 +116,10 @@ func (m *ComposeManager) removeProjectDir(dir string) error {
 	return os.RemoveAll(dir)
 }
 
-func (m *ComposeManager) validateProjectName(name string) error {
+// ValidateProjectName is the stack-name rule every project call applies,
+// without the check against the stacks directory: a task job's stack step
+// refuses a name for the reason CreateProject would.
+func ValidateProjectName(name string) error {
 	if name == "" || !validProjectName.MatchString(name) {
 		return fmt.Errorf("invalid project name %q", name)
 	}
@@ -126,6 +129,13 @@ func (m *ComposeManager) validateProjectName(name string) error {
 	// "<x>"). Refusing them at the door keeps that namespace unambiguous.
 	if strings.HasPrefix(name, ".") || strings.HasSuffix(name, ".migbak") {
 		return fmt.Errorf("invalid project name %q: reserved", name)
+	}
+	return nil
+}
+
+func (m *ComposeManager) validateProjectName(name string) error {
+	if err := ValidateProjectName(name); err != nil {
+		return err
 	}
 	resolved := filepath.Clean(filepath.Join(m.baseDir, name))
 	if !strings.HasPrefix(resolved, filepath.Clean(m.baseDir)+string(filepath.Separator)) {

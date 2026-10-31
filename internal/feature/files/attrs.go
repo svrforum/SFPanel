@@ -209,6 +209,14 @@ func parseFileMode(raw string) (os.FileMode, error) {
 	return mode.Perm(), nil
 }
 
+// ParseFileMode is parseFileMode for a task job's file step: the mode rule
+// the chmod endpoint applies, so both accept and refuse the same modes.
+func ParseFileMode(raw string) (os.FileMode, error) { return parseFileMode(raw) }
+
+// ResolveOwner is resolveOwner for a task job's file step: the chown
+// endpoint's reading of a user and a group, by name or by number.
+func ResolveOwner(userRef, groupRef string) (int, int, error) { return resolveOwner(userRef, groupRef) }
+
 // resolveOwner turns a user and group — by name or by number — into ids.
 // An empty field means "leave this one alone", which chown expresses as -1.
 func resolveOwner(userRef, groupRef string) (int, int, error) {

@@ -525,6 +525,13 @@ const (
 	// stop without force: by default a job runs to its end, so an apt run is
 	// never cut off half-way.
 	ErrTaskJobRunning = "TASK_JOB_RUNNING"
+	// ErrTaskRebootPVEHost is returned (HTTP 409) when a reboot step is sent
+	// to a Proxmox VE host: the panel does not know the guests running on it,
+	// so it does not reboot one. The engine shows the step as skipped.
+	ErrTaskRebootPVEHost = "TASK_REBOOT_PVE_HOST"
+	// ErrTaskRebootUnsupported is returned (HTTP 409) when a reboot step is
+	// sent to a node without systemd, which has nothing to schedule it with.
+	ErrTaskRebootUnsupported = "TASK_REBOOT_UNSUPPORTED"
 )
 
 // File manager error codes
