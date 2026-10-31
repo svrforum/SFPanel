@@ -10,7 +10,7 @@ import (
 // Busy is what is under way on this leader as a start is judged: a cluster
 // update, a CA rotation, and a conversion from the moment it is admitted
 // until it has been answered.
-type Busy struct{ UpdateRunning, CARotation, Converting bool }
+type Busy struct{ UpdateRunning, CARotation, Converting, Promoting bool }
 
 // StartGate runs claim under startMu with what is under way filled in, and
 // returns its refusal. A group task run is judged and recorded only here:
@@ -22,7 +22,7 @@ type Busy struct{ UpdateRunning, CARotation, Converting bool }
 func (h *Handler) StartGate(claim func(b Busy) error) error {
 	h.startMu.Lock()
 	defer h.startMu.Unlock()
-	b := Busy{UpdateRunning: h.updateRunning.Load(), Converting: h.converting.Load()}
+	b := Busy{UpdateRunning: h.updateRunning.Load(), Converting: h.converting.Load(), Promoting: h.promoting.Load()}
 	if mgr := h.getManager(); mgr != nil {
 		b.CARotation = mgr.CARotationActive()
 	}

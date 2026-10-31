@@ -275,6 +275,32 @@ func TestAStartGateSeesAConversionUnderWay(t *testing.T) {
 	}
 }
 
+// StartGate tells a claim a promotion is under way from the moment it is
+// admitted until it has been answered: the agent restarts as a manager, which
+// a task run's steps must not meet.
+func TestAStartGateSeesAPromotionUnderWay(t *testing.T) {
+	mgr := tokenLeader(t)
+	promotable(t, mgr)
+	inPromotion := make(chan Busy, 1)
+	h := &Handler{Manager: mgr}
+	h.callNode = func(context.Context, string, string, string, []byte, string) (int, []byte, error) {
+		// The agent is being asked: the promotion is under way.
+		_ = h.StartGate(func(b Busy) error { inPromotion <- b; return nil })
+		return http.StatusAccepted, []byte(`{"success":true,"data":{"message":"joining"}}`), nil
+	}
+	if status, code, msg := postPromote(t, h, "a1"); status != http.StatusAccepted {
+		t.Fatalf("promote: %d %s %q", status, code, msg)
+	}
+	if b := <-inPromotion; b != (Busy{Promoting: true}) {
+		t.Fatalf("during a promotion the gate saw %+v", b)
+	}
+	var after Busy
+	_ = h.StartGate(func(b Busy) error { after = b; return nil })
+	if after.Promoting {
+		t.Fatal("the answered promotion is still seen as under way")
+	}
+}
+
 // StartGate tells a claim a CA rotation is under way, and the claim's refusal
 // is StartGate's.
 func TestAStartGateSeesACARotationAndReturnsTheClaimsRefusal(t *testing.T) {

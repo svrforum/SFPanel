@@ -118,8 +118,10 @@ type Handler struct {
 	// take the other's record away. See ConvertNode.
 	convertMu sync.Mutex
 	// converting is true while a conversion admitted under startMu has not
-	// been answered, so a task run's gate sees it (Busy.Converting).
+	// been answered, so a task run's gate sees it (Busy.Converting);
+	// promoting the same for a promotion (Busy.Promoting).
 	converting atomic.Bool
+	promoting  atomic.Bool
 	// callNode sends a request to another node's panel; nil is the manager's
 	// ProxyToNode. Tests replace it.
 	callNode func(ctx context.Context, nodeID, method, path string, body []byte, username string) (int, []byte, error)
@@ -1743,12 +1745,17 @@ func (h *Handler) PromoteNode(c echo.Context) error {
 		return response.Fail(c, http.StatusBadRequest, response.ErrInvalidRequest, "Node ID required")
 	}
 	// Not under a group task run's steps: the agent restarts as a manager.
+	// The check and the mark are one step under startMu, as a conversion's.
 	h.startMu.Lock()
 	runID := h.taskRunActive()
+	if runID == "" {
+		h.promoting.Store(true)
+	}
 	h.startMu.Unlock()
 	if runID != "" {
 		return failTaskRunActive(c, "promotion", runID)
 	}
+	defer h.promoting.Store(false)
 
 	// What the node joins with, settled before anything is made for it.
 	caKey, err := mgr.CAPublicKey()
