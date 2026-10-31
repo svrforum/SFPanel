@@ -34,6 +34,11 @@ func TestAnAdvancedInstallOnAnAgentIsReauthenticatedOnTheManager(t *testing.T) {
 		t.Fatal(err)
 	}
 	t.Cleanup(mgr.Shutdown)
+	// Init starts the manager's probe of its agents. One that ran after a1
+	// exists would find nothing at a1's gRPC address and have the relay
+	// refused as unreachable; ended before a1 exists, the next is a minute
+	// away (reachInterval).
+	mgr.SetReachForTest(t, nil, time.Time{})
 	auth.SetProxySecrets("managers-secret", []string{"managers-secret"})
 
 	var mu sync.Mutex
