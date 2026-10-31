@@ -712,6 +712,10 @@ func newUnreachableFixture(t *testing.T) unreachableFixture {
 		t.Fatal(err)
 	}
 	t.Cleanup(mgr.Shutdown)
+	// Init starts the manager's probe of its agents, which dials each one.
+	// Ended before the agent exists, it does not count as a relay's dial, and
+	// the next is a minute away (reachInterval).
+	mgr.SetReachForTest(t, nil, time.Time{})
 	auth.SetProxySecrets("managers-secret", []string{"managers-secret"})
 
 	panel := newAgentPanel(true)
