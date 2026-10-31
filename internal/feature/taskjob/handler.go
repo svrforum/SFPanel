@@ -56,6 +56,16 @@ type Runner interface {
 	Check(spec tasks.JobSpec) tasks.CheckVerdict
 }
 
+// Resumer is a Runner whose jobs run in a systemd unit, which a panel
+// restart does not stop. At boot Recover hands it each job of its kind the
+// last process left running in one (job.Unit), to watch again as Start
+// would have — or, when the unit ended while no panel watched it, to say
+// how it ended. ctx ends when the job is cancelled with force; an error
+// finishes the job failed.
+type Resumer interface {
+	Resume(ctx context.Context, job *Job) error
+}
+
 // Handler serves /api/v1/task-jobs.
 type Handler struct {
 	DB  *sql.DB
@@ -89,6 +99,27 @@ func New(db *sql.DB, cmd exec.Commander, logDir string, platformInfo func() plat
 		runners:  map[string]Runner{},
 		cancels:  map[string]context.CancelFunc{},
 	}
+}
+
+// Register makes r the runner of kind's steps. Runners are registered
+// before Recover, which hands a Resumer the jobs of its kind.
+func (h *Handler) Register(kind string, r Runner) { h.runners[kind] = r }
+
+// launch runs fn, a runner's Start or Resume, under a context a forced
+// cancel ends. An error from it finishes the job failed.
+func (h *Handler) launch(job *Job, fn func(ctx context.Context, job *Job) error) {
+	ctx, cancel := context.WithCancel(context.Background())
+	h.cancelMu.Lock()
+	h.cancels[job.Spec.ID] = cancel
+	h.cancelMu.Unlock()
+	go func() {
+		if err := fn(ctx, job); err != nil {
+			logger.Warn("task job did not run", "id", job.Spec.ID, "error", err)
+			if ferr := job.Finish(Result{Status: tasks.JobFailed, Summary: response.SanitizeOutput(err.Error())}); ferr != nil {
+				logger.Error("recording a job's end", "id", job.Spec.ID, "error", ferr)
+			}
+		}
+	}()
 }
 
 // readBootID is the kernel's ID for this boot, which a reboot changes.
@@ -161,25 +192,14 @@ func (h *Handler) StartJob(c echo.Context) error {
 		logger.Error("recording a job", "id", spec.ID, "error", err)
 		return response.Fail(c, http.StatusInternalServerError, response.ErrDBError, "Could not record the job")
 	}
-	ctx, cancel := context.WithCancel(context.Background())
-	h.cancelMu.Lock()
-	h.cancels[spec.ID] = cancel
-	h.cancelMu.Unlock()
+	job := &Job{Spec: spec, LogPath: h.logPath(spec.ID), StartedAt: rec.startedAt, h: h}
+	h.launch(job, runner.Start)
 	h.startMu.Unlock()
 
 	if err := h.sweep(); err != nil {
 		logger.Warn("sweeping old jobs", "error", err)
 	}
 	logger.Info("task job started", "id", spec.ID, "task", spec.Task, "kind", spec.Kind, "user", username)
-	job := &Job{Spec: spec, LogPath: h.logPath(spec.ID), StartedAt: rec.startedAt, h: h}
-	go func() {
-		if err := runner.Start(ctx, job); err != nil {
-			logger.Warn("task job did not start", "id", spec.ID, "error", err)
-			if ferr := job.Finish(Result{Status: tasks.JobFailed, Summary: response.SanitizeOutput(err.Error())}); ferr != nil {
-				logger.Error("recording a job's end", "id", spec.ID, "error", ferr)
-			}
-		}
-	}()
 	return c.JSON(http.StatusCreated, response.Response{Success: true, Data: h.view(rec, 0, false)})
 }
 

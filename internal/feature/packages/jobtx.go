@@ -35,6 +35,10 @@ func (r *Refusal) write(c echo.Context) error {
 	return response.FailWith(c, r.Status, r.Code, r.Message, r.Details)
 }
 
+// ValidPackageName is the rule the endpoints check a package name by, for a
+// task job's verdict before a run.
+func ValidPackageName(name string) bool { return validatePackageName(name) }
+
 // ErrNoTransaction is JobTransaction asked about a transaction there is no
 // record of.
 var ErrNoTransaction = errors.New("no such package transaction")
@@ -87,7 +91,8 @@ func dockerOnPVERefusal(engine string) *Refusal {
 //   - "install": every named package in one apt-get install;
 //   - "remove": every named package in one apt-get remove.
 //
-// update refreshes the lists first, as the Packages page's upgrade does.
+// update refreshes the lists first, as the Packages page's upgrade does. apt
+// runs in the C locale, so ChangedPackages can read its summary.
 // What the endpoints refuse is refused here for the same reason, as a
 // *Refusal: a name apt-get could read as a flag, a transaction already
 // running, dpkg held by something else, and on a Proxmox VE host an install
@@ -136,6 +141,7 @@ func (h *Handler) StartJobTransaction(kind string, packages []string, update boo
 		}
 		return "", fmt.Errorf("start the package transaction: %w", err)
 	}
+	tx.cLocale = true
 	go h.runTx(tx, update)
 	return tx.id, nil
 }

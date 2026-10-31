@@ -243,3 +243,32 @@ func TestChangedPackagesReadsTheAptSummary(t *testing.T) {
 		t.Errorf("a missing log: %d %v, want 0 false", n, ok)
 	}
 }
+
+// A task job reads what its transaction changed from apt's summary line,
+// which apt translates: the job's apt runs in the C locale. The Packages
+// page's own transactions keep the host's language, which the operator
+// reads.
+func TestAJobsTransactionRunsInTheCLocaleAndThePagesDoesNot(t *testing.T) {
+	h, f, _ := txSetup(t, false)
+	if _, err := h.StartJobTransaction("install", []string{"htop"}, false); err != nil {
+		t.Fatal(err)
+	}
+	settle(t, h)
+	if args := f.calls("systemd-run")[0].Args; !slices.Contains(args, "--setenv=LC_ALL=C") {
+		t.Errorf("a job's unit runs %q, want --setenv=LC_ALL=C", args)
+	}
+
+	h, f, _ = txSetup(t, false)
+	tx, err := h.beginTx(txInstall, []string{"htop"}, installArgv("htop"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	h.runTx(tx, false)
+	args := f.calls("systemd-run")[0].Args
+	if slices.ContainsFunc(args, func(a string) bool { return strings.HasPrefix(a, "--setenv=LC_ALL") }) {
+		t.Errorf("the page's unit runs %q, want the host's language", args)
+	}
+	if !slices.Contains(args, "--setenv=DEBIAN_FRONTEND=noninteractive") {
+		t.Errorf("the page's unit runs %q, want DEBIAN_FRONTEND still set", args)
+	}
+}

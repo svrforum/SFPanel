@@ -71,7 +71,10 @@ type Job struct {
 	// runner starts. The runner writes to it, or points a unit at it.
 	LogPath   string
 	StartedAt time.Time
-	h         *Handler
+	// Unit is the systemd unit the job runs in, once the runner has said
+	// (SetUnit); a job resumed at boot has it from its record.
+	Unit string
+	h    *Handler
 }
 
 // Result is how a job ended.
@@ -86,6 +89,19 @@ type Result struct {
 // job that is already over keeps the end it has.
 func (j *Job) Finish(r Result) error { return j.h.finish(j.Spec.ID, r) }
 
+// SetUnit records the systemd unit the job runs in: a panel that restarts
+// asks systemd about it, and hands the job back to its Resumer.
+func (j *Job) SetUnit(unit string) error {
+	if _, err := j.h.DB.Exec(`UPDATE task_jobs SET unit = ? WHERE id = ?`, unit, j.Spec.ID); err != nil {
+		return err
+	}
+	j.Unit = unit
+	return nil
+}
+
+// Now is the time on the node's clock.
+func (j *Job) Now() time.Time { return j.h.now() }
+
 // active reports whether a job in status holds the node.
 func active(status string) bool {
 	return status == tasks.JobRunning || status == tasks.JobRebooting
@@ -94,6 +110,9 @@ func active(status string) bool {
 func formatTime(t time.Time) string { return t.UTC().Format(timeLayout) }
 
 func (h *Handler) logPath(id string) string { return filepath.Join(h.LogDir, id+".log") }
+
+// scriptPath is where a command job's script is written, beside its log.
+func scriptPath(logPath string) string { return strings.TrimSuffix(logPath, ".log") + ".sh" }
 
 // createLog creates the job's empty output file, and the directory for it.
 func (h *Handler) createLog(id string) error {
@@ -230,6 +249,11 @@ func (h *Handler) sweep() error {
 		if err := os.Remove(h.logPath(id)); err != nil && !errors.Is(err, os.ErrNotExist) {
 			logger.Warn("removing an old job's log", "id", id, "error", err)
 			continue
+		}
+		// A command job removes its script when it ends; one the panel
+		// stopped under may have left it.
+		if err := os.Remove(scriptPath(h.logPath(id))); err != nil && !errors.Is(err, os.ErrNotExist) {
+			logger.Warn("removing an old job's script", "id", id, "error", err)
 		}
 		if _, err := h.DB.Exec(`DELETE FROM task_jobs WHERE id = ?`, id); err != nil {
 			return err
@@ -388,12 +412,14 @@ func unitRunning(state string) bool {
 }
 
 // Recover settles, at boot, the jobs the last process left running. A job in
-// a unit systemd still runs stays running. One whose unit is gone ended as
-// the exit marker on its log's last line says, and without a marker it was
+// a unit, of a kind whose runner is a Resumer, goes back to the runner, which
+// watches the unit again or reads how it ended. For another kind, a job in a
+// unit systemd still runs stays running, and one whose unit is gone ended as
+// the exit marker on its log's last line says; without a marker it was
 // interrupted: the command did not get to say how it ended, which is not a
 // success. A job that ran inside the panel — no unit — was interrupted when
 // the panel stopped. A job waiting on its reboot is left for the boot-ID
-// check. Then the old jobs are swept.
+// check. Then the old jobs are swept. Runners are registered first.
 func (h *Handler) Recover() {
 	rows, err := h.DB.Query(`SELECT `+recordColumns+` FROM task_jobs WHERE status = ?`, tasks.JobRunning)
 	if err != nil {
@@ -413,6 +439,11 @@ func (h *Handler) Recover() {
 
 	for _, r := range running {
 		id := r.spec.ID
+		if resumer, ok := h.runners[r.spec.Kind].(Resumer); ok && r.unit != "" {
+			logger.Info("task job taken back after a restart", "id", id, "unit", r.unit)
+			h.launch(&Job{Spec: r.spec, LogPath: h.logPath(id), StartedAt: r.startedAt, Unit: r.unit, h: h}, resumer.Resume)
+			continue
+		}
 		res := Result{Status: tasks.JobInterrupted, Summary: "the panel stopped while the job ran"}
 		if r.unit != "" {
 			out, _ := h.Cmd.RunWithTimeout(systemctlTimeout, "systemctl", "is-active", r.unit)

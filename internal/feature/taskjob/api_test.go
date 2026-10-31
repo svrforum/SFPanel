@@ -83,6 +83,7 @@ type testNode struct {
 	e      *echo.Echo
 	runner *fakeRunner
 	clock  *time.Time
+	proc   *proc // the process its real runners run in, when they do
 }
 
 func newTestNode(t *testing.T) *testNode {

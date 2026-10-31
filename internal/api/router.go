@@ -46,6 +46,7 @@ import (
 	featureTaskJob "github.com/svrforum/SFPanel/internal/feature/taskjob"
 	featureTerminal "github.com/svrforum/SFPanel/internal/feature/terminal"
 	featureWS "github.com/svrforum/SFPanel/internal/feature/websocket"
+	"github.com/svrforum/SFPanel/internal/tasks"
 )
 
 // healthHandler reports readiness (not just liveness): 200 when the SQLite
@@ -685,9 +686,12 @@ func NewRouter(database *sql.DB, auditWriter *sfdb.AsyncWriter, alertManager *fe
 	// A node's half of a group task: the leader's engine starts each step
 	// here as a job. Managers and agents both serve it, to signed cluster
 	// calls only (the handlers check), and no manager relays it for ?node=
-	// (ClusterProxyMiddleware). Jobs the last process left running are
-	// settled first.
+	// (ClusterProxyMiddleware). Command and packages steps run in units of
+	// their own; the jobs the last process left running are taken back, or
+	// settled, once the runners are registered.
 	taskJobHandler := featureTaskJob.New(database, cmd, featureTaskJob.DefaultLogDir, platform.Get)
+	taskJobHandler.Register(tasks.StepCommand, featureTaskJob.NewCommandRunner(cmd))
+	taskJobHandler.Register(tasks.StepPackages, featureTaskJob.NewPackageRunner(packagesHandler, cmd))
 	taskJobHandler.Recover()
 	taskJobs := authorized.Group("/task-jobs")
 	taskJobs.POST("", taskJobHandler.StartJob)

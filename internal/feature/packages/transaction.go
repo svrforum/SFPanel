@@ -109,6 +109,10 @@ type aptTx struct {
 	argv      []string // the apt-get command line; empty for one found running
 	command   string
 	startedAt time.Time
+	// cLocale runs apt in the C locale, for a task job: the job reads what
+	// changed from apt's summary line, which apt translates. The page's own
+	// transactions keep the host's language, which the operator reads.
+	cLocale bool
 
 	mu       sync.Mutex
 	running  bool
@@ -570,11 +574,19 @@ func unitArgv(tx *aptTx) []string {
 		"-p", "StandardOutput=append:" + tx.logPath(),
 		"-p", "StandardError=inherit",
 	}
-	for _, kv := range exec.AptEnv() {
+	for _, kv := range tx.env() {
 		argv = append(argv, "--setenv="+kv)
 	}
 	argv = append(argv, "--", "/bin/sh", "-c", txScript, "sh")
 	return append(argv, tx.argv...)
+}
+
+// env is the environment tx's apt runs with, beyond its unit's own.
+func (tx *aptTx) env() []string {
+	if tx.cLocale {
+		return exec.AptParseEnv()
+	}
+	return exec.AptEnv()
 }
 
 // launchDirect runs the transaction as the panel's own child, on a host with
@@ -587,7 +599,7 @@ var launchDirect = func(tx *aptTx) (func(), error) {
 		return nil, err
 	}
 	cmd := osExec.Command("/bin/sh", append([]string{"-c", txScript, "sh"}, tx.argv...)...)
-	cmd.Env = append(os.Environ(), exec.AptEnv()...)
+	cmd.Env = append(os.Environ(), tx.env()...)
 	cmd.Stdout, cmd.Stderr = f, f
 	if err := cmd.Start(); err != nil {
 		f.Close()
