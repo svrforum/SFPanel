@@ -328,6 +328,27 @@ func (m *Manager) preferLeader() (target string, reason string) {
 	if target == "" {
 		return "", reason
 	}
+	// The probe that says this leader misses an agent may be a minute old,
+	// and an agent that was down then — restarting, say — is reached first
+	// by whichever manager probes once it is back. Probe again before handing
+	// over, so a manager that only probed later does not take the role.
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	safe.Go("cluster-agent-reach-confirm-stop", func() {
+		select {
+		case <-m.heartbeat.Done():
+			cancel()
+		case <-ctx.Done():
+		}
+	})
+	fresh := m.probeAgents(ctx)
+	if ctx.Err() != nil {
+		return "", "stopping"
+	}
+	in.Reach[m.nodeID] = reachedBy(&fresh, time.Now())
+	if target, reason = choosePreferredLeader(in); target == "" {
+		return "", reason
+	}
 	// Recorded whether it works or not: a hand-over that fails is tried
 	// again after the cooldown, not on every tick.
 	m.preferMu.Lock()

@@ -1,6 +1,9 @@
 package cluster
 
 import (
+	"context"
+	"errors"
+	"net"
 	"strings"
 	"testing"
 	"time"
@@ -100,6 +103,8 @@ func preferScenario(t *testing.T) (leader, reaches *Manager) {
 		t.Fatal(err)
 	}
 	leader.reach.Store(&reachResult{Agents: map[string]bool{"a1": false}, At: time.Now()})
+	// Probed again before a hand-over, a1 still does not answer the leader.
+	leader.reachDial = refusingDial
 	for _, m := range mgrs {
 		switch {
 		case m == leader:
@@ -128,6 +133,34 @@ func TestALeaderThatCannotReachAnAgentHandsOver(t *testing.T) {
 	leader.preferMu.Unlock()
 	if last.IsZero() {
 		t.Fatal("the hand-over was not recorded: the next tick could hand over again at once")
+	}
+}
+
+// refusingDial is an agent that does not answer.
+func refusingDial(ctx context.Context, network, addr string) (net.Conn, error) {
+	return nil, errors.New("connection refused")
+}
+
+// answeringDial is an agent that answers.
+func answeringDial(ctx context.Context, network, addr string) (net.Conn, error) {
+	c, s := net.Pipe()
+	_ = s.Close()
+	return c, nil
+}
+
+// The probe that says the leader misses an agent can be a minute old, and an
+// agent that was down then — restarting, say — is reached first by whichever
+// manager probes once it is back. The leader probes again before it hands
+// over, and keeps its role when it reaches every agent after all.
+func TestALeaderThatReachesTheAgentAgainKeepsItsRole(t *testing.T) {
+	leader, _ := preferScenario(t)
+	leader.reachDial = answeringDial
+	if target, reason := leader.preferLeader(); target != "" || reason != "reaches every agent" {
+		t.Fatalf("preferLeader = %q, %q; want no target, reaches every agent", target, reason)
+	}
+	time.Sleep(time.Second)
+	if !leader.raft.IsLeader() {
+		t.Fatal("the leader handed over on a probe from before the agent came back")
 	}
 }
 
