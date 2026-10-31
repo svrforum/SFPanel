@@ -570,6 +570,7 @@ type clusterOverviewEnvelope struct {
 			APIAddress  string `json:"api_address"`
 			GRPCAddress string `json:"grpc_address"`
 			Role        string `json:"role"`
+			Kind        string `json:"kind"`
 		} `json:"nodes"`
 	} `json:"data"`
 }
@@ -685,16 +686,24 @@ func clusterList(args []string) {
 		"NODE ID", "NAME", "ROLE", "STATUS", "API", "GRPC")
 	fmt.Println(strings.Repeat("-", 130))
 	for _, n := range env.Data.Nodes {
-		role := "follower"
-		if n.ID == leaderID {
-			role = "LEADER"
-		} else if n.Role == "nonvoter" {
-			role = "nonvoter"
-		}
 		fmt.Printf("%-38s  %-22s  %-9s  %-8s  %-22s  %-22s\n",
-			n.ID, truncate(n.Name, 22), role, n.Status,
+			n.ID, truncate(n.Name, 22), listRole(n.ID, leaderID, n.Kind, n.Role), n.Status,
 			truncate(n.APIAddress, 22), truncate(n.GRPCAddress, 22))
 	}
+}
+
+// listRole is a member's ROLE in 'cluster list'. An agent has no Raft role:
+// it is named for what it is, not as a follower.
+func listRole(id, leaderID, kind, raftRole string) string {
+	switch {
+	case id == leaderID:
+		return "LEADER"
+	case kind == "agent":
+		return "agent"
+	case raftRole == "nonvoter":
+		return "nonvoter"
+	}
+	return "follower"
 }
 
 // clusterLeaderTransfer asks the current leader to hand off to the target.

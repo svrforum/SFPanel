@@ -320,3 +320,19 @@ func TestCallLocalAPITakesEverySuccess(t *testing.T) {
 		t.Fatalf("409: %v", err)
 	}
 }
+
+// An agent has no Raft role, and 'cluster list' called every member that was
+// not the leader a follower: a converted node read as a manager still voting.
+func TestClusterListNamesAnAgent(t *testing.T) {
+	for _, c := range []struct{ id, kind, raftRole, want string }{
+		{"l1", "", "voter", "LEADER"},
+		{"m2", "", "voter", "follower"},
+		{"m3", "manager", "voter", "follower"},
+		{"m4", "", "nonvoter", "nonvoter"},
+		{"a1", "agent", "", "agent"},
+	} {
+		if got := listRole(c.id, "l1", c.kind, c.raftRole); got != c.want {
+			t.Errorf("%s (kind %q, role %q): %q, want %q", c.id, c.kind, c.raftRole, got, c.want)
+		}
+	}
+}
