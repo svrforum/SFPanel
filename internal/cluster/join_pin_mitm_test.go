@@ -109,12 +109,24 @@ func (m *relayingMITM) PreFlight(ctx context.Context, req *pb.PreFlightRequest) 
 // its address, a join token and the pin its token page would print.
 func realLeader(t *testing.T) (*Manager, string, string, string) {
 	t.Helper()
+	return realLeaderWith(t, nil)
+}
+
+// realLeaderWith is realLeader with prepare, when given, run on the manager
+// before it starts — for what its goroutines read from then on.
+func realLeaderWith(t *testing.T, prepare func(*Manager)) (*Manager, string, string, string) {
+	t.Helper()
 	dir := t.TempDir()
 	port := freePortPair(t)
 	mgr := NewManager(&config.ClusterConfig{
 		DataDir: filepath.Join(dir, "raft"), CertDir: filepath.Join(dir, "certs"),
 		AdvertiseAddress: "127.0.0.1", GRPCPort: port, APIPort: 1,
 	})
+	// No interfaces of the host running the tests reach a node record.
+	mgr.listIfaceAddrs = noIfaces
+	if prepare != nil {
+		prepare(mgr)
+	}
 	if err := mgr.Init("victim"); err != nil {
 		t.Fatal(err)
 	}

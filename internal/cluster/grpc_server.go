@@ -632,6 +632,9 @@ func (s *GRPCServer) serveHeartbeat(stream grpc.BidiStreamingServer[pb.Heartbeat
 				// What a re-rotation of the managers' secret goes by; only a
 				// manager's means anything.
 				ProxyGeneration: result.ping.ProxyGeneration,
+				// Written into the node record by the leader's tick
+				// (syncNodeAddresses), not here on every ping.
+				Addresses: result.ping.Addresses,
 			}, !counted)
 			counted = true
 			// The ping's time is the sender's clock, in seconds — a manager's

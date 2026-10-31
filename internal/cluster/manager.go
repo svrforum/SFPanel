@@ -147,6 +147,11 @@ type Manager struct {
 	// NewManager sets localIfaceAddrs. A field, not a package variable, so a
 	// test running two managers in one process gives each its own host.
 	listIfaceAddrs func() ([]IfaceAddr, error)
+	// nodeAddrChangedAt is when each node's addresses last changed on this
+	// leader (SetNodeAddresses); nodeAddrMu guards it and orders the check
+	// against the write.
+	nodeAddrMu        sync.Mutex
+	nodeAddrChangedAt map[string]time.Time
 }
 
 // SetVersion sets the panel version for heartbeat reporting.
@@ -488,6 +493,7 @@ func (m *Manager) watchLeader() {
 				if err := m.MaybeAdvanceCARotation(); err != nil && !errors.Is(err, ErrNotLeader) {
 					slog.Warn("CA rotation step failed", "component", "cluster", "error", err)
 				}
+				m.syncNodeAddresses()
 			}
 			// Rising edge → (re)seed the CA into the replicated FSM. This is the
 			// self-healing migration path for existing clusters: seeding requires
@@ -2119,6 +2125,10 @@ func (m *Manager) StartLocalMetrics(collector MetricsCollector) {
 						// this node accepts, which a re-rotation's switch
 						// waits on.
 						ProxyGeneration: proto.Int64(m.ProxyGeneration()),
+						// Every address this manager is reached at, on
+						// every ping: the leader writes a change into this
+						// node's record (syncNodeAddresses).
+						Addresses: m.selfAddresses(),
 					}
 					// The JWT key generation this manager runs, reported
 					// only once something applies a new one.

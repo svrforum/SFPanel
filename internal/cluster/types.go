@@ -130,6 +130,10 @@ type NodeMetrics struct {
 	CATrustPins     []string `json:"-"`
 	CertCAPin       string   `json:"-"`
 	ProxyGeneration *int64   `json:"-"`
+	// Every IP the node reported it can be reached at (selfAddresses), which
+	// the leader writes into its node record (syncNodeAddresses); nil from an
+	// agent or an older manager.
+	Addresses []string `json:"-"`
 }
 
 // ClusterOverview aggregates metrics from all nodes.

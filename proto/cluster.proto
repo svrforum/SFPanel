@@ -116,6 +116,10 @@ message HeartbeatPing {
     // accepts (ProxyKey): the leader switches every manager to a new one
     // only once each of them accepts it.
     optional int64 proxy_generation = 12;
+    // Every IP a manager can be reached at, its advertised address first
+    // (selfAddresses). The leader keeps the node record in step
+    // (syncNodeAddresses). Empty from an agent or an older manager.
+    repeated string addresses = 13;
 }
 
 message HeartbeatPong {

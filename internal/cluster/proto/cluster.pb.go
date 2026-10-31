@@ -513,8 +513,12 @@ type HeartbeatPing struct {
 	// accepts (ProxyKey): the leader switches every manager to a new one
 	// only once each of them accepts it.
 	ProxyGeneration *int64 `protobuf:"varint,12,opt,name=proxy_generation,json=proxyGeneration,proto3,oneof" json:"proxy_generation,omitempty"`
-	unknownFields   protoimpl.UnknownFields
-	sizeCache       protoimpl.SizeCache
+	// Every IP a manager can be reached at, its advertised address first
+	// (selfAddresses). The leader keeps the node record in step
+	// (syncNodeAddresses). Empty from an agent or an older manager.
+	Addresses     []string `protobuf:"bytes,13,rep,name=addresses,proto3" json:"addresses,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
 }
 
 func (x *HeartbeatPing) Reset() {
@@ -629,6 +633,13 @@ func (x *HeartbeatPing) GetProxyGeneration() int64 {
 		return *x.ProxyGeneration
 	}
 	return 0
+}
+
+func (x *HeartbeatPing) GetAddresses() []string {
+	if x != nil {
+		return x.Addresses
+	}
+	return nil
 }
 
 type HeartbeatPong struct {
@@ -1967,7 +1978,7 @@ const file_proto_cluster_proto_rawDesc = "" +
 	"\anode_id\x18\x01 \x01(\tR\x06nodeId\"?\n" +
 	"\rLeaveResponse\x12\x18\n" +
 	"\asuccess\x18\x01 \x01(\bR\asuccess\x12\x14\n" +
-	"\x05error\x18\x02 \x01(\tR\x05error\"\x8a\x04\n" +
+	"\x05error\x18\x02 \x01(\tR\x05error\"\xa8\x04\n" +
 	"\rHeartbeatPing\x12\x17\n" +
 	"\anode_id\x18\x01 \x01(\tR\x06nodeId\x12\x1f\n" +
 	"\vcpu_percent\x18\x02 \x01(\x01R\n" +
@@ -1982,7 +1993,8 @@ const file_proto_cluster_proto_rawDesc = "" +
 	"\x0ejwt_generation\x18\n" +
 	" \x01(\x03H\x01R\rjwtGeneration\x88\x01\x01\x12\"\n" +
 	"\rca_trust_pins\x18\v \x03(\tR\vcaTrustPins\x12.\n" +
-	"\x10proxy_generation\x18\f \x01(\x03H\x02R\x0fproxyGeneration\x88\x01\x01B\x15\n" +
+	"\x10proxy_generation\x18\f \x01(\x03H\x02R\x0fproxyGeneration\x88\x01\x01\x12\x1c\n" +
+	"\taddresses\x18\r \x03(\tR\taddressesB\x15\n" +
 	"\x13_raft_applied_indexB\x11\n" +
 	"\x0f_jwt_generationB\x13\n" +
 	"\x11_proxy_generation\"\xba\x02\n" +

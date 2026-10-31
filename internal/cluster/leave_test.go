@@ -22,6 +22,13 @@ func joinedManager(t *testing.T, addr, token, pin string) *Manager {
 // apart from the leader where a cluster holds each address once.
 func joinedManagerAt(t *testing.T, addr, token, pin, ip string) *Manager {
 	t.Helper()
+	return joinedManagerWith(t, addr, token, pin, ip, nil)
+}
+
+// joinedManagerWith is joinedManagerAt with prepare, when given, run on the
+// manager before it starts — for what its goroutines read from then on.
+func joinedManagerWith(t *testing.T, addr, token, pin, ip string, prepare func(*Manager)) *Manager {
+	t.Helper()
 	dir := t.TempDir()
 	cfg := &config.Config{}
 	cfg.Server.Port = 1
@@ -31,6 +38,10 @@ func joinedManagerAt(t *testing.T, addr, token, pin, ip string) *Manager {
 	var mgr *Manager
 	e := &JoinEngine{Config: cfg, OnActivate: func(c *config.Config, _ string, _ *Manager) (*Manager, error) {
 		m := NewManager(&c.Cluster)
+		m.listIfaceAddrs = noIfaces
+		if prepare != nil {
+			prepare(m)
+		}
 		if err := m.Start(); err != nil {
 			return nil, err
 		}
@@ -52,6 +63,10 @@ func joinedManagerAt(t *testing.T, addr, token, pin, ip string) *Manager {
 	t.Cleanup(mgr.Shutdown)
 	return mgr
 }
+
+// noIfaces is a host with no interfaces beyond its advertised address, so a
+// test's managers record no Tailscale address of the machine running it.
+func noIfaces() ([]IfaceAddr, error) { return nil, nil }
 
 func waitUntil(t *testing.T, limit time.Duration, what string, cond func() bool) {
 	t.Helper()
