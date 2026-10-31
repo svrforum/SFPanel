@@ -1239,7 +1239,8 @@ type NodeInfo struct {
 	GrpcAddress   string                 `protobuf:"bytes,4,opt,name=grpc_address,json=grpcAddress,proto3" json:"grpc_address,omitempty"`
 	Role          string                 `protobuf:"bytes,5,opt,name=role,proto3" json:"role,omitempty"`
 	Status        string                 `protobuf:"bytes,6,opt,name=status,proto3" json:"status,omitempty"`
-	Kind          string                 `protobuf:"bytes,7,opt,name=kind,proto3" json:"kind,omitempty"` // "manager" or "agent"
+	Kind          string                 `protobuf:"bytes,7,opt,name=kind,proto3" json:"kind,omitempty"`           // "manager" or "agent"
+	Addresses     []string               `protobuf:"bytes,8,rep,name=addresses,proto3" json:"addresses,omitempty"` // every IP the node can be reached at; empty from an older node
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -1321,6 +1322,13 @@ func (x *NodeInfo) GetKind() string {
 		return x.Kind
 	}
 	return ""
+}
+
+func (x *NodeInfo) GetAddresses() []string {
+	if x != nil {
+		return x.Addresses
+	}
+	return nil
 }
 
 type RegisterAgentRequest struct {
@@ -1438,8 +1446,11 @@ type RegisterAgentResponse struct {
 	Managers          []*NodeInfo            `protobuf:"bytes,7,rep,name=managers,proto3" json:"managers,omitempty"`
 	ClusterName       string                 `protobuf:"bytes,8,opt,name=cluster_name,json=clusterName,proto3" json:"cluster_name,omitempty"`
 	LeaderGrpcAddress string                 `protobuf:"bytes,9,opt,name=leader_grpc_address,json=leaderGrpcAddress,proto3" json:"leader_grpc_address,omitempty"` // set when the answering manager is not the leader
-	unknownFields     protoimpl.UnknownFields
-	sizeCache         protoimpl.SizeCache
+	// With leader_grpc_address: host:port at every address of the leader,
+	// for an agent that cannot reach the first.
+	LeaderAddresses []string `protobuf:"bytes,10,rep,name=leader_addresses,json=leaderAddresses,proto3" json:"leader_addresses,omitempty"`
+	unknownFields   protoimpl.UnknownFields
+	sizeCache       protoimpl.SizeCache
 }
 
 func (x *RegisterAgentResponse) Reset() {
@@ -1533,6 +1544,13 @@ func (x *RegisterAgentResponse) GetLeaderGrpcAddress() string {
 		return x.LeaderGrpcAddress
 	}
 	return ""
+}
+
+func (x *RegisterAgentResponse) GetLeaderAddresses() []string {
+	if x != nil {
+		return x.LeaderAddresses
+	}
+	return nil
 }
 
 type ReportPanelCARequest struct {
@@ -2024,7 +2042,7 @@ const file_proto_cluster_proto_rawDesc = "" +
 	"event_type\x18\x01 \x01(\tR\teventType\x12\x17\n" +
 	"\anode_id\x18\x02 \x01(\tR\x06nodeId\x12\x16\n" +
 	"\x06detail\x18\x03 \x01(\tR\x06detail\x12\x1c\n" +
-	"\ttimestamp\x18\x04 \x01(\x03R\ttimestamp\"\xb2\x01\n" +
+	"\ttimestamp\x18\x04 \x01(\x03R\ttimestamp\"\xd0\x01\n" +
 	"\bNodeInfo\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\tR\x02id\x12\x12\n" +
 	"\x04name\x18\x02 \x01(\tR\x04name\x12\x1f\n" +
@@ -2033,7 +2051,8 @@ const file_proto_cluster_proto_rawDesc = "" +
 	"\fgrpc_address\x18\x04 \x01(\tR\vgrpcAddress\x12\x12\n" +
 	"\x04role\x18\x05 \x01(\tR\x04role\x12\x16\n" +
 	"\x06status\x18\x06 \x01(\tR\x06status\x12\x12\n" +
-	"\x04kind\x18\a \x01(\tR\x04kind\"\xf6\x01\n" +
+	"\x04kind\x18\a \x01(\tR\x04kind\x12\x1c\n" +
+	"\taddresses\x18\b \x03(\tR\taddresses\"\xf6\x01\n" +
 	"\x14RegisterAgentRequest\x12\x14\n" +
 	"\x05token\x18\x01 \x01(\tR\x05token\x12\x10\n" +
 	"\x03csr\x18\x02 \x01(\fR\x03csr\x12\x1b\n" +
@@ -2043,7 +2062,7 @@ const file_proto_cluster_proto_rawDesc = "" +
 	"\fgrpc_address\x18\x05 \x01(\tR\vgrpcAddress\x12\"\n" +
 	"\rpanel_ca_cert\x18\x06 \x01(\fR\vpanelCaCert\x12\x18\n" +
 	"\aversion\x18\a \x01(\tR\aversion\x12\x17\n" +
-	"\anode_id\x18\b \x01(\tR\x06nodeId\"\xbd\x02\n" +
+	"\anode_id\x18\b \x01(\tR\x06nodeId\"\xe8\x02\n" +
 	"\x15RegisterAgentResponse\x12\x18\n" +
 	"\asuccess\x18\x01 \x01(\bR\asuccess\x12\x14\n" +
 	"\x05error\x18\x02 \x01(\tR\x05error\x12\x17\n" +
@@ -2053,7 +2072,9 @@ const file_proto_cluster_proto_rawDesc = "" +
 	"\tagent_key\x18\x06 \x01(\tR\bagentKey\x125\n" +
 	"\bmanagers\x18\a \x03(\v2\x19.sfpanel.cluster.NodeInfoR\bmanagers\x12!\n" +
 	"\fcluster_name\x18\b \x01(\tR\vclusterName\x12.\n" +
-	"\x13leader_grpc_address\x18\t \x01(\tR\x11leaderGrpcAddress\"/\n" +
+	"\x13leader_grpc_address\x18\t \x01(\tR\x11leaderGrpcAddress\x12)\n" +
+	"\x10leader_addresses\x18\n" +
+	" \x03(\tR\x0fleaderAddresses\"/\n" +
 	"\x14ReportPanelCARequest\x12\x17\n" +
 	"\aca_cert\x18\x01 \x01(\fR\x06caCert\"w\n" +
 	"\x15ReportPanelCAResponse\x12\x18\n" +

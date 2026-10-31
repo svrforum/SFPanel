@@ -390,13 +390,42 @@ func (s *GRPCServer) Join(ctx context.Context, req *pb.JoinRequest) (*pb.JoinRes
 // leader's address so the agent can re-dial it with the same CA pin.
 func (s *GRPCServer) RegisterAgent(ctx context.Context, req *pb.RegisterAgentRequest) (*pb.RegisterAgentResponse, error) {
 	if !s.manager.IsLeader() {
-		return &pb.RegisterAgentResponse{Error: ErrNotLeader.Error(), LeaderGrpcAddress: s.manager.GetRaft().LeaderGRPCAddress()}, nil
+		rn := s.manager.GetRaft()
+		return &pb.RegisterAgentResponse{Error: ErrNotLeader.Error(), LeaderGrpcAddress: rn.LeaderGRPCAddress(), LeaderAddresses: leaderDialAddresses(rn)}, nil
 	}
 	res, err := s.manager.HandleRegisterAgent(RegisterAgentInput{Token: req.Token, CSR: req.Csr, NodeName: req.NodeName, APIAddress: req.ApiAddress, GRPCAddress: req.GrpcAddress, PanelCA: req.PanelCaCert, Version: req.Version, NodeID: req.NodeId})
 	if err != nil {
 		return &pb.RegisterAgentResponse{Error: err.Error()}, nil
 	}
 	return &pb.RegisterAgentResponse{Success: true, NodeId: res.NodeID, NodeCert: res.NodeCert, CaCert: res.CACert, AgentKey: res.AgentKey, Managers: res.Managers, ClusterName: res.ClusterName}, nil
+}
+
+// leaderDialAddresses is where the leader's gRPC server answers at each of its
+// addresses, or nil with no leader known.
+func leaderDialAddresses(rn *RaftNode) []string {
+	id := rn.LeaderID()
+	if id == "" {
+		return nil
+	}
+	return grpcDialAddresses(rn.GetFSM().GetNode(id))
+}
+
+// grpcDialAddresses is host:port at every address of n, the port its gRPC
+// address's: a node serves gRPC on one port at all of them. Nil for no node
+// or a gRPC address without a port.
+func grpcDialAddresses(n *Node) []string {
+	if n == nil {
+		return nil
+	}
+	_, port, err := net.SplitHostPort(n.GRPCAddress)
+	if err != nil {
+		return nil
+	}
+	var out []string
+	for _, a := range n.AllAddresses() {
+		out = append(out, net.JoinHostPort(a, port))
+	}
+	return out
 }
 
 // ReportPanelCA stores the caller's panel CA so managers can reach its panel

@@ -337,6 +337,14 @@ func identityTaken(state ClusterState, name string, ip net.IP) bool {
 		if n.Name == name || addressOn(n.APIAddress, ip) || addressOn(n.GRPCAddress, ip) {
 			return true
 		}
+		// Every other address the node is reached at counts the same: a
+		// manager dialled over Tailscale checks the certificate against that
+		// IP.
+		for _, a := range n.AllAddresses() {
+			if other := net.ParseIP(a); other != nil && other.Equal(ip) {
+				return true
+			}
+		}
 	}
 	return false
 }

@@ -1,6 +1,8 @@
 package cluster
 
 import (
+	"net"
+	"slices"
 	"time"
 )
 
@@ -39,6 +41,7 @@ type Node struct {
 	Name        string            `json:"name"`
 	APIAddress  string            `json:"api_address"`
 	GRPCAddress string            `json:"grpc_address"`
+	Addresses   []string          `json:"addresses,omitempty"` // every IP it is reached at; see AllAddresses
 	Role        NodeRole          `json:"role"`
 	Kind        NodeKind          `json:"kind,omitempty"`
 	Status      NodeStatus        `json:"status"`
@@ -50,6 +53,21 @@ type Node struct {
 // IsManager reports whether n is a manager. A record from before Kind
 // existed carries none and is one.
 func (n *Node) IsManager() bool { return n.Kind == "" || n.Kind == KindManager }
+
+// AllAddresses returns every IP the node can be reached at (LAN, Tailscale):
+// its recorded Addresses, or the host of its gRPC address on a record from
+// before the field. The slice is the caller's own; the FSM's record shares
+// nothing with it.
+func (n *Node) AllAddresses() []string {
+	if len(n.Addresses) > 0 {
+		return slices.Clone(n.Addresses)
+	}
+	host, _, err := net.SplitHostPort(n.GRPCAddress)
+	if err != nil || host == "" {
+		return nil
+	}
+	return []string{host}
+}
 
 // ClusterState holds the full cluster state managed by Raft FSM.
 type ClusterState struct {

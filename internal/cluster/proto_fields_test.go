@@ -63,3 +63,13 @@ func TestProtoCarriesAgentKeyRotations(t *testing.T) {
 		t.Fatal("agent key rotation fields did not round-trip")
 	}
 }
+
+// Every address a node can be reached at: on a manager's record in a pong or
+// a registration answer, and the leader's on a follower's refusal.
+func TestProtoCarriesEveryAddress(t *testing.T) {
+	info := &pb.NodeInfo{Id: "m1", GrpcAddress: "192.0.2.1:3629", Addresses: []string{"192.0.2.1", "100.64.0.1"}}
+	resp := &pb.RegisterAgentResponse{Managers: []*pb.NodeInfo{info}, LeaderAddresses: []string{"192.0.2.1:3629", "100.64.0.1:3629"}}
+	if len(resp.GetManagers()[0].GetAddresses()) != 2 || len(resp.GetLeaderAddresses()) != 2 {
+		t.Fatal("address fields did not round-trip")
+	}
+}

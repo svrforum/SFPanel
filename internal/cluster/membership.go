@@ -45,7 +45,7 @@ func (m *Manager) managerInfos() []*pb.NodeInfo {
 		if !n.IsManager() {
 			continue
 		}
-		out = append(out, &pb.NodeInfo{Id: n.ID, Name: n.Name, ApiAddress: n.APIAddress, GrpcAddress: n.GRPCAddress, Role: string(n.Role), Status: string(n.Status), Kind: string(KindManager)})
+		out = append(out, &pb.NodeInfo{Id: n.ID, Name: n.Name, ApiAddress: n.APIAddress, GrpcAddress: n.GRPCAddress, Role: string(n.Role), Status: string(n.Status), Kind: string(KindManager), Addresses: n.AllAddresses()})
 	}
 	sort.Slice(out, func(i, j int) bool { return out[i].Id < out[j].Id })
 	return out

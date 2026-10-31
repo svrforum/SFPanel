@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"slices"
 	"sync"
 	"time"
 
@@ -163,6 +164,11 @@ func (f *FSM) Apply(l *raft.Log) interface{} {
 			}
 			if update.GRPCAddress != "" {
 				existing.GRPCAddress = update.GRPCAddress
+			}
+			// A list replaces the old one whole; an update without one (a
+			// status change) keeps it.
+			if update.Addresses != nil {
+				existing.Addresses = slices.Clone(update.Addresses)
 			}
 			// Only update LastSeen for online status or explicit timestamp.
 			// Avoid overwriting with "now" when marking a node offline/suspect.

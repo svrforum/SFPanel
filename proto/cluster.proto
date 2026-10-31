@@ -198,6 +198,7 @@ message NodeInfo {
     string role = 5;
     string status = 6;
     string kind = 7;           // "manager" or "agent"
+    repeated string addresses = 8; // every IP the node can be reached at; empty from an older node
 }
 
 message RegisterAgentRequest {
@@ -225,6 +226,9 @@ message RegisterAgentResponse {
     repeated NodeInfo managers = 7;
     string cluster_name = 8;
     string leader_grpc_address = 9; // set when the answering manager is not the leader
+    // With leader_grpc_address: host:port at every address of the leader,
+    // for an agent that cannot reach the first.
+    repeated string leader_addresses = 10;
 }
 
 message ReportPanelCARequest {
