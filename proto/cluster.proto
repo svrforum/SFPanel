@@ -120,6 +120,11 @@ message HeartbeatPing {
     // (selfAddresses). The leader keeps the node record in step
     // (syncNodeAddresses). Empty from an agent or an older manager.
     repeated string addresses = 13;
+    // The agents this manager's last probe reached, by node ID, while that
+    // probe is fresh (reachableAgents). The leader hands its role to a
+    // manager that reaches more of them (MaybePreferLeader). Empty from an
+    // agent, an older manager, or one whose probe is stale or reached none.
+    repeated string reachable_agents = 14;
 }
 
 message HeartbeatPong {

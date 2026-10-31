@@ -142,6 +142,11 @@ type NodeMetrics struct {
 	// the leader writes into its node record (syncNodeAddresses); nil from an
 	// agent or an older manager.
 	Addresses []string `json:"-"`
+	// The agents a manager's fresh probe reached (reachableAgents), which the
+	// leader weighs when it hands its role over (MaybePreferLeader). nil is
+	// unknown: an agent, an older manager, a stale probe — or, on the wire,
+	// one that reached none, which never decides a hand-over either way.
+	ReachableAgents []string `json:"-"`
 }
 
 // ClusterOverview aggregates metrics from all nodes.

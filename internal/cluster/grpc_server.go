@@ -635,6 +635,9 @@ func (s *GRPCServer) serveHeartbeat(stream grpc.BidiStreamingServer[pb.Heartbeat
 				// Written into the node record by the leader's tick
 				// (syncNodeAddresses), not here on every ping.
 				Addresses: result.ping.Addresses,
+				// What the leader weighs to hand its role to a manager
+				// that reaches more agents (MaybePreferLeader).
+				ReachableAgents: result.ping.ReachableAgents,
 			}, !counted)
 			counted = true
 			// The ping's time is the sender's clock, in seconds — a manager's

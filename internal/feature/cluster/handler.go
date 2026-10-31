@@ -152,21 +152,33 @@ func (h *Handler) setManager(m *cluster.Manager) {
 		// unlikely event of log replay firing twice.
 		m.SetOnDisband(h.performDisband)
 		h.wireJWTApplier(m)
+		m.SetLeadershipHold(h.leadershipHold)
 	}
 }
 
-// ActivateBootManager wires the manager-dependent callbacks (currently the
-// disband self-clean and the JWT key applier) for a Manager that was injected
-// at construction time via the boot path. The runtime init/join paths register
-// these through setManager; the boot path builds the Handler with a struct
-// literal (router.go) and so must call this explicitly. Without it, a node
-// that boots straight into an existing cluster never registers performDisband,
-// so a replicated CmdDisband silently no-ops and "cluster disband" appears to
-// do nothing after any restart. Nil-safe and idempotent.
+// leadershipHold is why the leader must keep its role now, or "": a cluster
+// update stops if the leader changes, so the leader does not hand its role
+// to a manager that reaches more agents while one runs.
+func (h *Handler) leadershipHold() string {
+	if h.updateRunning.Load() {
+		return "cluster update running"
+	}
+	return ""
+}
+
+// ActivateBootManager wires the manager-dependent callbacks (the disband
+// self-clean, the JWT key applier and the leadership hold) for a Manager that
+// was injected at construction time via the boot path. The runtime init/join
+// paths register these through setManager; the boot path builds the Handler
+// with a struct literal (router.go) and so must call this explicitly. Without
+// it, a node that boots straight into an existing cluster never registers
+// performDisband, so a replicated CmdDisband silently no-ops and "cluster
+// disband" appears to do nothing after any restart. Nil-safe and idempotent.
 func (h *Handler) ActivateBootManager() {
 	if m := h.getManager(); m != nil {
 		m.SetOnDisband(h.performDisband)
 		h.wireJWTApplier(m)
+		m.SetLeadershipHold(h.leadershipHold)
 	}
 }
 

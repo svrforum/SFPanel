@@ -156,6 +156,19 @@ type Manager struct {
 	// against the write.
 	nodeAddrMu        sync.Mutex
 	nodeAddrChangedAt map[string]time.Time
+	// reach is this manager's last probe of the agents (probeAgents), and
+	// reachDial how it dials one; nil is a TCP connect with reachDialTimeout.
+	// reachWG is the probe goroutine, which shutdown waits for.
+	reach     atomic.Pointer[reachResult]
+	reachDial func(ctx context.Context, network, addr string) (net.Conn, error)
+	reachWG   sync.WaitGroup
+	// preferMu guards when this manager last became leader, its own last
+	// automatic hand-over, and what holds the leader role where it is
+	// (MaybePreferLeader).
+	preferMu       sync.Mutex
+	leaderSince    time.Time
+	lastTransfer   time.Time
+	leadershipHold func() string
 }
 
 // SetVersion sets the panel version for heartbeat reporting.
@@ -432,6 +445,7 @@ func (m *Manager) Init(clusterName string) error {
 
 	m.heartbeat.StartMonitor(m.onNodeStatusChange)
 	go m.watchLeader()
+	m.startReachProbes()
 	m.events.Emit(EventNodeJoined, m.nodeID, m.nodeName, "cluster initialized as leader")
 
 	slog.Info("cluster initialized", "component", "cluster", "name", clusterName, "node_id", m.nodeID)
@@ -470,6 +484,7 @@ func (m *Manager) Start() error {
 
 	m.heartbeat.StartMonitor(m.onNodeStatusChange)
 	go m.watchLeader()
+	m.startReachProbes()
 
 	// Auto-fix own node address if it doesn't match config
 	safe.Go("cluster-verify-self-address", m.verifySelfAddress)
@@ -511,6 +526,13 @@ func (m *Manager) watchLeader() {
 			if _, err := m.EnsureAddressCert(); err != nil {
 				slog.Warn("could not reissue the node certificate for this manager's addresses", "component", "cluster", "error", err)
 			}
+			// When this node became leader, for MaybePreferLeader's wait
+			// after an election.
+			if isLeader && !wasLeader {
+				m.preferMu.Lock()
+				m.leaderSince = time.Now()
+				m.preferMu.Unlock()
+			}
 			if isLeader {
 				if err := m.MaybeRotateProxySecret(); err != nil && !errors.Is(err, ErrNotLeader) {
 					slog.Warn("internal proxy secret rotation step failed", "component", "cluster", "error", err)
@@ -523,6 +545,7 @@ func (m *Manager) watchLeader() {
 					slog.Warn("CA rotation step failed", "component", "cluster", "error", err)
 				}
 				m.syncNodeAddresses()
+				m.MaybePreferLeader()
 			}
 			// Rising edge → (re)seed the CA into the replicated FSM. This is the
 			// self-healing migration path for existing clusters: seeding requires
@@ -2228,6 +2251,10 @@ func (m *Manager) StartLocalMetrics(collector MetricsCollector) {
 						// every ping: the leader writes a change into this
 						// node's record (syncNodeAddresses).
 						Addresses: m.selfAddresses(),
+						// The agents this manager reaches, which the
+						// leader weighs to hand its role over
+						// (MaybePreferLeader).
+						ReachableAgents: m.reachableAgents(),
 					}
 					// The JWT key generation this manager runs, reported
 					// only once something applies a new one.
@@ -2333,6 +2360,8 @@ func (m *Manager) shutdown(transferLeadership bool) {
 	if m.heartbeat != nil {
 		m.heartbeat.Stop()
 	}
+	// The stop ends the agent probe; it is gone before the manager is.
+	m.reachWG.Wait()
 
 	// If we're the leader, try to transfer leadership before shutting down.
 	// The target comes from live heartbeat health, not the FSM's stale status,
