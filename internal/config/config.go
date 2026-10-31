@@ -161,6 +161,11 @@ const (
 type ManagerRef struct {
 	ID          string `yaml:"id" json:"id"`
 	GRPCAddress string `yaml:"grpc_address" json:"grpc_address"`
+	// Addresses is every IP the manager can be reached at, the host of
+	// GRPCAddress among them; its gRPC server answers at each on the port
+	// of GRPCAddress. Empty from a manager older than the field, which is
+	// reached at GRPCAddress alone.
+	Addresses []string `yaml:"addresses,omitempty" json:"addresses,omitempty"`
 }
 
 // IsAgent reports whether this node runs as an agent.

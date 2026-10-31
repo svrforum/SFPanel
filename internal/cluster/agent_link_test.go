@@ -143,7 +143,7 @@ func TestAgentLinkReportsItsPanelCA(t *testing.T) {
 
 func TestNextTargets(t *testing.T) {
 	st := AgentState{Leader: "192.0.2.2:3629", Managers: []config.ManagerRef{{ID: "m1", GRPCAddress: "192.0.2.1:3629"}, {ID: "m2", GRPCAddress: "192.0.2.2:3629"}}}
-	if got := nextTargets(st); !slices.Equal(got, []string{"192.0.2.2:3629", "192.0.2.1:3629"}) {
+	if got := nextTargets(st, ""); !slices.Equal(got, []string{"192.0.2.2:3629", "192.0.2.1:3629"}) {
 		t.Fatalf("targets %v", got)
 	}
 }

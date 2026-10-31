@@ -144,6 +144,23 @@ func TestAgentAllowsSource(t *testing.T) {
 	}
 }
 
+// A manager on a tailnet reaches the agent from its Tailscale address, which
+// the leader's list names besides the one the manager registered at: the
+// agent takes requests from it with nothing in agent_allowed_sources.
+func TestAgentAllowsAManagersTailscaleSource(t *testing.T) {
+	link, err := cluster.NewAgentLink(cluster.AgentLinkConfig{NodeID: "agent-1", StatePath: filepath.Join(t.TempDir(), "agent-state.json")},
+		[]config.ManagerRef{{ID: "m1", GRPCAddress: "192.0.2.10:3629", Addresses: []string{"192.0.2.10", "100.64.0.10"}}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	a := &agentRuntime{managerHosts: link.ManagerHosts}
+	for ip, want := range map[string]bool{"192.0.2.10": true, "100.64.0.10": true, "100.64.0.11": false} {
+		if got := a.AllowsSource(net.ParseIP(ip)); got != want {
+			t.Fatalf("%s: %v", ip, got)
+		}
+	}
+}
+
 // mustCIDRs parses entries as cluster.agent_allowed_sources are parsed.
 func mustCIDRs(t *testing.T, entries ...string) []*net.IPNet {
 	t.Helper()

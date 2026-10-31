@@ -14,6 +14,7 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"slices"
 	"strconv"
 	"syscall"
 
@@ -56,6 +57,10 @@ type AgentJoinEngine struct {
 	// cluster gRPC port, as the agent's gRPC server will; nil tries it. Tests
 	// register at documentation addresses no host has.
 	listenOn func(ip net.IP, port int) error
+	// dial connects to a manager over a connection verified against pin;
+	// nil is DialPinnedLeader. Tests stand a loopback listener in for a
+	// documentation address no test host has.
+	dial func(addr, pin string) (*GRPCClient, error)
 }
 
 // validNodeName is what a node may be called: what the UI, the CLI and a
@@ -139,7 +144,11 @@ func (e *AgentJoinEngine) Execute(managerAddr, token, advertise, pin string, pan
 
 	slog.Info("registering with the cluster as an agent", "component", "agent",
 		"manager", managerAddr, "advertise", advertise, "name", name)
-	resp, leaderAddr, err := registerWithLeader(managerAddr, pin, &pb.RegisterAgentRequest{
+	dial := e.dial
+	if dial == nil {
+		dial = DialPinnedLeader
+	}
+	resp, leaderAddr, err := registerWithLeader(dial, managerAddr, pin, &pb.RegisterAgentRequest{
 		Token:       token,
 		Csr:         csr,
 		NodeName:    name,
@@ -297,12 +306,13 @@ func (e *AgentJoinEngine) nodeName() string {
 
 // registerWithLeader sends the registration over a connection verified
 // against pin, to managerAddr or, when that manager is a follower, to the
-// leader it names — dialled with the same pin. It returns the answer and the
-// leader that gave it.
-func registerWithLeader(managerAddr, pin string, req *pb.RegisterAgentRequest, advertise string) (*pb.RegisterAgentResponse, string, error) {
-	target := managerAddr
+// leader it names — dialled with the same pin, at each of its addresses in
+// turn, those on the network of advertise first (leaderJoinTargets). It
+// returns the answer and the leader that gave it.
+func registerWithLeader(dial func(addr, pin string) (*GRPCClient, error), managerAddr, pin string, req *pb.RegisterAgentRequest, advertise string) (*pb.RegisterAgentResponse, string, error) {
+	targets := []string{managerAddr}
 	for redirects := 0; ; redirects++ {
-		client, err := DialPinnedLeader(target, pin)
+		client, target, err := dialFirst(dial, targets, pin)
 		if err != nil {
 			return nil, "", err
 		}
@@ -321,13 +331,44 @@ func registerWithLeader(managerAddr, pin string, req *pb.RegisterAgentRequest, a
 			if redirects == maxLeaderRedirects {
 				return nil, "", fmt.Errorf("registration rejected by %s: %s — the leadership moved during the join; run it again in a few seconds", target, resp.Error)
 			}
+			targets = leaderJoinTargets(resp, advertise)
 			slog.Info("the manager is not the leader; registering with the leader it names", "component", "agent",
-				"manager", target, "leader", resp.LeaderGrpcAddress)
-			target = resp.LeaderGrpcAddress
+				"manager", target, "leader", resp.LeaderGrpcAddress, "addresses", targets)
 			continue
 		}
 		return nil, "", fmt.Errorf("registration rejected by %s: %s", target, agentRefusalMessage(resp.Error, req.NodeName, advertise))
 	}
+}
+
+// leaderJoinTargets is every address a follower's answer gives the leader
+// at, ranked for an agent at advertise: on a tailnet, the leader's Tailscale
+// address before the LAN one it registered at. A manager older than
+// LeaderAddresses gives LeaderGrpcAddress alone.
+func leaderJoinTargets(resp *pb.RegisterAgentResponse, advertise string) []string {
+	addrs := slices.Clone(resp.LeaderAddresses)
+	if !slices.Contains(addrs, resp.LeaderGrpcAddress) {
+		addrs = append(addrs, resp.LeaderGrpcAddress)
+	}
+	return rankAddresses(advertise, addrs)
+}
+
+// dialFirst dials targets in order and returns the first that answers with
+// the pinned CA, and where. Moving on is safe: the pre-flight a dial makes
+// carries no token, so nothing has been sent to an address that fails.
+func dialFirst(dial func(addr, pin string) (*GRPCClient, error), targets []string, pin string) (*GRPCClient, string, error) {
+	var errs []error
+	for i, t := range targets {
+		client, err := dial(t, pin)
+		if err == nil {
+			return client, t, nil
+		}
+		errs = append(errs, err)
+		if i < len(targets)-1 {
+			slog.Info("could not reach the leader at one of its addresses; trying the next", "component", "agent",
+				"address", t, "error", err)
+		}
+	}
+	return nil, "", errors.Join(errs...)
 }
 
 // agentRefusalMessage words the leader's refusal of a registration for the

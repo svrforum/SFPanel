@@ -10,6 +10,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"maps"
 	"net"
 	"os"
 	"path/filepath"
@@ -42,6 +43,11 @@ type AgentState struct {
 	// CASeq is the seq of the last CA rotation hint taken; a lower one is
 	// older (an older release ignores the field).
 	CASeq uint64 `json:"ca_seq,omitempty"`
+	// Reached is, per manager ID, the host:port the last session with that
+	// manager went through: dialled first next time (targetsFor), whatever
+	// network it is on, so an agent that found its way once does not
+	// search again.
+	Reached map[string]string `json:"reached,omitempty"`
 }
 
 // LoadAgentState reads the state at path. Before the first save there is no
@@ -49,7 +55,7 @@ type AgentState struct {
 func LoadAgentState(path string, seed []config.ManagerRef) (*AgentState, error) {
 	data, err := os.ReadFile(path)
 	if errors.Is(err, os.ErrNotExist) {
-		return &AgentState{Managers: slices.Clone(seed)}, nil
+		return &AgentState{Managers: cloneManagerRefs(seed)}, nil
 	}
 	if err != nil {
 		return nil, fmt.Errorf("read agent state: %w", err)
@@ -59,6 +65,16 @@ func LoadAgentState(path string, seed []config.ManagerRef) (*AgentState, error) 
 		return nil, fmt.Errorf("parse agent state %s: %w", path, err)
 	}
 	return &s, nil
+}
+
+// cloneManagerRefs copies refs down to their addresses, which the copy must
+// not share with the config it came from.
+func cloneManagerRefs(refs []config.ManagerRef) []config.ManagerRef {
+	out := slices.Clone(refs)
+	for i := range out {
+		out[i].Addresses = slices.Clone(out[i].Addresses)
+	}
+	return out
 }
 
 // Save writes the state to path, 0600.
@@ -115,7 +131,8 @@ type AgentLinkConfig struct {
 	Collect   func() (cpu, mem, disk float64, containers int) // nil: pings carry no metrics
 	PanelCA   func() ([]byte, error)                          // nil: nothing to report
 	// Advertise is the IP the agent registered at, which a renewed
-	// certificate must name: managers dial it.
+	// certificate must name: managers dial it. It also decides which of a
+	// manager's addresses the agent dials first (rankAddresses).
 	Advertise string
 	// Keys are the agent's internal-proxy keys; nil: the link takes no part
 	// in a key rotation and does not say it can.
@@ -146,6 +163,11 @@ type AgentLink struct {
 	// rekey hands the sender the leader's word on an agent key rotation, for
 	// the same reason.
 	rekey chan *pb.AgentKeyHint
+
+	// dial connects to the manager at a host:port; nil is DialManager. Tests
+	// stand loopback listeners in for the documentation addresses they
+	// list, which no test host has.
+	dial func(target string) (*GRPCClient, error)
 }
 
 // NewAgentLink loads the agent's state, from seed if none is saved yet.
@@ -176,17 +198,25 @@ func (l *AgentLink) ManagerIDs() []string {
 	return ids
 }
 
-// ManagerHosts are the hosts of the managers' gRPC addresses, each once.
+// ManagerHosts are the hosts the managers can be reached at, each once: the
+// host of each one's gRPC address and every address it reported — a manager
+// on a tailnet reaches the agent from its Tailscale address as well.
 func (l *AgentLink) ManagerHosts() []string {
 	l.mu.Lock()
 	defer l.mu.Unlock()
 	var hosts []string
-	for _, m := range l.state.Managers {
-		host, _, err := net.SplitHostPort(m.GRPCAddress)
-		if err != nil || host == "" || slices.Contains(hosts, host) {
-			continue
+	add := func(host string) {
+		if host != "" && !slices.Contains(hosts, host) {
+			hosts = append(hosts, host)
 		}
-		hosts = append(hosts, host)
+	}
+	for _, m := range l.state.Managers {
+		if host, _, err := net.SplitHostPort(m.GRPCAddress); err == nil {
+			add(host)
+		}
+		for _, a := range m.Addresses {
+			add(a)
+		}
 	}
 	return hosts
 }
@@ -203,6 +233,7 @@ func (l *AgentLink) snapshot() AgentState {
 	defer l.mu.Unlock()
 	s := *l.state
 	s.Managers = slices.Clone(s.Managers)
+	s.Reached = maps.Clone(s.Reached)
 	return s
 }
 
@@ -223,19 +254,170 @@ func (l *AgentLink) update(change func(*AgentState) bool) error {
 }
 
 // nextTargets is where to send heartbeats, in order: the leader the agent
-// last heard of, then each manager in list order.
-func nextTargets(state AgentState) []string {
+// last heard of, then each manager in list order — each at all its
+// addresses, in the order targetsFor gives for an agent at own.
+func nextTargets(state AgentState, own string) []string {
 	var out []string
-	add := func(addr string) {
-		if addr != "" && !slices.Contains(out, addr) {
-			out = append(out, addr)
+	add := func(addrs ...string) {
+		for _, a := range addrs {
+			if a != "" && !slices.Contains(out, a) {
+				out = append(out, a)
+			}
 		}
 	}
-	add(state.Leader)
+	if i := slices.IndexFunc(state.Managers, func(m config.ManagerRef) bool { return m.GRPCAddress == state.Leader }); i >= 0 {
+		add(state.targetsFor(state.Managers[i], own)...)
+	} else {
+		add(state.Leader)
+	}
 	for _, m := range state.Managers {
-		add(m.GRPCAddress)
+		add(state.targetsFor(m, own)...)
 	}
 	return out
+}
+
+// isTailscaleAddr reports whether a, an IP with or without a port, is in
+// Tailscale's range.
+func isTailscaleAddr(a string) bool {
+	if host, _, err := net.SplitHostPort(a); err == nil {
+		a = host
+	}
+	ip := net.ParseIP(a)
+	return ip != nil && IsTailscaleIP(ip)
+}
+
+// rankAddresses orders ips, with or without ports, for an agent at own: those
+// on own's network first — Tailscale addresses when own is one, else those
+// that are not — then the rest, each group in the order given. The agent
+// knows no interface names, only the range: a manager's LAN may be one the
+// agent cannot route to, its tailnet one it can, or the other way round.
+func rankAddresses(own string, ips []string) []string {
+	ts := isTailscaleAddr(own)
+	out := make([]string, 0, len(ips))
+	for _, a := range ips {
+		if isTailscaleAddr(a) == ts {
+			out = append(out, a)
+		}
+	}
+	for _, a := range ips {
+		if isTailscaleAddr(a) != ts {
+			out = append(out, a)
+		}
+	}
+	return out
+}
+
+// targetsFor is every host:port the agent at own can dial ref at: the one a
+// session last went through first, then ref's addresses as rankAddresses
+// orders them, each at the port of ref's gRPC address, then that address
+// itself when none of those is it (a manager registered by name). A ref
+// without addresses — from a manager older than them — is its gRPC address
+// alone.
+func (s AgentState) targetsFor(ref config.ManagerRef, own string) []string {
+	if ref.GRPCAddress == "" {
+		return nil
+	}
+	_, port, err := net.SplitHostPort(ref.GRPCAddress)
+	if err != nil || len(ref.Addresses) == 0 {
+		return []string{ref.GRPCAddress}
+	}
+	out := make([]string, 0, len(ref.Addresses)+1)
+	for _, a := range rankAddresses(own, ref.Addresses) {
+		if t := net.JoinHostPort(a, port); !slices.Contains(out, t) {
+			out = append(out, t)
+		}
+	}
+	if !slices.Contains(out, ref.GRPCAddress) {
+		out = append(out, ref.GRPCAddress)
+	}
+	// Only an address the manager still lists: one it has moved off may be
+	// another server's by now.
+	if r := s.Reached[ref.ID]; r != "" {
+		if i := slices.Index(out, r); i > 0 {
+			out = append([]string{r}, slices.Delete(out, i, i+1)...)
+		}
+	}
+	return out
+}
+
+// leaderTarget is where the agent at own dials the leader, the manager
+// leaderID: its first target. A leader the agent does not list, or one
+// named by no ID, is dialled at fallback, the address the answer gave.
+func (s AgentState) leaderTarget(leaderID, fallback, own string) string {
+	if leaderID != "" {
+		if i := slices.IndexFunc(s.Managers, func(m config.ManagerRef) bool { return m.ID == leaderID }); i >= 0 {
+			if t := s.targetsFor(s.Managers[i], own); len(t) > 0 {
+				return t[0]
+			}
+		}
+	}
+	return fallback
+}
+
+// managerIDAt is the ID of the manager registered at grpcAddr, or "".
+func (s AgentState) managerIDAt(grpcAddr string) string {
+	if i := slices.IndexFunc(s.Managers, func(m config.ManagerRef) bool { return m.GRPCAddress == grpcAddr }); i >= 0 {
+		return s.Managers[i].ID
+	}
+	return ""
+}
+
+// managerReachedAt is the ID of the manager one of whose targets is target,
+// or "".
+func (s AgentState) managerReachedAt(target string) string {
+	for _, m := range s.Managers {
+		if slices.Contains(s.targetsFor(m, ""), target) {
+			return m.ID
+		}
+	}
+	return ""
+}
+
+// leaderAt is where to dial the leader an answer names by its gRPC address
+// alone, as the answers to ReportPanelCA, RotateAgentKey and
+// RenewCertificate do: on the agent's own network when the agent lists the
+// manager registered there.
+func (l *AgentLink) leaderAt(grpcAddr string) string {
+	s := l.snapshot()
+	return s.leaderTarget(s.managerIDAt(grpcAddr), grpcAddr, l.Advertise)
+}
+
+// redirectTarget is where to dial the leader a follower's pong names: by its
+// ID, which a pong carries, or else by its gRPC address.
+func (l *AgentLink) redirectTarget(p *pb.HeartbeatPong) string {
+	s := l.snapshot()
+	id := p.LeaderId
+	if id == "" {
+		id = s.managerIDAt(p.LeaderGrpcAddress)
+	}
+	return s.leaderTarget(id, p.LeaderGrpcAddress, l.Advertise)
+}
+
+func (l *AgentLink) dialManager(target string) (*GRPCClient, error) {
+	if l.dial != nil {
+		return l.dial(target)
+	}
+	return DialManager(target, l.TLS, l.ManagerIDs)
+}
+
+// noteReached saves target as the address the manager there was last
+// reached at — only when that is news: a session to the same address as the
+// last does not write the state file.
+func (l *AgentLink) noteReached(target string) {
+	err := l.update(func(s *AgentState) bool {
+		id := s.managerReachedAt(target)
+		if id == "" || s.Reached[id] == target {
+			return false
+		}
+		if s.Reached == nil {
+			s.Reached = map[string]string{}
+		}
+		s.Reached[id] = target
+		return true
+	})
+	if err != nil {
+		slog.Warn("could not save the agent state", "component", "agent", "path", l.StatePath, "error", err)
+	}
 }
 
 // removedByLeader reports whether err is the leader saying the agent is not a
@@ -356,7 +538,7 @@ func (l *AgentLink) Run(ctx context.Context) {
 	r := &linkRun{reported: l.PanelCA == nil, warned: map[string]string{}}
 	next := 0
 	for ctx.Err() == nil {
-		targets := nextTargets(l.snapshot())
+		targets := nextTargets(l.snapshot(), l.Advertise)
 		if len(targets) == 0 {
 			r.warn(warnHeartbeat, "", errNoManagers)
 			if !sleepCtx(ctx, l.interval()) {
@@ -373,7 +555,8 @@ func (l *AgentLink) Run(ctx context.Context) {
 			l.markRemoved(target)
 			return
 		case endRedirected, endRenewed:
-			// The pong saved the leader's address; nextTargets puts it first.
+			// The pong saved the leader's address; nextTargets puts it
+			// first, at the address redirectTarget chose.
 			next = 0
 		default:
 			r.warn(warnHeartbeat, target, end.err)
@@ -388,7 +571,7 @@ func (l *AgentLink) Run(ctx context.Context) {
 // attempt reports the panel CA while that is still to do, then heartbeats to
 // target until the stream ends.
 func (l *AgentLink) attempt(ctx context.Context, r *linkRun, target string) attemptEnd {
-	client, err := DialManager(target, l.TLS, l.ManagerIDs)
+	client, err := l.dialManager(target)
 	if err != nil {
 		return attemptEnd{endFailed, err}
 	}
@@ -425,7 +608,7 @@ func (l *AgentLink) reportPanelCA(ctx context.Context, client *GRPCClient) error
 	req := &pb.ReportPanelCARequest{CaCert: caPEM}
 	resp, err := client.ReportPanelCA(ctx, req)
 	if err == nil && !resp.Success && resp.Error == ErrNotLeader.Error() && resp.LeaderGrpcAddress != "" {
-		leader, derr := DialManager(resp.LeaderGrpcAddress, l.TLS, l.ManagerIDs)
+		leader, derr := l.dialManager(l.leaderAt(resp.LeaderGrpcAddress))
 		if derr != nil {
 			return derr
 		}
@@ -487,7 +670,7 @@ func (l *AgentLink) heartbeat(ctx context.Context, r *linkRun, client *GRPCClien
 				return
 			}
 			switch {
-			case !pong.FromLeader && pong.LeaderGrpcAddress != "" && pong.LeaderGrpcAddress != target:
+			case !pong.FromLeader && pong.LeaderGrpcAddress != "" && l.redirectTarget(pong) != target:
 				end = attemptEnd{kind: endRedirected}
 				return
 			case !pong.FromLeader && pong.LeaderGrpcAddress == "":
@@ -516,6 +699,7 @@ func (l *AgentLink) heartbeat(ctx context.Context, r *linkRun, client *GRPCClien
 			case <-stayedCh:
 				stayedCh = nil
 				r.stayedWith(target)
+				l.noteReached(target)
 			case <-ticker.C:
 				if stream.Send(l.ping()) != nil {
 					break loop
@@ -600,8 +784,13 @@ func (l *AgentLink) applyPong(p *pb.HeartbeatPong, root string) error {
 			changed = true
 		}
 		if p.FromLeader {
-			if refs := managerRefs(p.Managers); len(refs) > 0 && !slices.Equal(refs, s.Managers) {
+			if refs := managerRefs(p.Managers); len(refs) > 0 && !slices.EqualFunc(refs, s.Managers, sameManagerRef) {
 				s.Managers = refs
+				// The address a manager no longer listed was reached at
+				// goes with it.
+				maps.DeleteFunc(s.Reached, func(id, _ string) bool {
+					return !slices.ContainsFunc(refs, func(m config.ManagerRef) bool { return m.ID == id })
+				})
 				changed = true
 			}
 		} else if leader, ok := namedLeader(p); ok && !slices.ContainsFunc(s.Managers, func(m config.ManagerRef) bool { return m.GRPCAddress == leader.GRPCAddress }) {
@@ -715,7 +904,7 @@ func (l *AgentLink) switchKey(generation int64) error {
 func (l *AgentLink) callRotateAgentKey(ctx context.Context, client *GRPCClient, req *pb.RotateAgentKeyRequest) (*pb.RotateAgentKeyResponse, error) {
 	resp, err := client.RotateAgentKey(ctx, req)
 	if err == nil && !resp.Success && resp.Error == ErrNotLeader.Error() && resp.LeaderGrpcAddress != "" {
-		leader, derr := DialManager(resp.LeaderGrpcAddress, l.TLS, l.ManagerIDs)
+		leader, derr := l.dialManager(l.leaderAt(resp.LeaderGrpcAddress))
 		if derr != nil {
 			return nil, derr
 		}
@@ -875,7 +1064,7 @@ func (l *AgentLink) renewCertificate(ctx context.Context, client *GRPCClient, pi
 	req := &pb.RenewCertificateRequest{Csr: csr, Proof: renewalProof(agentKey, l.NodeID, csr)}
 	resp, err := client.RenewCertificate(ctx, req)
 	if err == nil && !resp.Success && resp.Error == ErrNotLeader.Error() && resp.LeaderGrpcAddress != "" {
-		leader, derr := DialManager(resp.LeaderGrpcAddress, l.TLS, l.ManagerIDs)
+		leader, derr := l.dialManager(l.leaderAt(resp.LeaderGrpcAddress))
 		if derr != nil {
 			return derr
 		}
@@ -905,24 +1094,35 @@ func (l *AgentLink) renewCertificate(ctx context.Context, client *GRPCClient, pi
 	return nil
 }
 
-// namedLeader is the entry in p's manager list for the leader p names.
+// namedLeader is the entry in p's manager list for the leader p names: by
+// its ID, or else by its gRPC address.
 func namedLeader(p *pb.HeartbeatPong) (config.ManagerRef, bool) {
 	if p.LeaderGrpcAddress == "" {
 		return config.ManagerRef{}, false
 	}
-	for _, ref := range managerRefs(p.Managers) {
-		if ref.GRPCAddress == p.LeaderGrpcAddress {
-			return ref, true
+	refs := managerRefs(p.Managers)
+	if p.LeaderId != "" {
+		if i := slices.IndexFunc(refs, func(m config.ManagerRef) bool { return m.ID == p.LeaderId }); i >= 0 {
+			return refs[i], true
 		}
 	}
+	if i := slices.IndexFunc(refs, func(m config.ManagerRef) bool { return m.GRPCAddress == p.LeaderGrpcAddress }); i >= 0 {
+		return refs[i], true
+	}
 	return config.ManagerRef{}, false
+}
+
+// sameManagerRef reports whether a and b name a manager alike, addresses and
+// all.
+func sameManagerRef(a, b config.ManagerRef) bool {
+	return a.ID == b.ID && a.GRPCAddress == b.GRPCAddress && slices.Equal(a.Addresses, b.Addresses)
 }
 
 func managerRefs(infos []*pb.NodeInfo) []config.ManagerRef {
 	var refs []config.ManagerRef
 	for _, n := range infos {
 		if n.GetId() != "" {
-			refs = append(refs, config.ManagerRef{ID: n.GetId(), GRPCAddress: n.GetGrpcAddress()})
+			refs = append(refs, config.ManagerRef{ID: n.GetId(), GRPCAddress: n.GetGrpcAddress(), Addresses: slices.Clone(n.GetAddresses())})
 		}
 	}
 	return refs
