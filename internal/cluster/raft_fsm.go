@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"io"
 	"slices"
+	"strings"
 	"sync"
 	"time"
 
@@ -356,6 +357,22 @@ func (f *FSM) GetConfigValue(key string) (string, bool) {
 	defer f.mu.RUnlock()
 	v, ok := f.state.Config[key]
 	return v, ok
+}
+
+// ConfigWithPrefix returns a copy of the replicated config entries whose key
+// starts with prefix, and only those. The map also holds the cluster's
+// secrets (jwt_secret, cluster_ca_key, agent keys): GetState would copy all
+// of them to list a few task records, and this never hands them out.
+func (f *FSM) ConfigWithPrefix(prefix string) map[string]string {
+	f.mu.RLock()
+	defer f.mu.RUnlock()
+	out := make(map[string]string)
+	for k, v := range f.state.Config {
+		if strings.HasPrefix(k, prefix) {
+			out[k] = v
+		}
+	}
+	return out
 }
 
 // GetAccount returns a specific account, or nil.

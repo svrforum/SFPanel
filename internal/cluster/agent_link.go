@@ -740,11 +740,12 @@ func (l *AgentLink) heartbeat(ctx context.Context, r *linkRun, client *GRPCClien
 }
 
 // ping says, besides the metrics, that the agent follows a CA rotation and
-// which CAs it trusts: what the rotation's steps wait for. With its keys it
-// says it follows an agent key rotation too, which the leader's start waits
-// for.
+// which CAs it trusts: what the rotation's steps wait for. It says it runs
+// task jobs (CapTasks), which a task run's plan checks before it takes the
+// agent. With its keys it says it follows an agent key rotation too, which
+// the leader's start waits for.
 func (l *AgentLink) ping() *pb.HeartbeatPing {
-	caps := []string{CapCARotation}
+	caps := []string{CapCARotation, CapTasks}
 	if l.Keys != nil {
 		caps = append(caps, CapAgentKeyRotation)
 	}

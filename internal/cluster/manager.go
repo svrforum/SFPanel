@@ -171,6 +171,13 @@ type Manager struct {
 	leaderSince    time.Time
 	lastTransfer   time.Time
 	leadershipHold func() string
+	// taskMu orders the task store's checks against its writes on this
+	// leader: a task's name against another being saved, a pruning against a
+	// revision being written. taskRevWritten is when this leader last wrote
+	// or reused each revision, which a pruning leaves alone for a while
+	// (tasks_store.go).
+	taskMu         sync.Mutex
+	taskRevWritten map[string]time.Time
 }
 
 // SetVersion sets the panel version for heartbeat reporting.
