@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"sort"
 	"strings"
 	"sync"
 	"time"
@@ -29,6 +30,8 @@ type updateEnv interface {
 	TransferTo(id string) error
 	SelfUpdate(body []byte) (status int, resp []byte, err error)
 	Sleep(d time.Duration)
+	// ReachCount is how many agents manager id reaches, -1 when unknown.
+	ReachCount(id string) int
 }
 
 const (
@@ -227,14 +230,34 @@ func runUpdatePlan(env updateEnv, plan updatePlan, rel *release.Release, mode st
 	}
 	// Any other manager voter can take over: one this run updated, and one
 	// on the target already — after a run that stopped because the handover
-	// failed, that is every one of them. The ones just updated go first:
-	// they have just answered.
+	// failed, that is every one of them. The one that reaches the most agents
+	// goes first, so the agents keep a leader they can dial; ties go by name,
+	// and an unknown reach (-1) comes last.
 	var voters []updateNode
+	reach := map[string]int{}
 	for _, m := range append(append([]updateNode(nil), plan.Managers...), plan.Current...) {
 		if m.Manager && m.Voter && m.ID != leader.ID {
 			voters = append(voters, m)
+			reach[m.ID] = env.ReachCount(m.ID)
 		}
 	}
+	sort.SliceStable(voters, func(i, j int) bool {
+		a, b := voters[i], voters[j]
+		if reach[a.ID] != reach[b.ID] {
+			return reach[a.ID] > reach[b.ID]
+		}
+		an, bn := a.Name, b.Name
+		if an == "" {
+			an = a.ID
+		}
+		if bn == "" {
+			bn = b.ID
+		}
+		if an != bn {
+			return an < bn
+		}
+		return a.ID < b.ID
+	})
 	if len(voters) > 0 {
 		var reasons []string
 		handed := false
@@ -320,6 +343,8 @@ func (e clusterUpdateEnv) Version(ctx context.Context, id string) (string, error
 }
 
 func (e clusterUpdateEnv) TransferTo(id string) error { return e.mgr.GetRaft().TransferLeadership(id) }
+
+func (e clusterUpdateEnv) ReachCount(id string) int { return e.mgr.ReachCount(id) }
 
 // SelfUpdate asks this node's own panel to update. Raft keeps running through
 // the download: the restart that follows a successful update stops it

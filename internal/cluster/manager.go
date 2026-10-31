@@ -1304,15 +1304,22 @@ func (m *Manager) awaitLeaderAddress(limit time.Duration) string {
 	}
 }
 
-// pickTransferTarget returns a manager voter node ID other than self whose
-// live heartbeat status is Online, or "" if none is suitable for handoff.
-// Raft refuses a non-voter, and an agent is never a member.
+// pickTransferTarget returns a manager voter node ID other than self that is
+// online by LiveHealth, or "" if none is suitable for handoff. Raft refuses a
+// non-voter, and an agent is never a member. Of several, it takes the one
+// that reaches the most agents (ReachCount), so the agents keep a leader they
+// can dial; ties go by name, then ID, and an unknown reach comes last.
 func (m *Manager) pickTransferTarget() string {
 	if m.raft == nil {
 		return ""
 	}
 	state := m.raft.GetFSM().GetState()
-	health := m.heartbeat.CheckHealth()
+	health := m.heartbeat.LiveHealth()
+	type candidate struct {
+		id, name string
+		reach    int
+	}
+	var cands []candidate
 	for id, node := range state.Nodes {
 		if id == m.nodeID {
 			continue
@@ -1320,12 +1327,51 @@ func (m *Manager) pickTransferTarget() string {
 		if node.Role != RoleVoter || !node.IsManager() {
 			continue
 		}
-		if status, ok := health[id]; !ok || status != StatusOnline {
+		if health[id] != StatusOnline {
 			continue
 		}
-		return id
+		name := node.Name
+		if name == "" {
+			name = id
+		}
+		cands = append(cands, candidate{id: id, name: name, reach: m.ReachCount(id)})
 	}
-	return ""
+	if len(cands) == 0 {
+		return ""
+	}
+	sort.Slice(cands, func(i, j int) bool {
+		a, b := cands[i], cands[j]
+		if a.reach != b.reach {
+			return a.reach > b.reach
+		}
+		if a.name != b.name {
+			return a.name < b.name
+		}
+		return a.id < b.id
+	})
+	return cands[0].id
+}
+
+// ReachCount is how many agents manager nodeID reaches: this manager's own
+// fresh probe, another's last ping. It is -1 when that is unknown — no fresh
+// probe here, no ping there, or a ping that named none: an empty list and an
+// absent one are the same on the wire, so a manager that reaches no agent
+// reads -1. That puts it after one that reached none here, which reorders
+// only managers that reach nothing.
+func (m *Manager) ReachCount(nodeID string) int {
+	if nodeID == m.nodeID {
+		if own := m.reachableAgents(); own != nil {
+			return len(own)
+		}
+		return -1
+	}
+	if m.heartbeat == nil {
+		return -1
+	}
+	if met := m.heartbeat.GetMetrics(nodeID); met != nil && met.ReachableAgents != nil {
+		return len(met.ReachableAgents)
+	}
+	return -1
 }
 
 // LocalNodeID returns this node's ID.

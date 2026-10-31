@@ -27,7 +27,8 @@ type fakeUpdateEnv struct {
 	trigger   map[string]string // node → SSE answer (default okStream)
 	versions  map[string]string // node → version Version answers (default the target)
 	transfer  error
-	self      string // the leader's own answer (default okStream)
+	self      string         // the leader's own answer (default okStream)
+	reach     map[string]int // node → agents it reaches (default -1, unknown)
 }
 
 func (f *fakeUpdateEnv) record(s string) {
@@ -66,6 +67,12 @@ func (f *fakeUpdateEnv) SelfUpdate([]byte) (int, []byte, error) {
 	return 200, []byte(okStream), nil
 }
 func (f *fakeUpdateEnv) Sleep(time.Duration) {}
+func (f *fakeUpdateEnv) ReachCount(id string) int {
+	if n, ok := f.reach[id]; ok {
+		return n
+	}
+	return -1
+}
 
 func (f *fakeUpdateEnv) index(call string) int {
 	for i, c := range f.calls {
@@ -237,6 +244,25 @@ func TestALeaderHandsOverToAManagerAlreadyOnTheTarget(t *testing.T) {
 	if o := ev2.overall(); o["overall"] != "error" || !strings.Contains(fmt.Sprint(o["message"]), "handed over") {
 		t.Fatalf("final event %v", o)
 	}
+}
+
+// The leader hands over to the manager that reaches the most agents, not to
+// the first it updated: the agents keep a leader they can dial.
+func TestTheUpdateHandsOverToTheManagerThatReachesMore(t *testing.T) {
+	p := testPlan()
+	p.Managers = append(p.Managers, updateNode{ID: "m3", Name: "m3", Version: "0.80.0", Manager: true, Voter: true})
+	env := &fakeUpdateEnv{leaderFor: -1, reach: map[string]int{"m2": 0, "m3": 2}}
+	var ev events
+	runUpdatePlan(env, p, testRelease, "rolling", ev.emit)
+	for _, c := range env.calls {
+		if strings.HasPrefix(c, "transfer:") {
+			if c != "transfer:m3" {
+				t.Fatalf("calls %v: the first handover went to %s, want m3, which reaches 2 agents to m2's none", env.calls, c)
+			}
+			return
+		}
+	}
+	t.Fatalf("calls %v: no handover", env.calls)
 }
 
 // One manager has no one to hand over to; it updates itself, and its agents

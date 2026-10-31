@@ -161,3 +161,83 @@ func TestManager_pickTransferTarget(t *testing.T) {
 		t.Fatalf("picked %q, want m2", got)
 	}
 }
+
+// A handover goes to the manager that reaches the most agents, so the agents
+// keep a leader they can dial; ties go by name, and a manager whose heartbeat
+// stream has ended is not offered it, though its last ping is recent.
+func TestPickTransferTargetPrefersTheManagerThatReachesMore(t *testing.T) {
+	fsm := NewFSM()
+	addTestNode(t, fsm, Node{ID: "self", Name: "self", Kind: KindManager, Role: RoleVoter})
+	addTestNode(t, fsm, Node{ID: "m2", Name: "m2", Kind: KindManager, Role: RoleVoter})
+	addTestNode(t, fsm, Node{ID: "m3", Name: "m3", Kind: KindManager, Role: RoleVoter})
+	hb := NewHeartbeatManager(time.Minute, 3*time.Minute)
+	hb.RecordHeartbeat(&NodeMetrics{NodeID: "m2", ReachableAgents: []string{}})
+	hb.RecordHeartbeat(&NodeMetrics{NodeID: "m3", ReachableAgents: []string{"a1", "a2"}})
+	m := &Manager{nodeID: "self", raft: &RaftNode{fsm: fsm}, heartbeat: hb}
+	if got := m.pickTransferTarget(); got != "m3" {
+		t.Fatalf("picked %q, want m3: it reaches 2 agents, m2 none", got)
+	}
+
+	// m4 reaches the most, but its stream ended: by LiveHealth it is offline.
+	addTestNode(t, fsm, Node{ID: "m4", Name: "m4", Kind: KindManager, Role: RoleVoter})
+	hb.RecordStreamPing(&NodeMetrics{NodeID: "m4", ReachableAgents: []string{"a1", "a2", "a3"}}, true)
+	hb.StreamEnded("m4")
+	if got := m.pickTransferTarget(); got != "m3" {
+		t.Fatalf("picked %q, want m3: m4's heartbeat stream has ended", got)
+	}
+
+	// m5 reaches as many as m3 and its name comes first; a manager without
+	// a name sorts by its ID.
+	addTestNode(t, fsm, Node{ID: "m5", Name: "alpha", Kind: KindManager, Role: RoleVoter})
+	hb.RecordHeartbeat(&NodeMetrics{NodeID: "m5", ReachableAgents: []string{"a1", "a2"}})
+	if got := m.pickTransferTarget(); got != "m5" {
+		t.Fatalf("picked %q, want m5: it reaches as many as m3, and alpha comes before m3", got)
+	}
+	addTestNode(t, fsm, Node{ID: "a-unnamed", Kind: KindManager, Role: RoleVoter})
+	hb.RecordHeartbeat(&NodeMetrics{NodeID: "a-unnamed", ReachableAgents: []string{"a1", "a2"}})
+	if got := m.pickTransferTarget(); got != "a-unnamed" {
+		t.Fatalf("picked %q, want a-unnamed: with no name, its ID a-unnamed comes before alpha", got)
+	}
+}
+
+// A manager whose reach is unknown is offered a handover after one that
+// reaches none: none is still known.
+func TestPickTransferTargetPutsAnUnknownReachLast(t *testing.T) {
+	fsm := NewFSM()
+	addTestNode(t, fsm, Node{ID: "self", Name: "self", Kind: KindManager, Role: RoleVoter})
+	addTestNode(t, fsm, Node{ID: "m2", Name: "m2", Kind: KindManager, Role: RoleVoter})
+	addTestNode(t, fsm, Node{ID: "m3", Name: "m3", Kind: KindManager, Role: RoleVoter})
+	hb := NewHeartbeatManager(time.Minute, 3*time.Minute)
+	hb.RecordHeartbeat(&NodeMetrics{NodeID: "m2"}) // no reach reported
+	hb.RecordHeartbeat(&NodeMetrics{NodeID: "m3", ReachableAgents: []string{}})
+	m := &Manager{nodeID: "self", raft: &RaftNode{fsm: fsm}, heartbeat: hb}
+	if got := m.pickTransferTarget(); got != "m3" {
+		t.Fatalf("picked %q, want m3: m2's reach is unknown, m3's is none", got)
+	}
+}
+
+// ReachCount answers this manager's own fresh probe, another's last ping, and
+// -1 for what it does not know.
+func TestReachCount(t *testing.T) {
+	hb := NewHeartbeatManager(time.Minute, 3*time.Minute)
+	hb.RecordHeartbeat(&NodeMetrics{NodeID: "m2", ReachableAgents: []string{"a1", "a2"}})
+	hb.RecordHeartbeat(&NodeMetrics{NodeID: "m3"})
+	m := &Manager{nodeID: "self", heartbeat: hb}
+	for id, want := range map[string]int{"self": -1, "m2": 2, "m3": -1, "gone": -1} {
+		if got := m.ReachCount(id); got != want {
+			t.Errorf("ReachCount(%q) = %d, want %d", id, got, want)
+		}
+	}
+	m.reach.Store(&reachResult{Agents: map[string]bool{"a1": true, "a2": false}, At: time.Now()})
+	if got := m.ReachCount("self"); got != 1 {
+		t.Errorf("ReachCount(self) with a fresh probe that reached a1 = %d, want 1", got)
+	}
+	m.reach.Store(&reachResult{Agents: map[string]bool{"a1": false}, At: time.Now()})
+	if got := m.ReachCount("self"); got != 0 {
+		t.Errorf("ReachCount(self) with a fresh probe that reached none = %d, want 0", got)
+	}
+	m.reach.Store(&reachResult{Agents: map[string]bool{"a1": true}, At: time.Now().Add(-time.Hour)})
+	if got := m.ReachCount("self"); got != -1 {
+		t.Errorf("ReachCount(self) with a stale probe = %d, want -1", got)
+	}
+}
