@@ -8,6 +8,8 @@ import (
 	"sync"
 	"testing"
 	"time"
+
+	"github.com/svrforum/SFPanel/internal/config"
 )
 
 // fakeIfaces is a host whose interfaces a test changes while its manager
@@ -205,5 +207,41 @@ func TestAddressesChangeAtMostOncePerInterval(t *testing.T) {
 	// Reporting what is recorded is answered at any time.
 	if err := leader.SetNodeAddresses(leader.nodeID, []string{"127.0.0.1", "100.64.0.5"}); err != nil {
 		t.Fatalf("an unchanged report within the interval = %v", err)
+	}
+}
+
+// A manager on a release from before addresses drops the lists from the
+// records it applies, and a snapshot it takes keeps them dropped after its
+// upgrade, while the leader's own records still match what it would write —
+// so it would never write them again. Nothing is written until every manager
+// reports that it knows them.
+func TestAddressesWaitForEveryManagerToKnowThem(t *testing.T) {
+	nodes, _ := inmemRaft(t, "m1")
+	for _, n := range []Node{
+		{ID: "m1", Kind: KindManager, Role: RoleVoter, GRPCAddress: "192.0.2.10:3629"},
+		{ID: "m2", Kind: KindManager, Role: RoleVoter, GRPCAddress: "192.0.2.11:3629"},
+	} {
+		if err := nodes[0].Apply(Command{Type: CmdAddNode, Value: mustJSON(n)}, 5*time.Second); err != nil {
+			t.Fatal(err)
+		}
+	}
+	f := &fakeIfaces{}
+	f.set("100.64.0.1")
+	m := &Manager{raft: nodes[0], nodeID: "m1", config: &config.ClusterConfig{AdvertiseAddress: "192.0.2.10"},
+		listIfaceAddrs: f.list, heartbeat: NewHeartbeatManager(time.Minute, 3*time.Minute)}
+
+	// m2 runs a release from before addresses: no capability, no addresses.
+	m.heartbeat.RecordHeartbeat(&NodeMetrics{NodeID: "m2", Capabilities: []string{CapAgents}})
+	m.syncNodeAddresses()
+	if got := nodes[0].GetFSM().GetNode("m1").Addresses; got != nil {
+		t.Fatalf("the leader wrote its addresses %v while m2 runs a release that drops them", got)
+	}
+
+	m.heartbeat.RecordHeartbeat(&NodeMetrics{NodeID: "m2", Capabilities: []string{CapAgents, CapNodeAddresses}, Addresses: []string{"192.0.2.11", "100.64.0.2"}})
+	m.syncNodeAddresses()
+	for id, want := range map[string][]string{"m1": {"192.0.2.10", "100.64.0.1"}, "m2": {"192.0.2.11", "100.64.0.2"}} {
+		if got := nodes[0].GetFSM().GetNode(id).AllAddresses(); !slices.Equal(got, want) {
+			t.Fatalf("once every manager knows addresses, %s holds %v, want %v", id, got, want)
+		}
 	}
 }

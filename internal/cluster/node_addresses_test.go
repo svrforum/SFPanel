@@ -146,3 +146,31 @@ func TestAnAgentCannotTakeAManagersExtraAddress(t *testing.T) {
 		t.Fatalf("the refusal consumed the token: %v", err)
 	}
 }
+
+// What the API lists as a node's addresses is what other nodes dial: the
+// address it is registered at first. A node moved while it was offline keeps
+// its old list in the record until it reports again, and the record alone
+// would show the old address first and leave the new one out.
+func TestTheAPIListsANodeAtItsRegisteredAddressFirst(t *testing.T) {
+	f := NewFSM()
+	addTestNode(t, f, Node{ID: "m1", Kind: KindManager, GRPCAddress: "192.0.2.10:3629", APIAddress: "192.0.2.10:3628"})
+	applyNodeUpdate(t, f, Node{ID: "m1", Addresses: []string{"192.0.2.10", "100.64.0.10"}})
+	applyNodeUpdate(t, f, Node{ID: "m1", GRPCAddress: "192.0.2.20:3629", APIAddress: "192.0.2.20:3628"})
+	addTestNode(t, f, Node{ID: "a1", Kind: KindAgent, GRPCAddress: "198.51.100.5:3629"})
+	m := &Manager{raft: &RaftNode{fsm: f}, heartbeat: NewHeartbeatManager(time.Minute, 3*time.Minute)}
+
+	want := map[string][]string{"m1": {"192.0.2.20", "192.0.2.10", "100.64.0.10"}, "a1": {"198.51.100.5"}}
+	check := func(from string, n *Node) {
+		t.Helper()
+		if got := n.Addresses; !slices.Equal(got, want[n.ID]) {
+			t.Fatalf("%s lists %s at %v, want %v", from, n.ID, got, want[n.ID])
+		}
+	}
+	for _, n := range m.GetNodes() {
+		check("GetNodes", n)
+	}
+	for _, n := range m.GetOverview().Nodes {
+		check("GetOverview", n)
+	}
+	check("GetNode", m.GetNode("m1"))
+}

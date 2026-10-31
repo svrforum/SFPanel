@@ -1415,6 +1415,9 @@ func (m *Manager) GetNodes() []*Node {
 			// across leader restarts.
 			cp.Status = StatusOffline
 		}
+		// What other nodes dial, the registered address first: the record
+		// of a node moved while offline still starts where it was.
+		cp.Addresses = cp.AllAddresses()
 		nodes = append(nodes, &cp)
 	}
 	return nodes
@@ -1440,6 +1443,7 @@ func (m *Manager) GetNode(nodeID string) *Node {
 	} else {
 		cp.Status = StatusOffline
 	}
+	cp.Addresses = cp.AllAddresses()
 	return &cp
 }
 
@@ -1463,6 +1467,7 @@ func (m *Manager) GetOverview() *ClusterOverview {
 		} else {
 			cp.Status = StatusOffline
 		}
+		cp.Addresses = cp.AllAddresses()
 		nodes = append(nodes, &cp)
 	}
 	return &ClusterOverview{

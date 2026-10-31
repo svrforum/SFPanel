@@ -777,20 +777,22 @@ None of it needs configuring.
 - Each follower reports its addresses on every heartbeat ping. The leader
   writes them, and its own, into the node records on its 15-second tick, at
   most once a minute per node, so an interface that flaps does not cost a
-  Raft entry per ping. A record lists the address the node is registered at
-  first, then the rest: `addresses` in `GET /api/v1/cluster/nodes` and
-  `/cluster/overview`, for example `["192.0.2.10", "100.64.0.10"]`. A
-  manager registered at a host name keeps that one address, since the list
-  holds IPs only. An agent's record has no list: it is reached at its
-  advertise address alone.
+  Raft entry per ping. `addresses` in `GET /api/v1/cluster/nodes` and
+  `/cluster/overview` lists every node's addresses, the one it is
+  registered at first, for example `["192.0.2.10", "100.64.0.10"]`. An
+  agent, and a manager with no Tailscale address, has its registered
+  address alone; a manager registered at a host name keeps that one
+  address, since the list holds IPs only.
 - A node whose address is changed (`PATCH /cluster/nodes/<id>/address`, or
   the check a manager makes of its own address at boot) is listed at the new
   address first at once; the rest of its list follows on the leader's next
   tick.
-- There is no version gate. A manager from before addresses reports none and
-  erases none — its record keeps whatever was written. A leader from before
-  them drops the lists from its snapshots; the next tick of a newer leader
-  writes them back.
+- The leader writes lists only while every manager is online and runs a
+  release that knows them: a manager from before drops the list from each
+  record it applies, and a snapshot it takes would keep it dropped after its
+  upgrade. Until then records keep what they have, and each node is dialled
+  at its registered address as before. During a rolling update the lists
+  start once the last manager is on the new release.
 
 ### Certificates
 
@@ -836,8 +838,14 @@ records for the manager is added by the running service on its next tick.
   address; any address of any manager works. Without `--advertise`, the
   agent's own address is detected from the route to the manager, so this
   agent advertises its Tailscale address. Pointed at a follower, the join
-  dials the leader at each of its addresses in the order above; when it
-  reaches the leader at none, the join fails, and the token is not spent.
+  dials the leader at each of its addresses in the order above, and moves
+  on from one whose server fails the pinned CA's check — anyone can hand
+  out the CA's public key; only the leader holds a certificate it signed.
+  When it reaches the leader at none, the join fails, and the token is not
+  spent. A follower names those addresses to any caller, before a token is
+  checked — only the leader holds tokens — so whoever reaches a follower's
+  gRPC port learns the leader's Tailscale addresses as well as the LAN one
+  it always learned.
 - An agent's panel takes requests from every address of its managers — a
   manager's Tailscale address among them — with nothing in
   `cluster.agent_allowed_sources`. That setting stays for a manager whose
@@ -895,10 +903,12 @@ manager that reaches more agents`).
 
 A manual transfer (`sudo sfpanel cluster leader-transfer <node-id>`,
 `POST /api/v1/cluster/leader-transfer`) does not start the 10-minute wait. A
-transfer to a manager that reaches fewer agents therefore lasts about half a
-minute: once that manager has led for 30 seconds, it hands the role on —
-unless it handed the role over by itself within the last 10 minutes, in which
-case the role moves on when those 10 minutes are up.
+transfer to a manager that reaches fewer agents is therefore undone within
+about a minute: once that manager has led for 30 seconds, it hands the role
+on at its next tick — unless it handed the role over by itself within the
+last 10 minutes, in which case the role moves on when those 10 minutes are
+up. While it leads, the agents it cannot reach show offline, since agents
+heartbeat to the leader; they are back within a minute of the hand-over.
 
 The leader's other hand-overs pick by the same measure: on shutdown, on
 `cluster leave`, and at the end of a cluster update (§ Update orchestration)

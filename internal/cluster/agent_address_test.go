@@ -3,12 +3,16 @@ package cluster
 import (
 	"encoding/json"
 	"fmt"
+	"net"
 	"os"
 	"path/filepath"
 	"slices"
 	"sync"
 	"testing"
 	"time"
+
+	"google.golang.org/grpc"
+	"google.golang.org/grpc/credentials"
 
 	pb "github.com/svrforum/SFPanel/internal/cluster/proto"
 	"github.com/svrforum/SFPanel/internal/config"
@@ -288,5 +292,71 @@ func TestRegistrationFollowsTheLeaderOnTheJoinersNetwork(t *testing.T) {
 	}
 	if got := e.Config.Cluster.Managers; len(got) != 1 || len(got[0].Addresses) == 0 {
 		t.Fatalf("the agent config lists %+v: the managers' addresses were not kept", got)
+	}
+}
+
+// startImpostor serves f under a certificate another CA signed, while its
+// pre-flight hands out the cluster CA's public key, which any caller can
+// learn: what a host squatting on an address the leader is listed at could
+// answer.
+func startImpostor(t *testing.T, cluster, other *TLSManager, f *fakeRegistrar) *fakeRegistrar {
+	t.Helper()
+	f.caKey = caPublicKey(t, cluster)
+	cfg, err := tlsWithRole(t, other, "m1", CertRoleManager).ServerTLSConfig()
+	if err != nil {
+		t.Fatal(err)
+	}
+	lis, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	f.self = lis.Addr().String()
+	srv := grpc.NewServer(grpc.Creds(credentials.NewTLS(cfg)))
+	pb.RegisterClusterServiceServer(srv, f)
+	go func() { _ = srv.Serve(lis) }()
+	t.Cleanup(srv.Stop)
+	return f
+}
+
+// The leader's first address on the joiner's network answers the pre-flight
+// with the CA's public key but fails the pinned handshake: someone else holds
+// that address. The join moves on to the leader's next address instead of
+// stopping, and the impostor never sees the request.
+func TestARegistrationMovesPastAnAddressThatFailsThePinnedHandshake(t *testing.T) {
+	mgr, leaderAddr, _, pin := realLeader(t)
+	settleRotation(t, mgr)
+	tok, err := mgr.CreateJoinToken(time.Hour, KindAgent)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, other := setupCertDir(t)
+	impostor := startImpostor(t, mgr.GetTLS(), other, &fakeRegistrar{})
+	follower := startFakeRegistrar(t, mgr.GetTLS(), &fakeRegistrar{answer: func(string, *pb.RegisterAgentRequest) *pb.RegisterAgentResponse {
+		return &pb.RegisterAgentResponse{Error: ErrNotLeader.Error(), LeaderGrpcAddress: "192.0.2.10:3629",
+			LeaderAddresses: []string{"192.0.2.10:3629", "100.64.0.10:3629"}}
+	}})
+	e, _ := agentJoinTarget(t)
+	routes := map[string]string{follower.self: follower.self, "100.64.0.10:3629": impostor.self, "192.0.2.10:3629": leaderAddr}
+	var tried []string
+	e.dial = func(addr, pin string) (*GRPCClient, error) {
+		tried = append(tried, addr)
+		real, ok := routes[addr]
+		if !ok {
+			return nil, fmt.Errorf("%s has no route in this test", addr)
+		}
+		return DialPinnedLeader(real, pin)
+	}
+	res, err := e.Execute(follower.self, tok.Token, "100.64.0.30", pin, panelCAPEM(t))
+	if err != nil {
+		t.Fatalf("the join stopped at the impostor (dialled %v): %v", tried, err)
+	}
+	if !slices.Equal(tried, []string{follower.self, "100.64.0.10:3629", "192.0.2.10:3629"}) {
+		t.Fatalf("dialled %v", tried)
+	}
+	if n := mgr.raft.GetFSM().GetNode(res.NodeID); n == nil || n.Kind != KindAgent {
+		t.Fatalf("not registered with the leader: %+v", n)
+	}
+	if impostor.registers.Load() != 0 {
+		t.Fatal("the request reached the impostor")
 	}
 }

@@ -312,17 +312,9 @@ func (e *AgentJoinEngine) nodeName() string {
 func registerWithLeader(dial func(addr, pin string) (*GRPCClient, error), managerAddr, pin string, req *pb.RegisterAgentRequest, advertise string) (*pb.RegisterAgentResponse, string, error) {
 	targets := []string{managerAddr}
 	for redirects := 0; ; redirects++ {
-		client, target, err := dialFirst(dial, targets, pin)
+		resp, target, err := registerFirst(dial, targets, pin, req)
 		if err != nil {
 			return nil, "", err
-		}
-		resp, err := client.RegisterAgent(context.Background(), req)
-		_ = client.Close()
-		if status.Code(err) == codes.Unimplemented {
-			return nil, "", fmt.Errorf("the manager at %s cannot register agents: every manager must be upgraded to this version first", target)
-		}
-		if err != nil {
-			return nil, "", fmt.Errorf("registration request to %s failed: %w", target, err)
 		}
 		if resp.Success {
 			return resp, target, nil
@@ -352,15 +344,30 @@ func leaderJoinTargets(resp *pb.RegisterAgentResponse, advertise string) []strin
 	return rankAddresses(advertise, addrs)
 }
 
-// dialFirst dials targets in order and returns the first that answers with
-// the pinned CA, and where. Moving on is safe: the pre-flight a dial makes
-// carries no token, so nothing has been sent to an address that fails.
-func dialFirst(dial func(addr, pin string) (*GRPCClient, error), targets []string, pin string) (*GRPCClient, string, error) {
+// registerFirst sends req to targets in order and returns the first answer
+// and where it came from. It moves on from a target it cannot reach: a dial
+// that fails, or a request that never got through, the pinned handshake
+// included — the pre-flight a dial makes hands out the CA's public key to
+// anyone, so only the handshake shows that a server holds a certificate the
+// CA signed. The token goes nowhere in either case.
+func registerFirst(dial func(addr, pin string) (*GRPCClient, error), targets []string, pin string, req *pb.RegisterAgentRequest) (*pb.RegisterAgentResponse, string, error) {
 	var errs []error
 	for i, t := range targets {
 		client, err := dial(t, pin)
 		if err == nil {
-			return client, t, nil
+			var resp *pb.RegisterAgentResponse
+			resp, err = client.RegisterAgent(context.Background(), req)
+			_ = client.Close()
+			switch status.Code(err) {
+			case codes.OK:
+				return resp, t, nil
+			case codes.Unimplemented:
+				return nil, "", fmt.Errorf("the manager at %s cannot register agents: every manager must be upgraded to this version first", t)
+			case codes.Unavailable:
+				err = fmt.Errorf("registration request to %s failed: %w", t, err)
+			default:
+				return nil, "", fmt.Errorf("registration request to %s failed: %w", t, err)
+			}
 		}
 		errs = append(errs, err)
 		if i < len(targets)-1 {

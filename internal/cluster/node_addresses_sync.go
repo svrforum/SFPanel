@@ -10,6 +10,13 @@ import (
 	"time"
 )
 
+// CapNodeAddresses is the heartbeat capability of a manager whose code keeps
+// a node record's address list (Node.Addresses). One from before drops the
+// list from every record it applies, and a snapshot it takes keeps it
+// dropped after its upgrade, so the leader writes lists only once every
+// manager reports this (syncNodeAddresses).
+const CapNodeAddresses = "node-addresses-v1"
+
 // addressReportEvery is how often, at most, a node's recorded addresses
 // change: a host whose interfaces flap must not cost a Raft entry on every
 // ping. A variable so tests can shorten it.
@@ -104,10 +111,15 @@ func (m *Manager) SetNodeAddresses(nodeID string, addrs []string) error {
 // each online manager's from its last ping. A report always starts with the
 // address the node is registered at, whatever it put first — a manager
 // whose configured advertise address differs from its record does not get
-// its record refused; verifySelfAddress moves the record itself. A manager
-// that reported nothing (an older one) keeps its record as it is.
+// its record refused; verifySelfAddress moves the record itself. Nothing is
+// written while a manager is offline or runs a release from before addresses
+// (CapNodeAddresses): records keep what they have until every manager knows
+// them.
 func (m *Manager) syncNodeAddresses() {
 	if m.raft == nil || !m.raft.IsLeader() {
+		return
+	}
+	if len(m.nodesNotReady(m.raft.GetFSM().GetState(), CapNodeAddresses, false)) > 0 {
 		return
 	}
 	m.syncOneNodeAddresses(m.nodeID, m.selfAddresses())
