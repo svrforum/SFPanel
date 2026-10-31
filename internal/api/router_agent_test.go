@@ -150,6 +150,15 @@ var sourceSessionRoutes = []string{
 	"POST /api/v1/docker/compose/:project/migrate-source/outcome",
 }
 
+// taskJobRoutes are a node's half of a group task, which the leader's engine
+// calls on managers and agents alike.
+var taskJobRoutes = []string{
+	"POST /api/v1/task-jobs",
+	"POST /api/v1/task-jobs/check",
+	"GET /api/v1/task-jobs/:id",
+	"POST /api/v1/task-jobs/:id/cancel",
+}
+
 // serve sends r to e from addr and returns the recorded response.
 func serve(e *echo.Echo, addr string, r *http.Request) *httptest.ResponseRecorder {
 	r.RemoteAddr = addr
@@ -189,6 +198,11 @@ func TestAgentRouteSet(t *testing.T) {
 	for _, r := range sourceSessionRoutes {
 		if !agent[r] || !manager[r] {
 			t.Fatalf("%s: served by the agent %v, by the manager %v; every node serves its stacks' migration sessions", r, agent[r], manager[r])
+		}
+	}
+	for _, r := range taskJobRoutes {
+		if !agent[r] || !manager[r] {
+			t.Fatalf("%s: served by the agent %v, by the manager %v; every node runs its own task jobs", r, agent[r], manager[r])
 		}
 	}
 
@@ -308,5 +322,30 @@ func TestAgentSourceCheckCoversEveryRoute(t *testing.T) {
 	}
 	if rec := serve(buildRouter(t, ""), stranger, httptest.NewRequest(http.MethodGet, "/api/v1/health", nil)); rec.Code != http.StatusOK {
 		t.Fatalf("health on a manager from %s: %d %s, want 200", stranger, rec.Code, rec.Body)
+	}
+}
+
+// A signed call reaches a node's task jobs through each role's whole chain —
+// on a manager the JWT and CSRF middleware check the signature before the
+// handler checks it again, and the request's nonce must still pass there —
+// and a call that is not signed does not.
+func TestTaskJobsTakeASignedCallOnEitherRole(t *testing.T) {
+	for _, role := range []string{"", config.ClusterRoleAgent} {
+		router := buildRouter(t, role)
+		t.Cleanup(func() { auth.SetProxySecrets("", nil) })
+		auth.SetProxySecrets("node-key", []string{"node-key"})
+		check := func() *http.Request {
+			r := httptest.NewRequest(http.MethodPost, "/api/v1/task-jobs/check", strings.NewReader(`[]`))
+			r.Header.Set("Content-Type", "application/json")
+			return r
+		}
+		signed := check()
+		signed.Header.Set(auth.InternalProxyHeaderV2, auth.SignProxyRequestV2With("node-key", http.MethodPost, "/api/v1/task-jobs/check"))
+		if rec := serve(router, "127.0.0.1:5000", signed); rec.Code != http.StatusOK || !strings.Contains(rec.Body.String(), `"data":[]`) {
+			t.Fatalf("role %q, signed: %d %s, want 200 and no verdicts", role, rec.Code, rec.Body)
+		}
+		if rec := serve(router, "127.0.0.1:5000", check()); rec.Code != http.StatusUnauthorized {
+			t.Fatalf("role %q, unsigned: %d %s, want 401", role, rec.Code, rec.Body)
+		}
 	}
 }

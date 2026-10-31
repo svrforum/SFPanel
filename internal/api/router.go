@@ -18,6 +18,7 @@ import (
 	"github.com/svrforum/SFPanel/internal/auth"
 	"github.com/svrforum/SFPanel/internal/cluster"
 	commonExec "github.com/svrforum/SFPanel/internal/common/exec"
+	"github.com/svrforum/SFPanel/internal/common/platform"
 	"github.com/svrforum/SFPanel/internal/config"
 	sfdb "github.com/svrforum/SFPanel/internal/db"
 	"github.com/svrforum/SFPanel/internal/docker"
@@ -42,6 +43,7 @@ import (
 	featureServices "github.com/svrforum/SFPanel/internal/feature/services"
 	featureSettings "github.com/svrforum/SFPanel/internal/feature/settings"
 	featureSystem "github.com/svrforum/SFPanel/internal/feature/system"
+	featureTaskJob "github.com/svrforum/SFPanel/internal/feature/taskjob"
 	featureTerminal "github.com/svrforum/SFPanel/internal/feature/terminal"
 	featureWS "github.com/svrforum/SFPanel/internal/feature/websocket"
 )
@@ -679,6 +681,19 @@ func NewRouter(database *sql.DB, auditWriter *sfdb.AsyncWriter, alertManager *fe
 	packages.POST("/node-switch", packagesHandler.SwitchNodeVersion)
 	packages.POST("/node-install-version", packagesHandler.InstallNodeVersion)
 	packages.POST("/node-uninstall-version", packagesHandler.UninstallNodeVersion)
+
+	// A node's half of a group task: the leader's engine starts each step
+	// here as a job. Managers and agents both serve it, to signed cluster
+	// calls only (the handlers check), and no manager relays it for ?node=
+	// (ClusterProxyMiddleware). Jobs the last process left running are
+	// settled first.
+	taskJobHandler := featureTaskJob.New(database, cmd, featureTaskJob.DefaultLogDir, platform.Get)
+	taskJobHandler.Recover()
+	taskJobs := authorized.Group("/task-jobs")
+	taskJobs.POST("", taskJobHandler.StartJob)
+	taskJobs.POST("/check", taskJobHandler.CheckJobs)
+	taskJobs.GET("/:id", taskJobHandler.GetJob)
+	taskJobs.POST("/:id/cancel", taskJobHandler.CancelJob)
 
 	// AI workspace: tmux-backed Claude/Codex/Gemini sessions and per-account
 	// CLI status. Per-node, local-only handlers; ?node= is the proxy's job.

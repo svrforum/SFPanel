@@ -222,6 +222,32 @@ var migrations = []migration{
 	// change to a flag's spelling cannot turn an old row into an unrunnable
 	// command.
 	{ID: 38, Up: `ALTER TABLE ai_sessions ADD COLUMN launch TEXT NOT NULL DEFAULT ''`},
+	// A node's task jobs: one step of a group-task run, as the leader sent it
+	// (spec, the JSON of tasks.JobSpec) and as it ended. Per node, never
+	// replicated; the output is a file beside it (feature/taskjob). A row
+	// running or rebooting is what keeps the node to one job at a time, a
+	// restart included. started_at is UTC with fixed-width nanoseconds, so it
+	// sorts as text.
+	{ID: 39, Up: `CREATE TABLE IF NOT EXISTS task_jobs (
+		id         TEXT PRIMARY KEY,
+		run_id     TEXT NOT NULL,
+		task       TEXT NOT NULL,
+		step       INTEGER NOT NULL,
+		kind       TEXT NOT NULL,
+		spec       TEXT NOT NULL,
+		status     TEXT NOT NULL,
+		changed    INTEGER NOT NULL DEFAULT 0,
+		exit_code  INTEGER,
+		summary    TEXT NOT NULL DEFAULT '',
+		unit       TEXT NOT NULL DEFAULT '',
+		boot_id    TEXT NOT NULL DEFAULT '',
+		username   TEXT NOT NULL DEFAULT '',
+		started_at TEXT NOT NULL,
+		ended_at   TEXT
+	)`},
+	// The retention sweep keeps the newest 200 and drops what is past 30
+	// days, both by started_at.
+	{ID: 40, Up: `CREATE INDEX IF NOT EXISTS idx_task_jobs_started_at ON task_jobs(started_at)`},
 }
 
 // RunMigrations applies every registered migration that hasn't already been

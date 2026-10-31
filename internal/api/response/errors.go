@@ -506,6 +506,27 @@ const (
 	ErrTLSUnavailable = "TLS_UNAVAILABLE"
 )
 
+// Task job error codes: a node's half of a group task, which the leader's
+// engine calls.
+const (
+	// ErrTaskJobClusterOnly is returned (HTTP 403) for a /task-jobs request
+	// that is not a signed cluster call, and by a manager asked to relay one
+	// with ?node=: a browser reaching a node's jobs directly would run a step
+	// past the engine's gates and its audit.
+	ErrTaskJobClusterOnly = "TASK_JOB_CLUSTER_ONLY"
+	// ErrTaskNodeBusy is returned (HTTP 409) when a node is asked to start a
+	// job while another is running or waiting on its reboot. Details: job_id,
+	// run_id and task of the job it is busy with.
+	ErrTaskNodeBusy = "TASK_NODE_BUSY"
+	// ErrTaskJobNotFound is returned (HTTP 404) for a job ID the node has no
+	// record of: never started here, or swept.
+	ErrTaskJobNotFound = "TASK_JOB_NOT_FOUND"
+	// ErrTaskJobRunning is returned (HTTP 409) when a running job is asked to
+	// stop without force: by default a job runs to its end, so an apt run is
+	// never cut off half-way.
+	ErrTaskJobRunning = "TASK_JOB_RUNNING"
+)
+
 // File manager error codes
 const (
 	// ErrNotTextFile is returned (HTTP 415) when a caller asks to read a file

@@ -760,6 +760,11 @@ func newUnreachableFixture(t *testing.T) unreachableFixture {
 		"SSE":    {http.MethodPost, "/api/v1/docker/images/pull?node=far", httpChain},
 		"binary": {http.MethodGet, "/api/v1/files/download?path=/x&node=far", httpChain},
 		"WS":     {http.MethodGet, "/ws/terminal?node=far", wsChain},
+		// A node's task jobs, which no manager relays (taskJobRoute).
+		"task-jobs":        {http.MethodPost, "/api/v1/task-jobs?node=far", httpChain},
+		"task-jobs check":  {http.MethodPost, "/api/v1/task-jobs/check?node=far", httpChain},
+		"task-jobs get":    {http.MethodGet, "/api/v1/task-jobs/20261101-090000-a1b2c3-0?node=far&skip=0", httpChain},
+		"task-jobs cancel": {http.MethodPost, "/api/v1/task-jobs/20261101-090000-a1b2c3-0/cancel?node=far", httpChain},
 	}
 	send := func(kind string) (int, string, map[string]string) {
 		t.Helper()
@@ -837,6 +842,39 @@ func TestAnUnprobedAgentIsStillTried(t *testing.T) {
 					t.Fatalf("%s, %s: %d %q and the agent was not dialled", tc.name, kind, status, code)
 				}
 			}
+		}
+	}
+}
+
+// A browser cannot reach a node's task jobs through a manager: the relay is
+// refused before anything is dialled, with the code the node itself would
+// give, so a step is never started around the engine's gates and audit. The
+// agent is one the relay would otherwise reach (TestAnUnprobedAgentIsStillTried).
+func TestAManagerDoesNotRelayTaskJobsForABrowser(t *testing.T) {
+	f := newUnreachableFixture(t)
+	for _, kind := range []string{"task-jobs", "task-jobs check", "task-jobs get", "task-jobs cancel"} {
+		status, code, _ := f.send(kind)
+		if status != http.StatusForbidden || code != response.ErrTaskJobClusterOnly {
+			t.Fatalf("%s: %d %q, want 403 %s", kind, status, code, response.ErrTaskJobClusterOnly)
+		}
+	}
+	if n := f.dials(); n != 0 {
+		t.Fatalf("the agent was dialled %d times", n)
+	}
+}
+
+func TestTaskJobRoute(t *testing.T) {
+	for path, want := range map[string]bool{
+		"/api/v1/task-jobs":                   true,
+		"/api/v1/task-jobs/check":             true,
+		"/api/v1/task-jobs/x/cancel":          true,
+		"/api/v1/task-jobsx":                  false,
+		"/api/v1/cluster/tasks":               false,
+		"/api/v1/system/info":                 false,
+		"/api/v1/docker/compose/task-jobs/up": false,
+	} {
+		if got := taskJobRoute(path); got != want {
+			t.Fatalf("taskJobRoute(%q) = %v, want %v", path, got, want)
 		}
 	}
 }

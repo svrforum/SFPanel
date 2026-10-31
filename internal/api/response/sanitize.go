@@ -56,7 +56,13 @@ func SanitizeOutput(output string) string {
 // It keeps filesystem paths intact (logs are more useful with them, and an
 // authenticated admin can already read them elsewhere).
 func SanitizeLog(output string) string {
-	result := ansiPattern.ReplaceAllString(output, "")
-	result = redactSecrets(result)
-	return strings.TrimSpace(result)
+	return strings.TrimSpace(SanitizeLogPiece(output))
+}
+
+// SanitizeLogPiece is SanitizeLog for one piece of a log read in parts: it
+// keeps the whitespace at the piece's ends, so the pieces put back together
+// and trimmed are the whole log sanitized — as long as no escape sequence or
+// secret straddles a cut, which is the reader's to see to.
+func SanitizeLogPiece(piece string) string {
+	return redactSecrets(ansiPattern.ReplaceAllString(piece, ""))
 }

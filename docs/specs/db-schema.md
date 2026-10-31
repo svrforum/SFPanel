@@ -1,8 +1,8 @@
 # SFPanel DB 스키마
 
-> 테이블 목록 확인: 2026-09-25 · 기준 버전: v0.78.0 (테이블 19개 수록, 최신 마이그레이션 ID 38)
+> 테이블 목록 확인: 2026-11-01 · 기준 버전: v0.80.0 + 미출시 task_jobs (테이블 20개 수록, 최신 마이그레이션 ID 40)
 >
-> **이 문서의 테이블별 컬럼 정의는 v0.9.0 시점**입니다. v0.10.0 이후 추가/변경된 항목은 `internal/db/migrations.go`(현재 ID 8–38)와 본 문서 하단 § 마이그레이션 이력의 "v4 이후" 단락을 참조하세요. 권한 있는 출처는 코드입니다.
+> **이 문서의 테이블별 컬럼 정의는 v0.9.0 시점**입니다. v0.10.0 이후 추가/변경된 항목은 `internal/db/migrations.go`(현재 ID 8–40)와 본 문서 하단 § 마이그레이션 이력의 "v4 이후" 단락을 참조하세요. 권한 있는 출처는 코드입니다.
 
 ## 개요
 
@@ -282,7 +282,7 @@ SQLite의 AUTOINCREMENT 시퀀스를 추적하는 내부 시스템 테이블. `A
 
 ## 마이그레이션 이력
 
-마이그레이션은 `internal/db/migrations.go`의 `migrations` 슬라이스에 DDL 문이 순서대로(ID 1–35) 정의됨. 적용된 ID는 `schema_migrations` 테이블에 기록되어 재실행 시 건너뜀(append-only — 출시된 마이그레이션은 절대 재번호/수정하지 않음).
+마이그레이션은 `internal/db/migrations.go`의 `migrations` 슬라이스에 DDL 문이 순서대로(ID 1–40) 정의됨. 적용된 ID는 `schema_migrations` 테이블에 기록되어 재실행 시 건너뜀(append-only — 출시된 마이그레이션은 절대 재번호/수정하지 않음).
 
 ### v1: 초기 스키마
 
@@ -308,7 +308,7 @@ SQLite의 AUTOINCREMENT 시퀀스를 추적하는 내부 시스템 테이블. `A
 - `alert_history` 테이블 생성 (알림 발송 이력)
 - `idx_alert_history_created_at` 인덱스 생성
 
-### v4 이후 (migrations.go ID 8 – 38, v0.11.x – v0.74.x)
+### v4 이후 (migrations.go ID 8 – 40, v0.11.x 이후, ID 39–40은 미출시)
 
 권한 있는 출처는 `internal/db/migrations.go`. 본 단락은 변경 이력 요약입니다.
 
@@ -329,6 +329,8 @@ SQLite의 AUTOINCREMENT 시퀀스를 추적하는 내부 시스템 테이블. `A
 - **ID 36** — `ai_sessions` (v0.73.0 AI 워크스페이스). 패널이 관리하는 tmux 세션의 식별자·도구·제목·실행 계정·작업 디렉터리. 생존 여부는 tmux가 진실이고 이 표는 신원과 이력만 보관 — `ended_at`이 채워진 행은 "다시 시작" 후보로 남는다. 노드 로컬(FSM 복제 없음).
 - **ID 37** — `ai_sessions.profile TEXT NOT NULL DEFAULT ''`. 세션이 사용할 도구 설정 디렉터리(프로파일) 이름. 빈 문자열은 도구의 기본 디렉터리(`~/.codex`, `~/.claude`)를 뜻하며, 마이그레이션 이전의 모든 행이 이미 그 의미다. 실제 디렉터리는 `<계정 홈>/.sfpanel-ai/<도구>/<이름>`.
 - **ID 38** — `ai_sessions.launch TEXT NOT NULL DEFAULT ''`. 세션을 시작할 때 고른 실행 옵션의 JSON(`ai.LaunchOptions` — 이어서 하기·승인 모드·샌드박스·위험 플래그·모델·추가 인자). 빈 문자열은 "도구를 옵션 없이 그대로 시작"이라는 뜻이고, 마이그레이션 이전의 모든 행이 이미 그 의미다. argv 문자열이 아니라 **고른 값**을 저장한다 — 나중에 CLI 플래그 이름이 바뀌어도 과거 행이 실행 불가능한 명령으로 굳지 않게 하려는 것이고, argv는 spawn 시점에 도구별 순수 함수(`toolArgv`)가 만든다.
+- **ID 39** — `task_jobs` (그룹 작업의 노드 쪽). 리더의 작업 엔진이 이 노드에 보낸 단계 하나("작업 잡")의 기록: `id`(잡 ID = `<실행 ID>-<단계 번호>`, 단계는 0부터), `run_id`, `task`, `step`, `kind`(`packages`·`service`·`command`·`file`·`stack`·`reboot`), `spec`(받은 `tasks.JobSpec`의 JSON), `status`(`running`·`rebooting`·`succeeded`·`failed`·`interrupted`·`cancelled`), `changed`, `exit_code`(NULL 가능), `summary`, `unit`(잡이 도는 systemd 유닛, 없으면 `''`), `boot_id`(시작한 부팅), `username`(운영자), `started_at`·`ended_at`(UTC, 나노초까지 고정 폭 텍스트라 문자열로 정렬된다). 출력은 표가 아니라 `/var/log/sfpanel/task-jobs/<id>.log`(0600, 디렉터리 0700) 파일. `running`·`rebooting` 행이 있으면 노드는 다른 잡을 받지 않는다(409 `TASK_NODE_BUSY`) — 기록이 잠금이라 패널이 재시작해도 유지된다. 같은 ID는 다시 만들지 않고 있는 잡을 돌려준다. 부팅 때 `running` 행은 유닛이 살아 있으면 그대로, 끝났으면 로그 마지막 줄의 `[sfpanel-task] exit=<n>`으로, 표시가 없거나 유닛이 없으면 `interrupted`로 정리된다. 노드 로컬(FSM 복제 없음).
+- **ID 40** — `idx_task_jobs_started_at` — `task_jobs(started_at)` 인덱스. 잡을 시작할 때마다 도는 보존 정리(최근 200개, 30일)가 이 열로 고른다.
 
 ---
 
@@ -456,6 +458,7 @@ SQLite의 AUTOINCREMENT 시퀀스를 추적하는 내부 시스템 테이블. `A
 | `audit_logs` | 최대 50,000행 | 5분 주기, 초과 시 오래된 10,000행 `DELETE` | `api/middleware/audit.go` |
 | `metrics_history` | 24시간 (~1,440 포인트 @ 60초 간격) | 60초 주기, `time <= cutoff` `DELETE` | `internal/monitor/history.go` |
 | `alert_history` | 제한 없음 | 수동 (UI에서 전체 삭제) | — |
+| `task_jobs` | 최근 200개, 30일 이내 (`running`·`rebooting` 행은 제외) | 잡을 시작할 때와 부팅 때, 행과 로그 파일을 함께 `DELETE` | `internal/feature/taskjob/store.go` |
 | 그 외 모든 테이블 | 제한 없음 | 수동 (CRUD 엔드포인트 경유) | — |
 
 ## 백업/복구

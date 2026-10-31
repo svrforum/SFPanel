@@ -586,6 +586,13 @@ func ClusterProxyMiddleware(getMgr func() *cluster.Manager, stepUp func(echo.Con
 			if local {
 				return next(c)
 			}
+			// A node's task jobs take the task engine's signed calls only.
+			// Relayed for a browser they would arrive signed by this manager,
+			// and a step would run past the engine's gates and its audit.
+			if taskJobRoute(c.Request().URL.Path) {
+				return response.Fail(c, http.StatusForbidden, response.ErrTaskJobClusterOnly,
+					"Task jobs are started by the cluster's task engine only")
+			}
 			// An agent has no cluster routes; cluster management runs on
 			// managers. Running the request here instead would be no answer:
 			// it would act on this manager, and /cluster/leave would take it
@@ -659,6 +666,12 @@ func ClusterProxyMiddleware(getMgr func() *cluster.Manager, stepUp func(echo.Con
 // this manager must not run it in the agent's place.
 func agentRouteRefused(path string) bool {
 	return strings.HasPrefix(path, "/api/v1/cluster/")
+}
+
+// taskJobRoute reports whether path is a node's task-job API
+// (feature/taskjob), which no manager relays for a ?node= request.
+func taskJobRoute(path string) bool {
+	return path == "/api/v1/task-jobs" || strings.HasPrefix(path, "/api/v1/task-jobs/")
 }
 
 // migrateSourceKey is where a request that migrates an agent's stack names
