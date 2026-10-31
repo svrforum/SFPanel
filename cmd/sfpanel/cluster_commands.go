@@ -10,6 +10,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"io/fs"
 	"log"
 	"net"
 	"net/http"
@@ -206,13 +207,14 @@ func clusterRefusal(args []string) string {
 	return "this server is an agent; use 'sfpanel agent status' or 'sfpanel agent reset'"
 }
 
-// clusterReissueCert re-issues this node's cluster mTLS certificate using
-// the local CA. The running sfpanel process picks up the new cert on the
-// next handshake (bounded by TLSManager.certReloadDebounce = 1 min) — no
-// service restart is required. Only the node running this command is
-// rotated; run it once per node that needs a fresh cert. Refused while a
-// CA rotation is under way: it signs with ca.crt's first CA, which may be
-// the one the rotation moves away from.
+// clusterReissueCert re-issues this node's cluster mTLS certificate, with a
+// new key, using the local CA, for the addresses reissueCertAddresses names.
+// The running sfpanel process picks up the new cert on the next handshake
+// (bounded by TLSManager.certReloadDebounce = 1 min) — no service restart is
+// required. Only the node running this command is rotated; run it once per
+// node that needs a fresh cert. Refused while a CA rotation is under way: it
+// signs with ca.crt's first CA, which may be the one the rotation moves away
+// from.
 func clusterReissueCert(args []string) {
 	cfgPath, _ := parseCfgFlag(args)
 	cfg := loadCfgForCLI(cfgPath)
@@ -244,7 +246,13 @@ func clusterReissueCert(args []string) {
 		}
 	}
 
-	certPEM, keyPEM, err := tls.IssueNodeCert(cfg.Cluster.NodeID, []string{advertise}, cluster.CertRoleManager)
+	tailscale, err := cluster.LocalTailscaleAddresses()
+	if err != nil {
+		fmt.Printf("Warning: cannot list this host's interfaces for its Tailscale addresses: %v\n", err)
+	}
+	addrs := reissueCertAddresses(advertise, tailscale, tls)
+
+	certPEM, keyPEM, err := tls.IssueNodeCert(cfg.Cluster.NodeID, addrs, cluster.CertRoleManager)
 	if err != nil {
 		log.Fatalf("issue node cert: %v", err)
 	}
@@ -253,7 +261,27 @@ func clusterReissueCert(args []string) {
 	}
 
 	fmt.Printf("Node cert reissued under %s (advertise=%s, node_id=%s).\n", certDir, advertise, cfg.Cluster.NodeID)
+	fmt.Printf("It names: %s\n", strings.Join(addrs, ", "))
 	fmt.Println("Running sfpanel will pick up the new cert on the next TLS handshake (≤ 1 minute). No restart required.")
+}
+
+// reissueCertAddresses is what reissue-cert names in the new certificate:
+// the advertise address, this host's Tailscale addresses, and every name the
+// certificate it replaces has, so a reissue never drops an address another
+// node dials. It reads no replicated state — the panel may be stopped — so
+// an address only the cluster records for this manager is added by the
+// running manager instead (EnsureAddressCert). A certificate on disk that
+// does not load contributes nothing, with a warning.
+func reissueCertAddresses(advertise string, tailscale []string, tls *cluster.TLSManager) []string {
+	var current []string
+	leaf, err := tls.NodeCertLeaf()
+	switch {
+	case err == nil:
+		current = cluster.CertAddresses(leaf)
+	case !errors.Is(err, fs.ErrNotExist):
+		fmt.Printf("Warning: the current node cert does not load (%v); the new one names only the addresses found now.\n", err)
+	}
+	return cluster.MergeAddresses([]string{advertise}, tailscale, current)
 }
 
 func clusterInit(args []string) {

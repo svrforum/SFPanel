@@ -108,6 +108,13 @@ func TailscaleAddresses(ifaces []IfaceAddr) []string {
 	return slices.Compact(out)
 }
 
+// LocalTailscaleAddresses is TailscaleAddresses over this host's interfaces,
+// for the CLI, which runs no Manager.
+func LocalTailscaleAddresses() ([]string, error) {
+	ifaces, err := localIfaceAddrs()
+	return TailscaleAddresses(ifaces), err
+}
+
 // localIfaceAddrs lists every address on this host's interfaces.
 func localIfaceAddrs() ([]IfaceAddr, error) {
 	ifaces, err := net.Interfaces()

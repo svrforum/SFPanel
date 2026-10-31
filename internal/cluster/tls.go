@@ -406,6 +406,16 @@ func (t *TLSManager) NodeCertLeaf() (*x509.Certificate, error) {
 	return x509.ParseCertificate(block.Bytes)
 }
 
+// CertAddresses is every address a node certificate names: its IP SANs, then
+// its DNS SANs.
+func CertAddresses(leaf *x509.Certificate) []string {
+	var out []string
+	for _, ip := range leaf.IPAddresses {
+		out = append(out, ip.String())
+	}
+	return append(out, leaf.DNSNames...)
+}
+
 // loadCAPool returns the pool of the CAs this node trusts, reading ca.crt at
 // first use; ReloadCAPool reads it again.
 func (t *TLSManager) loadCAPool() (*x509.CertPool, error) {

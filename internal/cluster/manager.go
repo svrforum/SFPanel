@@ -84,6 +84,10 @@ type Manager struct {
 	// roleCertDone is set once EnsureRoleCert has succeeded; watchLeader
 	// stops trying after that.
 	roleCertDone atomic.Bool
+	// addressCertWaiting is set while EnsureAddressCert has a reissue
+	// waiting for a CA rotation to finish, so that is logged once, not on
+	// every tick.
+	addressCertWaiting atomic.Bool
 
 	// Internal proxy secrets as last applied (ApplyProxySecrets) — the
 	// replicated one among them, if any, and the floor file's contents — and
@@ -239,6 +243,25 @@ func (m *Manager) selfAddresses() []string {
 	return out
 }
 
+// MergeAddresses lists every address in lists once, in the order first seen:
+// an IP in its canonical form, whatever form it came in, so two spellings of
+// one address count once, and a host name as it is. Empty entries are
+// dropped.
+func MergeAddresses(lists ...[]string) []string {
+	var out []string
+	for _, list := range lists {
+		for _, a := range list {
+			if ip := net.ParseIP(a); ip != nil {
+				a = ip.String()
+			}
+			if a != "" && !slices.Contains(out, a) {
+				out = append(out, a)
+			}
+		}
+	}
+	return out
+}
+
 // GetConnPool returns the gRPC connection pool for proxy middleware.
 func (m *Manager) GetConnPool() *ConnPool {
 	return m.connPool
@@ -327,7 +350,10 @@ func (m *Manager) Init(clusterName string) error {
 		slog.Info("auto-detected advertise address", "component", "cluster", "address", advertise)
 	}
 
-	certPEM, keyPEM, err := m.tls.IssueNodeCert(m.nodeID, []string{advertise}, CertRoleManager)
+	// The advertise address may have been detected just now, which
+	// selfAddresses does not know; it adds the Tailscale addresses.
+	certAddrs := MergeAddresses([]string{advertise}, m.selfAddresses())
+	certPEM, keyPEM, err := m.tls.IssueNodeCert(m.nodeID, certAddrs, CertRoleManager)
 	if err != nil {
 		return fmt.Errorf("issue node cert: %w", err)
 	}
@@ -482,6 +508,9 @@ func (m *Manager) watchLeader() {
 			m.ApplyProxySecrets()
 			m.ApplyJWTKey()
 			m.ApplyClusterCA()
+			if _, err := m.EnsureAddressCert(); err != nil {
+				slog.Warn("could not reissue the node certificate for this manager's addresses", "component", "cluster", "error", err)
+			}
 			if isLeader {
 				if err := m.MaybeRotateProxySecret(); err != nil && !errors.Is(err, ErrNotLeader) {
 					slog.Warn("internal proxy secret rotation step failed", "component", "cluster", "error", err)
@@ -1517,6 +1546,76 @@ func (m *Manager) EnsureRoleCert() error {
 	}
 	slog.Info("node certificate reissued with the manager role", "component", "cluster", "node_id", m.nodeID)
 	return nil
+}
+
+// EnsureAddressCert reissues this manager's node certificate when it does not
+// name every IP the manager can be reached at — the ones it finds itself
+// (selfAddresses) and the ones the cluster records for it, which other nodes
+// dial — and reports whether it did. Only IPs count: a host name a manager is
+// registered at is named, as a DNS SAN, from its first certificate on, and
+// counting it would reissue on every tick. The new certificate keeps every
+// name the old one had, so a node still dialling an address this manager no
+// longer finds is not cut off, and keeps the key, node ID and manager role
+// (ReissueNodeCert); it is presented at once (ReloadNodeCert). True with an
+// error means it is on disk and is presented at the next reload.
+//
+// Nothing is done while a CA rotation is under way — the rotation moves
+// every certificate itself, and this would sign with whichever CA ca.crt
+// starts with — nor to a certificate in the agent role, which a manager
+// converting to an agent puts in place while its ticks may still run.
+func (m *Manager) EnsureAddressCert() (bool, error) {
+	leaf, err := m.tls.NodeCertLeaf()
+	if err != nil {
+		return false, err
+	}
+	if CertRole(leaf) == CertRoleAgent {
+		return false, nil
+	}
+	want := m.selfAddresses()
+	if m.raft != nil {
+		if n := m.raft.GetFSM().GetNode(m.nodeID); n != nil {
+			want = append(want, n.AllAddresses()...)
+		}
+	}
+	var missing []string
+	for _, a := range want {
+		ip := net.ParseIP(a)
+		if ip == nil || slices.ContainsFunc(leaf.IPAddresses, ip.Equal) {
+			continue
+		}
+		missing = MergeAddresses(missing, []string{ip.String()})
+	}
+	if len(missing) == 0 {
+		m.addressCertWaiting.Store(false)
+		return false, nil
+	}
+	if m.CARotationActive() {
+		if !m.addressCertWaiting.Swap(true) {
+			slog.Info("the node certificate lacks addresses this manager is reached at; the reissue waits for the CA rotation to finish",
+				"component", "cluster", "node_id", m.nodeID, "missing", missing)
+		}
+		return false, nil
+	}
+	m.addressCertWaiting.Store(false)
+	if err := m.ensureCAKey(); err != nil {
+		return false, err
+	}
+	// A rotation's moves run under caApplyMu (ApplyClusterCA): one that
+	// started since the check above is seen here, and one that starts now
+	// waits, then moves the certificate written here.
+	m.caApplyMu.Lock()
+	defer m.caApplyMu.Unlock()
+	if m.CARotationActive() {
+		return false, nil
+	}
+	if err := m.tls.ReissueNodeCert(m.nodeID, MergeAddresses(CertAddresses(leaf), missing), CertRoleManager); err != nil {
+		return false, fmt.Errorf("reissue node cert for this manager's addresses: %w", err)
+	}
+	slog.Info("node certificate reissued for this manager's addresses", "component", "cluster", "node_id", m.nodeID, "added", missing)
+	if err := m.tls.ReloadNodeCert(); err != nil {
+		return true, fmt.Errorf("present the reissued node cert: %w", err)
+	}
+	return true, nil
 }
 
 // ensureCAKey guarantees this node has the CA private key on disk so it can sign
