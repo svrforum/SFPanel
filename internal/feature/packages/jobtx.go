@@ -117,7 +117,7 @@ func (h *Handler) StartJobTransaction(kind string, packages []string, update boo
 	var argv []string
 	switch kind {
 	case txLists:
-		argv, update = []string{"apt-get", "update"}, true
+		argv, update = listsArgv(), true
 	case txUpgrade:
 		argv = upgradeArgv(packages)
 	case txInstall:

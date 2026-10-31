@@ -345,6 +345,12 @@ func installArgv(names ...string) []string {
 	return append(argv, names...)
 }
 
+// listsArgv is the command line a lists-only transaction records. It never
+// runs as a unit: runTx refreshes the lists in the panel, with exec.AptUpdate.
+func listsArgv() []string {
+	return []string{"apt-get", "update"}
+}
+
 // removeArgv is the apt-get command line of a removal, the one
 // exec.AptRemove runs.
 func removeArgv(names ...string) []string {
