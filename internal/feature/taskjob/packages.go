@@ -20,7 +20,6 @@ import (
 	"time"
 
 	"github.com/svrforum/SFPanel/internal/api/response"
-	"github.com/svrforum/SFPanel/internal/common/exec"
 	"github.com/svrforum/SFPanel/internal/feature/packages"
 	"github.com/svrforum/SFPanel/internal/tasks"
 )
@@ -50,15 +49,13 @@ type PackageTransactions interface {
 // PackageRunner runs packages steps.
 type PackageRunner struct {
 	Packages PackageTransactions
-	// Cmd stops a transaction's unit when the job is cancelled with force.
-	Cmd exec.Commander
 	// poll is how often a running transaction is asked after.
 	poll time.Duration
 }
 
 // NewPackageRunner returns the runner of packages steps.
-func NewPackageRunner(p PackageTransactions, cmd exec.Commander) *PackageRunner {
-	return &PackageRunner{Packages: p, Cmd: cmd, poll: time.Second}
+func NewPackageRunner(p PackageTransactions) *PackageRunner {
+	return &PackageRunner{Packages: p, poll: time.Second}
 }
 
 // pkgPhase is one transaction of a step.
@@ -194,7 +191,7 @@ func (r *PackageRunner) run(ctx context.Context, job *Job, phases []pkgPhase, fr
 		tx = ""
 		switch {
 		case cancelled:
-			finish(r.ended(tasks.JobCancelled, "cancelled during the "+ph.kind+" transaction", nil, done))
+			finish(r.ended(tasks.JobCancelled, "cancelled; the "+ph.kind+" transaction ran to its end ("+result+")", nil, done))
 			return
 		case err != nil:
 			finish(r.ended(tasks.JobInterrupted, "the "+ph.kind+" transaction's record is gone", nil, done))
@@ -217,8 +214,9 @@ func (r *PackageRunner) run(ctx context.Context, job *Job, phases []pkgPhase, fr
 }
 
 // wait follows transaction tx to its end, copying its output to the job's
-// log from copied on. A forced cancel stops the transaction's unit; the lists
-// refresh has none and runs to its end.
+// log from copied on. A forced cancel is noted and the transaction still runs
+// to its end: apt cut off half way can leave dpkg half-configured, so a
+// package job's unit is never stopped. The step goes no further after it.
 func (r *PackageRunner) wait(ctx context.Context, job *Job, ph pkgPhase, tx string, copied *int64) (result string, code int, cancelled bool, err error) {
 	cancel := ctx.Done()
 	for {
@@ -233,13 +231,6 @@ func (r *PackageRunner) wait(ctx context.Context, job *Job, ph pkgPhase, tx stri
 		select {
 		case <-cancel:
 			cancel, cancelled = nil, true
-			if ph.kind != pkgUpdate {
-				unit := aptUnitPrefix + tx + ".service"
-				if out, err := r.Cmd.RunWithTimeout(stopTimeout, "systemctl", "stop", unit); err != nil {
-					logger.Warn("stopping a cancelled job's transaction", "id", job.Spec.ID, "unit", unit,
-						"error", err, "output", response.SanitizeOutput(out))
-				}
-			}
 		case <-time.After(r.poll):
 		}
 	}

@@ -280,8 +280,9 @@ func TestAPackagesJobOutlivesAPanelRestart(t *testing.T) {
 	}
 }
 
-// Without force a package step runs to its end; with force the apt unit it
-// is in is stopped and nothing after it starts.
+// Without force a package step runs to its end. With force the transaction
+// it is in still runs to its end — apt cut off half way can leave dpkg
+// broken, so its unit is never stopped — and nothing after it starts.
 func TestAPackagesJobIsCancelledOnlyWhenForced(t *testing.T) {
 	f, pk := newFakeSystemd(), newFakePackages(t)
 	n := newRunnerNode(t, f, pk)
@@ -296,10 +297,13 @@ func TestAPackagesJobIsCancelledOnlyWhenForced(t *testing.T) {
 		t.Fatalf("forced cancel: %d", status)
 	}
 	unit := "sfpanel-apt-" + install.id + ".service"
-	eventually(t, "the apt unit stopped", func() bool { return len(f.called("systemctl", "stop", unit)) == 1 })
-	pk.end(t, install.id, "", "interrupted", -1)
-	if r := n.ended(t, s.ID); r.status != tasks.JobCancelled {
-		t.Errorf("job ended %s %q, want cancelled", r.status, r.summary)
+	time.Sleep(200 * time.Millisecond) // past a few of the runner's polls
+	if got := f.called("systemctl", "stop", unit); len(got) != 0 {
+		t.Fatalf("a forced cancel stopped the apt unit %s: dpkg could be left half-configured", unit)
+	}
+	pk.end(t, install.id, "", "success", 0)
+	if r := n.ended(t, s.ID); r.status != tasks.JobCancelled || !strings.Contains(r.summary, "ran to its end") {
+		t.Errorf("job ended %s %q, want cancelled after the install ran to its end", r.status, r.summary)
 	}
 	if len(pk.calls()) != 1 {
 		t.Errorf("transactions %+v, want none after the cancel", pk.calls())

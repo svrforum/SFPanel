@@ -233,7 +233,7 @@ func registerRunners(n *testNode, f *fakeSystemd, pkgs PackageTransactions) {
 	c.poll = 2 * time.Millisecond
 	n.h.Register(tasks.StepCommand, c)
 	if pkgs != nil {
-		p := NewPackageRunner(procPkgs{pkgs, n.proc}, cmd)
+		p := NewPackageRunner(procPkgs{pkgs, n.proc})
 		p.poll = 2 * time.Millisecond
 		n.h.Register(tasks.StepPackages, p)
 	}

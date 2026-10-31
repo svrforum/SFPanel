@@ -197,7 +197,7 @@ func (e *projectExists) Unwrap() error { return docker.ErrProjectExists }
 func TestCheckNamesWhatNeedsConfirmation(t *testing.T) {
 	platform.SetForTest(t, platform.Info{PVE: true, PVEVersion: "9.2.3", NetworkStack: platform.StackIfupdown2})
 	k := newKindNode(t, exec.NewMockCommander())
-	k.h.Register(tasks.StepPackages, NewPackageRunner(newFakePackages(t), k.cmd))
+	k.h.Register(tasks.StepPackages, NewPackageRunner(newFakePackages(t)))
 	safe := filepath.Join(t.TempDir(), "motd")
 
 	specs := []tasks.JobSpec{

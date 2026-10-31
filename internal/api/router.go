@@ -694,7 +694,7 @@ func NewRouter(database *sql.DB, auditWriter *sfdb.AsyncWriter, alertManager *fe
 	taskJobHandler := featureTaskJob.New(database, cmd, featureTaskJob.DefaultLogDir, platform.Get)
 	taskJobHandler.Compose = composeManager
 	taskJobHandler.Register(tasks.StepCommand, featureTaskJob.NewCommandRunner(cmd))
-	taskJobHandler.Register(tasks.StepPackages, featureTaskJob.NewPackageRunner(packagesHandler, cmd))
+	taskJobHandler.Register(tasks.StepPackages, featureTaskJob.NewPackageRunner(packagesHandler))
 	taskJobHandler.Register(tasks.StepService, featureTaskJob.NewServiceRunner(cmd, platform.Get))
 	taskJobHandler.Register(tasks.StepFile, featureTaskJob.FileRunner{})
 	taskJobHandler.Register(tasks.StepStack, featureTaskJob.StackStepRunner{})
