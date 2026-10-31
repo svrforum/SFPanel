@@ -147,7 +147,8 @@ func TestAServiceStepIsRefusedForTheEndpointsReasons(t *testing.T) {
 
 // A service step has changed something when the unit's state or its
 // enablement differs afterwards: stopping a running unit has, stopping a
-// stopped one has not, and enabling an enabled unit has not.
+// stopped one has not, and enabling an enabled unit has not. A restart has,
+// always: the unit did restart, though it is active before and after.
 func TestAServiceStepSaysWhetherItChangedTheUnit(t *testing.T) {
 	platform.SetForTest(t, platform.Info{NetworkStack: platform.StackNetplan})
 	units := newFakeUnits()
@@ -164,6 +165,7 @@ func TestAServiceStepSaysWhetherItChangedTheUnit(t *testing.T) {
 		{"enable", false},
 		{"disable", true},
 		{"disable", false},
+		{"restart", true},
 	} {
 		r := k.run(t, serviceSpec(i, "nginx.service", tc.action, false))
 		if r.status != tasks.JobSucceeded || r.changed != tc.changed {

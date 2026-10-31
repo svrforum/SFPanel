@@ -46,7 +46,7 @@ func (r *ServiceRunner) Check(spec tasks.JobSpec) tasks.CheckVerdict {
 
 // Start runs `systemctl <action> <unit>`, as the Services page does. The
 // step changed something when the unit's is-active or is-enabled answer
-// differs afterwards.
+// differs afterwards, and a restart always has: the unit did restart.
 func (r *ServiceRunner) Start(_ context.Context, job *Job) error {
 	step := job.Spec.Service
 	var res Result
@@ -68,13 +68,16 @@ func (r *ServiceRunner) run(job *Job, step *tasks.ServiceStep) Result {
 	appendLog(job, strings.TrimSpace(out))
 	after := r.state(step.Name)
 	appendLog(job, step.Name+": "+after)
-	changed := after != before
+	changed := after != before || step.Action == "restart"
 	if err != nil {
 		return Result{Status: tasks.JobFailed, Changed: changed,
 			Summary: "systemctl " + step.Action + " failed: " + response.SanitizeOutput(strings.TrimSpace(firstNonEmpty(out, err.Error())))}
 	}
 	summary := step.Name + ": " + before + " → " + after
-	if !changed {
+	switch {
+	case step.Action == "restart" && after == before:
+		summary = step.Name + ": restarted (" + after + ")"
+	case !changed:
 		summary = step.Name + ": already " + after
 	}
 	return Result{Status: tasks.JobSucceeded, Changed: changed, Summary: summary}
