@@ -4898,6 +4898,7 @@ data: {"phase":"ready","session":"5f0c…e9a1","sha256":"9b2d…","bytes":214748
 
 | 필드 | 설명 |
 |------|------|
+| `nodes[].addresses` | 그 매니저에 닿을 수 있는 IP 전부(LAN·Tailscale): 등록 주소(gRPC 주소의 호스트)가 먼저, 예 `["192.0.2.10", "100.64.0.10"]`. 리더가 15초 틱마다 매니저들이 알린 주소로 맞추고, 노드당 1분에 한 번까지 바꿉니다. 에이전트, 호스트 이름으로 등록된 매니저, 이 필드를 모르는 예전 버전이 기록한 노드에는 없습니다 — 그 노드는 gRPC 주소 하나로 닿습니다. `GET /cluster/nodes`의 노드도 같습니다. `docs/specs/cluster-ops.md`의 "Managers on more than one network" |
 | `latest_version` | 리더의 업데이트 확인기가 마지막으로 본 릴리스(앞 `v` 없음, 예: `"0.80.0"`). 업데이트 확인은 리더만 하므로 GitHub를 따로 부르지 않고 이 값과 노드 버전을 비교합니다. 확인기가 아직 릴리스를 보지 못했으면 필드가 없습니다. 이 필드를 모르는 예전 리더도 보내지 않습니다. 팔로워는 리더의 개요를 그대로 돌려주므로 같은 값이 옵니다 |
 
 ---
@@ -5212,6 +5213,8 @@ Raft 리더십을 지정한 노드로 이전. 실행은 리더가 하며, 팔로
 |------|-----------|------|
 | `INVALID_REQUEST` | 400 | 클러스터 미구성 또는 target_node_id 누락 |
 | `INTERNAL_ERROR` | 500 | 리더십 이전 실패 |
+
+수동 이전은 리더의 자동 이전 대기(10분)를 시작하지 않습니다. 그래서 에이전트에 덜 닿는 매니저로 넘기면, 그 매니저가 30초 동안 리더였고 지난 10분 안에 스스로 넘긴 적이 없을 때 더 많이 닿는 매니저에게 다시 넘깁니다(`docs/specs/cluster-ops.md`의 "Managers on more than one network").
 
 ---
 
@@ -6489,7 +6492,7 @@ WireGuard 키페어 생성 (`wg genkey` + `wg pubkey`).
 |--------|------|------|------|
 | GET | `/api/v1/cluster/status` | O | 클러스터 상태 (활성화 여부, 노드 수, 리더) |
 | GET | `/api/v1/cluster/overview` | O | 클러스터 개요 (노드 목록 + 집계 메트릭) |
-| GET | `/api/v1/cluster/nodes` | O | 노드 목록 (상태, 역할, 라벨, `kind`: `manager`·`agent` — 종류가 생기기 전에 기록된 노드에는 이 필드가 없고 매니저다. 에이전트는 `role`이 비어 있다) |
+| GET | `/api/v1/cluster/nodes` | O | 노드 목록 (상태, 역할, 라벨, `kind`: `manager`·`agent` — 종류가 생기기 전에 기록된 노드에는 이 필드가 없고 매니저다. 에이전트는 `role`이 비어 있다. `addresses`: 매니저에 닿는 IP 전부, 등록 주소 먼저 — 없으면 gRPC 주소 하나) |
 | POST | `/api/v1/cluster/token` | O | 참가 토큰 생성 (TTL, `kind`: `manager`(기본)·`agent` 지정 가능). 응답: `token`, `kind`, `expires_at`, `grpc_port`, `advertise_address`, `ca_pin`(가입 명령의 `--ca`) |
 | GET | `/api/v1/cluster/tokens` | O | 대기 중 참가 토큰 목록 (마스킹, `kind`, v0.19.0+) |
 | DELETE | `/api/v1/cluster/tokens/:id` | O | 참가 토큰 폐기 (v0.19.0+, 없는 토큰은 404) |

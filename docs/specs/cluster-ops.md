@@ -96,7 +96,10 @@ heartbeats on Heartbeat, which refuses an agent. A manager whose certificate
 predates roles reissues it with the manager role by itself, on its first
 leader-watch tick after the upgrade, keeping its node ID and addresses and
 signing with the CA key it holds through replicated state; `reissue-cert`
-issues with the manager role too.
+issues with the manager role too. A manager's certificate names every
+address the cluster records for it, a Tailscale address among them, and is
+reissued with the same key when one is added (§ Managers on more than one
+network).
 
 A CA past its `NotAfter` fails every gRPC handshake, and the cluster cannot
 recover from that by itself: rotate it well before (§ Rotating the cluster's
@@ -396,9 +399,12 @@ not asked, and one the leader's heartbeats show offline is skipped.
   (web-01): the update stopped, and no manager was updated`). A manager that
   fails ends it before the next manager and the leader.
 - **The leader updates itself only after handing leadership over** to
-  another manager voter — one the run has just updated, else one already on
-  the release. If no handover works, the run stops and the leader is left as
-  it is (`Leadership could not be handed over …: the leader was not
+  another manager voter — one the run has just updated or one already on the
+  release. It tries the one that reaches the most agents first, so the
+  agents keep a leader they can reach (§ Managers on more than one
+  network), then the rest; ties go by name, and a manager whose reach is
+  unknown comes last. If no handover works, the run stops and the leader is
+  left as it is (`Leadership could not be handed over …: the leader was not
   updated`). With no other manager voter to hand over to, as in a
   one-manager cluster, it updates without a handover. Its Raft keeps running
   through the download: the restart after a successful update stops it as
@@ -456,7 +462,9 @@ update counts as a failure and stops on (see above).
   process (`os.Exit(1)`). systemd's `Restart=always` brings it back up in
   standalone mode.
 - A follower asks the leader to take it out. A leader first hands
-  leadership to another online manager voter and then asks it the same way,
+  leadership to another online manager voter — the one that reaches the
+  most agents (§ Managers on more than one network) — and then asks it the
+  same way,
   so the new leader removes it from Raft and deletes its record.
 - When no leader took the node out — none was known or could be reached, or
   it refused — the leave goes on and says so (`no leader took this node out
@@ -604,14 +612,16 @@ curl -fsSL https://raw.githubusercontent.com/svrforum/SFPanel/main/scripts/insta
 |---|---|---|
 | Managers → agent | 3629 (`cluster.grpc_port`) | Requests, over gRPC with mTLS |
 | Managers → agent | 3628 (`server.port`) | Event streams, file transfers, terminals and other WebSockets, stack migrations (a manager pushes stacks to the agent, and pulls the agent's own from it) — panel HTTPS |
-| Agent → managers | 3629 | Registration, heartbeats, panel-CA reports, and a rotation's certificate renewal and key, to the leader; the other managers are tried when it cannot be reached |
+| Agent → managers | 3629 | Registration, heartbeats, panel-CA reports, and a rotation's certificate renewal and key, to the leader — at each of its addresses, the agent's own network first; the other managers are tried when it cannot be reached |
 
 An agent needs no Raft port (3630), on either side.
 
 An agent's panel listens on its advertise address and on 127.0.0.1 only;
-`server.host` is not used. It answers loopback, its managers' addresses and
-`cluster.agent_allowed_sources` (IPs or CIDRs, for managers that reach
-agents from an address other than the one they advertise), judged by the
+`server.host` is not used. It answers loopback, every address of its
+managers — the one each advertises and the others the leader lists for it,
+a Tailscale address among them — and `cluster.agent_allowed_sources` (IPs
+or CIDRs, for managers that reach agents from an address they do not
+report, behind NAT for instance), judged by the
 connection's address, never `X-Forwarded-For`; anything else gets 403.
 Loopback is what this server's own tools use — the update watchdog, the gRPC
 server's hop to the panel, the installer and `sfpanel agent status`. Either
@@ -638,7 +648,11 @@ manager, the node list shows it with `kind: agent` and no Raft role; it is
 online while its heartbeats arrive.
 
 The agent heartbeats to the leader every 30 seconds and keeps the leader's
-address and the manager list in `{Cluster.DataDir}/agent-state.json`. Any
+address and the manager list in `{Cluster.DataDir}/agent-state.json`, with
+every address of each manager. It dials a manager at the address that worked
+last time first (`reached`, per manager ID), then at the addresses on its own
+network — those in Tailscale's range when its advertise address is in it —
+then at the rest (§ Managers on more than one network). Any
 manager's reply can say where the leader is, but only the leader's sets the
 manager list — the managers the agent takes requests from — because a
 follower's may lag behind a removal. The one entry a follower adds is the
@@ -732,6 +746,168 @@ against it, and a relay that could only go in clear is not sent
 (`CLUSTER_AGENT_PANEL_INSECURE`). With an operator certificate
 (`server.tls.cert_file` and `key_file`), `server.tls.ca_file` has to name its
 CA.
+
+---
+
+## Managers on more than one network
+
+A manager may be reachable on more than one network: the LAN address it
+advertises, and a Tailscale tailnet. Agents can sit on either — a server
+reachable only over Tailscale, or one on a LAN with no tailnet — and a
+manager relays to an agent only over a network of its own: there is no hop
+through a second manager. So the cluster records every address of each
+manager, agents dial the one on their own network, and the leader role goes
+to a manager that reaches the agents, since they heartbeat to the leader.
+None of it needs configuring.
+
+### A manager's addresses
+
+- A manager's addresses are the one it advertises
+  (`cluster.advertise_address`, or else the host of its recorded gRPC
+  address), then its Tailscale addresses — at most eight. Its gRPC server
+  answers at each of them, on the one port.
+- A Tailscale address is an IPv4 address on an interface that is up, not
+  loopback, and not one Docker creates with a stack (`br-*`, `veth*`): any
+  address in Tailscale's range, 100.64.0.0/10 — Tailscale's interface is not
+  always `tailscale0` — and any address on an interface named `tailscale*`,
+  which a self-hosted control server may number from another range. A
+  Docker bridge an operator numbered from 100.64.0.0/10 is listed too. That
+  is harmless: a dial to it fails and the next address is tried, and the
+  certificate names one address more.
+- Each follower reports its addresses on every heartbeat ping. The leader
+  writes them, and its own, into the node records on its 15-second tick, at
+  most once a minute per node, so an interface that flaps does not cost a
+  Raft entry per ping. A record lists the address the node is registered at
+  first, then the rest: `addresses` in `GET /api/v1/cluster/nodes` and
+  `/cluster/overview`, for example `["192.0.2.10", "100.64.0.10"]`. A
+  manager registered at a host name keeps that one address, since the list
+  holds IPs only. An agent's record has no list: it is reached at its
+  advertise address alone.
+- A node whose address is changed (`PATCH /cluster/nodes/<id>/address`, or
+  the check a manager makes of its own address at boot) is listed at the new
+  address first at once; the rest of its list follows on the leader's next
+  tick.
+- There is no version gate. A manager from before addresses reports none and
+  erases none — its record keeps whatever was written. A leader from before
+  them drops the lists from its snapshots; the next tick of a newer leader
+  writes them back.
+
+### Certificates
+
+Each manager's node certificate names every address the manager finds for
+itself and every address the cluster records for it. The manager checks on
+its 15-second tick, and when one is missing it reissues the certificate with
+the same key, node ID and manager role, keeping every name the old one had:
+the list never shrinks, so a node still dialling an address the manager no
+longer has is not cut off. The new certificate is presented at once. Nothing
+is reissued while a CA rotation is under way — the rotation moves every
+certificate itself — and the first tick after it catches up. To see what a
+certificate names:
+
+```bash
+sudo openssl x509 -in {Cluster.CertDir}/node.crt -noout -ext subjectAltName
+```
+
+`sudo sfpanel cluster reissue-cert` names the advertise address, this host's
+Tailscale addresses and every name of the certificate it replaces, and makes
+a new key. It reads no replicated state, so an address only the cluster
+records for the manager is added by the running service on its next tick.
+
+### How an agent reaches its managers
+
+- The leader's replies carry every manager's addresses, and the agent keeps
+  them with the manager list in `agent-state.json`.
+- The agent dials a manager at the address that worked last time first
+  (`reached` in `agent-state.json`, per manager ID), as long as the manager
+  still lists it; then at the addresses on its own network — those in
+  100.64.0.0/10 when its advertise address is in that range, the others when
+  it is not — then at the rest. The agent goes by the range alone: it knows
+  none of the manager's interfaces. It saves the address a session went
+  through, and writes the file only when that changes.
+- It follows the leader by node ID: a reply that names the leader sends the
+  agent to that manager's addresses in the same order.
+- A state file from an earlier release has neither addresses nor `reached`:
+  the agent dials as before, at each manager's gRPC address, until the
+  leader's first reply fills them in. An agent from before addresses keeps
+  dialling the gRPC addresses only.
+- Join a server that is only on the tailnet through a manager's Tailscale
+  address: `sudo sfpanel agent join 100.64.0.10:3629 <token> --ca
+  <fingerprint>`. `cluster token --agent` prints the leader's advertised
+  address; any address of any manager works. Without `--advertise`, the
+  agent's own address is detected from the route to the manager, so this
+  agent advertises its Tailscale address. Pointed at a follower, the join
+  dials the leader at each of its addresses in the order above; when it
+  reaches the leader at none, the join fails, and the token is not spent.
+- An agent's panel takes requests from every address of its managers — a
+  manager's Tailscale address among them — with nothing in
+  `cluster.agent_allowed_sources`. That setting stays for a manager whose
+  traffic reaches the agent from an address it does not report, behind NAT
+  for instance.
+
+### Which manager reaches which agent
+
+Every manager probes every agent in the cluster, online or not, every 60
+seconds: a bare TCP connect to the agent's gRPC port and close, without TLS,
+three seconds per dial, eight agents at once. The agent's log stays quiet. A
+manager reports the agents it reached on its heartbeat ping, and a probe
+counts for three minutes.
+
+A request for an agent that this manager's fresh probe could not reach is
+refused at once with `502 CLUSTER_NODE_UNREACHABLE`, naming the agent, instead
+of timing out after thirty seconds over gRPC or minutes over a relay. That
+holds for every relayed request — event streams, file transfers and
+WebSockets included, a WebSocket before its upgrade. The panel says to open
+it on a manager on the agent's network (LAN or Tailscale). Without a fresh
+probe of that agent, the relay is sent and the dial decides, as before.
+
+### The leader goes to the manager that reaches the most agents
+
+Agents heartbeat to the leader, and one the leader cannot reach looks offline
+to it even while another manager reaches it. So the leader weighs, on its
+15-second tick, whether to hand its role over. These rules apply in order;
+the first that matches keeps the leader where it is:
+
+1. Something holds the role: a cluster update is running, or a CA rotation
+   is under way. Both stop if the leader changes.
+2. It has led for less than 30 seconds.
+3. It handed its role over by itself in the last 10 minutes, whether or not
+   the hand-over worked. This is kept in memory: a restart forgets it.
+4. Its own reach is unknown: no probe within three minutes, or one with no
+   verdict on an agent registered since.
+5. It reaches every agent, or there are none.
+
+Otherwise it hands the role to the manager voter, online by live heartbeat,
+that reaches strictly more agents than it does — as many is no reason, or two
+managers that reach different agents would trade the role back and forth —
+the one that reaches the most, then the first by name. A manager whose reach
+is unknown — a stale probe, or a release from before probes — is never
+chosen, and a leader from before them never hands over. Before handing over,
+the leader probes again: an agent that was restarting during its last probe
+does not move the role to a manager that only probed later.
+
+The leader logs the hand-over (`leadership handed to a manager that reaches
+more agents`, with `target` and a `reason` such as `peer-2 reaches 3 of 3
+agents, this leader 2`), or why it failed (`could not hand leadership to a
+manager that reaches more agents`).
+
+A manual transfer (`sudo sfpanel cluster leader-transfer <node-id>`,
+`POST /api/v1/cluster/leader-transfer`) does not start the 10-minute wait. A
+transfer to a manager that reaches fewer agents therefore lasts about half a
+minute: once that manager has led for 30 seconds, it hands the role on —
+unless it handed the role over by itself within the last 10 minutes, in which
+case the role moves on when those 10 minutes are up.
+
+The leader's other hand-overs pick by the same measure: on shutdown, on
+`cluster leave`, and at the end of a cluster update (§ Update orchestration)
+the role goes to the manager voter online by live heartbeat that reaches the
+most agents. Ties go by name, and a manager whose reach is unknown comes
+last.
+
+### Not covered
+
+- Tailscale's IPv6 addresses are neither detected nor recorded.
+- No manager relays through another. An agent only some managers reach is
+  opened from a panel on one of them.
 
 ---
 
