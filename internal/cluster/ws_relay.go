@@ -283,6 +283,13 @@ func WrapEchoWSHandler(getMgr func() *Manager, handler func(c echo.Context) erro
 			return c.JSON(http.StatusUnauthorized, map[string]string{"error": "authentication required"})
 		}
 
+		// An agent this manager's last probe could not reach is refused here,
+		// before the upgrade, as ClusterProxyMiddleware refuses it.
+		if !node.IsManager() && mgr.Unreachable(node.ID) {
+			slog.Info("WS relay to node refused: not reachable from this manager", "component", "cluster", "node_id", nodeID)
+			return RefuseUnreachable(c, node)
+		}
+
 		// Refuse before the upgrade what the relay would refuse after it — an
 		// agent whose panel CA is unknown (no relay in clear) or that has no
 		// key (nothing else may sign for it). Once upgraded, the browser sees

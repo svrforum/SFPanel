@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import ko from './locales/ko.json'
 import en from './locales/en.json'
-import { CODE_MESSAGES } from '@/lib/codeMessages'
+import { CODE_DEFAULTS, CODE_MESSAGES } from '@/lib/codeMessages'
 
 // A key the code asks for and the locale files do not have renders as the key
 // itself: the stack delete dialog showed "docker.compose.deleteDataNote".
@@ -54,6 +54,15 @@ describe('translation keys', () => {
   // Error codes are worded through CODE_MESSAGES, which no t('…') scan sees.
   it.each([['ko', ko], ['en', en]] as const)('every error-code message exists in %s', (_lang, tree) => {
     const missing = Object.entries(CODE_MESSAGES).filter(([, key]) => !has(tree, key)).map(([code, key]) => `${code} → ${key}`)
+    expect(missing).toEqual([])
+  })
+
+  // A placeholder's default is worded the same way.
+  it.each([['ko', ko], ['en', en]] as const)('every error-code default exists in %s', (_lang, tree) => {
+    const missing = Object.entries(CODE_DEFAULTS)
+      .flatMap(([code, names]) => Object.entries(names).map(([name, key]) => [`${code}.${name}`, key]))
+      .filter(([, key]) => !has(tree, key))
+      .map(([what, key]) => `${what} → ${key}`)
     expect(missing).toEqual([])
   })
 

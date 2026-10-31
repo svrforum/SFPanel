@@ -22,7 +22,7 @@ const agents = Array.from({ length: 40 }, (_, k) => {
 // Listed out of order on purpose: the tree sorts.
 const nodes = [...agents.slice().reverse(), ...managers.slice().reverse()]
 
-async function mock(page: Page, opts: { storage?: Record<string, string>; list?: () => unknown[]; nodesDown?: boolean; versions?: Record<string, string> } = {}) {
+async function mock(page: Page, opts: { storage?: Record<string, string>; list?: () => unknown[]; nodesDown?: boolean; versions?: Record<string, string>; unreachable?: string } = {}) {
   const requests: string[] = []
   await page.addInitScript((storage) => {
     sessionStorage.setItem('token', 'fixture-token')
@@ -49,6 +49,12 @@ async function mock(page: Page, opts: { storage?: Record<string, string>; list?:
     else if (path === '/cluster/overview') data = { name: 'lab', node_count: nodes.length, leader_id: 'm-1', nodes, metrics: [] }
     else if (path === '/cluster/events') data = { events: [] }
     else if (path === '/system/overview' && opts.versions) data = { version: opts.versions[url.searchParams.get('node') ?? 'm-1'] }
+    else if (opts.unreachable && url.searchParams.get('node') === opts.unreachable) {
+      // What a manager answers for an agent its probe could not reach (proxy.go).
+      const name = opts.unreachable
+      await route.fulfill({ status: 502, json: { success: false, error: { code: 'CLUSTER_NODE_UNREACHABLE', message: `${name} is not reachable from this manager; open the panel on a manager on its network`, details: { name } } } })
+      return
+    }
     else if (url.searchParams.get('node') === 'gone') {
       // What the manager answers for a node it does not know (proxy.go).
       await route.fulfill({ status: 400, json: { success: false, error: { code: 'INVALID_REQUEST', message: 'Node not found: gone' } } })
@@ -164,6 +170,22 @@ test('a node that leaves while shown is named by its name', async ({ page }) => 
   await page.evaluate(() => window.dispatchEvent(new Event('sfpanel:cluster-changed')))
   await expect(page.getByText('agent-07 is no longer in the cluster, so this node is shown instead.')).toBeVisible()
   await expect(page.getByText(/3f2b9c1e/)).toHaveCount(0)
+})
+
+// A node this manager cannot reach used to time out after thirty seconds and
+// say nothing of why. The manager now refuses at once, and the page says which
+// node and where to open it instead.
+test('a node this manager cannot reach says so by name', async ({ page }) => {
+  await mock(page, {
+    storage: {
+      sfpanel_current_node: 'agent-5',
+      'sfpanel-cluster-selection': JSON.stringify({ type: 'node', nodeId: 'agent-5' }),
+    },
+    unreachable: 'agent-5',
+  })
+  await page.goto('/docker/stacks')
+  await expect(page.getByText('This manager cannot reach agent-5. Open the panel on a manager on its network (LAN or Tailscale).').first()).toBeVisible()
+  await expect(page.getByText('is not reachable from this manager')).toHaveCount(0)
 })
 
 // The menu's header named a node it had not looked up yet "Unknown node", and

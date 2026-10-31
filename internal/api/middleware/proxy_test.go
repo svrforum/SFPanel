@@ -5,8 +5,11 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
+	"encoding/json"
+	"encoding/pem"
 	"fmt"
 	"io"
+	"net"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
@@ -14,10 +17,12 @@ import (
 	"path/filepath"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
 	"github.com/labstack/echo/v4"
+	"github.com/svrforum/SFPanel/internal/api/response"
 	"github.com/svrforum/SFPanel/internal/auth"
 	"github.com/svrforum/SFPanel/internal/cluster"
 	"github.com/svrforum/SFPanel/internal/config"
@@ -680,5 +685,158 @@ func TestRelayEventStream_UpstreamBreakIsReported(t *testing.T) {
 	}, func(context.CancelFunc) {})
 	if !strings.Contains(got, "upstream stream interrupted") {
 		t.Fatalf("relayed %q, want the error event for a remote that broke", got)
+	}
+}
+
+// unreachableFixture is a one-manager cluster with an agent, "far", whose
+// gRPC port and panel count what reaches them; the relays to it would go
+// through, its panel CA and key being in replicated state. send makes a
+// ?node=far request of one kind — gRPC, SSE, binary or WS — and returns its
+// status, code and details; dials is how often the agent was reached.
+type unreachableFixture struct {
+	mgr   *cluster.Manager
+	send  func(kind string) (status int, code string, details map[string]string)
+	dials func() int
+}
+
+func newUnreachableFixture(t *testing.T) unreachableFixture {
+	t.Helper()
+	t.Cleanup(func() { auth.SetProxySecrets("", nil) })
+	raftPort := freePort(t)
+	dir := t.TempDir()
+	mgr := cluster.NewManager(&config.ClusterConfig{
+		DataDir: filepath.Join(dir, "raft"), CertDir: filepath.Join(dir, "certs"),
+		AdvertiseAddress: "127.0.0.1", GRPCPort: raftPort - 1, APIPort: 1,
+	})
+	if err := mgr.Init("unreachable"); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(mgr.Shutdown)
+	auth.SetProxySecrets("managers-secret", []string{"managers-secret"})
+
+	panel := newAgentPanel(true)
+	t.Cleanup(panel.Close)
+	grpcLis, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = grpcLis.Close() })
+	var grpcDials atomic.Int32
+	go func() {
+		for {
+			c, err := grpcLis.Accept()
+			if err != nil {
+				return
+			}
+			grpcDials.Add(1)
+			_ = c.Close()
+		}
+	}()
+	v, _ := json.Marshal(cluster.Node{ID: "far", Name: "far-agent", Kind: cluster.KindAgent,
+		APIAddress: panel.Listener.Addr().String(), GRPCAddress: grpcLis.Addr().String()})
+	if err := mgr.GetRaft().Apply(cluster.Command{Type: cluster.CmdAddNode, Value: v}, 5*time.Second); err != nil {
+		t.Fatal(err)
+	}
+	ca := pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: panel.Certificate().Raw})
+	if err := mgr.SetPanelCA("far", string(ca)); err != nil {
+		t.Fatal(err)
+	}
+	if err := mgr.SetConfig(cluster.AgentKeyConfigKey("far"), "agent-key"); err != nil {
+		t.Fatal(err)
+	}
+
+	getMgr := func() *cluster.Manager { return mgr }
+	ranHere := func(c echo.Context) error {
+		t.Errorf("%s ran on the manager", c.Request().URL)
+		return c.NoContent(http.StatusTeapot)
+	}
+	httpChain := ClusterProxyMiddleware(getMgr, nil)(ranHere)
+	wsChain := cluster.WrapEchoWSHandler(getMgr, ranHere)
+	targets := map[string]struct {
+		method, target string
+		h              echo.HandlerFunc
+	}{
+		"gRPC":   {http.MethodGet, "/api/v1/system/info?node=far", httpChain},
+		"SSE":    {http.MethodPost, "/api/v1/docker/images/pull?node=far", httpChain},
+		"binary": {http.MethodGet, "/api/v1/files/download?path=/x&node=far", httpChain},
+		"WS":     {http.MethodGet, "/ws/terminal?node=far", wsChain},
+	}
+	send := func(kind string) (int, string, map[string]string) {
+		t.Helper()
+		tc := targets[kind]
+		rec := httptest.NewRecorder()
+		c := echo.New().NewContext(httptest.NewRequest(tc.method, tc.target, nil), rec)
+		c.Set("username", "alice")
+		if err := tc.h(c); err != nil {
+			t.Fatal(err)
+		}
+		var body struct {
+			Error struct {
+				Code    string            `json:"code"`
+				Details map[string]string `json:"details"`
+			} `json:"error"`
+		}
+		_ = json.Unmarshal(rec.Body.Bytes(), &body)
+		return rec.Code, body.Error.Code, body.Error.Details
+	}
+	dials := func() int {
+		hits, _ := panel.seen()
+		return hits + int(grpcDials.Load())
+	}
+	return unreachableFixture{mgr: mgr, send: send, dials: dials}
+}
+
+var relayKinds = []string{"gRPC", "SSE", "binary", "WS"}
+
+// An agent this manager's probe could not reach is refused at once, by name,
+// on every relay: the dial would only time out, and the operator would not
+// learn that another manager reaches it. Nothing is dialled, and a WebSocket
+// is refused before the upgrade.
+func TestAProxyToAnAgentThisManagerCannotReachSaysSo(t *testing.T) {
+	f := newUnreachableFixture(t)
+	f.mgr.SetReachForTest(t, map[string]bool{"far": false}, time.Now())
+	for _, kind := range relayKinds {
+		status, code, details := f.send(kind)
+		if status != http.StatusBadGateway || code != response.ErrClusterNodeUnreachable || details["name"] != "far-agent" {
+			t.Fatalf("%s: %d %q %v, want 502 %q naming far-agent", kind, status, code, details, response.ErrClusterNodeUnreachable)
+		}
+	}
+	if n := f.dials(); n != 0 {
+		t.Fatalf("the agent was dialled %d times", n)
+	}
+}
+
+// Without a probe's fresh word that it failed — no probe, a stale one, one
+// that did not try the agent — a relay goes to the agent as it always has.
+func TestAnUnprobedAgentIsStillTried(t *testing.T) {
+	f := newUnreachableFixture(t)
+	for _, tc := range []struct {
+		name   string
+		agents map[string]bool
+		at     time.Time
+	}{
+		{"no probe", nil, time.Time{}},
+		{"a stale probe", map[string]bool{"far": false}, time.Now().Add(-4 * time.Minute)},
+		{"a probe that did not try it", map[string]bool{"other": false}, time.Now()},
+	} {
+		f.mgr.SetReachForTest(t, tc.agents, tc.at)
+		for _, kind := range relayKinds {
+			before := f.dials()
+			status, code, _ := f.send(kind)
+			if code == response.ErrClusterNodeUnreachable {
+				t.Fatalf("%s, %s: refused as unreachable", tc.name, kind)
+			}
+			switch kind {
+			case "WS":
+				// No WebSocket headers: past the checks is the upgrader's 400.
+				if status != http.StatusBadRequest {
+					t.Fatalf("%s, WS: %d, want the upgrader's 400", tc.name, status)
+				}
+			default:
+				if f.dials() == before {
+					t.Fatalf("%s, %s: %d %q and the agent was not dialled", tc.name, kind, status, code)
+				}
+			}
+		}
 	}
 }

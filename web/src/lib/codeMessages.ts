@@ -29,6 +29,7 @@ export const CODE_MESSAGES: Record<string, string> = {
   CLUSTER_ROUTE_NOT_ON_AGENT: 'cluster.errors.routeNotOnAgent',
   CLUSTER_AGENT_AUTH_FAILED: 'cluster.errors.agentAuthFailed',
   CLUSTER_AGENT_PANEL_INSECURE: 'cluster.errors.agentPanelInsecure',
+  CLUSTER_NODE_UNREACHABLE: 'cluster.errors.nodeUnreachable',
   CLUSTER_TOKEN_KIND: 'cluster.errors.tokenKind',
   CLUSTER_MAX_AGENTS: 'cluster.errors.maxAgents',
   CLUSTER_CA_ROTATING: 'cluster.errors.caRotating',
@@ -44,4 +45,10 @@ export const CODE_MESSAGES: Record<string, string> = {
   RESTORE_AGENT_BACKUP_ON_MANAGER: 'settings.restoreErrors.agentBackupOnManager',
   // CLUSTER_CONVERT_REFUSED, CLUSTER_PROMOTE_REFUSED and CLUSTER_ROTATION_REFUSED
   // carry their reason in the server's message, so they stay unworded here.
+}
+
+// What a placeholder reads, as an i18n key, when the details carry no value
+// for it: a node a server named by neither name nor ID is "that node".
+export const CODE_DEFAULTS: Record<string, Record<string, string>> = {
+  CLUSTER_NODE_UNREACHABLE: { name: 'cluster.errors.thatNode' },
 }

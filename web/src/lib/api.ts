@@ -77,7 +77,7 @@ import type {
   AIProfile,
   AIProfiles,
 } from '@/types/api'
-import { CODE_MESSAGES } from './codeMessages'
+import { CODE_DEFAULTS, CODE_MESSAGES } from './codeMessages'
 import type { ApiWarning } from './warnings'
 
 const API_PATH = '/api/v1'
@@ -126,6 +126,15 @@ export function setApiTranslator(fn: Translator) {
 
 // Error codes the panel words itself live in ./codeMessages.
 
+// codeText words an error by its code when the panel knows the code: the
+// details fill the message's placeholders, and CODE_DEFAULTS any they leave
+// empty. Any other code keeps the server's sentence.
+function codeText(code: string | undefined, sent: string, details?: Record<string, string>): string {
+  if (!code || !CODE_MESSAGES[code]) return sent
+  const defaults = Object.fromEntries(Object.entries(CODE_DEFAULTS[code] ?? {}).map(([name, key]) => [name, translate(key, key)]))
+  return translate(CODE_MESSAGES[code], sent, { ...defaults, ...details })
+}
+
 // An error the server refused with: the HTTP status and the envelope's code and
 // details ride on it, so callers can react to a specific refusal (a 409
 // firewall-lockout guard) without parsing the message. serverMessage is the
@@ -145,7 +154,7 @@ export function apiErrorFrom(status: number, body: unknown): ApiError {
   const code = envelope.error?.code
   const sent = envelope.error?.message || 'Unknown error'
   const details = envelope.error?.details
-  const message = code && CODE_MESSAGES[code] ? translate(CODE_MESSAGES[code], sent, details) : sent
+  const message = codeText(code, sent, details)
   const err = new Error(message) as ApiError
   err.status = status
   err.code = code
@@ -1724,7 +1733,7 @@ class ApiClient {
         code = json.error?.code
         details = json.error?.details
         const sent = json.error?.message || message
-        message = code && CODE_MESSAGES[code] ? translate(CODE_MESSAGES[code], sent, details) : sent
+        message = codeText(code, sent, details)
       } catch {
         // not JSON: keep the status
       }

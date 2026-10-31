@@ -5,11 +5,14 @@ import (
 	"fmt"
 	"log/slog"
 	"net"
+	"net/http"
 	"slices"
 	"sort"
 	"sync"
 	"time"
 
+	"github.com/labstack/echo/v4"
+	"github.com/svrforum/SFPanel/internal/api/response"
 	"github.com/svrforum/SFPanel/internal/common/safe"
 )
 
@@ -175,6 +178,71 @@ func reachedBy(r *reachResult, now time.Time) []string {
 	}
 	sort.Strings(out)
 	return out
+}
+
+// Unreachable reports whether this manager's last probe, while fresh
+// (reachFresh), tried the agent nodeID and found it out of reach. No probe, a
+// stale one, one that did not try nodeID, and a manager — managers reach each
+// other over Raft and the probe tries none — are false: a relay goes ahead
+// and the dial is the judge, as it is without a probe.
+func (m *Manager) Unreachable(nodeID string) bool {
+	if !unreachedBy(m.reach.Load(), nodeID, time.Now()) || m.raft == nil {
+		return false
+	}
+	// The probe judged the node as an agent; one promoted since is a manager.
+	n := m.raft.GetFSM().GetState().Nodes[nodeID]
+	return n != nil && !n.IsManager()
+}
+
+// RefuseUnreachable answers a request for n, an agent Unreachable, with
+// 502 CLUSTER_NODE_UNREACHABLE naming it — by its name, or its ID when it has
+// none — for the panel to word. ClusterProxyMiddleware and WrapEchoWSHandler
+// both refuse with it, before any dial.
+func RefuseUnreachable(c echo.Context, n *Node) error {
+	name := n.Name
+	if name == "" {
+		name = n.ID
+	}
+	return response.FailWith(c, http.StatusBadGateway, response.ErrClusterNodeUnreachable,
+		name+" is not reachable from this manager; open the panel on a manager on its network",
+		map[string]string{"name": name})
+}
+
+func unreachedBy(r *reachResult, nodeID string, now time.Time) bool {
+	if r == nil || now.Sub(r.At) > reachFresh {
+		return false
+	}
+	reached, tried := r.Agents[nodeID]
+	return tried && !reached
+}
+
+// testingT is the part of testing.TB SetReachForTest needs, so this package
+// does not link the testing package into the panel.
+type testingT interface {
+	Helper()
+	Fatal(args ...any)
+}
+
+// SetReachForTest makes agents this manager's last probe of the agents, ended
+// at at; nil agents is no probe at all. The first call waits for the probe a
+// started manager runs at once, which would otherwise land after it and
+// replace it.
+func (m *Manager) SetReachForTest(t testingT, agents map[string]bool, at time.Time) {
+	t.Helper()
+	if m.raft != nil && !m.reachSetForTest.Swap(true) {
+		deadline := time.Now().Add(10 * time.Second)
+		for m.reach.Load() == nil {
+			if time.Now().After(deadline) {
+				t.Fatal("the manager's first probe of the agents did not end")
+			}
+			time.Sleep(10 * time.Millisecond)
+		}
+	}
+	if agents == nil {
+		m.reach.Store(nil)
+		return
+	}
+	m.reach.Store(&reachResult{Agents: agents, At: at})
 }
 
 // preferInput is what a leader decides a hand-over on (choosePreferredLeader).

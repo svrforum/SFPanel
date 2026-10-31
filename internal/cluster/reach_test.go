@@ -133,6 +133,32 @@ func TestReachableAgentsIsFreshOrUnknown(t *testing.T) {
 	}
 }
 
+// A node is unreachable only on a fresh probe's word that it tried the node,
+// an agent, and failed. Anything less is no verdict, and a relay goes ahead.
+func TestOnlyAFreshProbeThatFailedAnAgentCallsItUnreachable(t *testing.T) {
+	fsm := fsmWithConfig(t, nil)
+	addTestNode(t, fsm, Node{ID: "far", Kind: KindAgent})
+	addTestNode(t, fsm, Node{ID: "near", Kind: KindAgent})
+	addTestNode(t, fsm, Node{ID: "unprobed", Kind: KindAgent})
+	addTestNode(t, fsm, Node{ID: "m2", Kind: KindManager})
+	m := &Manager{raft: &RaftNode{fsm: fsm}}
+	probe := map[string]bool{"far": false, "near": true, "m2": false}
+
+	if m.Unreachable("far") {
+		t.Fatal("with no probe, far is unreachable")
+	}
+	m.reach.Store(&reachResult{Agents: probe, At: time.Now()})
+	for id, want := range map[string]bool{"far": true, "near": false, "unprobed": false, "m2": false, "gone": false} {
+		if got := m.Unreachable(id); got != want {
+			t.Fatalf("fresh probe: Unreachable(%s) = %v, want %v", id, got, want)
+		}
+	}
+	m.reach.Store(&reachResult{Agents: probe, At: time.Now().Add(-reachFresh - time.Second)})
+	if m.Unreachable("far") {
+		t.Fatal("a stale probe still calls far unreachable")
+	}
+}
+
 // A follower probes the agents in the FSM and its pings carry those it
 // reaches to the leader.
 func TestAManagerReportsTheAgentsItReaches(t *testing.T) {

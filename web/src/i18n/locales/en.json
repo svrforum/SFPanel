@@ -1224,6 +1224,8 @@
       "routeNotOnAgent": "Cluster management runs on a manager. Choose the datacenter or a manager first.",
       "agentAuthFailed": "This manager could not sign its request to the agent. Check that the agent is still in the cluster and that its clock is right.",
       "agentPanelInsecure": "The agent's panel certificate has not reached the cluster yet, so nothing is relayed to it unencrypted. Wait a minute, or restart the agent.",
+      "nodeUnreachable": "This manager cannot reach {{name}}. Open the panel on a manager on its network (LAN or Tailscale).",
+      "thatNode": "that node",
       "tokenKind": "This join token was made for another kind of node.",
       "maxAgents": "The cluster already has as many agents as cluster.max_agents allows.",
       "caRotating": "The cluster CA is being replaced. Try again once the rotation is done.",

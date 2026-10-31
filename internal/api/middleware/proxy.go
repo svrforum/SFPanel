@@ -601,6 +601,15 @@ func ClusterProxyMiddleware(getMgr func() *cluster.Manager, stepUp func(echo.Con
 				c.Set(migrateSourceKey, targetNode.ID)
 				return next(c)
 			}
+			// An agent this manager's last probe could not reach would only
+			// time out — thirty seconds on gRPC, minutes on a relay — and say
+			// nothing of why. Another manager on the agent's network (its LAN,
+			// its Tailscale) reaches it; the operator should open that one.
+			// Only a fresh probe that tried the agent decides; without one the
+			// dial does, as below.
+			if !targetNode.IsManager() && mgr.Unreachable(targetNode.ID) {
+				return cluster.RefuseUnreachable(c, targetNode)
+			}
 
 			// Don't pre-refuse on heartbeat status. Even the leader's view goes
 			// stale right after a peer restart (the 2-node heartbeat is racy) and

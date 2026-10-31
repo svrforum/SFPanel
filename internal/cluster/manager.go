@@ -158,10 +158,12 @@ type Manager struct {
 	nodeAddrChangedAt map[string]time.Time
 	// reach is this manager's last probe of the agents (probeAgents), and
 	// reachDial how it dials one; nil is a TCP connect with reachDialTimeout.
-	// reachWG is the probe goroutine, which shutdown waits for.
-	reach     atomic.Pointer[reachResult]
-	reachDial func(ctx context.Context, network, addr string) (net.Conn, error)
-	reachWG   sync.WaitGroup
+	// reachWG is the probe goroutine, which shutdown waits for, and
+	// reachSetForTest whether SetReachForTest has waited out its first probe.
+	reach           atomic.Pointer[reachResult]
+	reachDial       func(ctx context.Context, network, addr string) (net.Conn, error)
+	reachWG         sync.WaitGroup
+	reachSetForTest atomic.Bool
 	// preferMu guards when this manager last became leader, its own last
 	// automatic hand-over, and what holds the leader role where it is
 	// (MaybePreferLeader).

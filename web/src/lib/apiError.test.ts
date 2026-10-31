@@ -81,6 +81,22 @@ describe('apiErrorFrom / errorFromResponse', () => {
     expect(err.message).toBe('cluster.warnings.leaveUnacknowledged|node-a')
   })
 
+  // A node this manager cannot reach is named; a server that sent no name
+  // still reads as a sentence.
+  it('names the node a manager cannot reach, or says that node', async () => {
+    const { apiErrorFrom, setApiTranslator } = await freshApi()
+    const words: Record<string, string> = {
+      'cluster.errors.nodeUnreachable': 'This manager cannot reach {{name}}.',
+      'cluster.errors.thatNode': 'that node',
+    }
+    setApiTranslator((key, fallback, params) =>
+      (words[key] ?? fallback).replace(/\{\{(\w+)\}\}/g, (_m, name: string) => params?.[name] ?? `{{${name}}}`))
+    const refusal = (details?: Record<string, string>) =>
+      apiErrorFrom(502, { success: false, error: { code: 'CLUSTER_NODE_UNREACHABLE', message: 'not reachable', details } }).message
+    expect(refusal({ name: 'agent-07' })).toBe('This manager cannot reach agent-07.')
+    expect(refusal()).toBe('This manager cannot reach that node.')
+  })
+
   it("keeps the server's sentence beside the worded one", async () => {
     // A quorum refusal says how many voters would be left only in the
     // server's message; wording the code must not lose it.
