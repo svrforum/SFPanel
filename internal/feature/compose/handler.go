@@ -216,6 +216,11 @@ func (h *Handler) CreateProject(c echo.Context) error {
 
 	ctx := c.Request().Context()
 	project, err := h.Compose.CreateProject(ctx, req.Name, req.YAML)
+	if errors.Is(err, docker.ErrProjectExists) {
+		// The name is taken: the operator's conflict, answered as the Git
+		// import answers it. It used to be a 500 COMPOSE_ERROR.
+		return response.Fail(c, http.StatusConflict, response.ErrStackAlreadyExists, response.SanitizeOutput(err.Error()))
+	}
 	if err != nil {
 		return response.Fail(c, http.StatusInternalServerError, response.ErrComposeError, response.SanitizeOutput(err.Error()))
 	}
@@ -639,8 +644,7 @@ func (h *Handler) ImportFromGit(c echo.Context) error {
 
 	project, err := h.Compose.CreateProject(ctx, req.Name, yamlBody)
 	if err != nil {
-		// CreateProject's error path includes "already exists" for collisions.
-		if strings.Contains(strings.ToLower(err.Error()), "already exists") {
+		if errors.Is(err, docker.ErrProjectExists) {
 			return response.Fail(c, http.StatusConflict, response.ErrStackAlreadyExists,
 				"이미 존재하는 스택 이름입니다.")
 		}

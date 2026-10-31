@@ -5,6 +5,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -368,6 +369,11 @@ func (m *ComposeManager) UpdateProjectEnv(_ context.Context, name, content strin
 	return writeFileAtomic(filepath.Join(dir, ".env"), []byte(content), 0600)
 }
 
+// ErrProjectExists is CreateProject finding a stack of that name already
+// there: the caller's conflict, not a failure. Its error reads
+// `project "<name>" already exists`.
+var ErrProjectExists = errors.New("already exists")
+
 // CreateProject creates a new compose project directory with a docker-compose.yml.
 func (m *ComposeManager) CreateProject(_ context.Context, name, yamlContent string) (*ComposeProject, error) {
 	if err := m.validateProjectName(name); err != nil {
@@ -377,7 +383,7 @@ func (m *ComposeManager) CreateProject(_ context.Context, name, yamlContent stri
 
 	// Check if directory already exists with a compose file
 	if composeFile := findComposeFile(projectDir); composeFile != "" {
-		return nil, fmt.Errorf("project %q already exists", name)
+		return nil, fmt.Errorf("project %q %w", name, ErrProjectExists)
 	}
 
 	if err := os.MkdirAll(projectDir, 0755); err != nil {
