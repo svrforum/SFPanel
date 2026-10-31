@@ -143,6 +143,10 @@ type Manager struct {
 	// hbReconnect asks the heartbeat for a new connection
 	// (reconnectHeartbeat): one signal waits, and a second is the same one.
 	hbReconnect chan struct{}
+	// listIfaceAddrs lists this host's interface addresses for selfAddresses;
+	// NewManager sets localIfaceAddrs. A field, not a package variable, so a
+	// test running two managers in one process gives each its own host.
+	listIfaceAddrs func() ([]IfaceAddr, error)
 }
 
 // SetVersion sets the panel version for heartbeat reporting.
@@ -182,7 +186,52 @@ func NewManager(cfg *config.ClusterConfig) *Manager {
 		nodeName:  cfg.NodeName,
 
 		hbReconnect: make(chan struct{}, 1),
+
+		listIfaceAddrs: localIfaceAddrs,
 	}
+}
+
+// maxSelfAddresses caps how many addresses a manager registers for itself.
+const maxSelfAddresses = 8
+
+// selfAddresses is every IP this manager can be reached at, once each and at
+// most maxSelfAddresses: first the address it advertises
+// (cluster.advertise_address, or else the host of its recorded gRPC
+// address), then its Tailscale addresses, so a server reachable only over
+// Tailscale can still reach a manager that advertises its LAN address.
+// Interfaces that cannot be listed leave the advertise address alone.
+func (m *Manager) selfAddresses() []string {
+	var out []string
+	add := func(a string) {
+		if ip := net.ParseIP(a); ip != nil {
+			a = ip.String()
+		}
+		if a != "" && len(out) < maxSelfAddresses && !slices.Contains(out, a) {
+			out = append(out, a)
+		}
+	}
+
+	advertise := m.config.AdvertiseAddress
+	if advertise == "" && m.raft != nil {
+		if n := m.raft.GetFSM().GetNode(m.nodeID); n != nil {
+			advertise, _, _ = net.SplitHostPort(n.GRPCAddress)
+		}
+	}
+	add(advertise)
+
+	list := m.listIfaceAddrs
+	if list == nil {
+		list = localIfaceAddrs
+	}
+	ifaces, err := list()
+	if err != nil {
+		slog.Warn("cannot list interfaces for this manager's Tailscale addresses",
+			"component", "cluster", "error", err)
+	}
+	for _, a := range TailscaleAddresses(ifaces) {
+		add(a)
+	}
+	return out
 }
 
 // GetConnPool returns the gRPC connection pool for proxy middleware.

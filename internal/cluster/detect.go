@@ -3,7 +3,10 @@ package cluster
 import (
 	"fmt"
 	"net"
+	"slices"
 	"time"
+
+	"github.com/svrforum/SFPanel/internal/paneltls"
 )
 
 // DetectAdvertiseAddress determines the best local IP to advertise to the cluster,
@@ -70,6 +73,64 @@ func IsTailscaleIP(ip net.IP) bool {
 	}
 	// 100.64.0.0/10 = first byte 100, second byte 64-127
 	return ip[0] == 100 && ip[1] >= 64 && ip[1] <= 127
+}
+
+// IfaceAddr is one address on one local interface, with what of the
+// interface decides whether others can reach this host at it.
+type IfaceAddr struct {
+	Name         string
+	IP           net.IP
+	Up, Loopback bool
+}
+
+// TailscaleAddresses returns, sorted and once each, the IPv4 addresses in
+// the Tailscale range (100.64.0.0/10) that others can reach this host at:
+// on an interface that is up, not loopback, and not one Docker creates and
+// destroys with a stack (paneltls.EphemeralInterface, the rule the panel
+// certificate's addresses follow). The range decides, not the interface
+// name: Tailscale's interface is not always tailscale0. IPv6 is left out.
+func TailscaleAddresses(ifaces []IfaceAddr) []string {
+	var out []string
+	for _, a := range ifaces {
+		if !a.Up || a.Loopback || paneltls.EphemeralInterface(a.Name) {
+			continue
+		}
+		if ip4 := a.IP.To4(); ip4 != nil && IsTailscaleIP(ip4) {
+			out = append(out, ip4.String())
+		}
+	}
+	slices.SortFunc(out, func(a, b string) int {
+		return slices.Compare(net.ParseIP(a).To4(), net.ParseIP(b).To4())
+	})
+	return slices.Compact(out)
+}
+
+// localIfaceAddrs lists every address on this host's interfaces.
+func localIfaceAddrs() ([]IfaceAddr, error) {
+	ifaces, err := net.Interfaces()
+	if err != nil {
+		return nil, err
+	}
+	var out []IfaceAddr
+	for _, iface := range ifaces {
+		addrs, err := iface.Addrs()
+		if err != nil {
+			continue
+		}
+		for _, addr := range addrs {
+			ipnet, ok := addr.(*net.IPNet)
+			if !ok {
+				continue
+			}
+			out = append(out, IfaceAddr{
+				Name:     iface.Name,
+				IP:       ipnet.IP,
+				Up:       iface.Flags&net.FlagUp != 0,
+				Loopback: iface.Flags&net.FlagLoopback != 0,
+			})
+		}
+	}
+	return out, nil
 }
 
 // findLocalTailscaleIP returns the first local IPv4 address in the Tailscale CGNAT range.
