@@ -1,0 +1,5 @@
+name: 패키지 업데이트
+description: 패키지 목록을 새로 받고 설치된 패키지를 모두 업그레이드합니다.
+steps:
+  - name: 목록 갱신과 전체 업그레이드
+    packages: { update: true, upgrade: all }

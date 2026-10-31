@@ -1,0 +1,7 @@
+name: 명령 실행
+description: 입력한 명령을 root 권한으로 실행합니다. 입력한 그대로 셸에 전달됩니다.
+inputs:
+  command: { label: 실행할 명령, required: true, raw: true }
+steps:
+  - name: 명령 실행
+    command: { run: "{{ command }}", timeout: 10m }

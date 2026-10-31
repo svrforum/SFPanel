@@ -1,0 +1,5 @@
+name: 재부팅 (필요할 때만)
+description: 업데이트 뒤 재부팅이 필요한 서버만 재부팅하고, 다시 연결될 때까지 기다립니다.
+steps:
+  - name: 필요할 때 재부팅
+    reboot: { only_if_required: true, wait: 10m }

@@ -1,0 +1,7 @@
+name: 패키지 설치
+description: 패키지 목록을 새로 받고 입력한 패키지를 한 번에 설치합니다. 여러 개는 공백이나 쉼표로 나눕니다.
+inputs:
+  packages: { label: 설치할 패키지, required: true }
+steps:
+  - name: 패키지 설치
+    packages: { update: true, install: ["{{ packages }}"] }
