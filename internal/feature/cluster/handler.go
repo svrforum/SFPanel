@@ -111,6 +111,10 @@ type Handler struct {
 	// taskRunsActive names the group task run under way, or "": set by
 	// SetTaskRunsActive, read under startMu.
 	taskRunsActive func() string
+	// agentInstallActive reports whether an agent install is under way on
+	// this leader: set by SetAgentInstallActive, read by leadershipHold on
+	// the manager's tick and by TransferLeadership.
+	agentInstallActive atomic.Pointer[func() bool]
 
 	// convertMu admits one conversion at a time on this leader: two for one
 	// node would each record its intent, and the one the node refused would
@@ -164,11 +168,17 @@ func (h *Handler) setManager(m *cluster.Manager) {
 }
 
 // leadershipHold is why the leader must keep its role now, or "": a cluster
-// update stops if the leader changes, so the leader does not hand its role
-// to a manager that reaches more agents while one runs.
+// update stops if the leader changes, and an agent install's SSH sessions,
+// credentials and tokens live only on the leader that started it, so the
+// leader does not hand its role to a manager that reaches more agents while
+// either runs. It is the manager's one hold (SetLeadershipHold), so every
+// reason is here.
 func (h *Handler) leadershipHold() string {
 	if h.updateRunning.Load() {
 		return "cluster update running"
+	}
+	if h.agentInstallRunning() {
+		return "agent install running"
 	}
 	return ""
 }
@@ -1134,6 +1144,12 @@ func (h *Handler) TransferLeadership(c echo.Context) error {
 		return response.Fail(c, http.StatusBadRequest, response.ErrInvalidRequest, "target_node_id required")
 	}
 
+	// An install's sessions, credentials and tokens stay behind on this node:
+	// the new leader could neither finish nor undo it.
+	if h.agentInstallRunning() {
+		return response.Fail(c, http.StatusConflict, response.ErrAgentInstallActive,
+			"An agent install is under way: transfer the leadership once it has finished")
+	}
 	if err := mgr.TransferLeadership(body.TargetNodeID); err != nil {
 		return clusterErrResponse(c, err)
 	}

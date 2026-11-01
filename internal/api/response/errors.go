@@ -542,6 +542,11 @@ const (
 	// run is under way: each restarts or re-keys nodes under the run's steps.
 	// Details: run_id of the run it waits for.
 	ErrTaskRunActive = "TASK_RUN_ACTIVE"
+	// ErrAgentInstallActive is returned (HTTP 409) when a manual leadership
+	// transfer is asked for while an agent install is under way: the
+	// install's sessions, credentials and tokens live on the leader that
+	// started it.
+	ErrAgentInstallActive = "AGENT_INSTALL_ACTIVE"
 )
 
 // Group task error codes: the task and task-run API on a manager.

@@ -281,3 +281,37 @@ func TestInitAndJoinRefuseAMemberWhoseClusterDidNotStart(t *testing.T) {
 		t.Fatalf("status = %s, want enabled:false configured:true", rec.Body.String())
 	}
 }
+
+// An agent install keeps its SSH sessions, credentials and token on the
+// leader that started it: while one runs, the preferred-leader move holds the
+// role, and a manual transfer is refused with the reason — until it ends.
+func TestAnAgentInstallHoldsTheLeadership(t *testing.T) {
+	h := &Handler{Manager: tokenLeader(t)}
+	if hold := h.leadershipHold(); hold != "" {
+		t.Fatalf("held with no install: %q", hold)
+	}
+	installing := true
+	h.SetAgentInstallActive(func() bool { return installing })
+	if hold := h.leadershipHold(); hold != "agent install running" {
+		t.Fatalf("the hold during an install: %q", hold)
+	}
+	status, body := call(t, h.TransferLeadership, http.MethodPost, "/api/v1/cluster/leader-transfer", `{"target_node_id":"m2"}`)
+	var out struct {
+		Error struct {
+			Code string `json:"code"`
+		} `json:"error"`
+	}
+	_ = json.Unmarshal([]byte(body), &out)
+	if status != http.StatusConflict || out.Error.Code != response.ErrAgentInstallActive {
+		t.Fatalf("a transfer during an install: %d %s", status, body)
+	}
+
+	// Once it has ended the transfer goes on to its own checks: m2 is no node.
+	installing = false
+	if hold := h.leadershipHold(); hold != "" {
+		t.Fatalf("held after the install: %q", hold)
+	}
+	if status, body := call(t, h.TransferLeadership, http.MethodPost, "/api/v1/cluster/leader-transfer", `{"target_node_id":"m2"}`); status != http.StatusNotFound {
+		t.Fatalf("a transfer after the install: %d %s", status, body)
+	}
+}

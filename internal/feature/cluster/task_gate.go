@@ -39,6 +39,20 @@ func (h *Handler) SetTaskRunsActive(fn func() (runID string)) {
 	h.startMu.Unlock()
 }
 
+// SetAgentInstallActive gives the handler the agent installs under way: fn
+// reports whether one runs on this leader. Until it is set none does. While
+// one runs the leader keeps its role (leadershipHold) and a manual leadership
+// transfer is refused.
+func (h *Handler) SetAgentInstallActive(fn func() bool) {
+	h.agentInstallActive.Store(&fn)
+}
+
+// agentInstallRunning reports whether an agent install is under way.
+func (h *Handler) agentInstallRunning() bool {
+	fn := h.agentInstallActive.Load()
+	return fn != nil && *fn != nil && (*fn)()
+}
+
 // taskRunActive is the task run under way, or "". The caller holds startMu.
 func (h *Handler) taskRunActive() string {
 	if h.taskRunsActive == nil {
