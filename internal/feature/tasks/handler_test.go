@@ -1351,3 +1351,40 @@ func TestNodeCallsCarryTheOperator(t *testing.T) {
 		}
 	})
 }
+
+// A node that refuses the manager's read as unauthenticated is the node's
+// trouble, not the operator's: a 401 passed through as the node gave it is
+// read by the browser as its own session ending, and logs the operator out.
+// An agent's is 502 CLUSTER_AGENT_AUTH_FAILED, as a ?node= relay answers it;
+// a manager's 502 INTERNAL_ERROR. Any other refusal passes as it was given.
+func TestStepOutputDoesNotPassANodes401ToTheBrowser(t *testing.T) {
+	setup := func(t *testing.T, node string, refusal error) *apiFixture {
+		f := newAPI(t)
+		f.runOf(srcRun, cluster.RunRunning, map[string]cluster.RunNodeRecord{
+			node: {Status: cluster.RunNodeRunning, Steps: []cluster.RunStepRecord{{Status: cluster.RunStepRunning, JobID: jobID(srcRun, 0)}}},
+		}, node)
+		f.env.getRefusal = refusal
+		return f
+	}
+	unauthenticated := &jobRefusal{Status: http.StatusUnauthorized, Code: "UNAUTHORIZED", Message: "Missing or invalid token"}
+	output := func(node string) string {
+		return "/api/v1/cluster/task-runs/" + srcRun + "/nodes/" + node + "/steps/0/output"
+	}
+
+	t.Run("an agent", func(t *testing.T) {
+		f := setup(t, "a1", unauthenticated)
+		wantRefusal(t, "an agent's 401", f.do("GET", output("a1"), nil), http.StatusBadGateway, response.ErrClusterAgentAuthFailed, nil)
+	})
+	t.Run("a manager", func(t *testing.T) {
+		f := setup(t, "m2", unauthenticated)
+		wantRefusal(t, "a manager's 401", f.do("GET", output("m2"), nil), http.StatusBadGateway, response.ErrInternalError, nil)
+	})
+	t.Run("any other refusal", func(t *testing.T) {
+		f := setup(t, "a1", &jobRefusal{Status: http.StatusNotFound, Code: response.ErrTaskJobNotFound, Message: "No such task job on this node"})
+		a := f.do("GET", output("a1"), nil)
+		wantRefusal(t, "an agent's 404", a, http.StatusNotFound, response.ErrTaskJobNotFound, nil)
+		if a.Error != nil && a.Error.Message != "No such task job on this node" {
+			t.Errorf("message = %q, want the node's own", a.Error.Message)
+		}
+	})
+}

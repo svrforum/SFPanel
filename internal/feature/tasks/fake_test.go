@@ -242,6 +242,9 @@ type fakeEnv struct {
 	// route does; output is each job's whole output, per "node/step".
 	readsOutput bool
 	output      map[string]string
+	// getRefusal, when set, is what every GetJob answers with: a node's
+	// refusal of the read.
+	getRefusal error
 
 	jobs    map[string]*fakeJob
 	posts   []string // node/step, every post, whether it started a job or not
@@ -391,6 +394,9 @@ func (e *fakeEnv) viewLocked(j *fakeJob) tasks.JobView {
 func (e *fakeEnv) GetJob(_ context.Context, nodeID, jobID string, skip int64) (tasks.JobView, error) {
 	if skip != statusOnly && !e.readsOutput {
 		e.t.Errorf("GetJob(%s, %s) asked for output from %d: the leader reads the state only", nodeID, jobID, skip)
+	}
+	if e.getRefusal != nil {
+		return tasks.JobView{}, e.getRefusal
 	}
 	e.mu.Lock()
 	j, ok := e.jobs[nodeID+"/"+jobID]

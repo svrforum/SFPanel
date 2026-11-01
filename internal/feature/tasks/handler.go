@@ -1077,8 +1077,9 @@ func (h *Handler) RerunRun(c echo.Context) error {
 // ?skip=: the step's job as its node has it, output from byte skip on. The
 // output stays on the node; this manager asks it for the job the run
 // recorded. A step no job has run yet is 404 TASK_JOB_NOT_FOUND; the node's
-// refusal comes back as it gave it; a node not reached is 502
-// CLUSTER_NODE_UNREACHABLE.
+// refusal comes back as it gave it, but for a 401, which is 502
+// CLUSTER_AGENT_AUTH_FAILED from an agent and 502 INTERNAL_ERROR from a
+// manager; a node not reached is 502 CLUSTER_NODE_UNREACHABLE.
 func (h *Handler) StepOutput(c echo.Context) error {
 	env, err := h.apiEnv(c)
 	if env == nil {
@@ -1107,16 +1108,30 @@ func (h *Handler) StepOutput(c echo.Context) error {
 	defer cancel()
 	view, err := env.GetJob(ctx, nodeID, rec.Steps[step].JobID, skip)
 	var ref *jobRefusal
-	switch {
-	case errors.As(err, &ref):
-		return response.FailWith(c, ref.Status, ref.Code, ref.Message, ref.Details)
-	case err != nil:
-		name := nodeID
-		for _, n := range env.Nodes() {
-			if n.ID == nodeID && n.Name != "" {
+	name, isAgent := nodeID, false
+	for _, n := range env.Nodes() {
+		if n.ID == nodeID {
+			isAgent = !n.IsManager()
+			if n.Name != "" {
 				name = n.Name
 			}
 		}
+	}
+	switch {
+	case errors.As(err, &ref) && ref.Status == http.StatusUnauthorized:
+		// The node refused this manager's signed read: its trouble, not the
+		// operator's session here ending, which is how the browser reads a
+		// 401, logging them out. An agent's is answered as a ?node= relay
+		// answers it (proxyToNodeGRPC).
+		if isAgent {
+			return response.FailWith(c, http.StatusBadGateway, response.ErrClusterAgentAuthFailed,
+				"the agent refused the request as unauthenticated", map[string]string{"name": name})
+		}
+		return response.FailWith(c, http.StatusBadGateway, response.ErrInternalError,
+			name+" refused the request as unauthenticated", map[string]string{"name": name})
+	case errors.As(err, &ref):
+		return response.FailWith(c, ref.Status, ref.Code, ref.Message, ref.Details)
+	case err != nil:
 		return response.FailWith(c, http.StatusBadGateway, response.ErrClusterNodeUnreachable,
 			name+" did not answer: "+response.SanitizeOutput(err.Error()), map[string]string{"name": name})
 	}
