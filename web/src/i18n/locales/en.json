@@ -1293,7 +1293,6 @@
         "description": "Choose a task to run it on the nodes you pick, or open the run history to see what ran and where."
       },
       "pane": {
-        "run": "Task run",
         "notYet": "This part of the Tasks tab is not built yet."
       },
       "builtins": {
@@ -1410,6 +1409,59 @@
         "succeeded": "Succeeded",
         "failed": "Failed",
         "stopped": "Stopped"
+      },
+      "cell": {
+        "pending": "Waiting",
+        "running": "Running",
+        "changed": "Succeeded",
+        "unchanged": "No change",
+        "failed": "Failed",
+        "skipped": "Skipped",
+        "unknown": "Unknown",
+        "cancelled": "Cancelled"
+      },
+      "nodeStatus": {
+        "pending": "Waiting",
+        "running": "Running",
+        "succeeded": "Succeeded",
+        "failed": "Failed",
+        "skipped": "Skipped",
+        "unknown": "Unknown",
+        "stopped": "Stopped"
+      },
+      "run": {
+        "node": "Node",
+        "cellLabel": "{{node}}, {{step}}: {{state}}",
+        "wave": "Batch {{index}} of {{total}}",
+        "startedBy": "Started by",
+        "startedAt": "Started",
+        "endedAt": "Ended",
+        "rerunOf": "Rerun of",
+        "counts": "Steps by state",
+        "noSteps": "This run has no steps to show.",
+        "stop": "Stop",
+        "stopTitle": "Stop this run?",
+        "stopDescription": "No new step starts. Steps under way run to their end, and the run ends as stopped.",
+        "forceStop": "Force stop",
+        "forceStopTitle": "Force stop this run?",
+        "forceStopDescription": "No new step starts, and force stop cancels the command and reboot jobs under way. Package, service, file and stack steps still run to their end.",
+        "rerun": "Rerun",
+        "rerunFailed": "Rerun failed nodes only",
+        "rerunFailedTitle": "Rerun the nodes that did not succeed?",
+        "rerunFailedDescription_one": "{{count}} node runs again from its first step that did not succeed, with this run's inputs and confirmations.",
+        "rerunFailedDescription_other": "{{count}} nodes run again from their first step that did not succeed, with this run's inputs and confirmations.",
+        "rerunChosen": "Choose nodes to rerun",
+        "rerunChosenTitle": "Rerun on the nodes you choose",
+        "rerunChosenDescription": "Each node runs again from its first step that did not succeed; a node that succeeded runs every step again. This run's inputs and confirmations are used again."
+      },
+      "output": {
+        "title": "{{node}} · {{step}}",
+        "close": "Close the output",
+        "notStarted": "This step has not started on this node yet.",
+        "noJob": "This step left no output on this node: it was skipped, or it succeeded in an earlier run.",
+        "trimmed": "Only the last 1 MiB of the output is kept here.",
+        "following": "Following the output…",
+        "empty": "No output."
       }
     }
   },

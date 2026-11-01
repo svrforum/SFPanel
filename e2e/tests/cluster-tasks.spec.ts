@@ -755,3 +755,319 @@ test.describe('run setup', () => {
     })
   })
 })
+
+// ------------------------------------------------------- a run's progress --
+
+// Deploy web on two agents and the leader: one batch of agents, then m-1.
+const RUN_ID = '20261101-120000-abcdef'
+const RUN_PATH = `/cluster/task-runs/${RUN_ID}`
+const RUN_STEPS = [{ name: 'Update the web stack', kind: 'stack' }, { name: 'Restart nginx', kind: 'service' }]
+const liveRun = (over: Record<string, unknown> = {}) => runRecord({
+  id: RUN_ID, task_id: DEPLOY_ID, task_name: 'Deploy web', rev: 'rev-d',
+  nodes: ['a-1', 'a-2', 'm-1'], waves: [['a-1', 'a-2'], ['m-1']], batch: 2,
+  status: 'running', ended_at: undefined, ...over,
+})
+type Steps = Record<string, unknown>[]
+const rec = (status: string, steps?: Steps, over: Record<string, unknown> = {}) => ({ status, ...(steps ? { steps } : {}), ...over })
+const st = (status: string, over: Record<string, unknown> = {}) => ({ status, ...over })
+const PENDING = { 'a-1': rec('pending'), 'a-2': rec('pending'), 'm-1': rec('pending') }
+/** GET /cluster/task-runs/:id, which knows the step names. */
+const runDetail = (run: unknown, nodeRecords: unknown, over: Record<string, unknown> = {}) => ({ run, nodes: nodeRecords, steps: RUN_STEPS, ...over })
+const snapshot = (run: unknown, nodeRecords: unknown) => ({ type: 'snapshot', run, nodes: nodeRecords })
+const nodeEvent = (id: string, record: unknown) => ({ type: 'node', node_id: id, record })
+
+// The first batch under way: the stream's snapshot.
+const FIRST_BATCH = {
+  'a-1': rec('running', [st('running', { job_id: 'j-a1-0' }), st('pending')]),
+  'a-2': rec('running', [st('succeeded', { job_id: 'j-a2-0', changed: true }), st('running', { job_id: 'j-a2-1' })]),
+  'm-1': rec('pending'),
+}
+// What the node events after it make of the first batch, and the leader started.
+const A1_DONE = rec('succeeded', [st('succeeded', { job_id: 'j-a1-0', changed: true }), st('succeeded', { job_id: 'j-a1-1' })])
+const A2_DONE = rec('succeeded', [st('succeeded', { job_id: 'j-a2-0', changed: true }), st('succeeded', { job_id: 'j-a2-1', changed: true })])
+const M1_RUNNING = rec('running', [st('running', { job_id: 'j-m1-0' }), st('pending')])
+const M1_DONE = rec('succeeded', [st('succeeded', { job_id: 'j-m1-0', changed: true }), st('succeeded', { job_id: 'j-m1-1', changed: true })])
+const SECOND_BATCH = { 'a-1': A1_DONE, 'a-2': A2_DONE, 'm-1': M1_RUNNING }
+/** The stream while the second batch runs: a snapshot of the first, then node records; no end. */
+const UNDER_WAY = sse(
+  snapshot(liveRun(), FIRST_BATCH),
+  nodeEvent('a-1', A1_DONE),
+  nodeEvent('a-2', A2_DONE),
+  nodeEvent('m-1', M1_RUNNING),
+)
+const FINISHED = sse(
+  snapshot(liveRun(), SECOND_BATCH),
+  nodeEvent('m-1', M1_DONE),
+  { type: 'run', run: liveRun({ status: 'succeeded', ended_at: seen }) },
+  { type: 'end' },
+)
+
+const runPane = (page: Page) => page.getByTestId('task-pane-run')
+const matrix = (page: Page) => page.getByTestId('task-run-matrix')
+/** A cell of the desktop table: node ID and step index. */
+const cell = (page: Page, node: string, step: number) => matrix(page).locator(`[data-cell="${node}/${step}"]`)
+const streamCount = (requests: string[]) => requests.filter((r) => r === `GET ${RUN_PATH}/stream`).length
+
+test.describe('run progress', () => {
+  test('the table follows the stream: a snapshot, node records, the head and its end', async ({ page }) => {
+    const streams = { [RUN_ID]: [UNDER_WAY] }
+    const { requests } = await mock(page, { runDetails: { [RUN_ID]: runDetail(liveRun(), PENDING) }, streams })
+    await page.goto(`/cluster/tasks/runs/${RUN_ID}`)
+
+    const pane = runPane(page)
+    await expect(pane.getByRole('heading', { name: 'Deploy web' })).toBeVisible()
+    await expect(pane.getByTestId('task-run-status')).toHaveText('Running')
+    await expect(matrix(page).getByRole('columnheader')).toHaveText(['Node', 'Update the web stack', 'Restart nginx'])
+    await expect(matrix(page).getByRole('rowheader')).toContainText(['agent-01', 'agent-02', 'manager-1'])
+    // The node records after the snapshot are in the table: the snapshot alone
+    // had agent-01 running and the first batch under way.
+    await expect(cell(page, 'a-1', 0)).toHaveText('Succeeded')
+    await expect(cell(page, 'a-1', 1)).toHaveText('No change')
+    await expect(cell(page, 'm-1', 0)).toHaveText('Running')
+    await expect(cell(page, 'm-1', 1)).toHaveText('Waiting')
+    await expect(pane.getByTestId('task-run-wave')).toHaveText('Batch 2 of 2')
+
+    // The run ends: the leader's record, the head, then end.
+    streams[RUN_ID].push(FINISHED)
+    await expect(pane.getByTestId('task-run-status')).toHaveText('Succeeded')
+    await expect(cell(page, 'm-1', 1)).toHaveText('Succeeded')
+    await expect(pane.getByTestId('task-run-wave')).toHaveCount(0)
+    await expect(pane.getByTestId('task-run-counts')).toHaveText(/Succeeded\s*5.*No change\s*1/)
+    // Nothing is opened again after the end.
+    const opened = streamCount(requests)
+    await page.waitForTimeout(2500)
+    expect(streamCount(requests)).toBe(opened)
+  })
+
+  test('a reload re-attaches to the same table, from a new snapshot', async ({ page }) => {
+    // The GET is behind the stream: every node pending.
+    const { requests } = await mock(page, {
+      runDetails: { [RUN_ID]: runDetail(liveRun(), PENDING) },
+      streams: { [RUN_ID]: [UNDER_WAY] },
+    })
+    await page.goto(`/cluster/tasks/runs/${RUN_ID}`)
+    await expect(cell(page, 'a-1', 0)).toHaveText('Succeeded')
+
+    const before = requests.length
+    await page.reload()
+    await expect.poll(() => requests.slice(before)).toContain(`GET ${RUN_PATH}/stream`)
+    const after = requests.slice(before)
+    // The run is read first (step names, a session refreshed), then followed.
+    expect(after.indexOf(`GET ${RUN_PATH}`)).toBeGreaterThanOrEqual(0)
+    expect(after.indexOf(`GET ${RUN_PATH}`)).toBeLessThan(after.indexOf(`GET ${RUN_PATH}/stream`))
+    await expect(cell(page, 'a-1', 0)).toHaveText('Succeeded')
+    await expect(cell(page, 'a-2', 1)).toHaveText('Succeeded')
+    await expect(cell(page, 'm-1', 0)).toHaveText('Running')
+    await expect(runPane(page).getByTestId('task-run-wave')).toHaveText('Batch 2 of 2')
+  })
+
+  test('the run as read shows before the stream answers', async ({ page }) => {
+    // The stream will not open (a manager restarting); the GET has the run.
+    await mock(page, {
+      runDetails: { [RUN_ID]: runDetail(liveRun(), FIRST_BATCH) },
+      replies: { [`GET ${RUN_PATH}/stream`]: fail(503, 'INTERNAL_ERROR', 'No cluster leader available — retry in a few seconds') },
+    })
+    await page.goto(`/cluster/tasks/runs/${RUN_ID}`)
+    await expect(cell(page, 'a-2', 0)).toHaveText('Succeeded')
+    await expect(cell(page, 'a-2', 1)).toHaveText('Running')
+    await expect(runPane(page).getByTestId('task-run-wave')).toHaveText('Batch 1 of 2')
+  })
+
+  test('a stream that closes without an end is opened again and carries on', async ({ page }) => {
+    const { requests } = await mock(page, {
+      runDetails: { [RUN_ID]: runDetail(liveRun(), PENDING) },
+      streams: { [RUN_ID]: [sse(snapshot(liveRun(), FIRST_BATCH)), FINISHED] },
+    })
+    await page.goto(`/cluster/tasks/runs/${RUN_ID}`)
+    await expect(runPane(page).getByTestId('task-run-status')).toHaveText('Succeeded')
+    await expect(cell(page, 'm-1', 0)).toHaveText('Succeeded')
+    expect(streamCount(requests)).toBe(2)
+    await page.waitForTimeout(2000)
+    expect(streamCount(requests)).toBe(2)
+  })
+
+  test('a node chosen shows its output, taken on from next_skip until done', async ({ page }) => {
+    const job = { id: 'j-a1-0', run_id: RUN_ID, kind: 'stack', changed: false, started_at: seen }
+    const { requests } = await mock(page, {
+      runDetails: { [RUN_ID]: runDetail(liveRun(), FIRST_BATCH) },
+      streams: { [RUN_ID]: [sse(snapshot(liveRun(), FIRST_BATCH))] },
+      outputs: {
+        [`${RUN_ID}/a-1/0`]: [
+          // next_skip is where the node's raw log stands, not the text's length.
+          { ...job, status: 'running', output: 'pulling web\n', next_skip: 4096, done: false },
+          { ...job, status: 'succeeded', output: 'web is up\n', next_skip: 8192, done: true },
+        ],
+      },
+    })
+    await page.goto(`/cluster/tasks/runs/${RUN_ID}`)
+    await expect(cell(page, 'a-1', 0)).toHaveText('Running')
+    await expect(page.getByTestId('task-node-output')).toHaveCount(0)
+    // The node's name opens the step it is on.
+    await matrix(page).getByRole('button', { name: 'agent-01', exact: true }).click()
+    const output = page.getByTestId('task-node-output')
+    await expect(output.getByRole('heading')).toHaveText('agent-01 · Update the web stack')
+    await expect(output.getByTestId('task-node-output-text')).toHaveText('pulling web\nweb is up\n')
+    const asked = () => requests.filter((r) => r.startsWith(`GET ${RUN_PATH}/nodes/a-1/steps/0/output`))
+    expect(asked()).toEqual([`GET ${RUN_PATH}/nodes/a-1/steps/0/output?skip=0`, `GET ${RUN_PATH}/nodes/a-1/steps/0/output?skip=4096`])
+    // done: nothing more is asked for.
+    await page.waitForTimeout(2500)
+    expect(asked()).toHaveLength(2)
+  })
+
+  test('Stop and Force stop ask first, and send force false and true', async ({ page }) => {
+    const { calls } = await mock(page, {
+      runDetails: { [RUN_ID]: runDetail(liveRun(), FIRST_BATCH) },
+      streams: { [RUN_ID]: [sse(snapshot(liveRun(), FIRST_BATCH))] },
+      replies: {
+        [`POST ${RUN_PATH}/stop`]: [
+          ok(liveRun({ status: 'stopping', reason: 'stopped by admin', stopped_by: 'admin' })),
+          ok(liveRun({ status: 'stopping', reason: 'stopped by admin', stopped_by: 'admin', force: true })),
+        ],
+      },
+    })
+    await page.goto(`/cluster/tasks/runs/${RUN_ID}`)
+    const pane = runPane(page)
+    const dialog = page.getByRole('dialog')
+
+    // Cancelled: nothing is sent.
+    await pane.getByRole('button', { name: 'Stop', exact: true }).click()
+    await expect(dialog).toContainText('No new step starts')
+    await dialog.getByRole('button', { name: 'Cancel' }).click()
+    expect(posts(calls, `${RUN_PATH}/stop`)).toHaveLength(0)
+
+    await pane.getByRole('button', { name: 'Stop', exact: true }).click()
+    await dialog.getByRole('button', { name: 'Stop', exact: true }).click()
+    await expect.poll(() => posts(calls, `${RUN_PATH}/stop`).length).toBe(1)
+    expect(posts(calls, `${RUN_PATH}/stop`)[0].body).toEqual({ force: false })
+
+    await pane.getByRole('button', { name: 'Force stop' }).click()
+    await expect(dialog).toContainText('cancels the command and reboot jobs under way')
+    await dialog.getByRole('button', { name: 'Force stop' }).click()
+    await expect.poll(() => posts(calls, `${RUN_PATH}/stop`).length).toBe(2)
+    expect(posts(calls, `${RUN_PATH}/stop`)[1].body).toEqual({ force: true })
+  })
+
+  test.describe('an ended run', () => {
+    // a-2 failed; with stop on failure, the leader never ran.
+    const FAILED_NODES = {
+      'a-1': A1_DONE,
+      'a-2': rec('failed', [st('succeeded', { job_id: 'j-a2-0', changed: true }), st('failed', { job_id: 'j-a2-1', summary: 'exit 1' })], { reason: 'Restart nginx failed' }),
+      'm-1': rec('pending'),
+    }
+    const failedRun = liveRun({ status: 'failed', ended_at: seen, reason: 'agent-02 failed' })
+    const NEW_RUN = '20261101-130000-123456'
+    const fixture = (): Fixture => ({
+      runDetails: { [RUN_ID]: runDetail(failedRun, FAILED_NODES) },
+      streams: { [RUN_ID]: [sse(snapshot(failedRun, FAILED_NODES), { type: 'end' })] },
+      replies: { [`POST ${RUN_PATH}/rerun`]: { status: 202, body: { success: true, data: { run_id: NEW_RUN } } } },
+    })
+
+    test('reruns the nodes that did not succeed with ?only=failed', async ({ page }) => {
+      const { calls } = await mock(page, fixture())
+      await page.goto(`/cluster/tasks/runs/${RUN_ID}`)
+      const pane = runPane(page)
+      await expect(pane.getByTestId('task-run-status')).toHaveText('Failed')
+      await expect(pane.getByRole('button', { name: 'Stop', exact: true })).toHaveCount(0)
+      await expect(pane.getByRole('button', { name: 'Force stop' })).toHaveCount(0)
+
+      await pane.getByRole('button', { name: 'Rerun failed nodes only' }).click()
+      const dialog = page.getByRole('dialog')
+      await expect(dialog).toContainText('2 nodes')
+      await dialog.getByRole('button', { name: 'Rerun', exact: true }).click()
+      await expect(page).toHaveURL(new RegExp(`/cluster/tasks/runs/${NEW_RUN}$`))
+      const reruns = calls.filter((c) => c.path.startsWith(`${RUN_PATH}/rerun`))
+      expect(reruns).toEqual([{ method: 'POST', path: `${RUN_PATH}/rerun?only=failed`, body: null }])
+    })
+
+    test('reruns the nodes chosen', async ({ page }) => {
+      const { calls } = await mock(page, fixture())
+      await page.goto(`/cluster/tasks/runs/${RUN_ID}`)
+      await runPane(page).getByRole('button', { name: 'Choose nodes to rerun' }).click()
+      const dialog = page.getByRole('dialog')
+      // The nodes that did not succeed are ticked to begin with.
+      await expect(dialog.getByRole('checkbox', { name: 'agent-01' })).not.toBeChecked()
+      await expect(dialog.getByRole('checkbox', { name: 'agent-02' })).toBeChecked()
+      await expect(dialog.getByRole('checkbox', { name: 'manager-1' })).toBeChecked()
+      await dialog.getByRole('checkbox', { name: 'manager-1' }).click()
+      await dialog.getByRole('checkbox', { name: 'agent-01' }).click()
+      await dialog.getByRole('button', { name: 'Rerun', exact: true }).click()
+      await expect(page).toHaveURL(new RegExp(`/cluster/tasks/runs/${NEW_RUN}$`))
+      const reruns = calls.filter((c) => c.path.startsWith(`${RUN_PATH}/rerun`))
+      expect(reruns).toEqual([{ method: 'POST', path: `${RUN_PATH}/rerun`, body: { nodes: ['a-1', 'a-2'] } }])
+    })
+  })
+
+  test('step headers: a built-in in the screen words, a run with no names as Step N', async ({ page }) => {
+    const cmd = liveRun({ id: 'r-cmd', task_id: 'builtin/command', task_name: '명령 실행', nodes: ['a-1'], waves: [['a-1']] })
+    const lost = liveRun({ id: 'r-lost' })
+    const lostNodes = { 'a-1': rec('running', [st('succeeded'), st('running'), st('pending')]), 'a-2': rec('pending'), 'm-1': rec('pending') }
+    await mock(page, {
+      runDetails: {
+        'r-cmd': { run: cmd, nodes: { 'a-1': rec('running', [st('running')]) }, steps: [{ name: '명령 실행', kind: 'command' }] },
+        // The run's revision cannot be read: no steps, and the longest record counts them.
+        'r-lost': { run: lost, nodes: lostNodes },
+      },
+      streams: {
+        'r-cmd': [sse(snapshot(cmd, { 'a-1': rec('running', [st('running')]) }))],
+        'r-lost': [sse(snapshot(lost, lostNodes))],
+      },
+    })
+    await page.goto('/cluster/tasks/runs/r-cmd')
+    await expect(runPane(page).getByRole('heading', { name: 'Run a command' })).toBeVisible()
+    await expect(matrix(page).getByRole('columnheader')).toHaveText(['Node', 'Run the command'])
+    await page.goto('/cluster/tasks/runs/r-lost')
+    await expect(matrix(page).getByRole('columnheader')).toHaveText(['Node', 'Step 1', 'Step 2', 'Step 3'])
+  })
+
+  test('a run that is not there says so', async ({ page }) => {
+    await mock(page)
+    await page.goto('/cluster/tasks/runs/r-gone')
+    await expect(runPane(page)).toContainText('No such run. It may have been cleared from the history.', { timeout: 10_000 })
+  })
+
+  test.describe('Korean', () => {
+    test.use({ locale: 'ko-KR' })
+
+    test('names the batch, the cells and the buttons in Korean', async ({ page }) => {
+      await page.addInitScript(() => localStorage.setItem('sfpanel_language', 'ko'))
+      await mock(page, {
+        runDetails: { [RUN_ID]: runDetail(liveRun(), PENDING) },
+        streams: { [RUN_ID]: [UNDER_WAY] },
+      })
+      await page.goto(`/cluster/tasks/runs/${RUN_ID}`)
+      const pane = runPane(page)
+      await expect(pane.getByTestId('task-run-wave')).toHaveText('묶음 2/2')
+      await expect(cell(page, 'a-1', 1)).toHaveText('변경 없음')
+      await expect(cell(page, 'm-1', 1)).toHaveText('대기')
+      await expect(pane.getByRole('button', { name: '중지', exact: true })).toBeVisible()
+      await expect(pane.getByRole('button', { name: '강제 중지' })).toBeVisible()
+    })
+  })
+
+  test.describe('phone', () => {
+    test.use({ viewport: { width: 412, height: 860 }, hasTouch: true })
+
+    test('nodes are cards, and a step tapped shows its output below', async ({ page }) => {
+      const job = { id: 'j-a2-1', run_id: RUN_ID, kind: 'service', changed: false, started_at: seen }
+      await mock(page, {
+        runDetails: { [RUN_ID]: runDetail(liveRun(), FIRST_BATCH) },
+        streams: { [RUN_ID]: [sse(snapshot(liveRun(), FIRST_BATCH))] },
+        outputs: { [`${RUN_ID}/a-2/1`]: [{ ...job, status: 'running', output: 'restarting nginx\n', next_skip: 17, done: false }] },
+      })
+      await page.goto(`/cluster/tasks/runs/${RUN_ID}`)
+      const cards = page.getByTestId('task-run-node-card')
+      await expect(cards).toHaveCount(3)
+      // The table is there, and hidden: an element not there yet would pass as hidden too.
+      await expect(matrix(page)).toHaveCount(1)
+      await expect(matrix(page)).toBeHidden()
+      const card = cards.filter({ hasText: 'agent-02' })
+      await expect(card).toContainText('Restart nginx')
+      await card.getByRole('button', { name: /Restart nginx/ }).click()
+      const output = page.getByTestId('task-node-output')
+      await expect(output).toContainText('restarting nginx')
+      const [o, c] = await Promise.all([output.boundingBox(), cards.last().boundingBox()])
+      expect(o && c && o.y > c.y).toBe(true)
+      expect(o && o.x >= 0 && o.x + o.width <= 412).toBe(true)
+    })
+  })
+})

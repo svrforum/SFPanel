@@ -1290,7 +1290,6 @@
         "description": "작업을 골라 원하는 노드에서 실행하거나, 실행 기록에서 무엇이 어디서 돌았는지 봅니다."
       },
       "pane": {
-        "run": "작업 실행",
         "notYet": "작업 탭의 이 부분은 아직 만들어지지 않았습니다."
       },
       "builtins": {
@@ -1406,6 +1405,58 @@
         "succeeded": "성공",
         "failed": "실패",
         "stopped": "중지됨"
+      },
+      "cell": {
+        "pending": "대기",
+        "running": "진행",
+        "changed": "성공",
+        "unchanged": "변경 없음",
+        "failed": "실패",
+        "skipped": "건너뜀",
+        "unknown": "알 수 없음",
+        "cancelled": "취소됨"
+      },
+      "nodeStatus": {
+        "pending": "대기",
+        "running": "진행 중",
+        "succeeded": "성공",
+        "failed": "실패",
+        "skipped": "건너뜀",
+        "unknown": "알 수 없음",
+        "stopped": "중지됨"
+      },
+      "run": {
+        "node": "노드",
+        "cellLabel": "{{node}}, {{step}}: {{state}}",
+        "wave": "묶음 {{index}}/{{total}}",
+        "startedBy": "시작한 사람",
+        "startedAt": "시작",
+        "endedAt": "끝남",
+        "rerunOf": "원래 실행",
+        "counts": "상태별 단계 수",
+        "noSteps": "보일 단계가 없습니다.",
+        "stop": "중지",
+        "stopTitle": "이 실행을 중지할까요?",
+        "stopDescription": "새 단계는 시작하지 않습니다. 진행 중인 단계는 끝까지 돌고, 실행은 중지됨으로 끝납니다.",
+        "forceStop": "강제 중지",
+        "forceStopTitle": "이 실행을 강제 중지할까요?",
+        "forceStopDescription": "새 단계는 시작하지 않고, 진행 중인 명령·재부팅 잡을 취소합니다. 패키지·서비스·파일·스택 단계는 그래도 끝까지 돕니다.",
+        "rerun": "다시 실행",
+        "rerunFailed": "실패한 노드만 다시 실행",
+        "rerunFailedTitle": "성공하지 못한 노드를 다시 실행할까요?",
+        "rerunFailedDescription": "노드 {{count}}대가 성공하지 못한 첫 단계부터, 이 실행의 입력값과 확인 그대로 다시 돕니다.",
+        "rerunChosen": "노드 골라 다시 실행",
+        "rerunChosenTitle": "고른 노드에서 다시 실행",
+        "rerunChosenDescription": "노드마다 성공하지 못한 첫 단계부터 다시 돕니다. 성공한 노드는 모든 단계를 다시 돕니다. 이 실행의 입력값과 확인을 그대로 씁니다."
+      },
+      "output": {
+        "title": "{{node}} · {{step}}",
+        "close": "출력 닫기",
+        "notStarted": "이 노드에서 이 단계가 아직 시작되지 않았습니다.",
+        "noJob": "이 단계는 이 노드에 출력을 남기지 않았습니다. 건너뛰었거나 이전 실행에서 성공한 단계입니다.",
+        "trimmed": "출력은 마지막 1 MiB만 여기에 남깁니다.",
+        "following": "출력을 받는 중…",
+        "empty": "출력이 없습니다."
       }
     }
   },
