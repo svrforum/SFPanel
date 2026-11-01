@@ -8,7 +8,7 @@ import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, D
 import { StatusPill } from '@/components/StatusPill'
 import { cn } from '@/lib/utils'
 import type { CheckVerdict, PlanNode, TaskPlan } from '@/types/api'
-import { PVE_REBOOT_CODE, confirmSteps, leftReasonText, planBlocked, verdictSays, verdictText, type RunErrorText } from './taskPlan'
+import { PVE_REBOOT_CODE, confirmSteps, leftReasonText, notReadyText, planBlocked, verdictSays, verdictText, type RunErrorText } from './taskPlan'
 
 /** An input as the run fills it: the value given, else the default. */
 export interface FilledInput {
@@ -109,7 +109,7 @@ export function TaskPlanDialog({
               {t('cluster.tasks.plan.managersNotReady')}
             </p>
             <ul className="list-disc pl-9">
-              {waiting.map((m) => <li key={m} className="break-words">{m}</li>)}
+              {waiting.map((m) => <li key={m} className="break-words">{notReadyText(m, t)}</li>)}
             </ul>
           </div>
         )}

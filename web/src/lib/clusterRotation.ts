@@ -41,9 +41,14 @@ const WAITING_REASONS: Record<string, string> = {
 /**
  * One of the leader's waiting lines, "<name> (<reason>)", in the page's
  * language. A bare version as the reason means the node runs a release that
- * cannot rotate. The phase is the leader's word, as the CA stepper shows it.
+ * cannot rotate; oldVersion words it for a caller waiting on something else.
+ * The phase is the leader's word, as the CA stepper shows it.
  */
-export function waitingLine(line: string, t: TFunction): string {
+export function waitingLine(
+  line: string,
+  t: TFunction,
+  oldVersion = (name: string, version: string) => t('cluster.security.waitingLine.oldVersion', { name, version }),
+): string {
   const m = /^(.+) \(([^()]+)\)$/.exec(line)
   if (!m) return line
   const [, name, reason] = m
@@ -51,7 +56,7 @@ export function waitingLine(line: string, t: TFunction): string {
   if (key) return t(key, { name })
   const since = /^not heard from since the (\S+) phase began$/.exec(reason)
   if (since) return t('cluster.security.waitingLine.notHeardSince', { name, phase: since[1] })
-  if (/^v?\d[\w.+-]*$/.test(reason)) return t('cluster.security.waitingLine.oldVersion', { name, version: reason })
+  if (/^v?\d[\w.+-]*$/.test(reason)) return oldVersion(name, reason)
   return line
 }
 

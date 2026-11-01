@@ -1256,7 +1256,7 @@
         "notFound": "No such task. It may have been deleted.",
         "readOnly": "This task is read-only: a built-in task cannot be changed or deleted, and a task imported from Git changes when it is fetched again.",
         "runNotFound": "No such run. It may have been cleared from the history.",
-        "managersNotReady": "Every manager must run a version that knows group tasks. Waiting for: {{managers}}",
+        "managersNotReady": "Every manager must be online and run a version that knows group tasks. Waiting for: {{managers}}",
         "inputMissing": "Input {{input}} needs a value: it is required and has no default.",
         "noTargets": "No node is left for this run to take.",
         "tooManyTargets": "A run takes at most {{max}} nodes.",
@@ -1388,7 +1388,8 @@
         "left": "Left out",
         "confirm": "Confirmations",
         "confirmStep": "Confirm “{{step}}” on every node",
-        "managersNotReady": "Not every manager runs a version that knows group tasks, so the run cannot start. Waiting for:",
+        "managersNotReady": "The run cannot start until every manager is online and runs a version that knows group tasks. Waiting for:",
+        "notReadyVersion": "{{name}}: runs {{version}}, which does not know group tasks — update it",
         "changed": "The task, its inputs or its targets changed since the preview, so it was previewed again. Check it and run again.",
         "leftReason": {
           "unknown": "No such node",

@@ -720,7 +720,7 @@ func busyNode(nodeID, runID string) error {
 func managersNotReady(st taskStore) error {
 	if wait := st.TasksReady(); len(wait) > 0 {
 		return refusal(http.StatusConflict, response.ErrTaskManagersNotReady,
-			"Every manager must run a version that keeps group tasks: waiting for "+strings.Join(wait, ", "),
+			"Every manager must be online and run a version that keeps group tasks: waiting for "+strings.Join(wait, ", "),
 			map[string]string{"managers": strings.Join(wait, ", ")})
 	}
 	return nil

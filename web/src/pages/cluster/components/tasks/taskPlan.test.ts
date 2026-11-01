@@ -1,7 +1,9 @@
 import { describe, expect, it } from 'vitest'
-import type { TFunction } from 'i18next'
+import i18next, { type TFunction } from 'i18next'
+import en from '@/i18n/locales/en.json'
+import ko from '@/i18n/locales/ko.json'
 import type { PlanNode, TaskPlan } from '@/types/api'
-import { confirmSteps, leftReasonText, planBlocked, planNeedsReview, runErrorText, verdictText } from './taskPlan'
+import { confirmSteps, leftReasonText, notReadyText, planBlocked, planNeedsReview, runErrorText, verdictText } from './taskPlan'
 
 // A translator that names the key it was asked for, and its values.
 const t = ((key: string, opts?: Record<string, unknown>) => {
@@ -107,5 +109,28 @@ describe('runErrorText', () => {
   it('reads a 503 and a code-less 413 as the task screen words them', () => {
     expect(runErrorText(err(503, 'INTERNAL_ERROR', 'No cluster leader available'), t, names)).toEqual({ text: 'cluster.tasks.errors.leaderBusy' })
     expect(runErrorText(err(413, undefined, 'HTTP 413'), t, names)).toEqual({ text: 'cluster.tasks.errors.tooLarge' })
+  })
+})
+
+describe('notReadyText', () => {
+  const i18n = i18next.createInstance()
+  void i18n.init({ lng: 'en', resources: { en: { translation: en }, ko: { translation: ko } }, interpolation: { escapeValue: false } })
+  const en_ = i18n.getFixedT('en')
+  const ko_ = i18n.getFixedT('ko')
+
+  // Every reason the leader gives a manager a start waits for
+  // (agent_register.go nodesNotReady), in both languages: a bare version is
+  // one that does not know group tasks, not one that cannot rotate.
+  it.each([
+    ['manager-3 (offline)', 'manager-3: offline', 'manager-3: 오프라인'],
+    ['manager-3 (not heard from)', 'manager-3: not heard from', 'manager-3: 응답 없음'],
+    ['manager-2 (0.79.0)', 'manager-2: runs 0.79.0, which does not know group tasks — update it', 'manager-2: 0.79.0, 그룹 작업을 모르는 버전 — 업데이트하세요'],
+  ])('words %s', (line, inEnglish, inKorean) => {
+    expect(notReadyText(line, en_)).toBe(inEnglish)
+    expect(notReadyText(line, ko_)).toBe(inKorean)
+  })
+
+  it('shows a line it does not know as the leader sent it', () => {
+    expect(notReadyText('manager-3 (has gone to lunch)', en_)).toBe('manager-3 (has gone to lunch)')
   })
 })
