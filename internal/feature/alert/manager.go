@@ -14,7 +14,11 @@ import (
 	"github.com/svrforum/SFPanel/internal/monitor"
 )
 
-var logger = slog.Default().With("component", "alert")
+// logger is made at each call, from the default logger as it is then:
+// logging.Setup installs the panel's handler after this package is
+// initialised, and a logger taken from the default before that writes plain
+// text through the log package, every line at INFO whatever its level.
+func logger() *slog.Logger { return slog.With("component", "alert") }
 
 // NodeIdentity supplies the local cluster node ID so the manager can filter
 // rules whose `node_scope` restricts them to a subset of voters. Pass nil
@@ -119,7 +123,7 @@ func (m *Manager) Start(ctx context.Context) {
 	ticker := time.NewTicker(60 * time.Second)
 	defer ticker.Stop()
 
-	logger.Info("alert manager started", "interval", "60s")
+	logger().Info("alert manager started", "interval", "60s")
 	for {
 		select {
 		case <-ctx.Done():
@@ -168,7 +172,7 @@ var hostMetricRules = map[string]func(*monitor.Metrics) float64{
 func (m *Manager) evaluate() {
 	rows, err := m.db.Query("SELECT id, name, type, condition, channel_ids, severity, cooldown, node_scope, node_ids, enabled FROM alert_rules WHERE enabled=1")
 	if err != nil {
-		logger.Error("failed to load rules", "error", err)
+		logger().Error("failed to load rules", "error", err)
 		return
 	}
 	defer rows.Close()
@@ -192,7 +196,7 @@ func (m *Manager) evaluate() {
 		// Parse condition
 		var cond ruleCondition
 		if err := json.Unmarshal([]byte(r.Condition), &cond); err != nil {
-			logger.Warn("invalid condition JSON", "rule", r.Name, "error", err)
+			logger().Warn("invalid condition JSON", "rule", r.Name, "error", err)
 			continue
 		}
 
@@ -269,7 +273,7 @@ func (m *Manager) Fire(_ context.Context, f AlertFire) {
 		m.mu.Lock()
 		delete(m.inFlight, key)
 		m.mu.Unlock()
-		logger.Warn("alert dispatch queue full, dropping fire", "rule", f.RuleName, "type", f.Type)
+		logger().Warn("alert dispatch queue full, dropping fire", "rule", f.RuleName, "type", f.Type)
 	}
 }
 
@@ -298,15 +302,15 @@ func (m *Manager) runFire(f AlertFire) {
 	// works was the absence of evidence that it does not. sent_channels is an
 	// empty array in that case, which is exactly what happened.
 	if len(sentChannelNames) == 0 {
-		logger.Warn("all channel sends failed", "rule", f.RuleName, "type", f.Type)
+		logger().Warn("all channel sends failed", "rule", f.RuleName, "type", f.Type)
 	}
 
 	sentJSON, _ := json.Marshal(sentChannelNames)
 	if _, err := m.db.Exec("INSERT INTO alert_history (rule_id, rule_name, type, severity, message, node_id, sent_channels) VALUES (?,?,?,?,?,?,?)",
 		f.RuleID, f.RuleName, f.Type, f.Severity, f.Message, "", string(sentJSON)); err != nil {
-		logger.Warn("failed to record history", "error", err)
+		logger().Warn("failed to record history", "error", err)
 	}
-	logger.Info("triggered", "rule", f.RuleName, "type", f.Type, "severity", f.Severity,
+	logger().Info("triggered", "rule", f.RuleName, "type", f.Type, "severity", f.Severity,
 		"delivered", len(sentChannelNames))
 }
 
@@ -318,7 +322,7 @@ func (m *Manager) deliverToChannels(f AlertFire) []string {
 
 	var channelIDs []int
 	if err := json.Unmarshal([]byte(f.ChannelIDs), &channelIDs); err != nil {
-		logger.Warn("invalid channel_ids JSON", "rule", f.RuleName, "error", err)
+		logger().Warn("invalid channel_ids JSON", "rule", f.RuleName, "error", err)
 		return nil
 	}
 
@@ -363,7 +367,7 @@ func (m *Manager) deliverToChannels(f AlertFire) []string {
 		}
 
 		if sendErr != nil {
-			logger.Warn("send failed", "channel", ch.Name, "error", sendErr)
+			logger().Warn("send failed", "channel", ch.Name, "error", sendErr)
 		} else {
 			sentChannelNames = append(sentChannelNames, ch.Name)
 		}

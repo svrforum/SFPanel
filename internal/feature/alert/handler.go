@@ -711,7 +711,7 @@ func (h *Handler) ListHistory(c echo.Context) error {
 
 	var total int
 	if err := h.DB.QueryRow("SELECT COUNT(*) FROM alert_history").Scan(&total); err != nil {
-		logger.Warn("alert history count failed, total may be inaccurate", "error", err)
+		logger().Warn("alert history count failed, total may be inaccurate", "error", err)
 	}
 
 	rows, err := h.DB.Query("SELECT id, rule_id, rule_name, type, severity, message, node_id, sent_channels, created_at FROM alert_history ORDER BY id DESC LIMIT ? OFFSET ?", limit, offset)
