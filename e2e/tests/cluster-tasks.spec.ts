@@ -134,8 +134,11 @@ interface Fixture {
   streams?: Record<string, string[]>
   /** GET …/nodes/:node/steps/:n/output, by "<run>/<node>/<step>": answers in order, the last one repeats. */
   outputs?: Record<string, unknown[]>
-  /** Any request, by "METHOD /path" (no query): answers in order, the last one repeats. Wins over everything above. */
-  replies?: Record<string, Reply | Reply[]>
+  /**
+   * Any request, by "METHOD /path" (no query): answers in order, the last one
+   * repeats, or a function asked at each request. Wins over everything above.
+   */
+  replies?: Record<string, Reply | Reply[] | (() => Reply)>
   /** /cluster/status answers {enabled: false}. */
   standalone?: boolean
 }
@@ -172,7 +175,7 @@ async function mock(page: Page, fixture: Fixture = {}) {
     const key = `${method} ${path}`
     const reply = fixture.replies?.[key]
     if (reply) {
-      const r = Array.isArray(reply) ? nth(key, reply) : reply
+      const r = typeof reply === 'function' ? reply() : Array.isArray(reply) ? nth(key, reply) : reply
       await route.fulfill({ status: r.status, json: r.body })
       return
     }
@@ -623,6 +626,87 @@ test.describe('run setup', () => {
     await expect(page).toHaveURL(/\/cluster\/tasks\/runs\//)
     const starts = posts(calls, '/cluster/task-runs')
     expect(starts.map((c) => (c.body as { plan_id: string }).plan_id)).toEqual(['p-1', 'p-2'])
+  })
+
+  test('the preview names the steps of the document it previewed, not the one the screen read', async ({ page }) => {
+    // The document changed after the screen read it: a step stopping docker
+    // now comes first, and the stack's step lost its name.
+    await mock(page, {
+      taskDetails: TASK_DETAILS,
+      replies: {
+        'POST /cluster/task-runs/plan': planReply({
+          waves: [[pn('a-1', {
+            verdicts: [
+              { step: 0, needs_confirm: true, code: 'SERVICE_CONFIRM_REQUIRED' },
+              { step: 1, refused: true, code: 'COMPOSE_FORBIDDEN', reason: 'privileged: true is not allowed' },
+              { step: 2 },
+            ],
+          })]],
+          steps: [{ name: 'Stop docker', kind: 'service' }, { kind: 'stack' }, { name: 'Restart nginx', kind: 'service' }],
+        }),
+      },
+    })
+    await page.goto(`/cluster/tasks/${DEPLOY_ID}`)
+    await setup(page).getByLabel('Version').fill('1.2.3')
+    await setup(page).getByRole('button', { name: 'Run' }).click()
+    const dialog = previewDialog(page)
+    await expect(dialog.getByRole('checkbox', { name: 'Confirm “Stop docker” on every node' })).toBeVisible()
+    const wave = dialog.getByTestId('plan-wave').first()
+    await expect(wave).toContainText('Stop docker: This unit is needed')
+    await expect(wave).toContainText('Step 2: privileged: true is not allowed')
+    await expect(dialog).not.toContainText('Update the web stack')
+  })
+
+  test('a start refused as changed reads the task again, then previews the new document', async ({ page }) => {
+    // Edited through another manager: an input more, and a step in front.
+    const CHANGED = {
+      ...DEPLOY,
+      updated_at: '2026-01-02T00:00:00Z',
+      task: {
+        ...DEPLOY.task,
+        inputs: [...DEPLOY.task.inputs, { name: 'port', label: 'Port' }],
+        steps: [{ kind: 'service', name: 'Stop docker', service: { name: 'docker.service', action: 'stop' } }, ...DEPLOY.task.steps],
+      },
+    }
+    let changed = false
+    let starts = 0
+    const { requests, calls } = await mock(page, {
+      replies: {
+        [`GET /cluster/tasks/${DEPLOY_ID}`]: () => ok(changed ? CHANGED : DEPLOY),
+        'POST /cluster/task-runs/plan': () => changed
+          ? planReply({
+            waves: [[pn('a-1', { verdicts: [{ step: 0, needs_confirm: true, code: 'SERVICE_CONFIRM_REQUIRED' }, { step: 1 }, { step: 2 }] })]],
+            plan_id: 'p-2',
+            steps: [{ name: 'Stop docker', kind: 'service' }, { name: 'Update the web stack', kind: 'stack' }, { name: 'Restart nginx', kind: 'service' }],
+          })
+          : planReply({ steps: RUN_STEPS }),
+        'POST /cluster/task-runs': () => {
+          starts += 1
+          if (starts > 1) return started()
+          changed = true
+          return fail(409, 'TASK_PLAN_CHANGED', 'The task, its inputs or its targets changed since the preview')
+        },
+      },
+    })
+    await page.goto(`/cluster/tasks/${DEPLOY_ID}`)
+    await setup(page).getByLabel('Version').fill('1.2.3')
+    // A clean preview: Run starts it, and the start finds the document changed.
+    await setup(page).getByRole('button', { name: 'Run' }).click()
+    const dialog = previewDialog(page)
+    await expect(dialog.getByTestId('plan-notice')).toBeVisible()
+    await expect(dialog.getByRole('checkbox', { name: 'Confirm “Stop docker” on every node' })).toBeVisible()
+    // The values the new document asks for, the one typed kept.
+    await expect(dialog.getByTestId('plan-inputs')).toContainText('Port')
+    await expect(dialog.getByTestId('plan-inputs')).toContainText('1.2.3')
+    // The task was read again between the refused start and the new preview.
+    const refused = requests.indexOf('POST /cluster/task-runs')
+    const again = requests.lastIndexOf('POST /cluster/task-runs/plan')
+    expect(refused).toBeGreaterThanOrEqual(0)
+    expect(again).toBeGreaterThan(refused)
+    expect(requests.slice(refused, again)).toContain(`GET /cluster/tasks/${DEPLOY_ID}`)
+    const plans = posts(calls, '/cluster/task-runs/plan')
+    expect(plans).toHaveLength(2)
+    expect(plans[1].body).toEqual(plans[0].body)
   })
 
   test('a manager not ready keeps Run from starting and names it', async ({ page }) => {
@@ -1754,6 +1838,41 @@ test.describe('Git import', () => {
     expect(calls.slice(1)).toEqual([{ method: 'DELETE', path: '/cluster/tasks/60718293a4b5c6d7', body: null }])
     await expect(page).toHaveURL(/\/cluster\/tasks\/2c3d4e5f60718293$/)
     await expect(fileBox(page, 'tasks/deploy.yaml')).toBeChecked()
+  })
+
+  test('[Pull again] on the open task shows the new version in its pane without a reload', async ({ page }) => {
+    const GIT_ID = '2c3d4e5f60718293'
+    const model = {
+      name: 'Nightly backup', targets: { groups: ['db'] }, batch: 1, stop_on_failure: true,
+      steps: [{ kind: 'command', name: 'Copy', command: { run: 'rsync -a /srv/ backup:/srv/', timeout: 600_000_000_000 } }],
+    }
+    const pulledTask = { ...GIT_TASKS[0], updated_at: '2026-01-02T00:00:00Z', source: { ...GIT_TASKS[0].source, sha: COMMIT } }
+    let pulled = false
+    await mock(page, {
+      replies: {
+        'GET /cluster/tasks': () => ok(pulled ? [...BUILTINS, ...USER_TASKS, pulledTask] : TASKS),
+        [`GET /cluster/tasks/${GIT_ID}`]: () => ok(pulled
+          ? { ...pulledTask, yaml: 'name: Nightly backup\n', task: { ...model, inputs: [{ name: 'port', label: 'Port' }] } }
+          : { ...GIT_TASKS[0], yaml: 'name: Nightly backup\n', task: model }),
+        'POST /cluster/tasks/import/preview': ok({ ...PREVIEW, files: [file('backup.yaml', 'changed', { task_id: GIT_ID, task_name: 'Nightly backup' })], removed: [] }),
+        'POST /cluster/tasks/import': () => {
+          pulled = true
+          return ok({ commit: COMMIT, imported: [pulledTask], failed: [] })
+        },
+      },
+    })
+    await page.goto(`/cluster/tasks/${GIT_ID}`)
+    const pane = page.getByTestId('task-pane-setup')
+    await expect(pane.getByTestId('task-target-count')).toHaveText('2 nodes targeted')
+    await expect(pane.getByLabel('Port')).toHaveCount(0)
+    await section(page, 'acme/ops').getByRole('button', { name: 'Pull again' }).click()
+    const dialog = importDialog(page)
+    await dialog.getByRole('button', { name: 'Preview' }).click()
+    await dialog.getByRole('button', { name: /^Import/ }).click()
+    await expect(dialog.getByTestId('import-result')).toContainText('Imported 1 task')
+    await dialog.getByRole('button', { name: 'Close', exact: true }).first().click()
+    await expect(pane.getByTestId('task-source')).toContainText('fedcba9')
+    await expect(pane.getByLabel('Port')).toBeVisible()
   })
 
   test("a Git task's pane names its repository, branch, path and commit", async ({ page }) => {

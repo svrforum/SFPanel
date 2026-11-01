@@ -187,9 +187,12 @@ function RunForm({ task }: { task: TaskView }) {
     (inputName: string, label: string | undefined) => builtinText(t, task.id, `inputs.${inputName}`, label || inputName),
     [t, task.id],
   )
+  // A step's name in a preview, from the document the plan was taken from:
+  // the task may have changed since it was read above. Only a plan that
+  // names no steps is labelled from this screen's model.
   const stepName = useCallback(
-    (step: number) => {
-      const own = model?.steps[step]?.name ?? ''
+    (plan: TaskPlan, step: number) => {
+      const own = (plan.steps ? plan.steps[step]?.name : model?.steps[step]?.name) ?? ''
       return builtinText(t, task.id, `steps.${step}`, own) || t('cluster.tasks.plan.step', { n: step + 1 })
     },
     [model, t, task.id],
@@ -239,8 +242,11 @@ function RunForm({ task }: { task: TaskView }) {
   }
 
   // Starts the plan the operator saw. A plan the server finds changed since
-  // (409 TASK_PLAN_CHANGED) is taken again with the same request and shown,
-  // with the reason, for the operator to look at and confirm again.
+  // (409 TASK_PLAN_CHANGED) means the document changed, since the start sends
+  // the preview's request as it was: the task is read again, the request is
+  // made from the new document (the values typed for inputs it still has,
+  // the targets as picked), and its preview is shown, with the reason, for
+  // the operator to look at and confirm again.
   const start = async (plan: TaskPlan, req: TaskRunRequest, steps: number[], fromReview: boolean) => {
     const fail = fromReview ? setReviewError : setError
     try {
@@ -252,7 +258,18 @@ function RunForm({ task }: { task: TaskView }) {
         return
       }
       try {
-        openReview(await api.planTaskRun(req), req, true)
+        const fresh = await api.getTask(task.id)
+        setDetail(fresh)
+        if (!fresh.task) {
+          // The form says the document no longer parses.
+          setReview(null)
+          return
+        }
+        const names = new Set((fresh.task.inputs ?? []).map((input) => input.name))
+        const kept = Object.fromEntries(Object.entries(values).filter(([inputName]) => names.has(inputName)))
+        setValues(kept)
+        const again = { ...req, inputs: runInputs(fresh.task, kept) }
+        openReview(await api.planTaskRun(again), again, true)
       } catch (again) {
         fail(runErrorText(again, t, nodeName))
       }
@@ -388,7 +405,7 @@ function RunForm({ task }: { task: TaskView }) {
           name={name}
           plan={review.plan}
           inputs={filled(review.request)}
-          stepName={stepName}
+          stepName={(step) => stepName(review.plan, step)}
           confirmed={confirmed}
           onConfirmedChange={setConfirmed}
           changed={review.changed}

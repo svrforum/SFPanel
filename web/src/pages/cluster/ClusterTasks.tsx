@@ -130,7 +130,12 @@ export default function ClusterTasks() {
         <TaskEditor taskId={isEdit ? taskId : undefined} name={taskId ? nameOf(taskId) : undefined} onSaved={loadTasks} />
       </Suspense>
     )
-  } else if (taskId) pane = tasks === null ? null : <TaskRunSetup key={taskId} task={task} onDeleted={loadTasks} />
+  } else if (taskId) {
+    // A list read again that shows the document changed (pulled again from
+    // Git, saved, imported) sets the pane up afresh from the new document.
+    const version = task ? `${task.id}\n${task.updated_at ?? ''}\n${task.source.sha ?? ''}` : taskId
+    pane = tasks === null ? null : <TaskRunSetup key={version} task={task} onDeleted={loadTasks} />
+  }
   else {
     pane = (
       <section data-testid="task-pane-none" className="hidden md:block rounded-2xl bg-card p-5 card-shadow space-y-2">

@@ -1412,12 +1412,15 @@ export interface PlanNode {
   check_error?: string
 }
 
-// waves is null, not [], when no node remains.
+// waves is null, not [], when no node remains. steps are the steps of the
+// document previewed, which the verdicts' step indexes into: the task may
+// have changed since the screen read it.
 export interface TaskPlan {
   waves: PlanNode[][] | null
   left?: PlanNode[]
   plan_id: string
   managers_not_ready?: string[]
+  steps?: RunStepName[]
 }
 
 export type RunStatus = 'running' | 'stopping' | 'handing_over' | 'succeeded' | 'failed' | 'stopped'
