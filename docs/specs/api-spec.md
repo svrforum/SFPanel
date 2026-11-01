@@ -5830,7 +5830,7 @@ CA 교체를 멈추고 현재 CA를 지킵니다. `trust`에서는 `drop`으로(
 
 ## 그룹 작업 API (`/api/v1/cluster/tasks`, `/api/v1/cluster/task-runs`)
 
-같은 단계(패키지·서비스·명령·파일·스택·재부팅)를 여러 노드에 차례로 돌리는 작업의 정의와 실행입니다. 매니저 전용 `/cluster` 그룹에 있으며 에이전트에는 없습니다. 쓰기(정의의 생성·수정·삭제, 실행 시작·중지·다시 실행)와 미리 보기는 리더가 처리하고 다른 매니저에서 요청하면 리더로 전달됩니다. 목록·조회·검증·진행 스트림·단계 출력은 요청을 받은 매니저가 자기 복제 상태에서 답합니다. 실행은 요청·브라우저와 떨어져 리더에서 돌고, 리더가 바뀌면 새 리더가 이어받습니다. 순서, 실패와 중지, 정족수·Proxmox, 다른 클러스터 작업과의 관문, 저장과 보관은 `docs/specs/cluster-ops.md`의 "Group tasks"를 보세요. 아직 화면과 CLI는 없습니다.
+같은 단계(패키지·서비스·명령·파일·스택·재부팅)를 여러 노드에 차례로 돌리는 작업의 정의와 실행입니다. 매니저 전용 `/cluster` 그룹에 있으며 에이전트에는 없습니다. 쓰기(정의의 생성·수정·삭제, 실행 시작·중지·다시 실행)와 미리 보기는 리더가 처리하고 다른 매니저에서 요청하면 리더로 전달됩니다. 목록·조회·검증·진행 스트림·단계 출력은 요청을 받은 매니저가 자기 복제 상태에서 답합니다. 실행은 요청·브라우저와 떨어져 리더에서 돌고, 리더가 바뀌면 새 리더가 이어받습니다. 순서, 실패와 중지, 정족수·Proxmox, 다른 클러스터 작업과의 관문, 저장과 보관은 `docs/specs/cluster-ops.md`의 "Group tasks"를 보세요. 화면은 클러스터의 작업 탭이고, CLI는 없습니다.
 
 - **인증 필요**: 예 (모두)
 - 클러스터가 아니면 `400 INVALID_REQUEST`(`Cluster not configured`) — `POST /cluster/tasks/validate`만 예외
@@ -6045,7 +6045,7 @@ steps:
 
 | 필드 | 설명 |
 |------|------|
-| `waves` | 차례로 도는 물결: 에이전트를 `batch`대씩 → 리더가 아닌 매니저 한 대씩 → 리더. 각각 이름순, 같으면 ID순 |
+| `waves` | 차례로 도는 물결: 에이전트를 `batch`대씩 → 리더가 아닌 매니저 한 대씩 → 리더. 각각 이름순, 같으면 ID순. 돌 노드가 없으면 `null`(빈 배열이 아님) |
 | `waves[][].leader` | 지금 리더. 리더는 자기 차례에 리더십을 다른 매니저 투표자에게 넘기고, 새 리더가 실행을 이어받음 |
 | `waves[][].verdicts` | 노드의 판정(`step`은 0부터). `refused`(실행하면 그 단계가 실패 — Proxmox 호스트의 재부팅만은 건너뜀)와 `code`·`reason`, 또는 `needs_confirm`(그 단계 번호를 `confirmed`에 넣어야 통과) |
 | `waves[][].check_error` | 노드가 판정을 주지 못한 이유 |
@@ -6060,7 +6060,7 @@ steps:
 | `TASK_NOT_FOUND` | 404 | 그런 작업이 없음 |
 | `TASK_INVALID` | 400 | 저장된 문서가 파싱되지 않음(`message`에 첫 문제와 줄) |
 | `TASK_INPUT_MISSING` | 400 | 필수 입력에 값도 기본값도 없음 (`details.input`) |
-| `TASK_TOO_LARGE` | 400 | 입력값 하나가 16 KiB 초과(`details.input`: 그 입력 이름), 또는 작업의 입력값을 합쳐 64 KiB 초과(`details.input`: `"*"`) |
+| `TASK_TOO_LARGE` | 400 | 입력값 하나가 16 KiB 초과(`details.input`: 그 입력 이름, `details.max_kib`: `"16"`), 또는 작업의 입력값을 합쳐 64 KiB 초과(`details.input`: `"*"`, `details.max_kib`: `"64"`) |
 | `TASK_TOO_MANY_TARGETS` | 400 | 대상이 200대 초과 — 빠지는 노드를 빼기 전에 셈 (`details.max`: `"200"`) |
 
 ---
@@ -6093,7 +6093,7 @@ steps:
 ---
 
 ### GET /api/v1/cluster/task-runs/:id
-실행 하나: 머리와 노드별 기록. `nodes`에는 실행의 모든 노드가 있습니다 — 차례가 아직 오지 않은 노드는 기록이 없으며 `{ "status": "pending" }`으로 채워 보냅니다.
+실행 하나: 머리와 노드별 기록, 그리고 실행한 문서의 단계 이름. `nodes`에는 실행의 모든 노드가 있습니다 — 차례가 아직 오지 않은 노드는 기록이 없으며 `{ "status": "pending" }`으로 채워 보냅니다.
 
 **Response (200):**
 ```json
@@ -6127,7 +6127,13 @@ steps:
         ]
       },
       "node-m1": { "status": "pending" }
-    }
+    },
+    "steps": [
+      { "name": "update package lists", "kind": "packages" },
+      { "name": "restart nginx", "kind": "service" },
+      { "kind": "command" },
+      { "kind": "reboot" }
+    ]
   }
 }
 ```
@@ -6147,6 +6153,7 @@ steps:
 | `steps[].job_id` | 그 노드에서 그 단계를 돈 잡(`<실행 ID>-<단계>`) |
 | `steps[].summary` | 노드의 한 줄 요약(200바이트까지). 다시 실행에서 건너뛴 단계는 `succeeded in run <ID>` |
 | `steps[].changed` | 노드에서 무언가 바뀌었는지(명령은 늘 `true`, 내용·모드·소유자가 같았던 파일은 `false` 등) |
+| `steps` (최상위) | 실행이 시작한 문서(`run.rev`)의 단계마다 `{name, kind}` — 작업을 고치거나 지운 뒤에도 그 실행의 것. 이름 없는 단계는 `kind`만. 그 리비전을 읽지 못하면 생략 |
 
 **에러 응답:**
 | 코드 | HTTP 상태 | 조건 |
@@ -6234,7 +6241,11 @@ steps:
 | `INVALID_REQUEST` | 400 | 잘못된 단계 번호나 `skip` |
 | `TASK_RUN_NOT_FOUND` | 404 | 그런 실행이 없음 |
 | `TASK_JOB_NOT_FOUND` | 404 | 그 노드에서 그 단계를 돈 잡이 없음(이 매니저가 답함), 또는 노드가 잡을 이미 정리함(노드의 답 — 노드는 잡을 최근 200개, 30일까지 둠) |
+| `CLUSTER_AGENT_AUTH_FAILED` | 502 | 에이전트가 이 매니저의 요청을 인증되지 않았다고 거부함(에이전트의 `401`). 브라우저가 `401`을 자기 세션 만료로 읽고 로그아웃하므로 그대로 보내지 않음 (`details.name`) |
+| `INTERNAL_ERROR` | 502 | 매니저가 같은 이유로 거부함(그 매니저의 `401`) (`details.name`) |
 | `CLUSTER_NODE_UNREACHABLE` | 502 | 노드가 답하지 않음 (`details.name`) |
+
+그 밖의 노드 거부(예: `400 INVALID_REQUEST`, `500 DB_ERROR`)는 노드가 준 상태와 코드 그대로 옵니다.
 
 ---
 
@@ -6269,7 +6280,7 @@ steps:
 | 코드 | HTTP 상태 | details | 의미 |
 |------|-----------|---------|------|
 | `TASK_INVALID` | 400 | — | 작업 문서에 문제가 있음. 저장·수정의 문제 목록은 `data.problems` |
-| `TASK_TOO_LARGE` | 400 | `max_kib` | 문서가 64 KiB 초과 |
+| `TASK_TOO_LARGE` | 400 | `max_kib`, 입력값이면 `input` | 문서가 64 KiB 초과(`max_kib`: `"64"`), 입력값 하나가 16 KiB 초과(`input`: 그 이름, `max_kib`: `"16"`), 입력값 합계가 64 KiB 초과(`input`: `"*"`, `max_kib`: `"64"`) |
 | `TASK_NAME_TAKEN` | 409 | — | 다른 작업(저장된 것이나 내장)이 같은 이름 |
 | `TASK_NOT_FOUND` | 404 | — | 그런 작업이 없음 |
 | `TASK_READ_ONLY` | 409 | — | 내장 작업의 수정·삭제, Git에서 가져온 작업의 수정 |
@@ -7000,7 +7011,7 @@ WireGuard 키페어 생성 (`wg genkey` + `wg pubkey`).
 | POST | `/api/v1/cluster/task-runs/plan` | O | 미리 보기 — 순서, 빠지는 대상과 이유, 노드별 판정 (리더, 아무것도 기록하지 않음) |
 | POST | `/api/v1/cluster/task-runs` | O | 실행 시작 (202, 리더) |
 | GET | `/api/v1/cluster/task-runs` | O | 실행 목록 (최신순) |
-| GET | `/api/v1/cluster/task-runs/:id` | O | 실행 하나 (머리 + 노드별 기록) |
+| GET | `/api/v1/cluster/task-runs/:id` | O | 실행 하나 (머리 + 노드별 기록 + 단계 이름) |
 | GET | `/api/v1/cluster/task-runs/:id/stream` | O | 실행 진행 (SSE, 어느 매니저든 답함) |
 | POST | `/api/v1/cluster/task-runs/:id/stop` | O | 중지 (리더, `{force}`) |
 | POST | `/api/v1/cluster/task-runs/:id/rerun` | O | 다시 실행 (202, 리더, `?only=failed` 또는 `{nodes}`) |
