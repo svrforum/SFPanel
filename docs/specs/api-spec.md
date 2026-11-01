@@ -6164,7 +6164,13 @@ GitHub 폴더의 작업 파일을 보여 줍니다(리더, 아무것도 쓰지 �
       { "id": "node-a4", "name": "agent-04", "kind": "agent", "reason": "outdated" }
     ],
     "plan_id": "0e6f…(64자리 hex)",
-    "managers_not_ready": ["peer-3 (not heard from)"]
+    "managers_not_ready": ["peer-3 (not heard from)"],
+    "steps": [
+      { "name": "update package lists", "kind": "packages" },
+      { "name": "restart nginx", "kind": "service" },
+      { "kind": "command" },
+      { "kind": "reboot" }
+    ]
   }
 }
 ```
@@ -6178,6 +6184,7 @@ GitHub 폴더의 작업 파일을 보여 줍니다(리더, 아무것도 쓰지 �
 | `left` | 빠지는 대상과 `reason`: `offline`(리더의 실시간 하트비트로 오프라인), `outdated`(하트비트에 `tasks-v1` 없음 — 업데이트 필요), `unreachable`(이 리더가 닿지 못하는 에이전트), `busy`(진행 중인 다른 실행 `run_id`가 잡고 있음), `unknown`(`targets.nodes`의 ID가 어느 노드도 아님) |
 | `plan_id` | 이 미리 보기가 보여 준 것의 이름: 작업 문서의 리비전(SHA-256), 작업에 정의된 입력의 값(준 그대로), 대상(준 것, 없으면 작업의 것)에 대한 SHA-256(hex). 단계를 확인하고 시작할 때 그대로 보냄 |
 | `managers_not_ready` | 시작이 기다릴 매니저와 이유(`TASK_MANAGERS_NOT_READY`의 `details.managers`와 같은 문구). 없으면 생략 |
+| `steps` | 이 미리 보기가 판정한 문서의 단계마다 `{name, kind}`(`GET /cluster/task-runs/:id`의 `steps`와 같은 모양). 이름 없는 단계는 `kind`만. `verdicts[].step`이 이 목록의 번호입니다 — 화면은 판정과 확인 문구를 미리 열어 둔 작업이 아니라 이것으로 붙입니다. 그사이 작업을 Git에서 다시 받았거나 다른 곳에서 고쳤을 수 있습니다 |
 
 **에러 응답:**
 | 코드 | HTTP 상태 | 조건 |

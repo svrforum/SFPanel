@@ -750,6 +750,7 @@ func (h *Handler) PlanRun(c echo.Context) error {
 	}
 	plan.PlanID = planID(rt.doc.YAML, runInputs(rt.task, req.Inputs), rt.targets)
 	plan.ManagersNotReady = env.Tasks().TasksReady()
+	plan.Steps = stepLabels(rt.task)
 	return response.OK(c, plan)
 }
 
@@ -985,6 +986,11 @@ func runSteps(st taskStore, run cluster.RunRecord) []runStep {
 		logger().Debug("run's revision does not parse", "run", run.ID, "rev", run.Rev, "problems", len(problems))
 		return nil
 	}
+	return stepLabels(t)
+}
+
+// stepLabels is t's steps as a client labels them.
+func stepLabels(t *tasks.Task) []runStep {
 	steps := make([]runStep, 0, len(t.Steps))
 	for _, s := range t.Steps {
 		steps = append(steps, runStep{Name: s.Name, Kind: s.Kind})

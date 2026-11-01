@@ -68,6 +68,9 @@ type Plan struct {
 	// ManagersNotReady are the managers a start would wait for, each with
 	// why (TasksReady): a start is refused until there are none.
 	ManagersNotReady []string `json:"managers_not_ready,omitempty"`
+	// Steps are the steps of the document previewed, which the verdicts
+	// name by index: the task may have changed since the screen read it.
+	Steps []runStep `json:"steps"`
 }
 
 // WaveIDs is the plan's waves as node IDs, as a run record keeps them.

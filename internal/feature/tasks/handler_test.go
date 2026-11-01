@@ -1223,6 +1223,53 @@ func TestThePreviewNamesTheManagersNotReady(t *testing.T) {
 	}
 }
 
+// The preview names the steps of the document it previewed, so the screen
+// labels its verdicts and confirmations from that document rather than one
+// it read earlier: the task may have changed in between.
+func TestThePreviewNamesTheStepsOfTheDocumentItPreviewed(t *testing.T) {
+	f := newAPI(t)
+	f.store("t1", `name: greet
+targets: { kinds: [agent] }
+steps:
+  - name: say hello
+    command: { run: "echo hello" }
+  - service: { name: nginx.service, action: restart }
+`)
+	steps := func() []runStep {
+		t.Helper()
+		a := f.do("POST", "/api/v1/cluster/task-runs/plan", map[string]any{"task_id": "t1"})
+		if a.Status != 200 {
+			t.Fatalf("plan = %d %+v", a.Status, a.Error)
+		}
+		var p struct {
+			Steps []runStep `json:"steps"`
+		}
+		a.data(t, &p)
+		return p.Steps
+	}
+	want := []runStep{{Name: "say hello", Kind: tasks.StepCommand}, {Kind: tasks.StepService}}
+	if got := steps(); !slices.Equal(got, want) {
+		t.Errorf("steps = %+v, want %+v", got, want)
+	}
+
+	changed := `name: greet
+targets: { kinds: [agent] }
+steps:
+  - name: stop docker
+    service: { name: docker.service, action: stop }
+  - command: { run: "true" }
+  - name: say hello
+    command: { run: "echo hello" }
+`
+	if a := f.do("PUT", "/api/v1/cluster/tasks/t1", map[string]string{"yaml": changed}); a.Status != 200 {
+		t.Fatalf("update = %d %+v", a.Status, a.Error)
+	}
+	want = []runStep{{Name: "stop docker", Kind: tasks.StepService}, {Kind: tasks.StepCommand}, {Name: "say hello", Kind: tasks.StepCommand}}
+	if got := steps(); !slices.Equal(got, want) {
+		t.Errorf("steps after the change = %+v, want %+v", got, want)
+	}
+}
+
 // A confirmation is the operator's yes to what the preview showed: a step of
 // that document, filled in with those inputs, on those targets. The preview
 // names what it showed (plan_id), and a start with confirmations must name
