@@ -62,6 +62,9 @@ type Plan struct {
 	// other manager alone; then the leader alone.
 	Waves [][]PlanNode `json:"waves"`
 	Left  []PlanNode   `json:"left,omitempty"`
+	// ManagersNotReady are the managers a start would wait for, each with
+	// why (TasksReady): a start is refused until there are none.
+	ManagersNotReady []string `json:"managers_not_ready,omitempty"`
 }
 
 // WaveIDs is the plan's waves as node IDs, as a run record keeps them.

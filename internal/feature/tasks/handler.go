@@ -674,8 +674,8 @@ func managersNotReady(st taskStore) error {
 }
 
 // PlanRun answers POST /cluster/task-runs/plan (leader), the preview: the
-// waves, the targets left out with why, and each node's verdicts on the
-// steps. It records nothing.
+// waves, the targets left out with why, each node's verdicts on the steps,
+// and the managers a start would wait for. It records nothing.
 func (h *Handler) PlanRun(c echo.Context) error {
 	env, err := h.apiEnv(c)
 	if env == nil {
@@ -692,6 +692,7 @@ func (h *Handler) PlanRun(c echo.Context) error {
 	if err != nil {
 		return fail(c, planError(err))
 	}
+	plan.ManagersNotReady = env.Tasks().TasksReady()
 	return response.OK(c, plan)
 }
 

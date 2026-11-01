@@ -1189,3 +1189,28 @@ steps:
 		})
 	}
 }
+
+// The preview says which managers a run would wait for, so the operator
+// learns it before pressing start.
+func TestThePreviewNamesTheManagersNotReady(t *testing.T) {
+	f := newAPI(t)
+	f.store("t1", greetDoc)
+	plan := func() (p struct {
+		ManagersNotReady []string `json:"managers_not_ready"`
+	}, raw string) {
+		a := f.do("POST", "/api/v1/cluster/task-runs/plan", map[string]any{"task_id": "t1", "inputs": map[string]string{"who": "x"}})
+		if a.Status != 200 {
+			t.Fatalf("plan = %d %+v", a.Status, a.Error)
+		}
+		a.data(t, &p)
+		return p, string(a.Data)
+	}
+	f.env.store.notReady = []string{"m2 (offline)"}
+	if p, _ := plan(); !slices.Equal(p.ManagersNotReady, []string{"m2 (offline)"}) {
+		t.Errorf("managers_not_ready = %v, want [m2 (offline)]", p.ManagersNotReady)
+	}
+	f.env.store.notReady = nil
+	if _, raw := plan(); strings.Contains(raw, "managers_not_ready") {
+		t.Errorf("plan = %s, want managers_not_ready left out with every manager ready", raw)
+	}
+}
