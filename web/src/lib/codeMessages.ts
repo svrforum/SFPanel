@@ -44,7 +44,8 @@ export const CODE_MESSAGES: Record<string, string> = {
   RESTORE_MANAGER_BACKUP_ON_AGENT: 'settings.restoreErrors.managerBackupOnAgent',
   RESTORE_AGENT_BACKUP_ON_MANAGER: 'settings.restoreErrors.agentBackupOnManager',
   // CLUSTER_CONVERT_REFUSED, CLUSTER_PROMOTE_REFUSED and CLUSTER_ROTATION_REFUSED
-  // carry their reason in the server's message, so they stay unworded here.
+  // carry their reason in the server's message, so they stay unworded here;
+  // so does FILE_TOO_LARGE, whose message gives the file's size and the limit.
 
   // Group tasks: the task and run API on a manager. A value the screen has to
   // put in itself — TASK_TARGET_BUSY's node_id is an ID, not a name, and
@@ -84,8 +85,6 @@ export const CODE_MESSAGES: Record<string, string> = {
   GIT_PATH_NOT_FOUND: 'common.git.pathNotFound',
   GIT_CLONE_FAILED: 'common.git.cloneFailed',
   GIT_RATE_LIMITED: 'common.git.rateLimited',
-  // A file the files page, or GitHub, will not hand over whole.
-  FILE_TOO_LARGE: 'common.fileTooLarge',
 }
 
 // What a placeholder reads, as an i18n key, when the details carry no value
@@ -94,4 +93,6 @@ export const CODE_DEFAULTS: Record<string, Record<string, string>> = {
   CLUSTER_NODE_UNREACHABLE: { name: 'cluster.errors.thatNode' },
   // GitHub names when the allowance resets only when it said so.
   GIT_RATE_LIMITED: { reset_at: 'common.git.rateLimitReset' },
+  // GitHub's own words for a failure it gave no code to.
+  GIT_CLONE_FAILED: { cause: 'common.git.causeUnknown' },
 }

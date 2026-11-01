@@ -43,11 +43,11 @@
       "authFailed": "GitHub refused the token, or the repository needs a token with access to it.",
       "repoNotFound": "Repository not found. If it is private, add a token.",
       "pathNotFound": "Nothing at that path on that branch.",
-      "cloneFailed": "Could not read from GitHub.",
+      "cloneFailed": "Could not read from GitHub: {{cause}}",
+      "causeUnknown": "no cause was given",
       "rateLimited": "GitHub's request allowance is used up. Try again after {{reset_at}}, or add a token.",
       "rateLimitReset": "it resets, within the hour"
-    },
-    "fileTooLarge": "The file is too large."
+    }
   },
   "layout": {
     "brand": "SFPanel",

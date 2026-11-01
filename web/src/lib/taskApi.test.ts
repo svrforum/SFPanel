@@ -250,7 +250,6 @@ describe('task and Git refusals', () => {
     ['GIT_RATE_LIMITED', { reset_at: '2026-11-01T10:00:00Z', limit: '60', retry_after: '120' }],
     ['GIT_RATE_LIMITED', { retry_after: '120' }],
     ['GIT_RATE_LIMITED', undefined],
-    ['FILE_TOO_LARGE', undefined],
   ]
 
   it.each(['en', 'ko'])('words every one in %s, with nothing left unfilled', async (lng) => {
@@ -278,5 +277,10 @@ describe('task and Git refusals', () => {
     expect(word('TASK_INPUT_MISSING', { input: 'service' })).toContain('service')
     expect(word('TASK_RUN_ACTIVE', { run_id: '20261101-091500-3fa2c1' })).toContain('20261101-091500-3fa2c1')
     expect(word('GIT_RATE_LIMITED', { reset_at: '2026-11-01T10:00:00Z' })).toContain('2026-11-01T10:00:00Z')
+    // The worded sentence would otherwise hide GitHub's only clue.
+    expect(word('GIT_CLONE_FAILED', { cause: 'GitHub answered HTTP 502' })).toContain('GitHub answered HTTP 502')
+    // The files page's message gives the file's size and the limit; a worded
+    // sentence would drop both.
+    expect(word('FILE_TOO_LARGE')).toBe('x')
   })
 })
