@@ -493,3 +493,54 @@ func TestAnEndedRunIsNotRunAgain(t *testing.T) {
 		t.Errorf("the ended run was finished again: pruned %v", e.store.pruned)
 	}
 }
+
+// A leader writes a step's end and its node's end apart, so one lost between
+// the two leaves the node running with the step ended. The leader that takes
+// the run over closes the node from its own record and starts nothing after
+// a step that stopped it.
+func TestATakeoverClosesANodeFromItsOwnRecord(t *testing.T) {
+	for _, tc := range []struct {
+		name     string
+		recorded []string
+		offline  bool
+		status   string
+		reason   string
+		head     string
+	}{
+		{"a failed step: the node failed", []string{cluster.RunStepFailed, cluster.RunStepPending}, false, cluster.RunNodeFailed, "step 1 (command) failed", cluster.RunFailed},
+		{"an unknown step: the node unknown", []string{cluster.RunStepUnknown, cluster.RunStepPending}, false, cluster.RunNodeUnknown, "step 1: the node did not answer", cluster.RunFailed},
+		{"a cancelled step: the node stopped", []string{cluster.RunStepCancelled, cluster.RunStepPending}, false, cluster.RunNodeStopped, reasonStopped, cluster.RunSucceeded},
+		{"every step ended, the node offline: succeeded", []string{cluster.RunStepSucceeded, cluster.RunStepSucceeded}, true, cluster.RunNodeSucceeded, "", cluster.RunSucceeded},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			e := newFakeEnv(t, "m2", manager("m1", "mgr-1"), manager("m2", "mgr-2"), agent("a1", "web-1"))
+			run := newRun(t, e, steps(true, cmdTrue, cmdTrue), [][]string{{"a1"}})
+			var recorded []cluster.RunStepRecord
+			for i, s := range tc.recorded {
+				rec := cluster.RunStepRecord{Status: s}
+				if s != cluster.RunStepPending {
+					rec.JobID, rec.StartedAt, rec.EndedAt = jobID(testRunID, i), e.now, e.now
+				}
+				if s == cluster.RunStepUnknown {
+					rec.Summary = "the node did not answer: connection refused"
+				}
+				recorded = append(recorded, rec)
+			}
+			if err := e.store.PutRunNode(testRunID, "a1", cluster.RunNodeRecord{Status: cluster.RunNodeRunning, Steps: recorded}); err != nil {
+				t.Fatal(err)
+			}
+			if tc.offline {
+				e.health["a1"] = cluster.StatusOffline
+			}
+			mustRun(t, e, run)
+
+			wantStarted(t, e)
+			rec := wantNode(t, e, "a1", tc.status, tc.reason)
+			if tc.status == cluster.RunNodeSucceeded && rec.Reason != "" {
+				t.Errorf("a1's reason = %q, want none", rec.Reason)
+			}
+			wantStep(t, rec, 1, tc.recorded[1], "")
+			wantHead(t, e, tc.head, "")
+		})
+	}
+}

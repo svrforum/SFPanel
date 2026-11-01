@@ -369,6 +369,9 @@ func (r *runner) fail(id string, rec cluster.RunNodeRecord, status, reason strin
 // node's health: it may be rebooting, and its job is under way either way.
 func (r *runner) runNode(id string) nodeOutcome {
 	rec := r.newRecord(id)
+	if out, closed := r.closeFromRecord(id, rec); closed {
+		return out
+	}
 	n, ok := r.nodes[id]
 	resuming := slices.ContainsFunc(rec.Steps, func(s cluster.RunStepRecord) bool { return inFlight(s.Status) })
 	switch {
@@ -439,6 +442,38 @@ func (r *runner) runNode(id string) nodeOutcome {
 		return nodeAbandoned
 	}
 	return nodeDone
+}
+
+// closeFromRecord ends node id's part of the run from its own record, before
+// anything runs. A leader writes a step's end and then its node's end, so one
+// lost between the two leaves the node running with the step ended; the
+// leader that takes over must not run the steps after one that stopped the
+// node. The recorded steps are read in order up to the first not yet ended:
+// one failed without continue_on_error ends the node failed, one unknown
+// ends it unknown, one cancelled ends it stopped. A node whose every step has
+// ended, with none of those, ends succeeded whatever its health, as no step
+// is left to post. closed says the node was ended here.
+func (r *runner) closeFromRecord(id string, rec cluster.RunNodeRecord) (nodeOutcome, bool) {
+	for i, s := range rec.Steps {
+		switch s.Status {
+		case cluster.RunStepFailed:
+			if !r.task.Steps[i].ContinueOnError {
+				return r.fail(id, rec, cluster.RunNodeFailed, fmt.Sprintf("step %d (%s) failed", i+1, stepName(r.task.Steps[i]))), true
+			}
+		case cluster.RunStepUnknown:
+			return r.fail(id, rec, cluster.RunNodeUnknown, fmt.Sprintf("step %d: %s", i+1, s.Summary)), true
+		case cluster.RunStepCancelled:
+			return r.fail(id, rec, cluster.RunNodeStopped, reasonStopped), true
+		case cluster.RunStepSucceeded, cluster.RunStepSkipped:
+		default: // pending, or in flight: the node has steps to run or follow
+			return 0, false
+		}
+	}
+	rec.Status, rec.Reason = cluster.RunNodeSucceeded, ""
+	if err := r.write(id, rec); err != nil {
+		return nodeAbandoned, true
+	}
+	return nodeDone, true
 }
 
 func stepName(s tasks.Step) string {
