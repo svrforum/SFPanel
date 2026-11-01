@@ -8,6 +8,9 @@ set -euo pipefail
 #        FORCE_SYSTEMD=1 sudo ./install.sh   # rewrite systemd unit even if present
 #        curl -fsSL …/install.sh | sudo bash -s -- --agent <manager>:3629 <token> --ca <fingerprint> [--advertise <ip>] [--name <name>]
 #                                         # install and join a cluster as an agent ('sfpanel cluster token --agent' on a manager prints this)
+#        sudo ./install.sh --agent <manager>:3629 --token-file <file> --ca <fingerprint> --version <v> [--checksums <file>] [--archive <file>] …
+#                                         # the same, as the panel's SSH installer runs it: the token read from a file,
+#                                         # the version pinned, and the archive checked against checksums it verified
 
 REPO="svrforum/SFPanel"
 INSTALL_SCRIPT_URL="https://raw.githubusercontent.com/${REPO}/main/scripts/install.sh"
@@ -28,12 +31,23 @@ SFPANEL_REQUIRE_COSIGN="${SFPANEL_REQUIRE_COSIGN:-0}"
 BINARY_BACKED_UP=0
 # Set by parse_agent_args from --agent ADDR TOKEN --ca FP [--advertise IP]
 # [--name NAME]: a server given them joins a cluster as an agent before its
-# service starts.
+# service starts. With --token-file PATH in TOKEN's place, 'sfpanel agent join'
+# reads the token from that file, so it is on no command line.
 AGENT_MANAGER=""
 AGENT_TOKEN=""
+AGENT_TOKEN_FILE=""
 AGENT_CA=""
 AGENT_ADVERTISE=""
 AGENT_NAME=""
+# Set by parse_agent_args from --version V, --checksums FILE and --archive FILE.
+# --version pins the release ahead of SFPANEL_VERSION, which sudo's env_reset
+# drops. --checksums is a checksums.txt whose signature the caller verified:
+# the archive is checked against it instead of one downloaded beside it, and
+# cosign is not run. --archive installs that file instead of downloading one,
+# and needs both of the others.
+PIN_VERSION=""
+CHECKSUMS_FILE=""
+ARCHIVE_FILE=""
 
 # Colors
 RED='\033[0;31m'
@@ -124,7 +138,12 @@ check_systemd() {
 }
 
 check_commands() {
-  for cmd in curl tar sha256sum awk; do
+  local cmds="tar sha256sum awk"
+  # A given archive is installed without a download.
+  if [ -z "$ARCHIVE_FILE" ]; then
+    cmds="curl ${cmds}"
+  fi
+  for cmd in $cmds; do
     if ! command -v "$cmd" &>/dev/null; then
       log_error "Required command not found: $cmd"
       exit 1
@@ -207,7 +226,12 @@ config_is_agent() {
 # --- Core functions ---
 
 get_latest_version() {
-  # Pinned version (rollback / reproducible install) takes precedence.
+  # Pinned version (rollback / reproducible install) takes precedence: the
+  # --version flag first, which survives sudo, then the variable, which may not.
+  if [ -n "$PIN_VERSION" ]; then
+    echo "${PIN_VERSION#v}"
+    return
+  fi
   if [ -n "${SFPANEL_VERSION:-}" ]; then
     echo "${SFPANEL_VERSION#v}"
     return
@@ -222,14 +246,40 @@ get_latest_version() {
   echo "$version"
 }
 
+# download_binary installs the release archive of version for arch: it puts
+# the archive and the checksums.txt it is checked against in a temporary
+# directory — the files --archive and --checksums name, or what fetch_release
+# downloads — and install_release checks and installs it.
 download_binary() {
   local version="$1"
   local arch="$2"
-  local asset="sfpanel_${version}_linux_${arch}.tar.gz"
-  local base="https://github.com/${REPO}/releases/download/v${version}"
   local tmp_dir
 
   tmp_dir=$(mktemp -d)
+
+  if [ -n "$ARCHIVE_FILE" ]; then
+    log_info "Installing SFPanel v${version} (linux/${arch}) from ${ARCHIVE_FILE}..."
+    if ! cp "$ARCHIVE_FILE" "${tmp_dir}/sfpanel.tar.gz" || ! cp "$CHECKSUMS_FILE" "${tmp_dir}/checksums.txt"; then
+      rm -rf "$tmp_dir"
+      log_error "Could not copy ${ARCHIVE_FILE} and ${CHECKSUMS_FILE} to ${tmp_dir}"
+      exit 1
+    fi
+  else
+    fetch_release "$version" "$arch" "$tmp_dir"
+  fi
+  install_release "sfpanel_${version}_linux_${arch}.tar.gz" "$tmp_dir"
+}
+
+# fetch_release downloads the release archive of version for arch into
+# tmp_dir, with the checksums.txt it is checked against: the one --checksums
+# names, whose signature the caller verified, or the release's own, whose
+# signature cosign verifies when it is installed.
+fetch_release() {
+  local version="$1"
+  local arch="$2"
+  local tmp_dir="$3"
+  local asset="sfpanel_${version}_linux_${arch}.tar.gz"
+  local base="https://github.com/${REPO}/releases/download/v${version}"
 
   log_info "Downloading SFPanel v${version} (linux/${arch})..."
   if ! curl -fsSL "${base}/${asset}" -o "${tmp_dir}/sfpanel.tar.gz"; then
@@ -240,7 +290,18 @@ download_binary() {
 
   # Integrity check against the release's checksums.txt. Without this step
   # a compromised mirror or MITM could ship a tampered binary that install.sh
-  # would happily run as root.
+  # would happily run as root. A checksums.txt given with --checksums is one
+  # the caller has verified the signature of already, so neither is it
+  # downloaded nor is cosign run on it.
+  if [ -n "$CHECKSUMS_FILE" ]; then
+    log_info "Verifying SHA-256 checksum against ${CHECKSUMS_FILE}..."
+    if ! cp "$CHECKSUMS_FILE" "${tmp_dir}/checksums.txt"; then
+      rm -rf "$tmp_dir"
+      log_error "Could not copy ${CHECKSUMS_FILE} to ${tmp_dir}"
+      exit 1
+    fi
+    return
+  fi
   log_info "Verifying SHA-256 checksum..."
   if ! curl -fsSL "${base}/checksums.txt" -o "${tmp_dir}/checksums.txt"; then
     rm -rf "$tmp_dir"
@@ -298,7 +359,15 @@ download_binary() {
     log_warn "SFPANEL_REQUIRE_COSIGN=1 to make a missing signature fatal."
     log_warn "============================================================"
   fi
+}
 
+# install_release checks the archive in tmp_dir against the line for asset in
+# tmp_dir's checksums.txt, then — only then — stops the service, backs up the
+# database and the binary, and installs the archive's binary. tmp_dir is
+# removed either way.
+install_release() {
+  local asset="$1"
+  local tmp_dir="$2"
   local expected actual
   expected=$(awk -v a="${asset}" '$2==a || $2=="*"a {print $1; exit}' "${tmp_dir}/checksums.txt")
   if [ -z "$expected" ]; then
@@ -309,7 +378,7 @@ download_binary() {
   actual=$(sha256sum "${tmp_dir}/sfpanel.tar.gz" | awk '{print $1}')
   if [ "$expected" != "$actual" ]; then
     rm -rf "$tmp_dir"
-    log_error "Checksum mismatch: expected ${expected}, got ${actual}"
+    log_error "Checksum verification failed: expected ${expected}, got ${actual}"
     exit 1
   fi
 
@@ -821,36 +890,44 @@ print_agent_firewall() {
 # --- Joining as an agent ---
 
 # parse_agent_args reads the installer's arguments, which past uninstall can
-# only be an agent join's: --agent ADDR TOKEN, --ca FP, --advertise IP and
-# --name NAME, in any order. What it can tell is wrong it refuses before
-# anything is downloaded; 'sfpanel agent join' checks the rest — the
-# fingerprint's form, the advertise address, the name — before the token is
-# sent. An argument it does not know is refused too: skipped, a misspelt
-# --advertise would have the agent registered at an address detected instead.
+# only be an agent join's: --agent ADDR TOKEN (or --agent ADDR with
+# --token-file PATH), --ca FP, --advertise IP, --name NAME, --version V,
+# --checksums FILE and --archive FILE, in any order. What it can tell is wrong
+# it refuses before anything is downloaded; 'sfpanel agent join' checks the
+# rest — the fingerprint's form, the advertise address, the name, what the
+# token file holds — before the token is sent. An argument it does not know is
+# refused too: skipped, a misspelt --advertise would have the agent registered
+# at an address detected instead.
 parse_agent_args() {
   while [ "$#" -gt 0 ]; do
     case "$1" in
       --agent)
         # A join token is hex, so a value that starts with - is the next
-        # option: the address or the token was left out.
-        if [ "$#" -lt 3 ] || [ -z "$2" ] || [ -z "$3" ] || [ "${2#-}" != "$2" ] || [ "${3#-}" != "$3" ]; then
+        # option: the address was left out, or the token is in --token-file
+        # (or was left out, which the checks below the loop tell apart).
+        if [ "$#" -lt 2 ] || [ -z "$2" ] || [ "${2#-}" != "$2" ]; then
           agent_args_error "--agent needs the manager's address and the join token: --agent <manager>:3629 <token>"
         fi
         AGENT_MANAGER="$2"
-        AGENT_TOKEN="$3"
-        shift 3
+        shift 2
+        if [ "$#" -gt 0 ] && [ "${1#-}" = "$1" ]; then
+          AGENT_TOKEN="$1"
+          shift
+        fi
         ;;
-      --ca|--advertise|--name)
+      --token-file|--ca|--advertise|--name|--version|--checksums|--archive)
         if [ "$#" -lt 2 ] || [ -z "$2" ] || [ "${2#-}" != "$2" ]; then
           agent_args_error "$1 needs a value"
         fi
-        if [ "$1" = "--ca" ]; then
-          AGENT_CA="$2"
-        elif [ "$1" = "--advertise" ]; then
-          AGENT_ADVERTISE="$2"
-        else
-          AGENT_NAME="$2"
-        fi
+        case "$1" in
+          --token-file) AGENT_TOKEN_FILE="$2" ;;
+          --ca) AGENT_CA="$2" ;;
+          --advertise) AGENT_ADVERTISE="$2" ;;
+          --name) AGENT_NAME="$2" ;;
+          --version) PIN_VERSION="$2" ;;
+          --checksums) CHECKSUMS_FILE="$2" ;;
+          *) ARCHIVE_FILE="$2" ;;
+        esac
         shift 2
         ;;
       *)
@@ -860,6 +937,32 @@ parse_agent_args() {
   done
   if [ -z "$AGENT_MANAGER" ]; then
     agent_args_error "--agent <manager>:3629 <token> is missing"
+  fi
+  if [ -n "$AGENT_TOKEN" ] && [ -n "$AGENT_TOKEN_FILE" ]; then
+    agent_args_error "The join token is given twice, after --agent and in --token-file: give one"
+  fi
+  if [ -z "$AGENT_TOKEN" ] && [ -z "$AGENT_TOKEN_FILE" ]; then
+    agent_args_error "--agent needs the manager's address and the join token: --agent <manager>:3629 <token>"
+  fi
+  local opt file
+  for opt in --token-file --checksums --archive; do
+    case "$opt" in
+      --token-file) file="$AGENT_TOKEN_FILE" ;;
+      --checksums) file="$CHECKSUMS_FILE" ;;
+      *) file="$ARCHIVE_FILE" ;;
+    esac
+    if [ -n "$file" ] && { [ ! -f "$file" ] || [ ! -r "$file" ]; }; then
+      agent_args_error "${opt} ${file} cannot be read"
+    fi
+  done
+  # The version goes into the download's URL and the archive's name.
+  if [ -n "$PIN_VERSION" ]; then
+    case "${PIN_VERSION#v}" in
+      ''|*[!A-Za-z0-9.+-]*) agent_args_error "--version ${PIN_VERSION} is not a version: give a release's, such as 0.81.0" ;;
+    esac
+  fi
+  if [ -n "$ARCHIVE_FILE" ] && { [ -z "$CHECKSUMS_FILE" ] || [ -z "$PIN_VERSION" ]; }; then
+    agent_args_error "--archive needs --checksums and --version: the checksums.txt its SHA-256 is checked against, and the release it holds"
   fi
   if [ -z "$AGENT_CA" ]; then
     agent_args_error "--ca is missing: copy the whole command 'sfpanel cluster token --agent' prints on a manager, fingerprint included"
@@ -878,6 +981,7 @@ agent_args_error() {
   log_error "$1"
   log_error "Usage: curl -fsSL ${INSTALL_SCRIPT_URL} | $(sudo_prefix)bash -s -- --agent <manager>:3629 <token> --ca <fingerprint> [--advertise <ip>] [--name <name>]"
   log_error "       ('sfpanel cluster token --agent' on a manager prints this command, token and fingerprint filled in)"
+  log_error "       Also taken: --token-file <file> in <token>'s place, --version <v>, --checksums <file>, and --archive <file> with both of those"
   exit 1
 }
 
@@ -903,10 +1007,18 @@ check_can_join_as_agent() {
 # read: no-restart while the service is stopped or not set up yet, so that its
 # first start is an agent's; restart for a panel that may be running, which
 # the join restarts as an agent. Piped from curl, the installer's stdin is the
-# script itself, so the join gets /dev/null.
+# script itself, so the join gets /dev/null. A token in a file stays there:
+# the join is handed the file's path, so the token is on no command line,
+# where /proc/<pid>/cmdline and sudo's log would show it. A release from before
+# --token-file refuses the option.
 run_agent_join() {
-  local mode="$1" sudo
-  set -- agent join "$AGENT_MANAGER" "$AGENT_TOKEN" --ca "$AGENT_CA"
+  local mode="$1" sudo token="<token>"
+  if [ -n "$AGENT_TOKEN_FILE" ]; then
+    set -- agent join "$AGENT_MANAGER" --token-file "$AGENT_TOKEN_FILE" --ca "$AGENT_CA"
+    token="--token-file <token-file>"
+  else
+    set -- agent join "$AGENT_MANAGER" "$AGENT_TOKEN" --ca "$AGENT_CA"
+  fi
   if [ -n "$AGENT_ADVERTISE" ]; then
     set -- "$@" --advertise "$AGENT_ADVERTISE"
   fi
@@ -927,7 +1039,7 @@ run_agent_join() {
     else
       log_error "Once the cause is fixed, run the same command again:"
     fi
-    log_error "  curl -fsSL ${INSTALL_SCRIPT_URL} | ${sudo}bash -s -- --agent ${AGENT_MANAGER} <token> --ca ${AGENT_CA}${AGENT_ADVERTISE:+ --advertise ${AGENT_ADVERTISE}}${AGENT_NAME:+ --name ${AGENT_NAME}}"
+    log_error "  curl -fsSL ${INSTALL_SCRIPT_URL} | ${sudo}bash -s -- --agent ${AGENT_MANAGER} ${token} --ca ${AGENT_CA}${AGENT_ADVERTISE:+ --advertise ${AGENT_ADVERTISE}}${AGENT_NAME:+ --name ${AGENT_NAME}}"
     log_error "A token the reason calls used, expired or not found needs a new one: '${sudo}sfpanel cluster token --agent' on a manager."
     exit 1
   fi

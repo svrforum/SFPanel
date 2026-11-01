@@ -50,7 +50,11 @@ func agentCommand(args []string) {
 	}
 }
 
-const agentJoinUsage = "Usage: sfpanel agent join <manager-address:port> <token> --ca <fingerprint> [--advertise IP] [--name NAME] [--config PATH] [--no-restart]"
+const agentJoinUsage = "Usage: sfpanel agent join <manager-address:port> {<token> | --token-file PATH} --ca <fingerprint> [--advertise IP] [--name NAME] [--config PATH] [--no-restart]"
+
+// maxTokenFileBytes caps what --token-file reads: a join token is a little over
+// a hundred bytes, and a path to something endless must not hang the join.
+const maxTokenFileBytes = 4096
 
 // agentJoinArgs are the arguments of `sfpanel agent join`.
 type agentJoinArgs struct {
@@ -59,20 +63,23 @@ type agentJoinArgs struct {
 }
 
 // parseAgentJoinArgs reads `agent join`'s arguments: the manager's gRPC
-// address and the token, and the options in any place. Whatever it can tell
+// address and the token — or, with --token-file, the address alone and the
+// token from that file — and the options in any place. Whatever it can tell
 // is wrong it refuses here, before anything is sent: an option it does not
 // know (install.sh passes arguments through, and a misspelt one skipped
-// would join with the wrong address), the fingerprint's form, a name no node
-// may have, and an address with no port — none is guessed, the command
-// `cluster token --agent` prints names it.
+// would join with the wrong address), a token given twice or a file with
+// none, the fingerprint's form, a name no node may have, and an address with
+// no port — none is guessed, the command `cluster token --agent` prints names
+// it.
 func parseAgentJoinArgs(args []string) (agentJoinArgs, error) {
 	a := agentJoinArgs{ConfigPath: defaultCfgPath}
 	var positional []string
+	var tokenFile string
 	for i := 0; i < len(args); i++ {
 		switch arg := args[i]; arg {
 		case "--no-restart":
 			a.NoRestart = true
-		case "--ca", "--advertise", "--config", "--name":
+		case "--ca", "--advertise", "--config", "--name", "--token-file":
 			if i+1 == len(args) {
 				return agentJoinArgs{}, fmt.Errorf("%s needs a value", arg)
 			}
@@ -80,6 +87,8 @@ func parseAgentJoinArgs(args []string) (agentJoinArgs, error) {
 			switch arg {
 			case "--ca":
 				a.Pin = args[i]
+			case "--token-file":
+				tokenFile = args[i]
 			case "--advertise":
 				a.Advertise = args[i]
 			case "--name":
@@ -97,16 +106,33 @@ func parseAgentJoinArgs(args []string) (agentJoinArgs, error) {
 			positional = append(positional, arg)
 		}
 	}
-	switch len(positional) {
-	case 0:
-		return agentJoinArgs{}, errors.New("the manager's address and the join token are missing")
-	case 1:
-		return agentJoinArgs{}, errors.New("the join token is missing")
-	case 2:
-	default:
-		return agentJoinArgs{}, fmt.Errorf("unexpected argument %q", positional[2])
+	if tokenFile != "" {
+		switch len(positional) {
+		case 0:
+			return agentJoinArgs{}, errors.New("the manager's address is missing")
+		case 1:
+		case 2:
+			return agentJoinArgs{}, errors.New("the join token is given twice, as an argument and in --token-file: give one")
+		default:
+			return agentJoinArgs{}, fmt.Errorf("unexpected argument %q", positional[2])
+		}
+		token, err := readTokenFile(tokenFile)
+		if err != nil {
+			return agentJoinArgs{}, err
+		}
+		a.Manager, a.Token = positional[0], token
+	} else {
+		switch len(positional) {
+		case 0:
+			return agentJoinArgs{}, errors.New("the manager's address and the join token are missing")
+		case 1:
+			return agentJoinArgs{}, errors.New("the join token is missing")
+		case 2:
+		default:
+			return agentJoinArgs{}, fmt.Errorf("unexpected argument %q", positional[2])
+		}
+		a.Manager, a.Token = positional[0], positional[1]
 	}
-	a.Manager, a.Token = positional[0], positional[1]
 	if a.Pin == "" {
 		return agentJoinArgs{}, errors.New("--ca is missing: copy the whole command 'sfpanel cluster token --agent' prints on a manager, fingerprint included")
 	}
@@ -120,6 +146,30 @@ func parseAgentJoinArgs(args []string) (agentJoinArgs, error) {
 		return agentJoinArgs{}, fmt.Errorf("the manager address %q needs a port: the manager's cluster gRPC port, as in the command 'sfpanel cluster token --agent' prints", a.Manager)
 	}
 	return a, nil
+}
+
+// readTokenFile reads the join token --token-file names, trimmed of the
+// newline a shell leaves after it. The token stays off the command line, where
+// /proc/<pid>/cmdline and sudo's log would show it; the errors name the file,
+// never what is in it.
+func readTokenFile(path string) (string, error) {
+	f, err := os.Open(path)
+	if err != nil {
+		return "", fmt.Errorf("read the token file: %w", err)
+	}
+	defer f.Close()
+	data, err := io.ReadAll(io.LimitReader(f, maxTokenFileBytes+1))
+	if err != nil {
+		return "", fmt.Errorf("read the token file %s: %w", path, err)
+	}
+	if len(data) > maxTokenFileBytes {
+		return "", fmt.Errorf("the token file %s is larger than a join token", path)
+	}
+	token := strings.TrimSpace(string(data))
+	if token == "" {
+		return "", fmt.Errorf("the token file %s holds no join token", path)
+	}
+	return token, nil
 }
 
 // agentJoin runs `sfpanel agent join`. The service is restarted only once the
@@ -524,7 +574,7 @@ func removedByLeader(cfg *config.Config) bool {
 func printAgentHelp() {
 	fmt.Println("SFPanel Agent Commands:")
 	fmt.Println()
-	fmt.Println("  sfpanel agent join ADDR:PORT TOKEN --ca FINGERPRINT [--advertise IP] [--name NAME] [--no-restart]")
+	fmt.Println("  sfpanel agent join ADDR:PORT {TOKEN | --token-file PATH} --ca FINGERPRINT [--advertise IP] [--name NAME] [--no-restart]")
 	fmt.Println("                                            Join a cluster as an agent ('sfpanel cluster token --agent' on a manager prints the command)")
 	fmt.Println("  sfpanel agent status                      Show this agent's managers, certificate and panel")
 	fmt.Println("  sfpanel agent reset [--yes]               Make this agent a standalone panel again; without --yes, show what that removes")

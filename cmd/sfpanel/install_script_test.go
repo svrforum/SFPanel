@@ -1,6 +1,11 @@
 package main
 
 import (
+	"archive/tar"
+	"bytes"
+	"compress/gzip"
+	"crypto/sha256"
+	"encoding/hex"
 	"errors"
 	"os"
 	"os/exec"
@@ -688,4 +693,332 @@ func TestInstallUninstallResetsAnAgent(t *testing.T) {
 		slices.ContainsFunc(calls, func(c string) bool { return strings.Contains(c, "agent reset") }) {
 		t.Fatalf("calls %q: want a manager to leave the cluster", calls)
 	}
+}
+
+// pinFP is a CA fingerprint in the form 'sfpanel agent join' takes.
+var pinFP = "sha256:" + strings.Repeat("ab", 32)
+
+// link puts the host's own tools on the harness's PATH, for the steps a test
+// runs for real; a host without one skips the test.
+func (h *installHarness) link(tools ...string) {
+	h.t.Helper()
+	for _, tool := range tools {
+		dst := filepath.Join(h.bin, tool)
+		if _, err := os.Lstat(dst); err == nil {
+			continue
+		}
+		p, err := exec.LookPath(tool)
+		if err != nil {
+			h.t.Skipf("%s is not installed", tool)
+		}
+		if err := os.Symlink(p, dst); err != nil {
+			h.t.Fatal(err)
+		}
+	}
+}
+
+// archiveTools are what download_binary runs once the archive is on disk.
+var archiveTools = []string{"mktemp", "cp", "tar", "gzip", "sha256sum", "rm", "install", "date", "chmod", "ls", "tail"}
+
+// releaseFixture writes a release archive as GoReleaser builds one, with an
+// sfpanel at its root, and returns its path, its SHA-256 and the binary.
+func releaseFixture(t *testing.T, dir string) (string, string, []byte) {
+	t.Helper()
+	binary := []byte("#!/bin/sh\necho fake sfpanel 0.81.0\n")
+	var buf bytes.Buffer
+	gz := gzip.NewWriter(&buf)
+	tw := tar.NewWriter(gz)
+	if err := tw.WriteHeader(&tar.Header{Name: "sfpanel", Mode: 0o755, Size: int64(len(binary))}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := tw.Write(binary); err != nil {
+		t.Fatal(err)
+	}
+	if err := tw.Close(); err != nil {
+		t.Fatal(err)
+	}
+	if err := gz.Close(); err != nil {
+		t.Fatal(err)
+	}
+	p := filepath.Join(dir, "sfpanel_0.81.0_linux_amd64.tar.gz")
+	if err := os.WriteFile(p, buf.Bytes(), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	sum := sha256.Sum256(buf.Bytes())
+	return p, hex.EncodeToString(sum[:]), binary
+}
+
+// writeChecksums writes a checksums.txt that lists sum for the 0.81.0 amd64
+// archive, and returns its path.
+func writeChecksums(t *testing.T, dir, name, sum string) string {
+	t.Helper()
+	p := filepath.Join(dir, name)
+	content := sum + "  sfpanel_0.81.0_linux_arm64.tar.gz\n" + sum + "  sfpanel_0.81.0_linux_amd64.tar.gz\n"
+	if err := os.WriteFile(p, []byte(content), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	return p
+}
+
+// recordCurl is a curl that records its arguments as a call and serves only
+// the release archive, from $HOME/fixture.tar.gz, and checksums.txt, from
+// $HOME/served-checksums.txt.
+const recordCurl = `echo "curl $*" >> "$HOME/calls"
+url="" out=""
+while [ "$#" -gt 0 ]; do
+  case "$1" in
+    -o) out="$2"; shift 2 ;;
+    -*) shift ;;
+    *) url="$1"; shift ;;
+  esac
+done
+case "$url" in
+  */sfpanel_0.81.0_linux_amd64.tar.gz) cat "$HOME/fixture.tar.gz" > "$out" ;;
+  */checksums.txt) cat "$HOME/served-checksums.txt" > "$out" ;;
+  *) exit 22 ;;
+esac`
+
+// The SSH installer hands the join token over in a file: on a command line it
+// would be in /proc/<pid>/cmdline, which anyone on the server reads, and in
+// sudo's log. install.sh then takes --agent ADDR alone and passes the file —
+// never what is in it — to 'sfpanel agent join', whose parser reads it.
+func TestInstallReadsTheTokenFromAFile(t *testing.T) {
+	const token = "0123abcd.4567ef"
+	h := newInstallHarness(t, map[string]string{})
+	tokenFile := filepath.Join(h.dir, "t")
+	if err := os.WriteFile(tokenFile, []byte(token+"\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	h.stubSfpanel(`printf '%s\n' "$@" > "$HOME/args"`)
+	out, code := h.run(`parse_agent_args --agent 192.0.2.10:3629 --token-file "$1" --ca `+pinFP+` --name web-7
+echo "parsed [$AGENT_MANAGER|$AGENT_TOKEN|$AGENT_TOKEN_FILE]"
+run_agent_join no-restart`, tokenFile)
+	if code != 0 || !strings.Contains(out, "parsed [192.0.2.10:3629||"+tokenFile+"]") {
+		t.Fatalf("exit %d:\n%s", code, out)
+	}
+	want := []string{"sfpanel agent join 192.0.2.10:3629 --token-file " + tokenFile + " --ca " + pinFP + " --name web-7 --config " + h.configPath() + " --no-restart"}
+	if got := h.calls(); !slices.Equal(got, want) {
+		t.Fatalf("calls:\n%q\nwant:\n%q", got, want)
+	}
+	for _, c := range h.calls() {
+		if strings.Contains(c, token) {
+			t.Fatalf("the token is on a command line: %q", c)
+		}
+	}
+	// What install.sh passes is what 'sfpanel agent join' reads the token from.
+	data, err := os.ReadFile(filepath.Join(h.dir, "args"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	args := strings.Split(strings.TrimSuffix(string(data), "\n"), "\n")
+	if a, err := parseAgentJoinArgs(args[2:]); err != nil || a.Token != token || a.Manager != "192.0.2.10:3629" || a.Name != "web-7" || !a.NoRestart {
+		t.Fatalf("parseAgentJoinArgs(%q) = %+v, %v", args[2:], a, err)
+	}
+
+	// A join that fails says how to run it again with a file, and still
+	// prints no token.
+	failing := newInstallHarness(t, map[string]string{})
+	failing.stubSfpanel(`echo "Agent join failed: join token already used" >&2; exit 1`)
+	out, code = failing.run(`parse_agent_args --agent 192.0.2.10:3629 --token-file "$1" --ca sha256:abc; run_agent_join no-restart`, tokenFile)
+	if code != 1 || !strings.Contains(out, "--agent 192.0.2.10:3629 --token-file <token-file> --ca sha256:abc") || strings.Contains(out, token) {
+		t.Fatalf("exit %d:\n%s", code, out)
+	}
+
+	for _, tc := range []struct{ args, reason string }{
+		{"--agent 192.0.2.10:3629 tok --token-file " + tokenFile + " --ca sha256:abc", "The join token is given twice"},
+		{"--token-file " + tokenFile + " --agent 192.0.2.10:3629 tok --ca sha256:abc", "The join token is given twice"},
+		{"--agent 192.0.2.10:3629 --token-file " + filepath.Join(h.dir, "missing") + " --ca sha256:abc", "cannot be read"},
+		{"--agent 192.0.2.10:3629 --ca sha256:abc --token-file", "--token-file needs a value"},
+	} {
+		out, code := runInstallFunc(t, "parse_agent_args "+tc.args+"; echo parsed")
+		if code != 1 || !strings.Contains(out, tc.reason) || strings.Contains(out, "parsed") {
+			t.Errorf("parse_agent_args %s: exit %d, want 1 saying %q:\n%s", tc.args, code, tc.reason, out)
+		}
+	}
+}
+
+// sudo's env_reset drops SFPANEL_VERSION, and the latest release would be
+// installed in the version's place: --version pins it on the command line,
+// ahead of the variable, and with it no release API is asked.
+func TestInstallPinsTheVersionByFlag(t *testing.T) {
+	h := newInstallHarness(t, map[string]string{"curl": `echo "curl $*" >> "$HOME/calls"; echo '  "tag_name": "v9.9.9",'`})
+	for _, tc := range []struct{ script, want string }{
+		{`SFPANEL_VERSION=0.70.0; parse_agent_args --agent 192.0.2.1:3629 tok --ca sha256:abc --version 0.81.0`, "0.81.0"},
+		{`parse_agent_args --version v0.81.0 --agent 192.0.2.1:3629 tok --ca sha256:abc`, "0.81.0"},
+	} {
+		out, code := h.run(tc.script + `; echo "[$(get_latest_version)]"`)
+		if code != 0 || !strings.Contains(out, "["+tc.want+"]") {
+			t.Fatalf("%s: exit %d, want [%s]:\n%s", tc.script, code, tc.want, out)
+		}
+		if calls := h.calls(); len(calls) != 0 {
+			t.Fatalf("%s: asked the release API with a version pinned: %q", tc.script, calls)
+		}
+	}
+	// Without the flag the variable still pins, and without either the latest
+	// release is asked for.
+	if out, code := h.run(`SFPANEL_VERSION=0.70.0; echo "[$(get_latest_version)]"`); code != 0 || !strings.Contains(out, "[0.70.0]") || len(h.calls()) != 0 {
+		t.Fatalf("exit %d, calls %q:\n%s", code, h.calls(), out)
+	}
+	if out, code := h.run(`echo "[$(get_latest_version)]"`); code != 0 || !strings.Contains(out, "[9.9.9]") || len(h.calls()) != 1 {
+		t.Fatalf("exit %d, calls %q:\n%s", code, h.calls(), out)
+	}
+	for _, tc := range []struct{ args, reason string }{
+		{"--agent 192.0.2.1:3629 tok --ca sha256:abc --version", "--version needs a value"},
+		{"--agent 192.0.2.1:3629 tok --ca sha256:abc --version 0.81.0/../x", "--version 0.81.0/../x is not a version"},
+	} {
+		out, code := runInstallFunc(t, "parse_agent_args "+tc.args+"; echo parsed")
+		if code != 1 || !strings.Contains(out, tc.reason) || strings.Contains(out, "parsed") {
+			t.Errorf("parse_agent_args %s: exit %d, want 1 saying %q:\n%s", tc.args, code, tc.reason, out)
+		}
+	}
+}
+
+// A server that cannot reach GitHub is given the archive and the checksums
+// the leader fetched and verified: install.sh installs that archive once its
+// SHA-256 matches the line for this version and CPU, and needs no curl, asks
+// no API and runs no cosign — the cosign check needs the internet, and the
+// checksums were verified before they were handed over. A hash that does not
+// match stops the installer before the service is touched.
+func TestInstallChecksAnArchiveAgainstTheGivenChecksums(t *testing.T) {
+	const record = `echo "$(basename "$0") $*" >> "$HOME/calls"`
+	h := newInstallHarness(t, map[string]string{"cosign": record, "systemctl": record})
+	h.link(append(archiveTools, "basename")...)
+	archive, sum, binary := releaseFixture(t, h.dir)
+	good := writeChecksums(t, h.dir, "checksums.txt", sum)
+	bad := writeChecksums(t, h.dir, "bad.txt", strings.Repeat("0", 64))
+	const offline = `export TMPDIR="$HOME"
+parse_agent_args --agent 192.0.2.1:3629 tok --ca sha256:abc --version 0.81.0 --archive "$1" --checksums "$2"
+check_commands
+download_binary "$(get_latest_version)" amd64
+echo installed`
+
+	// There is no curl on this PATH at all.
+	out, code := h.run(offline, archive, good)
+	if code != 0 || !strings.Contains(out, "installed") {
+		t.Fatalf("exit %d:\n%s", code, out)
+	}
+	if got, err := os.ReadFile(filepath.Join(h.installDir, "sfpanel")); err != nil || !bytes.Equal(got, binary) {
+		t.Fatalf("installed %q, %v; want the archive's binary", got, err)
+	}
+	if calls := h.calls(); slices.ContainsFunc(calls, func(c string) bool { return strings.HasPrefix(c, "cosign") }) {
+		t.Fatalf("ran cosign offline: %q", calls)
+	}
+
+	m := newInstallHarness(t, map[string]string{"cosign": record, "systemctl": record})
+	m.link(append(archiveTools, "basename")...)
+	out, code = m.run(offline, archive, bad)
+	if code != 1 || !strings.Contains(out, "Checksum verification failed") || strings.Contains(out, "installed") {
+		t.Fatalf("exit %d, want 1 saying Checksum verification failed:\n%s", code, out)
+	}
+	if _, err := os.Stat(filepath.Join(m.installDir, "sfpanel")); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("a binary was installed from an archive that failed its check: %v", err)
+	}
+	if calls := m.calls(); slices.Contains(calls, "systemctl stop sfpanel") {
+		t.Fatalf("stopped the service before the archive was checked: %q", calls)
+	}
+
+	// The installer as a whole, as the SSH installer runs it: no curl on
+	// PATH, the version from the flag, and the join with the token file.
+	tokenFile := filepath.Join(h.dir, "token")
+	if err := os.WriteFile(tokenFile, []byte("tok\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	steps := installSteps("", "9.9.9")
+	for _, real := range []string{"check_commands() { :; }\n", `get_latest_version() { echo "9.9.9"; }` + "\n"} {
+		if !strings.Contains(steps, real) {
+			t.Fatalf("installSteps no longer stubs %q", real)
+		}
+		steps = strings.Replace(steps, real, "", 1)
+	}
+	steps = strings.Replace(steps, `download_binary() { echo "STEP download_binary"; }`, `download_binary() { echo "STEP download_binary $*"; }`, 1)
+	whole := newInstallHarness(t, map[string]string{})
+	whole.link("tar", "sha256sum")
+	out, code = whole.run(steps, "--agent", "192.0.2.1:3629", "--token-file", tokenFile, "--ca", "sha256:abc",
+		"--version", "0.81.0", "--archive", archive, "--checksums", good)
+	want := []string{"download_binary 0.81.0 amd64", "setup_dirs", "generate_config", "run_agent_join no-restart", "setup_logrotate", "setup_systemd", "print_success 0.81.0 install"}
+	if got := stepsRun(out); code != 0 || !slices.Equal(got, want) {
+		t.Fatalf("exit %d, steps:\n%q\nwant:\n%q\n%s", code, got, want, out)
+	}
+
+	// Without --archive, curl is required as before.
+	if out, code := h.run(`parse_agent_args --agent 192.0.2.1:3629 tok --ca sha256:abc; check_commands; echo checked`); code != 1 || !strings.Contains(out, "Required command not found: curl") {
+		t.Fatalf("exit %d:\n%s", code, out)
+	}
+
+	// An archive alone says nothing of what it should hash to or which
+	// release it is: refused before anything is touched.
+	for _, tc := range []struct{ args, reason string }{
+		{"--archive " + archive, "--archive needs --checksums and --version"},
+		{"--archive " + archive + " --checksums " + good, "--archive needs --checksums and --version"},
+		{"--archive " + archive + " --version 0.81.0", "--archive needs --checksums and --version"},
+		{"--archive " + filepath.Join(h.dir, "missing") + " --checksums " + good + " --version 0.81.0", "cannot be read"},
+		{"--checksums " + filepath.Join(h.dir, "missing") + " --version 0.81.0", "cannot be read"},
+		{"--archive", "--archive needs a value"},
+	} {
+		out, code := runInstallFunc(t, "parse_agent_args --agent 192.0.2.1:3629 tok --ca sha256:abc "+tc.args+"; echo parsed")
+		if code != 1 || !strings.Contains(out, tc.reason) || strings.Contains(out, "parsed") {
+			t.Errorf("parse_agent_args %s: exit %d, want 1 saying %q:\n%s", tc.args, code, tc.reason, out)
+		}
+	}
+}
+
+// A server that reaches GitHub downloads the archive itself, but checks it
+// against the checksums it was given — which the leader verified — and not a
+// checksums.txt fetched beside the archive, and so runs no cosign either.
+func TestInstallUsesTheGivenChecksumsOnline(t *testing.T) {
+	const record = `echo "$(basename "$0") $*" >> "$HOME/calls"`
+	h := newInstallHarness(t, map[string]string{"curl": recordCurl, "cosign": record, "systemctl": record})
+	h.link(append(archiveTools, "basename")...)
+	archive, sum, binary := releaseFixture(t, h.dir)
+	given := writeChecksums(t, h.dir, "given.txt", sum)
+	if err := os.Rename(archive, filepath.Join(h.dir, "fixture.tar.gz")); err != nil {
+		t.Fatal(err)
+	}
+	// What GitHub would serve lists another hash: were it read, the check
+	// would fail.
+	writeChecksums(t, h.dir, "served-checksums.txt", strings.Repeat("0", 64))
+	const online = `export TMPDIR="$HOME"
+parse_agent_args --agent 192.0.2.1:3629 tok --ca sha256:abc --version 0.81.0 --checksums "$1"
+download_binary "$(get_latest_version)" amd64
+echo installed`
+	out, code := h.run(online, given)
+	if code != 0 || !strings.Contains(out, "installed") {
+		t.Fatalf("exit %d:\n%s", code, out)
+	}
+	if got, err := os.ReadFile(filepath.Join(h.installDir, "sfpanel")); err != nil || !bytes.Equal(got, binary) {
+		t.Fatalf("installed %q, %v; want the archive's binary", got, err)
+	}
+	var curls []string
+	for _, c := range h.calls() {
+		if strings.HasPrefix(c, "cosign") {
+			t.Fatalf("ran cosign with the checksums given: %q", h.calls())
+		}
+		if strings.HasPrefix(c, "curl") {
+			curls = append(curls, c)
+		}
+	}
+	if len(curls) != 1 || !strings.Contains(curls[0], "https://github.com/svrforum/SFPanel/releases/download/v0.81.0/sfpanel_0.81.0_linux_amd64.tar.gz") {
+		t.Fatalf("curl ran %q; want the archive only", curls)
+	}
+
+	// The given file is what decides: one that lists another hash fails.
+	m := newInstallHarness(t, map[string]string{"curl": recordCurl, "cosign": record, "systemctl": record})
+	m.link(append(archiveTools, "basename")...)
+	if err := os.WriteFile(filepath.Join(m.dir, "fixture.tar.gz"), mustRead(t, filepath.Join(h.dir, "fixture.tar.gz")), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	writeChecksums(t, m.dir, "served-checksums.txt", sum)
+	wrong := writeChecksums(t, m.dir, "given.txt", strings.Repeat("0", 64))
+	if out, code := m.run(online, wrong); code != 1 || !strings.Contains(out, "Checksum verification failed") {
+		t.Fatalf("exit %d, want 1 saying Checksum verification failed:\n%s", code, out)
+	}
+}
+
+func mustRead(t *testing.T, path string) []byte {
+	t.Helper()
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return data
 }

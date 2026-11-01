@@ -64,6 +64,46 @@ func TestParseAgentJoinArgs(t *testing.T) {
 	}
 }
 
+// --token-file keeps the token off the command line, where /proc/<pid>/cmdline
+// and sudo's log would show it to anyone on the server: the join reads it from
+// the file, trimmed of the newline a shell writes after it. A token given both
+// ways, or a file with none in it, is refused rather than one picked.
+func TestParseAgentJoinArgsTakesATokenFile(t *testing.T) {
+	pin := "sha256:" + strings.Repeat("ab", 32)
+	dir := t.TempDir()
+	file := func(name, content string) string {
+		p := filepath.Join(dir, name)
+		if err := os.WriteFile(p, []byte(content), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		return p
+	}
+	tok := file("token", "  0123abcd.4567ef\n")
+	a, err := parseAgentJoinArgs([]string{"192.0.2.1:3629", "--token-file", tok, "--ca", pin, "--no-restart"})
+	if err != nil || a.Manager != "192.0.2.1:3629" || a.Token != "0123abcd.4567ef" || a.Pin != pin || !a.NoRestart {
+		t.Fatalf("%+v %v", a, err)
+	}
+	// Anywhere among the options, as the other options go.
+	if a, err := parseAgentJoinArgs([]string{"--token-file", tok, "--ca", pin, "192.0.2.1:3629"}); err != nil || a.Token != "0123abcd.4567ef" || a.Manager != "192.0.2.1:3629" {
+		t.Fatalf("%+v %v", a, err)
+	}
+	for _, tc := range []struct {
+		args   []string
+		reason string
+	}{
+		{[]string{"192.0.2.1:3629", "tok", "--token-file", tok, "--ca", pin}, "the join token is given twice"},
+		{[]string{"192.0.2.1:3629", "--token-file", file("empty", " \n\t\n"), "--ca", pin}, "holds no join token"},
+		{[]string{"192.0.2.1:3629", "--token-file", filepath.Join(dir, "missing"), "--ca", pin}, "read the token file"},
+		{[]string{"192.0.2.1:3629", "--token-file", file("large", strings.Repeat("a", maxTokenFileBytes+1)), "--ca", pin}, "is larger than a join token"},
+		{[]string{"192.0.2.1:3629", "--ca", pin, "--token-file"}, "--token-file needs a value"},
+		{[]string{"--token-file", tok, "--ca", pin}, "the manager's address is missing"},
+	} {
+		if a, err := parseAgentJoinArgs(tc.args); err == nil || !strings.Contains(err.Error(), tc.reason) {
+			t.Errorf("%v: %+v, %v; want %q", tc.args, a, err, tc.reason)
+		}
+	}
+}
+
 // The HTTPS an agent's panel serves is paneltls's to prepare and to check
 // (paneltls/agent_test.go): the join takes both from there, after it has
 // refused a server that is in a cluster.
