@@ -11,6 +11,8 @@ import { TaskList, TaskPicker, type TaskListChoice } from './components/tasks/Ta
 import { TaskRunSetup } from './components/tasks/TaskRunSetup'
 import { TaskRunView } from './components/tasks/TaskRunView'
 import { TaskRunHistory } from './components/tasks/TaskRunHistory'
+import { TaskGitImportDialog } from './components/tasks/TaskGitImportDialog'
+import type { ImportFrom } from './components/tasks/taskImport'
 import { builtinText } from './components/tasks/taskBuiltins'
 import { activeRuns, type ListedTask } from './components/tasks/taskList'
 
@@ -41,6 +43,8 @@ export default function ClusterTasks() {
   const [runsError, setRunsError] = useState<string | null>(null)
   // Outside a cluster there are no runs to ask for every ten seconds.
   const standalone = useRef(false)
+  // The Git import dialog, while open: empty, or on a folder to pull again.
+  const [importing, setImporting] = useState<{ from?: ImportFrom } | null>(null)
 
   // Also what the editor and a delete wait on before the page moves.
   const loadTasks = useCallback(() =>
@@ -176,13 +180,14 @@ export default function ClusterTasks() {
       )}
       <div className="flex flex-col md:flex-row gap-4">
         <aside className="hidden md:block md:w-[260px] shrink-0">
-          {listState || <TaskList tasks={listed} chosen={chosen} />}
+          {listState || <TaskList tasks={listed} chosen={chosen} onImport={(from) => setImporting({ from })} />}
         </aside>
         <div className="md:hidden">
-          {listState || <TaskPicker label={pickerLabel} tasks={listed} chosen={chosen} />}
+          {listState || <TaskPicker label={pickerLabel} tasks={listed} chosen={chosen} onImport={(from) => setImporting({ from })} />}
         </div>
         <div className="flex-1 min-w-0">{pane}</div>
       </div>
+      {importing && <TaskGitImportDialog from={importing.from} onClose={() => setImporting(null)} onChanged={loadTasks} />}
     </div>
   )
 }

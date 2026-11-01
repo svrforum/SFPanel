@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useId, useMemo, useState } from 'react'
+import { useCallback, useEffect, useId, useMemo, useState, type ReactNode } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
 import { useTranslation } from 'react-i18next'
 import { AlertTriangle, Copy, Eye, Loader2, Pencil, Play, Trash2 } from 'lucide-react'
@@ -9,7 +9,7 @@ import { Button } from '@/components/ui/button'
 import { Checkbox } from '@/components/ui/checkbox'
 import { Input } from '@/components/ui/input'
 import { StatusPill } from '@/components/StatusPill'
-import type { ClusterNode, RunRecord, TaskModel, TaskPlan, TaskRunRequest, TaskView } from '@/types/api'
+import type { ClusterNode, RunRecord, TaskModel, TaskPlan, TaskRunRequest, TaskSource, TaskView } from '@/types/api'
 import { builtinText } from './taskBuiltins'
 import { TaskTargetPicker, type PickedTargets } from './TaskTargetPicker'
 import { TaskPlanDialog, type FilledInput } from './TaskPlanDialog'
@@ -17,6 +17,7 @@ import { checkInputs, countTargets, runInputs, type InputProblem } from './taskT
 import { planNeedsReview, runErrorText, type RunErrorText } from './taskPlan'
 import { runStatusText, runStatusTone } from './taskRunStatus'
 import { clonePath, editPath } from './taskForm'
+import { shortSha } from './taskImport'
 import { useTaskDelete } from './useTaskDelete'
 
 interface TaskRunSetupProps {
@@ -68,10 +69,31 @@ export function TaskRunSetup({ task, onDeleted }: TaskRunSetupProps) {
           <TaskActions task={task} name={name} onDeleted={onDeleted} />
         </div>
         {description && <p className="text-[13px] text-muted-foreground whitespace-pre-wrap break-words">{description}</p>}
+        {task.source.kind === 'git' && <GitSource source={task.source} />}
       </div>
       <RunForm task={task} />
       <RecentRuns taskId={task.id} />
     </section>
+  )
+}
+
+// Where a Git task was imported from: the repository, branch, file and the
+// commit it was read at (its first seven characters; all of it on hover).
+function GitSource({ source }: { source: TaskSource }) {
+  const { t } = useTranslation()
+  const row = (label: string, value: ReactNode) => (
+    <div className="flex min-w-0 gap-2">
+      <dt className="w-20 shrink-0 text-muted-foreground">{label}</dt>
+      <dd className="min-w-0 break-all">{value}</dd>
+    </div>
+  )
+  return (
+    <dl data-testid="task-source" className="rounded-xl bg-secondary/40 px-3 py-2 text-[12px] space-y-0.5">
+      {row(t('cluster.tasks.setup.source.repo'), source.repo)}
+      {row(t('cluster.tasks.setup.source.branch'), source.branch)}
+      {row(t('cluster.tasks.setup.source.path'), <span className="font-mono">{source.path}</span>)}
+      {row(t('cluster.tasks.setup.source.commit'), <span className="font-mono" title={source.sha}>{shortSha(source.sha)}</span>)}
+    </dl>
   )
 }
 

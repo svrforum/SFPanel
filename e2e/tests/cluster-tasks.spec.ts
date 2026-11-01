@@ -1596,3 +1596,223 @@ test.describe('editor', () => {
     })
   })
 })
+
+test.describe('Git import', () => {
+  const REPO = 'https://github.com/acme/ops'
+  const COMMIT = 'fedcba9876543210fedcba9876543210fedcba98'
+  const TOKEN = 'ghp_FixtureToken0123456789'
+  const file = (name: string, state: string, extra: Record<string, unknown> = {}) =>
+    ({ path: `tasks/${name}`, name, sha: '1'.repeat(40), size: 512, state, ...extra })
+  const PREVIEW = {
+    repo: REPO, branch: 'main', path: 'tasks', commit: COMMIT,
+    files: [
+      file('deploy.yaml', 'new'),
+      file('backup.yaml', 'changed', { task_id: '2c3d4e5f60718293', task_name: 'Nightly backup' }),
+      file('prune.yaml', 'unchanged', { task_id: '5f60718293041526', task_name: 'Prune images' }),
+      file('huge.yaml', 'too_large'),
+      file('broken.yml', 'new'),
+    ],
+    removed: [{ task_id: '60718293a4b5c6d7', task_name: 'Old cleanup', path: 'tasks/old.yaml' }],
+  }
+  const IMPORTED = {
+    commit: COMMIT,
+    imported: [{ id: '7182930415263748', name: 'Deploy everything', read_only: true, source: { kind: 'git', repo: REPO, branch: 'main', path: 'tasks/deploy.yaml', sha: COMMIT } }],
+    failed: [{ code: 'TASK_INVALID', message: 'line 3: steps: at least one step', details: { path: 'tasks/broken.yml', line: '3' } }],
+  }
+  const importDialog = (page: Page) => page.getByRole('dialog')
+  const fileBox = (page: Page, path: string) => importDialog(page).getByRole('checkbox', { name: path })
+  const listReads = (requests: string[]) => requests.filter((r) => r === 'GET /cluster/tasks').length
+
+  test('previews a folder, then imports only the files picked, at the commit the preview read', async ({ page }) => {
+    const { calls, requests } = await mock(page, {
+      replies: { 'POST /cluster/tasks/import/preview': ok(PREVIEW), 'POST /cluster/tasks/import': ok(IMPORTED) },
+    })
+    await page.goto('/cluster/tasks')
+    await list(page).getByRole('button', { name: 'Import from Git' }).click()
+    const dialog = importDialog(page)
+    await expect(dialog.getByRole('heading', { name: 'Import tasks from Git' })).toBeVisible()
+    await expect(dialog.getByLabel('Branch')).toHaveValue('main')
+    await dialog.getByLabel('Repository URL').fill(REPO)
+    await dialog.getByLabel('Folder').fill('tasks')
+    await dialog.getByRole('button', { name: 'Preview' }).click()
+
+    // New and changed files start picked; unchanged and too large cannot be.
+    await expect(fileBox(page, 'tasks/deploy.yaml')).toBeChecked()
+    await expect(fileBox(page, 'tasks/backup.yaml')).toBeChecked()
+    await expect(fileBox(page, 'tasks/broken.yml')).toBeChecked()
+    await expect(fileBox(page, 'tasks/prune.yaml')).not.toBeChecked()
+    await expect(fileBox(page, 'tasks/prune.yaml')).toBeDisabled()
+    await expect(fileBox(page, 'tasks/huge.yaml')).not.toBeChecked()
+    await expect(fileBox(page, 'tasks/huge.yaml')).toBeDisabled()
+    for (const state of ['New', 'Changed', 'Unchanged', 'Too large']) await expect(dialog.getByText(state, { exact: true }).first()).toBeVisible()
+    await expect(dialog).toContainText('fedcba9')
+
+    await fileBox(page, 'tasks/backup.yaml').click()
+    const reads = listReads(requests)
+    await dialog.getByRole('button', { name: /^Import/ }).click()
+
+    await expect(dialog.getByTestId('import-result')).toContainText('Imported 1 task')
+    await expect(dialog.getByTestId('import-result')).toContainText('Deploy everything')
+    const failed = dialog.getByTestId('import-failed')
+    await expect(failed).toContainText('The task document has problems.')
+    await expect(failed).toContainText('tasks/broken.yml')
+    await expect(failed).toContainText('line 3')
+    expect(calls).toEqual([
+      { method: 'POST', path: '/cluster/tasks/import/preview', body: { url: REPO, branch: 'main', path: 'tasks' } },
+      { method: 'POST', path: '/cluster/tasks/import', body: { url: REPO, branch: 'main', path: 'tasks', commit: COMMIT, files: ['tasks/deploy.yaml', 'tasks/broken.yml'] } },
+    ])
+    // The list is read again behind the result, which stays.
+    await expect.poll(() => listReads(requests)).toBe(reads + 1)
+    await expect(dialog.getByTestId('import-result')).toBeVisible()
+  })
+
+  test('the token is a password, sent in the bodies only: in no address, and not kept', async ({ page }) => {
+    const { calls, requests } = await mock(page, {
+      replies: { 'POST /cluster/tasks/import/preview': ok(PREVIEW), 'POST /cluster/tasks/import': ok(IMPORTED) },
+    })
+    await page.goto('/cluster/tasks')
+    await list(page).getByRole('button', { name: 'Import from Git' }).click()
+    const dialog = importDialog(page)
+    await dialog.getByLabel('Repository URL').fill(REPO)
+    await expect(dialog.getByLabel('Token', { exact: true })).toHaveAttribute('type', 'password')
+    await expect(dialog).toContainText('never stored')
+    await dialog.getByLabel('Token', { exact: true }).fill(TOKEN)
+    await dialog.getByRole('button', { name: 'Preview' }).click()
+    await dialog.getByRole('button', { name: /^Import/ }).click()
+    await expect(dialog.getByTestId('import-result')).toBeVisible()
+
+    expect(calls.map((c) => (c.body as { token?: string }).token)).toEqual([TOKEN, TOKEN])
+    expect(requests.length).toBeGreaterThan(2)
+    expect(requests.filter((r) => r.includes(TOKEN) || r.includes(encodeURIComponent(TOKEN)))).toEqual([])
+    const kept = await page.evaluate(() => JSON.stringify({ ...localStorage }) + JSON.stringify({ ...sessionStorage }) + location.href)
+    expect(kept).not.toContain(TOKEN)
+
+    // Closed and opened again, the dialog has forgotten it.
+    await dialog.getByRole('button', { name: 'Close', exact: true }).first().click()
+    await list(page).getByRole('button', { name: 'Import from Git' }).click()
+    await expect(importDialog(page).getByLabel('Token', { exact: true })).toHaveValue('')
+  })
+
+  test.describe('rate limit', () => {
+    test.use({ timezoneId: 'UTC' })
+
+    test('reads as the local time the allowance resets, not as a token problem', async ({ page }) => {
+      await mock(page, {
+        replies: {
+          'POST /cluster/tasks/import/preview': fail(429, 'GIT_RATE_LIMITED', 'GitHub rate limit exceeded', { reset_at: '2026-11-01T10:07:00Z', limit: '60' }),
+        },
+      })
+      await page.goto('/cluster/tasks')
+      await list(page).getByRole('button', { name: 'Import from Git' }).click()
+      const dialog = importDialog(page)
+      await dialog.getByLabel('Repository URL').fill(REPO)
+      await dialog.getByRole('button', { name: 'Preview' }).click()
+      await expect(dialog.getByRole('alert')).toHaveText("GitHub's request allowance is used up. Try again after 10:07, or add a token.")
+      // The form stays, to add a token.
+      await expect(dialog.getByLabel('Token', { exact: true })).toBeVisible()
+    })
+  })
+
+  test('a GitHub address is checked before anything is sent', async ({ page }) => {
+    const { calls } = await mock(page)
+    await page.goto('/cluster/tasks')
+    await list(page).getByRole('button', { name: 'Import from Git' }).click()
+    const dialog = importDialog(page)
+    await dialog.getByLabel('Repository URL').fill('https://gitlab.com/acme/ops')
+    await dialog.getByRole('button', { name: 'Preview' }).click()
+    await expect(dialog).toContainText('Enter a GitHub address: https://github.com/<owner>/<repo>')
+    expect(calls).toEqual([])
+  })
+
+  test('[Pull again] opens the dialog on the folder the tasks came from; only new and changed files are ticked', async ({ page }) => {
+    const { calls } = await mock(page, {
+      replies: { 'POST /cluster/tasks/import/preview': ok(PREVIEW), 'DELETE /cluster/tasks/60718293a4b5c6d7': ok({}) },
+    })
+    // From a task's pane: deleting a task gone from the repository keeps the page and the dialog.
+    await page.goto('/cluster/tasks/2c3d4e5f60718293')
+    await section(page, 'acme/ops').getByRole('button', { name: 'Pull again' }).click()
+    const dialog = importDialog(page)
+    await expect(dialog.getByLabel('Repository URL')).toHaveValue(REPO)
+    await expect(dialog.getByLabel('Branch')).toHaveValue('main')
+    await expect(dialog.getByLabel('Folder')).toHaveValue('tasks')
+    await expect(dialog.getByLabel('Token', { exact: true })).toHaveValue('')
+    await dialog.getByRole('button', { name: 'Preview' }).click()
+    expect(calls).toEqual([{ method: 'POST', path: '/cluster/tasks/import/preview', body: { url: REPO, branch: 'main', path: 'tasks' } }])
+    const ticked = await dialog.getByRole('checkbox').evaluateAll((boxes) =>
+      boxes.filter((b) => b.getAttribute('aria-checked') === 'true').map((b) => b.getAttribute('aria-label')))
+    expect(ticked).toEqual(['tasks/deploy.yaml', 'tasks/backup.yaml', 'tasks/broken.yml'])
+
+    // A task whose file is gone is offered for deletion, asked first.
+    const gone = dialog.getByTestId('import-removed')
+    await expect(gone).toContainText('Gone from the repository')
+    await expect(gone).toContainText('Old cleanup')
+    await expect(gone).toContainText('tasks/old.yaml')
+    await gone.getByRole('button', { name: 'Delete', exact: true }).click()
+    const confirm = page.getByRole('dialog').filter({ hasText: 'Delete Old cleanup?' })
+    await confirm.getByRole('button', { name: 'Delete', exact: true }).click()
+    await expect(gone).toHaveCount(0)
+    expect(calls.slice(1)).toEqual([{ method: 'DELETE', path: '/cluster/tasks/60718293a4b5c6d7', body: null }])
+    await expect(page).toHaveURL(/\/cluster\/tasks\/2c3d4e5f60718293$/)
+    await expect(fileBox(page, 'tasks/deploy.yaml')).toBeChecked()
+  })
+
+  test("a Git task's pane names its repository, branch, path and commit", async ({ page }) => {
+    await mock(page)
+    await page.goto('/cluster/tasks/2c3d4e5f60718293')
+    const source = page.getByTestId('task-pane-setup').getByTestId('task-source')
+    await expect(source).toContainText(REPO)
+    await expect(source).toContainText('main')
+    await expect(source).toContainText('tasks/backup.yaml')
+    await expect(source).toContainText('0123456')
+    await expect(source).not.toContainText('01234567')
+    await page.goto('/cluster/tasks/0a1b2c3d4e5f6071')
+    await expect(page.getByTestId('task-pane-setup').getByRole('heading', { level: 2 })).toHaveText('Deploy web')
+    await expect(page.getByTestId('task-source')).toHaveCount(0)
+  })
+
+  test.describe('Korean', () => {
+    test.use({ locale: 'ko-KR', timezoneId: 'UTC' })
+
+    test('the buttons, the states and the rate limit read in Korean', async ({ page }) => {
+      await page.addInitScript(() => localStorage.setItem('sfpanel_language', 'ko'))
+      await mock(page, {
+        replies: {
+          'POST /cluster/tasks/import/preview': [
+            fail(429, 'GIT_RATE_LIMITED', 'GitHub rate limit exceeded', { reset_at: '2026-11-01T10:07:00Z' }),
+            ok(PREVIEW),
+          ],
+        },
+      })
+      await page.goto('/cluster/tasks')
+      const koList = page.getByRole('navigation', { name: '작업 목록' })
+      await expect(koList.getByRole('button', { name: 'Git에서 가져오기' })).toBeVisible()
+      await koList.getByRole('region', { name: 'acme/ops', exact: true }).getByRole('button', { name: '다시 받기' }).click()
+      const dialog = importDialog(page)
+      await expect(dialog.getByRole('heading', { name: 'Git에서 작업 가져오기' })).toBeVisible()
+      await expect(dialog).toContainText('저장하지 않습니다')
+      await dialog.getByRole('button', { name: '미리보기' }).click()
+      await expect(dialog.getByRole('alert')).toHaveText('GitHub 요청 한도를 다 썼습니다. 10:07 이후에 다시 하거나 토큰을 넣으세요.')
+      await dialog.getByRole('button', { name: '미리보기' }).click()
+      for (const state of ['새로', '바뀜', '그대로', '너무 큼']) await expect(dialog.getByText(state, { exact: true }).first()).toBeVisible()
+      await expect(dialog.getByTestId('import-removed')).toContainText('저장소에서 사라짐')
+      await expect(dialog.getByRole('button', { name: /가져오기/ })).toBeEnabled()
+    })
+  })
+
+  test.describe('phone', () => {
+    test.use({ viewport: { width: 412, height: 860 }, hasTouch: true })
+
+    test('the import is reached from the list and its preview fits the screen', async ({ page }) => {
+      await mock(page, { replies: { 'POST /cluster/tasks/import/preview': ok(PREVIEW) } })
+      await page.goto('/cluster/tasks')
+      await list(page).getByRole('button', { name: 'Import from Git' }).click()
+      const dialog = importDialog(page)
+      await dialog.getByLabel('Repository URL').fill(REPO)
+      await dialog.getByRole('button', { name: 'Preview' }).click()
+      await expect(fileBox(page, 'tasks/deploy.yaml')).toBeChecked()
+      const box = await dialog.boundingBox()
+      expect(box && box.x >= 0 && box.x + box.width <= 412).toBe(true)
+      expect(await dialog.evaluate((d) => d.scrollWidth <= d.clientWidth)).toBe(true)
+    })
+  })
+})

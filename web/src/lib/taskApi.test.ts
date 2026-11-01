@@ -276,11 +276,63 @@ describe('task and Git refusals', () => {
     expect(word('TASK_TOO_LARGE', { input: 'service', max_kib: '16' })).toContain('16 KiB')
     expect(word('TASK_INPUT_MISSING', { input: 'service' })).toContain('service')
     expect(word('TASK_RUN_ACTIVE', { run_id: '20261101-091500-3fa2c1' })).toContain('20261101-091500-3fa2c1')
-    expect(word('GIT_RATE_LIMITED', { reset_at: '2026-11-01T10:00:00Z' })).toContain('2026-11-01T10:00:00Z')
+    expect(word('GIT_RATE_LIMITED', { reset_at: '2026-11-01T10:00:00Z' })).toContain(clock('2026-11-01T10:00:00Z'))
     // The worded sentence would otherwise hide GitHub's only clue.
     expect(word('GIT_CLONE_FAILED', { cause: 'GitHub answered HTTP 502' })).toContain('GitHub answered HTTP 502')
     // The files page's message gives the file's size and the limit; a worded
     // sentence would drop both.
     expect(word('FILE_TOO_LARGE')).toBe('x')
+  })
+})
+
+// GitHub says when its allowance resets as an RFC 3339 UTC time. The message
+// is worded once, when the error is made, and stays on screen: a relative
+// "in 12 minutes" would go stale, so the reset reads as a local clock time.
+// A value that does not read as a time keeps the "within the hour" wording.
+const pad = (n: number) => String(n).padStart(2, '0')
+function clock(rfc3339: string): string {
+  const d = new Date(rfc3339)
+  return `${pad(d.getHours())}:${pad(d.getMinutes())}`
+}
+
+describe('GIT_RATE_LIMITED reset time', () => {
+  async function wording(lng: string) {
+    await freshApi()
+    const { apiErrorFrom, setApiTranslator } = await import('./api')
+    const i18n = i18next.createInstance()
+    await i18n.init({ lng, resources: { en: { translation: en }, ko: { translation: ko } }, interpolation: { escapeValue: false } })
+    setApiTranslator((key, fallback, params) => i18n.t(key, { ...params, defaultValue: fallback }))
+    return (details?: Record<string, string>) =>
+      apiErrorFrom(429, { success: false, error: { code: 'GIT_RATE_LIMITED', message: 'GitHub rate limit exceeded', details } }).message
+  }
+  const reset = '2026-11-01T10:07:00Z'
+
+  it('reads as a local clock time in English', async () => {
+    const word = await wording('en')
+    expect(word({ reset_at: reset, limit: '60' })).toBe(`GitHub's request allowance is used up. Try again after ${clock(reset)}, or add a token.`)
+  })
+
+  it('reads as a local clock time in Korean', async () => {
+    const word = await wording('ko')
+    expect(word({ reset_at: reset, limit: '60' })).toBe(`GitHub 요청 한도를 다 썼습니다. ${clock(reset)} 이후에 다시 하거나 토큰을 넣으세요.`)
+  })
+
+  it('is the clock of the time zone the browser is in', async () => {
+    vi.stubEnv('TZ', 'UTC')
+    try {
+      const word = await wording('en')
+      expect(word({ reset_at: reset })).toContain('after 10:07,')
+    } finally {
+      vi.unstubAllEnvs()
+    }
+  })
+
+  it('keeps the within-the-hour wording when the value is not a time', async () => {
+    for (const reset_at of ['', 'soon', '120', '2026-13-45T99:00:00Z']) {
+      const en_ = await wording('en')
+      expect(en_({ reset_at }), reset_at).toBe("GitHub's request allowance is used up. Try again after it resets, within the hour, or add a token.")
+      const ko_ = await wording('ko')
+      expect(ko_({ reset_at }), reset_at).toBe('GitHub 요청 한도를 다 썼습니다. 한 시간 안에 한도가 초기화된 이후에 다시 하거나 토큰을 넣으세요.')
+    }
   })
 })

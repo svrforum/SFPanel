@@ -1282,7 +1282,10 @@
         "history": "Run history",
         "new": "New task",
         "choose": "Choose a task",
-        "loadError": "Could not load the tasks"
+        "loadError": "Could not load the tasks",
+        "importGit": "Import from Git",
+        "pullAgain": "Pull again",
+        "pullFrom": "Pull again: {{branch}} · {{path}}"
       },
       "active": {
         "count_one": "{{count}} run under way",
@@ -1391,7 +1394,13 @@
         "run": "Run",
         "recent": "Recent runs",
         "noRecent": "This task has not run yet.",
-        "targetBusy": "{{node}} is held by another run under way. Try again once that run has finished."
+        "targetBusy": "{{node}} is held by another run under way. Try again once that run has finished.",
+        "source": {
+          "repo": "Repository",
+          "branch": "Branch",
+          "path": "File",
+          "commit": "Commit"
+        }
       },
       "plan": {
         "title": "Preview: {{name}}",
@@ -1587,6 +1596,41 @@
         "discardTitle": "Discard your changes?",
         "discardDescription": "What you changed since the last save is lost.",
         "discardConfirm": "Discard"
+      },
+      "import": {
+        "title": "Import tasks from Git",
+        "description": "Finds the .yaml and .yml task files in a GitHub folder. Imported tasks are read-only; pull them again to bring in changes.",
+        "pullHint": "Reading again from where these tasks came from. A private repository needs its token again.",
+        "url": "Repository URL",
+        "urlPlaceholder": "https://github.com/<owner>/<repo>",
+        "urlInvalid": "Enter a GitHub address: https://github.com/<owner>/<repo>",
+        "branch": "Branch",
+        "folder": "Folder",
+        "folderPlaceholder": "tasks",
+        "folderHint": "A folder in the repository (its files, not its subfolders), one .yaml file, or empty for the repository's root.",
+        "token": "Token",
+        "tokenHint": "Only for a private repository. Sent to GitHub for this preview and import, and never stored.",
+        "tokenShow": "Show token",
+        "tokenHide": "Hide token",
+        "preview": "Preview",
+        "readAt": "{{repo}} · {{branch}} · {{path}} at commit {{commit}}",
+        "noFiles": "No .yaml or .yml file here.",
+        "asTask": "Task: {{name}}",
+        "state": {
+          "new": "New",
+          "changed": "Changed",
+          "unchanged": "Unchanged",
+          "tooLarge": "Too large"
+        },
+        "removed": "Gone from the repository",
+        "removedHint": "Imported from this folder, but their file is no longer there. Importing leaves them; delete them here.",
+        "importCount_one": "Import {{count}} file",
+        "importCount_other": "Import {{count}} files",
+        "imported_one": "Imported {{count}} task",
+        "imported_other": "Imported {{count}} tasks",
+        "failed_one": "{{count}} file not imported",
+        "failed_other": "{{count}} files not imported",
+        "line": "line {{line}}"
       }
     }
   },

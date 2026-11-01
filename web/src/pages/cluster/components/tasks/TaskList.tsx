@@ -1,10 +1,11 @@
 import { useState } from 'react'
 import { Link } from 'react-router-dom'
 import { useTranslation } from 'react-i18next'
-import { ChevronDown, History, ListChecks, Plus, Search } from 'lucide-react'
+import { ChevronDown, GitBranch, History, ListChecks, Plus, RefreshCw, Search } from 'lucide-react'
 import { Input } from '@/components/ui/input'
 import { cn } from '@/lib/utils'
 import { taskSections, type ListedTask } from './taskList'
+import { pullSources, type ImportFrom } from './taskImport'
 
 /** What the right pane shows, as far as the list marks it chosen. */
 export interface TaskListChoice {
@@ -17,6 +18,8 @@ interface TaskListProps {
   chosen: TaskListChoice
   /** Called after any entry is followed: the phone's picker folds. */
   onPick?: () => void
+  /** Opens the Git import: empty, or on a folder its tasks came from ([Pull again]). */
+  onImport: (from?: ImportFrom) => void
 }
 
 const taskPath = (id: string) => `/cluster/tasks/${encodeURIComponent(id)}`
@@ -29,8 +32,10 @@ const entryClass = (on: boolean) =>
 
 // The tasks this cluster has, in three groups (built-in, the operator's own,
 // Git by repository), with a search over the name and description on screen,
-// a way to start a new task, and the run history at the foot.
-export function TaskList({ tasks, chosen, onPick }: TaskListProps) {
+// a way to start a new task or import some from Git, and the run history at
+// the foot. Each repository can be pulled again from the folder its tasks
+// came from (one button per branch and folder, when they differ).
+export function TaskList({ tasks, chosen, onPick, onImport }: TaskListProps) {
   const { t } = useTranslation()
   const [query, setQuery] = useState('')
   const sections = taskSections(tasks, query)
@@ -80,6 +85,15 @@ export function TaskList({ tasks, chosen, onPick }: TaskListProps) {
         >
           <Plus className="h-4 w-4" />
         </Link>
+        <button
+          type="button"
+          onClick={() => onImport()}
+          aria-label={t('cluster.tasks.list.importGit')}
+          title={t('cluster.tasks.list.importGit')}
+          className="inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-xl hover:bg-secondary outline-none focus-visible:ring-2 focus-visible:ring-ring/40"
+        >
+          <GitBranch className="h-4 w-4" />
+        </button>
       </div>
 
       <div className="space-y-1">
@@ -98,12 +112,35 @@ export function TaskList({ tasks, chosen, onPick }: TaskListProps) {
         {sections.git.length > 0 && (
           <section aria-label={t('cluster.tasks.list.git')}>
             {heading(t('cluster.tasks.list.git'))}
-            {sections.git.map((repo) => (
-              <section key={repo.label.toLowerCase()} aria-label={repo.label || t('cluster.tasks.list.git')}>
-                <p className="px-3 pt-1 pb-0.5 text-[11px] text-muted-foreground/80 truncate">{repo.label}</p>
-                {entries(repo.tasks)}
-              </section>
-            ))}
+            {sections.git.map((repo) => {
+              const sources = pullSources(repo.tasks.map((x) => x.task))
+              return (
+                <section key={repo.label.toLowerCase()} aria-label={repo.label || t('cluster.tasks.list.git')}>
+                  <div className="flex items-center gap-1 px-3 pt-1 pb-0.5">
+                    <p className="min-w-0 flex-1 text-[11px] text-muted-foreground/80 truncate">{repo.label}</p>
+                    {sources.map((from) => {
+                      const where = sources.length > 1
+                        ? t('cluster.tasks.list.pullFrom', { branch: from.branch, path: from.path || '/' })
+                        : undefined
+                      return (
+                        <button
+                          key={`${from.branch}\u0000${from.path}`}
+                          type="button"
+                          onClick={() => onImport(from)}
+                          aria-label={where}
+                          title={where ?? `${from.branch} · ${from.path || '/'}`}
+                          className="inline-flex shrink-0 items-center gap-1 rounded-lg px-1.5 py-0.5 text-[11px] text-muted-foreground hover:bg-secondary hover:text-foreground outline-none focus-visible:ring-2 focus-visible:ring-ring/40"
+                        >
+                          <RefreshCw className="h-3 w-3" />
+                          {t('cluster.tasks.list.pullAgain')}
+                        </button>
+                      )
+                    })}
+                  </div>
+                  {entries(repo.tasks)}
+                </section>
+              )
+            })}
           </section>
         )}
         {none && <p className="px-3 py-2 text-[13px] text-muted-foreground">{t('cluster.tasks.list.noMatch')}</p>}
@@ -131,10 +168,10 @@ interface TaskPickerProps extends TaskListProps {
 
 // The list on a phone: folded under a button naming what is chosen, as the
 // More drawer's node picker is. With nothing chosen it stands open.
-export function TaskPicker({ label, tasks, chosen }: TaskPickerProps) {
+export function TaskPicker({ label, tasks, chosen, onImport }: TaskPickerProps) {
   const { t } = useTranslation()
   const [open, setOpen] = useState(false)
-  if (label === null) return <TaskList tasks={tasks} chosen={chosen} />
+  if (label === null) return <TaskList tasks={tasks} chosen={chosen} onImport={onImport} />
   return (
     <div className="space-y-1">
       <button
@@ -150,7 +187,7 @@ export function TaskPicker({ label, tasks, chosen }: TaskPickerProps) {
       </button>
       {open && (
         <div className="rounded-xl bg-secondary/30 p-2">
-          <TaskList tasks={tasks} chosen={chosen} onPick={() => setOpen(false)} />
+          <TaskList tasks={tasks} chosen={chosen} onPick={() => setOpen(false)} onImport={onImport} />
         </div>
       )}
     </div>

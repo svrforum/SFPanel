@@ -96,3 +96,23 @@ export const CODE_DEFAULTS: Record<string, Record<string, string>> = {
   // GitHub's own words for a failure it gave no code to.
   GIT_CLONE_FAILED: { cause: 'common.git.causeUnknown' },
 }
+
+// A detail the server sends in a form the operator should not read as sent,
+// put in words before it fills the message. A formatter answers null for a
+// value it cannot read, and the placeholder then takes its CODE_DEFAULTS
+// wording, as if the detail were missing.
+export const CODE_DETAIL_FORMATS: Record<string, Record<string, (value: string) => string | null>> = {
+  // An RFC 3339 time as this browser's clock reads it. Not "in 12 minutes":
+  // the message is worded once, when the error is made, and stays on screen.
+  GIT_RATE_LIMITED: { reset_at: localClockTime },
+}
+
+const pad2 = (n: number) => String(n).padStart(2, '0')
+
+/** 19:07 for 2026-11-01T10:07:00Z in Seoul; null for anything not an RFC 3339 time. */
+export function localClockTime(value: string): string | null {
+  if (!/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}/.test(value)) return null
+  const d = new Date(value)
+  if (Number.isNaN(d.getTime())) return null
+  return `${pad2(d.getHours())}:${pad2(d.getMinutes())}`
+}

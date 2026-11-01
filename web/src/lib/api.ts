@@ -90,7 +90,7 @@ import type {
   TaskImportPreview,
   TaskImportResult,
 } from '@/types/api'
-import { CODE_DEFAULTS, CODE_MESSAGES } from './codeMessages'
+import { CODE_DEFAULTS, CODE_DETAIL_FORMATS, CODE_MESSAGES } from './codeMessages'
 import type { ApiWarning } from './warnings'
 
 const API_PATH = '/api/v1'
@@ -140,12 +140,24 @@ export function setApiTranslator(fn: Translator) {
 // Error codes the panel words itself live in ./codeMessages.
 
 // codeText words an error by its code when the panel knows the code: the
-// details fill the message's placeholders, and CODE_DEFAULTS any they leave
-// out. Any other code keeps the server's sentence.
+// details fill the message's placeholders, put in words first where
+// CODE_DETAIL_FORMATS says how, and CODE_DEFAULTS fills any they leave out
+// (or that do not read). Any other code keeps the server's sentence.
 function codeText(code: string | undefined, sent: string, details?: Record<string, string>): string {
   if (!code || !CODE_MESSAGES[code]) return sent
   const defaults = Object.fromEntries(Object.entries(CODE_DEFAULTS[code] ?? {}).map(([name, key]) => [name, translate(key, key)]))
-  return translate(CODE_MESSAGES[code], sent, { ...defaults, ...details })
+  return translate(CODE_MESSAGES[code], sent, { ...defaults, ...formatDetails(code, details) })
+}
+
+function formatDetails(code: string, details?: Record<string, string>): Record<string, string> {
+  const formats = CODE_DETAIL_FORMATS[code] ?? {}
+  const out: Record<string, string> = {}
+  for (const [name, value] of Object.entries(details ?? {})) {
+    const format = Object.hasOwn(formats, name) ? formats[name] : undefined
+    const worded = format ? format(value) : value
+    if (worded !== null) out[name] = worded
+  }
+  return out
 }
 
 // An error the server refused with: the HTTP status and the envelope's code and
