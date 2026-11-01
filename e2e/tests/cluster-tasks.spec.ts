@@ -959,6 +959,27 @@ test.describe('run progress', () => {
     expect(streamCount(requests)).toBe(opened)
   })
 
+  // The band and the history read the runs every ten seconds: a run this view
+  // sees end is read again there at once, not left "under way" above it.
+  test('the band lets go of a run as soon as its view sees it end', async ({ page }) => {
+    const streams = { [RUN_ID]: [UNDER_WAY] }
+    let ended = false
+    await mock(page, {
+      runDetails: { [RUN_ID]: runDetail(liveRun(), PENDING) },
+      streams,
+      replies: { 'GET /cluster/task-runs': () => ok([ended ? liveRun({ status: 'succeeded', ended_at: seen }) : liveRun()]) },
+    })
+    await page.goto(`/cluster/tasks/runs/${RUN_ID}`)
+    const band = page.getByTestId('task-runs-active')
+    await expect(band).toContainText('Deploy web')
+    await expect(cell(page, 'm-1', 0)).toHaveText('Running')
+
+    ended = true
+    streams[RUN_ID].push(FINISHED)
+    await expect(runPane(page).getByTestId('task-run-status')).toHaveText('Succeeded')
+    await expect(band).toHaveCount(0, { timeout: 3000 })
+  })
+
   test('a reload re-attaches to the same table, from a new snapshot', async ({ page }) => {
     // The GET is behind the stream: every node pending.
     const { requests } = await mock(page, {

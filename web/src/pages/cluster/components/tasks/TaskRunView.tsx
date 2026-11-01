@@ -24,6 +24,8 @@ import { TaskNodeOutput } from './TaskNodeOutput'
 
 interface TaskRunViewProps {
   runId: string
+  /** The run's status is first known, or changed: the band and the history read the runs again. */
+  onStatus?: () => void
 }
 
 // One run, under way or ended, followed from the run ID in the URL: a reload,
@@ -33,9 +35,15 @@ interface TaskRunViewProps {
 // that step's output beside it (below, on a phone). A run under way can be
 // stopped, or stopped by force; an ended one can run again on the nodes that
 // did not succeed, or on nodes chosen.
-export function TaskRunView({ runId }: TaskRunViewProps) {
+export function TaskRunView({ runId, onStatus }: TaskRunViewProps) {
   const { t } = useTranslation()
   const { state, steps, outcome, setHead } = useTaskRun(runId)
+  // They read the runs every ten seconds otherwise: a run seen ended here
+  // stayed "under way" above it until then.
+  const status = state.run?.status
+  useEffect(() => {
+    if (status) onStatus?.()
+  }, [status, onStatus])
   const [names, setNames] = useState<Record<string, string>>({})
   const [chosen, setChosen] = useState<ChosenCell | null>(null)
 

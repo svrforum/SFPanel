@@ -119,7 +119,7 @@ export default function ClusterTasks() {
 
   const task = taskId ? tasks?.find((x) => x.id === taskId) : undefined
   let pane
-  if (runId) pane = <TaskRunView key={runId} runId={runId} />
+  if (runId) pane = <TaskRunView key={runId} runId={runId} onStatus={loadRuns} />
   else if (isHistory) {
     pane = (
       <TaskRunHistory
