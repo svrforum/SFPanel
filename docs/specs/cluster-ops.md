@@ -739,7 +739,8 @@ The row waits with `awaiting: "host_key"` and shows the key as
 - The approval carries the fingerprint the operator was shown. From then on
   the leader accepts that key and no other. A key that changes between the
   approval and the login fails the row (`AGENT_INSTALL_HOST_KEY_CHANGED`)
-  before anything is sent.
+  before anything is sent. The row's details name the key the server
+  presented (`host_key`) beside the one approved (`approved`).
 - Declining stops that server only.
 - A fingerprint is remembered for that install only.
 

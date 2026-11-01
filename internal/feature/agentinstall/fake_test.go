@@ -342,11 +342,13 @@ type fakeServer struct {
 	// panelStopped is the sfpanel service install.sh stopped, active again
 	// once systemctl starts it; it ran before when facts.SFPanelActive says.
 	panelStopped bool
-	labels        map[string]string
+	labels       map[string]string
 	// probeDelay holds the probe, so rows overlap.
 	probeDelay time.Duration
-	// keyChanged has Dial meet another host key; authFail refuses the login.
+	// keyChanged has Dial meet another host key, presented; authFail
+	// refuses the login.
 	keyChanged, authFail bool
+	presented            sshexec.HostKey
 
 	mu    sync.Mutex
 	execs []fakeExec
@@ -655,8 +657,10 @@ func (d *fakeDialer) Dial(_ context.Context, addr string, a sshexec.Auth, key ss
 	switch {
 	case s == nil:
 		return nil, errors.New("connection refused")
-	case s.keyChanged || key.Key == nil || !bytes.Equal(key.Key.Marshal(), s.hostKey.Key.Marshal()):
-		return nil, fmt.Errorf("dial: %w", sshexec.ErrHostKeyChanged)
+	case s.keyChanged:
+		return nil, &sshexec.HostKeyChangedError{Addr: addr, Presented: s.presented}
+	case key.Key == nil || !bytes.Equal(key.Key.Marshal(), s.hostKey.Key.Marshal()):
+		return nil, &sshexec.HostKeyChangedError{Addr: addr, Presented: s.hostKey}
 	case s.authFail || a.User == "":
 		return nil, fmt.Errorf("dial: %w", sshexec.ErrAuthFailed)
 	}

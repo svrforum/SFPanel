@@ -6570,7 +6570,7 @@ GitHub 폴더의 작업 파일을 보여 줍니다(리더, 아무것도 쓰지 �
 |------|------------------|------|
 | `AGENT_INSTALL_UNREACHABLE` | `host` 또는 `address` | 이름이 주소로 풀리지 않음(`host`), 또는 리더에서 SSH가 닿지 않음(`address`) |
 | `AGENT_INSTALL_AUTH_FAILED` | — | 서버가 SSH 로그인을 거부함 |
-| `AGENT_INSTALL_HOST_KEY_CHANGED` | `host_key` | 승인한 것과 다른 호스트 키를 내놓음(가운데 사람 공격일 수 있음) |
+| `AGENT_INSTALL_HOST_KEY_CHANGED` | `host_key`, `approved` | 승인한 것과 다른 호스트 키를 내놓음(가운데 사람 공격일 수 있음). `host_key`: 서버가 내놓은 키(승인한 키 종류의 키를 내놓지 않았으면 없음), `approved`: 승인한 키 |
 | `AGENT_INSTALL_NOT_ROOT` | `sudo` | root가 될 수 없음: `none`(sudo 없음), `password`(sudo가 비밀번호를 묻는데 받지 않음), `refused`(sudo가 받은 비밀번호를 거부) |
 | `AGENT_INSTALL_OS` | `os_id`, `os_like` | Ubuntu·Debian이 아님 |
 | `AGENT_INSTALL_ARCH` | `arch` | 릴리스가 없는 CPU(amd64·arm64만) |

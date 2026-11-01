@@ -74,6 +74,7 @@ func TestAHostKeyWaitsForTheOperator(t *testing.T) {
 		env := newFakeEnv()
 		s := passingServer(t, env, 1)
 		s.keyChanged = true
+		s.presented = newHostKey(t)
 		e := newTestEngine(env, newFakeDialer(s))
 		id, err := e.Start(context.Background(), request(s))
 		if err != nil {
@@ -81,8 +82,15 @@ func TestAHostKeyWaitsForTheOperator(t *testing.T) {
 		}
 		approveAll(t, e, env, id, "s1")
 		env.waitEnded(t, id)
-		if r := env.row(id, "s1"); r.Reason != response.ErrAgentInstallHostKeyChanged || len(s.commands()) != 0 {
+		r := env.row(id, "s1")
+		if r.Reason != response.ErrAgentInstallHostKeyChanged || len(s.commands()) != 0 {
 			t.Fatalf("s1 = %+v, commands %q; want %s and nothing run", r, s.commands(), response.ErrAgentInstallHostKeyChanged)
+		}
+		// The details name the key the server presented, and the approved
+		// one beside it.
+		presented, approved := "ED25519 "+s.presented.Fingerprint, "ED25519 "+s.hostKey.Fingerprint
+		if r.ReasonDetails["host_key"] != presented || r.ReasonDetails["approved"] != approved || presented == approved {
+			t.Fatalf("s1 details = %v, want host_key %q (presented) and approved %q", r.ReasonDetails, presented, approved)
 		}
 	})
 }

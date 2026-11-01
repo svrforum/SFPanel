@@ -77,6 +77,16 @@ func TestAChangedHostKeyIsRefused(t *testing.T) {
 	if !errors.Is(err, ErrHostKeyChanged) {
 		t.Fatalf("Dial with another key: err = %v, want ErrHostKeyChanged", err)
 	}
+	// The error carries the key the server presented, not the approved one.
+	var changed *HostKeyChangedError
+	if !errors.As(err, &changed) {
+		t.Fatalf("Dial with another key: err = %v, want a *HostKeyChangedError", err)
+	}
+	presented := s.signer.PublicKey()
+	if p := changed.Presented; p.Key == nil || !bytes.Equal(p.Key.Marshal(), presented.Marshal()) ||
+		p.Fingerprint != ssh.FingerprintSHA256(presented) || p.Type != presented.Type() {
+		t.Fatalf("the error's presented key = %+v, want the server's %s", changed.Presented, ssh.FingerprintSHA256(presented))
+	}
 	time.Sleep(100 * time.Millisecond)
 	if got := s.recordedAttempts(); len(got) != 0 {
 		t.Fatalf("authentication attempts on a changed key = %v, want none", got)

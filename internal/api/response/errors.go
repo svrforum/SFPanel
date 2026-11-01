@@ -559,9 +559,11 @@ const (
 	ErrAgentInstallLogGone = "AGENT_INSTALL_LOG_GONE"
 	// ErrAgentInstallHostKeyChanged is returned (HTTP 409) when a server's
 	// host key is approved with a fingerprint other than the one the row
-	// shows. It is also the reason of a row whose server presented another
-	// key at the login than the one approved. Details: host_key, the one the
-	// row shows.
+	// shows; details: host_key, the one the row shows. It is also the reason
+	// of a row whose server presented another key at the login than the one
+	// approved; details: host_key, the key the server presented (absent when
+	// it offered none of the approved key's type), and approved, the one
+	// approved.
 	ErrAgentInstallHostKeyChanged = "AGENT_INSTALL_HOST_KEY_CHANGED"
 	// ErrAgentInstallNotWaiting is returned (HTTP 409) for an answer to a
 	// question a row is not asking (a host key, a standalone panel, the

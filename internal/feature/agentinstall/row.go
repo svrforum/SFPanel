@@ -314,9 +314,19 @@ func (r *row) dial(ctx context.Context, log *phaseLog) error {
 		r.update(func(rec *cluster.RunNodeRecord) { rec.Awaiting, rec.CheckURL = "", "" })
 	}
 	if err != nil {
+		var changed *sshexec.HostKeyChangedError
 		switch {
+		case errors.As(err, &changed):
+			// host_key is the key the server presented, approved the one the
+			// operator approved; a server with no key of the approved type
+			// presented none.
+			f := fail(response.ErrAgentInstallHostKeyChanged, "the server presented another host key than the one approved", "approved", hostKeyText(key))
+			if changed.Presented.Key != nil {
+				f.details["host_key"] = hostKeyText(changed.Presented)
+			}
+			return f
 		case errors.Is(err, sshexec.ErrHostKeyChanged):
-			return fail(response.ErrAgentInstallHostKeyChanged, "the server presented another host key than the one approved", "host_key", hostKeyText(key))
+			return fail(response.ErrAgentInstallHostKeyChanged, "the server presented another host key than the one approved", "approved", hostKeyText(key))
 		case errors.Is(err, sshexec.ErrAuthFailed):
 			return fail(response.ErrAgentInstallAuthFailed, "the server refused the login")
 		case ctx.Err() != nil:

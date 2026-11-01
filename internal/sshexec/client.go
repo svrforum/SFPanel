@@ -43,6 +43,25 @@ var (
 	errKeyCaptured = errors.New("host key captured")
 )
 
+// HostKeyChangedError is ErrHostKeyChanged with the key the server
+// presented in place of the approved one, for the operator to compare with
+// what the server's console prints. Presented is zero when the server
+// offered no key of the approved key's type.
+type HostKeyChangedError struct {
+	Addr      string
+	Presented HostKey
+}
+
+func (e *HostKeyChangedError) Error() string {
+	if e.Presented.Key == nil {
+		return fmt.Sprintf("sshexec: %s: %v: it offers no key of the approved type", e.Addr, ErrHostKeyChanged)
+	}
+	return fmt.Sprintf("sshexec: %s: %v: it presented %s %s", e.Addr, ErrHostKeyChanged, e.Presented.Type, e.Presented.Fingerprint)
+}
+
+// Is makes errors.Is(err, ErrHostKeyChanged) hold.
+func (e *HostKeyChangedError) Is(target error) bool { return target == ErrHostKeyChanged }
+
 // Auth is how to log in. Method is "password", "key" or "none" (Tailscale
 // SSH). The secrets are byte slices so Wipe can zero them in place.
 type Auth struct {
@@ -124,7 +143,8 @@ func FetchHostKey(ctx context.Context, addr string, a Auth, timeout time.Duratio
 }
 
 // Dial logs in to addr, accepting only the approved host key; any other key
-// is ErrHostKeyChanged before a login is attempted. A refused login is
+// is a *HostKeyChangedError (errors.Is ErrHostKeyChanged) naming the key the
+// server presented, before a login is attempted. A refused login is
 // ErrAuthFailed.
 //
 // Every https:// URL the server sends in a banner or a keyboard-interactive
@@ -148,13 +168,14 @@ func Dial(ctx context.Context, addr string, a Auth, key HostKey, onNotice func(u
 	}
 
 	approved := key.Key.Marshal()
-	var mismatch atomic.Bool
+	var presented atomic.Pointer[HostKey]
 	cfg := &ssh.ClientConfig{
 		User: a.User,
 		Auth: methods,
 		HostKeyCallback: func(_ string, _ net.Addr, k ssh.PublicKey) error {
 			if !bytes.Equal(k.Marshal(), approved) {
-				mismatch.Store(true)
+				hk := hostKeyOf(k)
+				presented.Store(&hk)
 				return ErrHostKeyChanged
 			}
 			return nil
@@ -178,8 +199,10 @@ func Dial(ctx context.Context, addr string, a Auth, key HostKey, onNotice func(u
 	}
 	var negotiation *ssh.AlgorithmNegotiationError
 	switch {
-	case mismatch.Load(), errors.As(err, &negotiation) && negotiation.What == "host key":
-		return nil, fmt.Errorf("sshexec: %s: %w", addr, ErrHostKeyChanged)
+	case presented.Load() != nil:
+		return nil, &HostKeyChangedError{Addr: addr, Presented: *presented.Load()}
+	case errors.As(err, &negotiation) && negotiation.What == "host key":
+		return nil, &HostKeyChangedError{Addr: addr}
 	case ctx.Err() != nil:
 		return nil, err
 	case isAuthRefusal(err):
