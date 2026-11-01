@@ -1,8 +1,11 @@
 package cluster
 
 import (
+	"path/filepath"
 	"testing"
 	"time"
+
+	"github.com/svrforum/SFPanel/internal/config"
 )
 
 // A manager that joins pings its leader once its FSM names the leader, not
@@ -60,4 +63,34 @@ func TestAFollowerPingsTheNewLeaderOnceItKnowsOfIt(t *testing.T) {
 	if got := m2.TasksReady(); len(got) != 0 {
 		t.Errorf("the new leader waits for %v", got)
 	}
+}
+
+// A leader that hands its role over names the new one to the agents on its
+// heartbeat streams at once. An agent pings every thirty seconds, and until
+// it moves the new leader lists it offline and leaves it out of a run.
+func TestAnAgentMovesToTheNewLeaderOnceTheOldOneHandsOver(t *testing.T) {
+	m1, addr, token, pin := realLeader(t)
+	res, tm := registeredAgent(t, m1)
+	link, err := NewAgentLink(AgentLinkConfig{
+		NodeID: res.NodeID, TLS: tm, StatePath: filepath.Join(t.TempDir(), "agent-state.json"), Version: "test",
+		// As in production: the old leader's word moves it, not a ping.
+		Interval: 30 * time.Second, Collect: func() (float64, float64, float64, int) { return 1, 2, 3, 4 },
+		Advertise: "192.0.2.10",
+	}, []config.ManagerRef{{ID: m1.LocalNodeID(), GRPCAddress: addr}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	goRun(t, link)
+	waitUntil(t, 10*time.Second, "m1 to record the agent", func() bool { return m1.GetHeartbeat().GetMetrics(res.NodeID) != nil })
+	m2 := joinedManager(t, addr, token, pin)
+	waitForVoter(t, m1, m2.LocalNodeID())
+
+	moved := time.Now()
+	if err := m1.raft.TransferLeadership(m2.LocalNodeID()); err != nil {
+		t.Fatalf("transfer: %v", err)
+	}
+	waitUntil(t, 5*time.Second, "the agent to ping m2, the new leader", func() bool {
+		at, ok := m2.GetHeartbeat().GetLastSeen()[res.NodeID]
+		return m2.IsLeader() && ok && at.After(moved)
+	})
 }

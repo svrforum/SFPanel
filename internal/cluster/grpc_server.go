@@ -579,6 +579,17 @@ func (s *GRPCServer) serveHeartbeat(stream grpc.BidiStreamingServer[pb.Heartbeat
 	defer timer.Stop()
 	member := time.NewTicker(membershipRecheck)
 	defer member.Stop()
+	// A leader that hands its role over names the new one to an agent on
+	// this stream at once: the agent pings every thirty seconds, and until it
+	// moves the new leader lists it offline and leaves it out of a run. A
+	// manager finds its new leader itself (StartLocalMetrics).
+	var handOver <-chan time.Time
+	if !promote {
+		follow := time.NewTicker(leaderFollowCheck)
+		defer follow.Stop()
+		handOver = follow.C
+	}
+	led := s.manager.IsLeader()
 
 	// Counted from its first ping, so that a stream refused at that ping says
 	// nothing about a node that is up on another (LiveHealth).
@@ -674,6 +685,27 @@ func (s *GRPCServer) serveHeartbeat(stream grpc.BidiStreamingServer[pb.Heartbeat
 		case <-member.C:
 			if s.manager.raft.GetFSM().GetNode(peerCN) == nil {
 				return notMemberError(s.manager, peerCN)
+			}
+		case <-handOver:
+			if s.manager.IsLeader() {
+				led = true
+				continue
+			}
+			if !led {
+				continue
+			}
+			// No leader yet in an election: looked at again next time.
+			addr := s.manager.GetRaft().LeaderGRPCAddress()
+			if addr == "" {
+				continue
+			}
+			led = false
+			if err := stream.Send(&pb.HeartbeatPong{
+				LeaderId:          s.manager.GetRaft().LeaderID(),
+				LeaderGrpcAddress: addr,
+				Managers:          s.manager.managerInfos(),
+			}); err != nil {
+				return err
 			}
 		case <-timer.C:
 			return fmt.Errorf("heartbeat stream idle timeout (%v)", idleTimeout)
