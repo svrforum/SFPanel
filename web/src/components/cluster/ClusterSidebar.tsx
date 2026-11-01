@@ -48,7 +48,8 @@ export default function ClusterSidebar({ status, panelVersion, onLogout, onNodeC
   // — it was previously lost whenever the nodes call failed.
   const localId = status?.local_id ?? ''
 
-  const initialLoad = useRef(true)
+  // The selection the effect below last saw; null before the first run.
+  const seen = useRef<TreeSelection | null>(null)
   // Set when the selection is being synced FROM a node switch made elsewhere
   // (the phone's drawer, a node list's "Open node", a node that left), so the
   // selection effect updates the highlight only and does NOT re-run its
@@ -128,10 +129,15 @@ export default function ClusterSidebar({ status, panelVersion, onLogout, onNodeC
   useEffect(() => {
     localStorage.setItem(SELECTION_KEY, JSON.stringify(selection))
 
-    if (initialLoad.current) {
-      initialLoad.current = false
+    // The selection the page opened with is not acted on, and neither is
+    // StrictMode's second run of the effect on that same selection: a one-shot
+    // flag took the second run for a change and sent a /cluster/* address
+    // opened directly to the overview.
+    if (seen.current === null || seen.current === selection) {
+      seen.current = selection
       return
     }
+    seen.current = selection
 
     // Synced from an external switch: update the highlight only, don't navigate
     // away (the external switcher already navigated) or re-set the node.
