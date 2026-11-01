@@ -5221,7 +5221,7 @@ Raft 리더십을 지정한 노드로 이전. 실행은 리더가 하며, 팔로
 ### POST /api/v1/cluster/nodes/:id/convert
 매니저를 **같은 노드 ID의 에이전트로 전환**합니다. 이름·라벨·가입 시각이 유지됩니다. 실행은 리더가 하며, 다른 매니저에서 요청하면 리더로 전달됩니다. 리더는 관문을 모두 확인한 뒤 그 노드에 묶인 에이전트 토큰(그 노드 ID와 그 노드의 IP에서만, 30분)을 만들고, 노드의 이름·라벨·가입 시각을 복제 상태(`converting/<id>`)에 남긴 다음 그 노드의 `POST /cluster/become-agent`를 부릅니다. 노드는 떠나기 전에 답하므로 `202`는 전환이 시작됐다는 뜻이고, 노드 목록에 그 노드가 에이전트로 다시 나타나면 끝난 것입니다. CLI: `sudo sfpanel cluster convert <node-id>`(서비스가 돌고 있는 매니저에서).
 
-관문(아무것도 바꾸기 전에 모두 확인): 리더가 아닌 매니저일 것, 온라인이고 에이전트를 아는 릴리스일 것, 그 노드 없이도 남은 투표자가 정족수를 이룰 것, 에이전트가 지금 등록될 수 있을 것(프록시 비밀 전환 기록 뒤 5분, 다른 매니저가 모두 온라인이고 에이전트를 아는 릴리스, `cluster.max_agents` 여유), 에이전트로 쓸 이름·주소일 것(유효한 노드 이름, 클러스터가 아는 gRPC 주소가 IP:포트, 다른 노드가 같은 이름이나 IP를 쓰지 않음), 리더가 CA 키를 가질 것, CA 교체가 진행 중이지 않을 것. 한 리더는 전환을 한 번에 하나씩 시작합니다. 순서와 실패했을 때는 `docs/specs/cluster-ops.md`의 "Converting a manager to an agent"를 보세요.
+관문(아무것도 바꾸기 전에 모두 확인): 리더가 아닌 매니저일 것, 온라인이고 에이전트를 아는 릴리스일 것, 그 노드 없이도 남은 투표자가 정족수를 이룰 것, 에이전트가 지금 등록될 수 있을 것(프록시 비밀 전환 기록 뒤 5분, 다른 매니저가 모두 온라인이고 에이전트를 아는 릴리스, `cluster.max_agents` 여유), 에이전트로 쓸 이름·주소일 것(유효한 노드 이름, 클러스터가 아는 gRPC 주소가 IP:포트, 다른 노드가 같은 이름이나 IP를 쓰지 않음), 리더가 CA 키를 가질 것, CA 교체가 진행 중이지 않을 것, 그룹 작업 실행이 진행 중이지 않을 것(`409 TASK_RUN_ACTIVE`). 전환이 시작되는 동안에는 작업 실행이 `409 TASK_CLUSTER_CHANGING`으로 거부됩니다. 한 리더는 전환을 한 번에 하나씩 시작합니다. 순서와 실패했을 때는 `docs/specs/cluster-ops.md`의 "Converting a manager to an agent"를 보세요.
 
 - **인증 필요**: 예
 
@@ -5258,6 +5258,7 @@ Raft 리더십을 지정한 노드로 이전. 실행은 리더가 하며, 팔로
 | `INTERNAL_ERROR` | 503 | 리더 없음(선출 중), 또는 전달받은 노드가 그새 리더가 아님 |
 | `NOT_FOUND` | 404 | 그런 노드가 없음 |
 | `CLUSTER_CONVERT_REFUSED` | 409 | 관문 거부(`message`에 이유) 또는 이 리더에서 다른 전환이 시작되는 중. 아무것도 바뀌지 않음 |
+| `TASK_RUN_ACTIVE` | 409 | 그룹 작업 실행이 진행 중(`details.run_id`). 노드가 Raft를 떠나 재시작하므로 그 실행이 끝난 뒤 다시. 아무것도 바뀌지 않음 |
 | `CLUSTER_CONVERT_REFUSED` | 502 | 노드가 거부함(`message`에 노드의 이유). 리더는 만든 토큰과 기록을 거둬들임 |
 | `INTERNAL_ERROR` | 502 | 노드가 답하지 않음. 떠나는 중이어서 그 답이 끊겼을 수 있으므로 토큰을 남깁니다(그 노드만, 그 IP에서만 쓸 수 있음). 1분쯤 뒤 노드 목록을 보고, 아직 매니저면 다시 전환 |
 | `INTERNAL_ERROR` | 500 | 클러스터 CA나 리더 자신의 기록을 읽지 못함, 토큰이나 기록을 만들지 못함 |
@@ -5310,7 +5311,7 @@ Raft 리더십을 지정한 노드로 이전. 실행은 리더가 하며, 팔로
 ### POST /api/v1/cluster/nodes/:id/promote
 에이전트를 **같은 노드 ID의 매니저로 승격**합니다. 이름·라벨·가입 시각이 유지됩니다. 실행은 리더가 하며, 다른 매니저에서 요청하면 리더로 전달됩니다. 리더는 관문을 확인한 뒤 그 에이전트에 묶인 매니저 토큰(30분)을 만들고 에이전트의 `POST /system/become-manager`를 부릅니다. 에이전트는 가입하기 전에 답하므로 `202`는 승격이 시작됐다는 뜻이고, 노드가 재시작해 매니저로 돌아오면 끝난 것입니다. 매니저가 된 노드는 리더가 그 Raft 포트(클러스터 gRPC 포트 + 1)에 닿고 그 Raft가 따라잡을 때까지 비투표자입니다. CLI: `sudo sfpanel cluster promote <node-id>`(서비스가 돌고 있는 매니저에서).
 
-관문: 에이전트일 것, 온라인일 것, 매니저 자리가 남을 것(32대), 리더가 CA 키를 가질 것, 클러스터가 아는 그 에이전트의 gRPC 주소가 IP:포트일 것(토큰이 그 IP에 묶임), CA 교체가 진행 중이지 않을 것. 순서와 실패했을 때, Raft 포트가 닫혀 있을 때는 `docs/specs/cluster-ops.md`의 "Promoting an agent to a manager"를 보세요.
+관문: 에이전트일 것, 온라인일 것, 매니저 자리가 남을 것(32대), 리더가 CA 키를 가질 것, 클러스터가 아는 그 에이전트의 gRPC 주소가 IP:포트일 것(토큰이 그 IP에 묶임), CA 교체가 진행 중이지 않을 것, 그룹 작업 실행이 진행 중이지 않을 것(`409 TASK_RUN_ACTIVE`). 승격이 시작되는 동안에는 작업 실행이 `409 TASK_CLUSTER_CHANGING`으로 거부됩니다. 순서와 실패했을 때, Raft 포트가 닫혀 있을 때는 `docs/specs/cluster-ops.md`의 "Promoting an agent to a manager"를 보세요.
 
 - **인증 필요**: 예
 
@@ -5334,6 +5335,7 @@ Raft 리더십을 지정한 노드로 이전. 실행은 리더가 하며, 팔로
 | `INTERNAL_ERROR` | 503 | 리더 없음(선출 중), 또는 전달받은 노드가 그새 리더가 아님 |
 | `NOT_FOUND` | 404 | 그런 노드가 없음 |
 | `CLUSTER_PROMOTE_REFUSED` | 409 | 관문 거부(`message`에 이유). 아무것도 바뀌지 않고 토큰도 만들지 않음 |
+| `TASK_RUN_ACTIVE` | 409 | 그룹 작업 실행이 진행 중(`details.run_id`). 에이전트가 매니저로 재시작하므로 그 실행이 끝난 뒤 다시. 토큰을 만들지 않음 |
 | `CLUSTER_PROMOTE_REFUSED` | 502 | 에이전트가 거부함(`message`에 에이전트의 이유). 토큰은 폐기됨 |
 | `INTERNAL_ERROR` | 502 | 에이전트가 답하지 않음. 토큰은 폐기됩니다 — 요청을 먼저 받아 가입했다면 이미 매니저이고, 아니면 그 토큰으로 가입할 수 없습니다. 1분쯤 뒤 노드 목록을 보고, 아직 에이전트면 다시 승격 |
 | `INTERNAL_ERROR` | 500 | 클러스터 CA나 리더 자신의 기록을 읽지 못함 |
@@ -5592,6 +5594,7 @@ data: {"overall":"complete","updated":4,"failed":0,"leader_restarting":true}
 | `INTERNAL_ERROR` | 503 | 리더가 아닌 노드에서 요청 |
 | `UPDATE_IN_PROGRESS` | 409 | 클러스터 업데이트가 이미 진행 중 |
 | `CLUSTER_CA_ROTATING` | 409 | 클러스터 CA 교체가 진행 중(노드를 재시작하면 단계 도중의 디스크로 돌아옴). 교체가 끝난 뒤 다시 |
+| `TASK_RUN_ACTIVE` | 409 | 그룹 작업 실행이 진행 중(`details.run_id`). 업데이트가 그 실행의 단계 아래에서 노드를 재시작하므로 실행이 끝난 뒤 다시 |
 
 ---
 
@@ -5683,9 +5686,9 @@ data: {"overall":"complete","updated":4,"failed":0,"leader_restarting":true}
 ### POST /api/v1/cluster/rotate/ca
 클러스터 CA를 바꾸기 시작합니다. 리더가 다음 CA(10년)를 만들고 바로 `202`로 답한 뒤, 모든 노드를 한 단계씩 옮깁니다: `trust`(모든 노드가 두 CA를 믿음) → `reissue`(다음 CA가 서명하고, 매니저는 자기 인증서를 직접, 에이전트는 리더에게 받아 다시 발급 — 리더가 모든 노드의 하트비트 연결에서 다음 CA의 인증서를 볼 때까지) → `promote`(다음 CA가 클러스터의 CA가 되고 모든 노드가 이전 CA를 뺌 — 모든 매니저와 온라인 에이전트가 다음 CA만 믿는다고 알릴 때까지) → `done`. `trust`·`reissue`가 기한 안에 끝나지 않거나 운영자가 중단하면 현재 CA를 지킨 채 되돌아갑니다(`rollback` → `drop` → `aborted`). `promote` 뒤에는 되돌리기가 없습니다.
 
-관문: CA 교체가 진행 중이지 않을 것, 처음 복제 비밀로 전환한 지 5분이 지났을 것, 모든 노드(에이전트 포함)가 온라인이고 교체를 따라가는 릴리스(`ca-rotation-v1`)일 것, 리더의 `ca.crt`와 복제 상태의 CA가 지난 교체가 남긴 CA일 것, 단계 기한이 범위 안일 것, 클러스터 업데이트가 돌고 있지 않을 것.
+관문: CA 교체가 진행 중이지 않을 것, 처음 복제 비밀로 전환한 지 5분이 지났을 것, 모든 노드(에이전트 포함)가 온라인이고 교체를 따라가는 릴리스(`ca-rotation-v1`)일 것, 리더의 `ca.crt`와 복제 상태의 CA가 지난 교체가 남긴 CA일 것, 단계 기한이 범위 안일 것, 클러스터 업데이트가 돌고 있지 않을 것, 그룹 작업 실행이 진행 중이지 않을 것.
 
-진행 중에는 참가 토큰 생성(`POST /cluster/token`)과 클러스터 업데이트(`POST /cluster/update`)가 `409 CLUSTER_CA_ROTATING`, 전환·승격이 `409 CLUSTER_CONVERT_REFUSED`·`409 CLUSTER_PROMOTE_REFUSED`로 거부되고, 가입과 에이전트 등록도 거부됩니다. 끝난 뒤의 가입 명령은 새 CA의 지문(`ca_pin`)을 싣고, 그 전에 받은 가입 명령은 `the CA fingerprint does not match …`로 거부됩니다.
+진행 중에는 참가 토큰 생성(`POST /cluster/token`), 클러스터 업데이트(`POST /cluster/update`), 그룹 작업 실행(`POST /cluster/task-runs`, 다시 실행 포함)이 `409 CLUSTER_CA_ROTATING`, 전환·승격이 `409 CLUSTER_CONVERT_REFUSED`·`409 CLUSTER_PROMOTE_REFUSED`로 거부되고, 가입과 에이전트 등록도 거부됩니다. 끝난 뒤의 가입 명령은 새 CA의 지문(`ca_pin`)을 싣고, 그 전에 받은 가입 명령은 `the CA fingerprint does not match …`로 거부됩니다.
 
 - **인증 필요**: 예
 
@@ -5731,6 +5734,7 @@ data: {"overall":"complete","updated":4,"failed":0,"leader_restarting":true}
 |------|-----------|------|
 | `INVALID_REQUEST` | 400 | 읽을 수 없는 본문, duration이 아닌 `phase_timeout` |
 | `UPDATE_IN_PROGRESS` | 409 | 클러스터 업데이트가 진행 중 |
+| `TASK_RUN_ACTIVE` | 409 | 그룹 작업 실행이 진행 중(`details.run_id`). 실행의 노드 호출이 교체가 다시 발급하는 인증서 위로 다니므로 실행이 끝난 뒤 다시 |
 
 ---
 
@@ -5821,6 +5825,456 @@ CA 교체를 멈추고 현재 CA를 지킵니다. `trust`에서는 `drop`으로(
 | `INVALID_REQUEST` | 400 | 클러스터 미구성 |
 | `INTERNAL_ERROR` | 503 | 리더 없음, 또는 리더임을 확인하지 못함 |
 | `INTERNAL_ERROR` | 500 | CA 교체 기록을 읽지 못함 |
+
+---
+
+## 그룹 작업 API (`/api/v1/cluster/tasks`, `/api/v1/cluster/task-runs`)
+
+같은 단계(패키지·서비스·명령·파일·스택·재부팅)를 여러 노드에 차례로 돌리는 작업의 정의와 실행입니다. 매니저 전용 `/cluster` 그룹에 있으며 에이전트에는 없습니다. 쓰기(정의의 생성·수정·삭제, 실행 시작·중지·다시 실행)와 미리 보기는 리더가 처리하고 다른 매니저에서 요청하면 리더로 전달됩니다. 목록·조회·검증·진행 스트림·단계 출력은 요청을 받은 매니저가 자기 복제 상태에서 답합니다. 실행은 요청·브라우저와 떨어져 리더에서 돌고, 리더가 바뀌면 새 리더가 이어받습니다. 순서, 실패와 중지, 정족수·Proxmox, 다른 클러스터 작업과의 관문, 저장과 보관은 `docs/specs/cluster-ops.md`의 "Group tasks"를 보세요. 아직 화면과 CLI는 없습니다.
+
+- **인증 필요**: 예 (모두)
+- 클러스터가 아니면 `400 INVALID_REQUEST`(`Cluster not configured`) — `POST /cluster/tasks/validate`만 예외
+- 다른 매니저에서 전달된 쓰기가 도착하기 전에 리더가 바뀌면 `503 INTERNAL_ERROR`(`This node is not the cluster leader: retry in a few seconds`), 복제 상태를 읽거나 쓰지 못하면 `500 INTERNAL_ERROR`
+- `?node=<매니저 ID>`를 붙이면 다른 요청처럼 그 매니저로 중계되지만(미리 보기는 5분, 스트림은 HTTP 릴레이 5분) 필요 없습니다: 어느 매니저든 같은 기록을 답합니다. `?node=`가 에이전트면 `409 CLUSTER_ROUTE_NOT_ON_AGENT`
+
+### 작업 문서
+
+작업은 YAML 문서 하나입니다(64 KiB, 단계 50개까지). 모든 문제를 줄 번호와 함께 한 번에 돌려줍니다.
+
+```yaml
+name: web security updates
+description: 목록 갱신, 전체 업그레이드, nginx 재시작, 필요하면 재부팅
+inputs:
+  service: { label: 재시작할 서비스, default: nginx, required: true }
+targets: { groups: [web], kinds: [agent], nodes: [] }
+batch: 2
+stop_on_failure: true
+steps:
+  - packages: { update: true, upgrade: all }
+  - name: 웹 서버 재시작
+    service: { name: "{{ service }}", action: restart }
+  - command: { run: "nginx -t", timeout: 2m }
+    continue_on_error: true
+  - reboot: { only_if_required: true, wait: 10m }
+```
+
+| 키 | 설명 |
+|----|------|
+| `name` | 필수. 저장된 작업과 내장 작업을 통틀어 유일 |
+| `description` | 선택 |
+| `inputs` | 실행할 때 받는 값. 항목마다 `label`, `default`, `required`, `raw`(명령에 인용 없이 그대로 넣음). 이름은 영문자·숫자·`_`이고 `node`는 쓸 수 없음 |
+| `targets` | 기본 대상. `groups`(노드 라벨 `group`의 값), `kinds`(`manager`·`agent`), `nodes`(노드 ID)의 합집합. 실행 요청이 통째로 바꿀 수 있음 |
+| `batch` | 한 번에 돌리는 에이전트 수(기본 1). 매니저는 늘 한 대씩 |
+| `stop_on_failure` | 기본 `true`. 실패한 노드가 있는 묶음 뒤로 새 묶음을 시작하지 않음 |
+| `steps` | 단계 목록(1~50). 단계마다 종류 하나와 선택 항목 `name`·`continue_on_error` |
+
+| 단계 | 키 |
+|------|----|
+| `packages` | `update`(목록 갱신) + `upgrade`(`all` 또는 이름 목록)·`install`·`remove` 중 하나까지 |
+| `service` | `name`, `action`(`start`·`stop`·`restart`·`enable`·`disable`) |
+| `command` | `run` 또는 `script`(여러 줄), `timeout`(기본 `10m`). root로 실행 |
+| `file` | `path`(절대 경로), `content`, `mode`(8진수 3~4자리, 권한 비트만), `owner`(`user` 또는 `user:group`) |
+| `stack` | `name`, `compose`, `up`(`true`면 `docker compose up -d`) |
+| `reboot` | `only_if_required`(기본 `true`), `wait`(기본 `10m`) |
+
+`{{ 입력 }}`, `{{ node.name }}`, `{{ node.address }}`(클러스터가 그 노드에 닿는 첫 주소)는 노드마다 채웁니다. 명령에 들어가는 값은 `raw` 입력이 아니면 셸 인용을 거쳐 한 단어로 들어가고, 서비스 이름·파일의 경로·내용·소유자·스택의 이름과 compose 문서에는 인용 없이 그대로 들어갑니다. 패키지 목록의 참조 하나는 공백·쉼표로 나눠 여러 이름이 됩니다. `{{.Names}}` 같은 Go 템플릿(docker 등)은 참조가 아니어서 그대로 둡니다.
+
+**내장 작업**(읽기 전용, 저장되지 않고 모든 매니저의 바이너리에 있음): `builtin/package-update`, `builtin/package-install`, `builtin/service-restart`, `builtin/command`(입력 `command`가 `raw` — 입력한 명령 줄 그대로), `builtin/reboot`(필요할 때만). ID에 `/`가 있으므로 경로에서는 `builtin%2Fcommand`처럼 이스케이프합니다.
+
+응답의 `task`(파싱된 작업)에서 `timeout`·`wait`는 나노초 단위 숫자입니다(Go `time.Duration`).
+
+---
+
+### GET /api/v1/cluster/tasks
+작업 목록. 내장 작업이 먼저(`source.kind: "builtin"`, `read_only: true`), 그다음 저장된 작업이 이름순입니다. 문서는 싣지 않습니다.
+
+**Response (200):**
+```json
+{
+  "success": true,
+  "data": [
+    { "id": "builtin/command", "name": "명령 실행", "description": "…", "source": { "kind": "builtin" }, "read_only": true },
+    { "id": "9c1e4b7a2d3f5e60", "name": "web security updates", "description": "…", "source": { "kind": "user" },
+      "read_only": false, "updated_at": "2026-11-01T09:00:00Z", "updated_by": "admin" }
+  ]
+}
+```
+
+`source.kind`: `builtin`, `user`(패널에서 씀), `git`(Git에서 가져옴 — `repo`·`branch`·`path`·`sha`가 함께 있음. 가져오기 라우트는 아직 없음).
+
+---
+
+### GET /api/v1/cluster/tasks/:id
+작업 하나. 목록 항목에 `yaml`(문서 원문)과 `task`(파싱된 작업, 파싱되지 않으면 없음)가 더해집니다.
+
+**에러 응답:**
+| 코드 | HTTP 상태 | 조건 |
+|------|-----------|------|
+| `TASK_NOT_FOUND` | 404 | 그런 작업이 없음 |
+
+---
+
+### POST /api/v1/cluster/tasks/validate
+문서를 검사만 합니다. 아무것도 쓰지 않으므로 받은 매니저가 답하고, 클러스터가 아니어도 답합니다.
+
+**Request Body:** `{ "yaml": "name: …" }`
+
+**Response (200):**
+```json
+{
+  "success": true,
+  "data": {
+    "valid": false,
+    "problems": [
+      { "line": 12, "message": "unknown step kind \"comand\"; a step is one of packages, service, command, file, stack, reboot" }
+    ],
+    "task": null
+  }
+}
+```
+
+`line`은 1부터, `0`은 문서 전체. 문제가 없으면 `valid: true`, `problems: []`, `task`에 파싱된 작업.
+
+**에러 응답:**
+| 코드 | HTTP 상태 | 조건 |
+|------|-----------|------|
+| `INVALID_REQUEST` | 400 | 읽을 수 없는 본문 |
+| `TASK_TOO_LARGE` | 400 | 문서가 64 KiB 초과 (`details.max_kib`: `"64"`) |
+
+---
+
+### POST /api/v1/cluster/tasks
+작업을 저장합니다(리더). 새 ID(16자리 hex)를 받고, 이름은 문서의 `name`입니다. 응답은 `GET /cluster/tasks/:id`와 같은 모양입니다.
+
+**Request Body:** `{ "yaml": "name: …" }`
+
+**에러 응답:**
+| 코드 | HTTP 상태 | 조건 |
+|------|-----------|------|
+| `INVALID_REQUEST` | 400 | 읽을 수 없는 본문 |
+| `TASK_TOO_LARGE` | 400 | 문서가 64 KiB 초과 (`details.max_kib`) |
+| `TASK_INVALID` | 400 | 문서에 문제가 있음. 문제 목록은 `error.details`가 아니라 응답의 `data.problems`(`[{line, message}]`)에 실림 |
+| `TASK_NAME_TAKEN` | 409 | 다른 저장된 작업이나 내장 작업이 같은 이름 |
+
+`TASK_INVALID` 응답:
+```json
+{
+  "success": false,
+  "data": { "problems": [ { "line": 3, "message": "\"name\" is required in the task" } ] },
+  "error": { "code": "TASK_INVALID", "message": "The task document has problems" }
+}
+```
+
+---
+
+### PUT /api/v1/cluster/tasks/:id
+저장된 작업의 문서를 바꿉니다(리더). 이름도 새 문서의 것이 됩니다. 이 작업으로 이미 시작한 실행은 시작할 때의 문서를 그대로 씁니다. 본문·응답·문서 오류는 `POST /cluster/tasks`와 같습니다.
+
+**에러 응답:** `POST /cluster/tasks`의 표에 더해
+| 코드 | HTTP 상태 | 조건 |
+|------|-----------|------|
+| `TASK_NOT_FOUND` | 404 | 그런 작업이 없음 |
+| `TASK_READ_ONLY` | 409 | 내장 작업, 또는 Git에서 가져온 작업(다음 가져오기가 바꾼 것을 되돌림) |
+
+---
+
+### DELETE /api/v1/cluster/tasks/:id
+저장된 작업을 지웁니다(리더). Git에서 가져온 작업도 지울 수 있습니다. 그 작업의 실행 기록은 시작할 때의 문서를 따로 가지고 있어 그대로 남고, 다시 실행할 수도 있습니다.
+
+**Response (200):** `{ "success": true, "data": { "id": "9c1e4b7a2d3f5e60" } }`
+
+**에러 응답:**
+| 코드 | HTTP 상태 | 조건 |
+|------|-----------|------|
+| `TASK_NOT_FOUND` | 404 | 그런 작업이 없음 |
+| `TASK_READ_ONLY` | 409 | 내장 작업 |
+
+---
+
+### POST /api/v1/cluster/task-runs/plan
+미리 보기(리더). 실행이 노드를 도는 순서, 빠지는 대상과 이유, 각 노드가 자기에게 채워진 단계마다 내린 판정을 돌려줍니다. 아무것도 기록하지 않습니다. 노드에 판정을 묻는 데(한 번에 16대, 노드마다 10초) 시간이 걸릴 수 있어 팔로워의 전달은 5분까지 기다립니다.
+
+**Request Body:**
+```json
+{
+  "task_id": "9c1e4b7a2d3f5e60",
+  "inputs": { "service": "nginx" },
+  "targets": { "groups": ["web"] },
+  "batch": 2,
+  "stop_on_failure": true,
+  "confirmed": [1]
+}
+```
+
+| 필드 | 타입 | 필수 | 설명 |
+|------|------|------|------|
+| `task_id` | string | 예 | 저장된 작업 ID 또는 `builtin/<이름>` |
+| `inputs` | object | 아니오 | 입력 이름 → 값. 비거나 없으면 그 입력의 `default`. 작업에 없는 키는 버림 |
+| `targets` | object | 아니오 | `{groups, kinds, nodes}`. 주면 작업의 `targets`를 통째로 대신함 |
+| `batch` | number | 아니오 | 1보다 작거나 없으면 작업의 `batch` |
+| `stop_on_failure` | bool | 아니오 | 없으면 작업의 값 (미리 보기는 쓰지 않음) |
+| `confirmed` | number[] | 아니오 | 운영자가 확인한 단계 번호(0부터). 미리 보기는 쓰지 않음 |
+
+**Response (200):**
+```json
+{
+  "success": true,
+  "data": {
+    "waves": [
+      [
+        { "id": "node-a1", "name": "agent-01", "kind": "agent",
+          "verdicts": [ { "step": 0 }, { "step": 1, "needs_confirm": true, "code": "SERVICE_CONFIRM_REQUIRED", "reason": "…" }, { "step": 2 }, { "step": 3 } ] },
+        { "id": "node-a2", "name": "agent-02", "kind": "agent", "check_error": "…" }
+      ],
+      [ { "id": "node-m2", "name": "manager-02", "kind": "manager", "verdicts": [ … ] } ],
+      [ { "id": "node-m1", "name": "manager-01", "kind": "manager", "leader": true,
+          "verdicts": [ { "step": 0 }, { "step": 1 }, { "step": 2 }, { "step": 3, "refused": true, "code": "TASK_REBOOT_PVE_HOST", "reason": "…" } ] } ]
+    ],
+    "left": [
+      { "id": "node-a3", "name": "agent-03", "kind": "agent", "reason": "busy", "run_id": "20261101-090000-0b7d2e" },
+      { "id": "node-a4", "name": "agent-04", "kind": "agent", "reason": "outdated" }
+    ]
+  }
+}
+```
+
+| 필드 | 설명 |
+|------|------|
+| `waves` | 차례로 도는 물결: 에이전트를 `batch`대씩 → 리더가 아닌 매니저 한 대씩 → 리더. 각각 이름순, 같으면 ID순 |
+| `waves[][].leader` | 지금 리더. 리더는 자기 차례에 리더십을 다른 매니저 투표자에게 넘기고, 새 리더가 실행을 이어받음 |
+| `waves[][].verdicts` | 노드의 판정(`step`은 0부터). `refused`(실행하면 그 단계가 실패 — Proxmox 호스트의 재부팅만은 건너뜀)와 `code`·`reason`, 또는 `needs_confirm`(그 단계 번호를 `confirmed`에 넣어야 통과) |
+| `waves[][].check_error` | 노드가 판정을 주지 못한 이유 |
+| `left` | 빠지는 대상과 `reason`: `offline`(리더의 실시간 하트비트로 오프라인), `outdated`(하트비트에 `tasks-v1` 없음 — 업데이트 필요), `unreachable`(이 리더가 닿지 못하는 에이전트), `busy`(진행 중인 다른 실행 `run_id`가 잡고 있음), `unknown`(`targets.nodes`의 ID가 어느 노드도 아님) |
+
+**에러 응답:**
+| 코드 | HTTP 상태 | 조건 |
+|------|-----------|------|
+| `INVALID_REQUEST` | 400 | 읽을 수 없는 본문 |
+| `TASK_NOT_FOUND` | 404 | 그런 작업이 없음 |
+| `TASK_INVALID` | 400 | 저장된 문서가 파싱되지 않음(`message`에 첫 문제와 줄) |
+| `TASK_INPUT_MISSING` | 400 | 필수 입력에 값도 기본값도 없음 (`details.input`) |
+| `TASK_TOO_MANY_TARGETS` | 400 | 대상이 200대 초과 — 빠지는 노드를 빼기 전에 셈 (`details.max`: `"200"`) |
+
+---
+
+### POST /api/v1/cluster/task-runs
+실행을 시작합니다(리더). 본문은 미리 보기와 같습니다. 리더는 미리 보기처럼 순서를 정하고 빠질 대상을 빼되 노드에 판정을 다시 묻지 않습니다 — 미리 보기에서 거부된 단계는 실행 중 그 노드에서 실패합니다(Proxmox 호스트의 재부팅은 건너뜀). 시작 판정과 기록은 클러스터 업데이트·CA 교체·전환·승격과 같은 관문 하나 아래에서 이루어집니다. 기록한 뒤 `202`로 답하고, 실행은 요청과 떨어져 돕니다.
+
+**Response (202):** `{ "success": true, "data": { "run_id": "20261101-091500-3fa2c1" } }`
+
+실행 ID는 `YYYYMMDD-HHMMSS-<6자리 hex>`(UTC)라 시작 순으로 정렬됩니다. 실행 기록에는 작업에 정의된 입력만 남습니다. 입력값은 모든 매니저에 복제되고 이 API가 돌려주므로 비밀을 넣지 마세요(감사 로그와 패널 로그에는 남지 않음).
+
+**에러 응답:** 미리 보기의 표에 더해
+| 코드 | HTTP 상태 | 조건 |
+|------|-----------|------|
+| `INVALID_REQUEST` | 400 | `confirmed`에 작업에 없는 단계 번호 |
+| `TASK_MANAGERS_NOT_READY` | 409 | 리더 말고 모든 매니저가 온라인이고 `tasks-v1`을 알려야 함. `details.managers`: 기다리는 매니저와 이유, 쉼표로 구분(`peer-2 (offline)`, `peer-3 (not heard from)`, `peer-4 (0.80.0)`) |
+| `TASK_NO_TARGETS` | 400 | 남는 노드가 없음 |
+| `TASK_TARGET_BUSY` | 409 | 남는 노드가 없고 그중 진행 중인 다른 실행이 잡은 노드가 있음, 또는 동시에 시작한 다른 실행이 먼저 기록됨 (`details.node_id`, `details.run_id`) |
+| `UPDATE_IN_PROGRESS` | 409 | 클러스터 업데이트가 진행 중 |
+| `CLUSTER_CA_ROTATING` | 409 | 클러스터 CA 교체가 진행 중 |
+| `TASK_CLUSTER_CHANGING` | 409 | 매니저를 에이전트로 전환하거나 에이전트를 승격하는 중 (`details.what`: `conversion` · `promotion`) |
+
+---
+
+### GET /api/v1/cluster/task-runs
+모든 실행의 머리(노드별 기록 없이), 최신순. 받은 매니저의 복제 상태에서 답합니다. 실행이 끝날 때마다 리더가 정리해 최근 200개와 진행 중인 실행이 모두 남습니다.
+
+---
+
+### GET /api/v1/cluster/task-runs/:id
+실행 하나: 머리와 노드별 기록.
+
+**Response (200):**
+```json
+{
+  "success": true,
+  "data": {
+    "run": {
+      "id": "20261101-091500-3fa2c1",
+      "task_id": "9c1e4b7a2d3f5e60",
+      "task_name": "web security updates",
+      "rev": "5d41…",
+      "inputs": { "service": "nginx" },
+      "nodes": ["node-a1", "node-a2", "node-m2", "node-m1"],
+      "waves": [["node-a1", "node-a2"], ["node-m2"], ["node-m1"]],
+      "confirmed": [1],
+      "batch": 2,
+      "stop_on_failure": true,
+      "status": "running",
+      "started_by": "admin",
+      "started_at": "2026-11-01T09:15:00Z"
+    },
+    "nodes": {
+      "node-a1": {
+        "status": "running",
+        "steps": [
+          { "status": "succeeded", "job_id": "20261101-091500-3fa2c1-0", "summary": "…", "changed": true,
+            "started_at": "2026-11-01T09:15:01Z", "ended_at": "2026-11-01T09:16:40Z" },
+          { "status": "running", "job_id": "20261101-091500-3fa2c1-1", "started_at": "2026-11-01T09:16:41Z" },
+          { "status": "pending" },
+          { "status": "pending" }
+        ]
+      },
+      "node-m1": { "status": "pending" }
+    }
+  }
+}
+```
+
+| 필드 | 설명 |
+|------|------|
+| `run.status` | `running`, `handing_over`(리더가 자기 차례에 리더십을 넘기는 중), `stopping`(중지 요청됨), 끝: `succeeded`, `failed`, `stopped` |
+| `run.reason` | 끝난 이유 또는 중지한 운영자(`stopped by <운영자>`), 정족수로 멈춘 경우 `quorum: …` |
+| `run.force` | 강제 중지 |
+| `run.rev` | 실행이 시작한 문서의 SHA-256. 작업을 고치거나 지워도 실행은 이 문서를 씀 |
+| `run.rerun_of`, `start_at` | 다시 실행이면 원래 실행 ID와 노드별 시작 단계(0부터) |
+| `run.ended_at` | 끝난 시각 |
+| `nodes.<id>.status` | `pending`, `running`, `succeeded`, `failed`, `skipped`(정족수), `unknown`(결과를 모름), `stopped`(중지되었거나 차례가 오기 전에 실행이 끝남) |
+| `nodes.<id>.reason` | 그 노드가 그렇게 끝난 이유 |
+| `steps[].status` | `pending`, `starting`(잡 ID를 기록하고 노드에 보내는 중), `running`, `succeeded`, `failed`, `skipped`(`summary`: `quorum` · `Proxmox host`), `unknown`, `cancelled`(강제 중지) |
+| `steps[].job_id` | 그 노드에서 그 단계를 돈 잡(`<실행 ID>-<단계>`) |
+| `steps[].summary` | 노드의 한 줄 요약(200바이트까지). 다시 실행에서 건너뛴 단계는 `succeeded in run <ID>` |
+| `steps[].changed` | 노드에서 무언가 바뀌었는지(명령은 늘 `true`, 내용·모드·소유자가 같았던 파일은 `false` 등) |
+
+**에러 응답:**
+| 코드 | HTTP 상태 | 조건 |
+|------|-----------|------|
+| `TASK_RUN_NOT_FOUND` | 404 | 그런 실행이 없음(지워졌거나 잘못된 ID) |
+
+---
+
+### GET /api/v1/cluster/task-runs/:id/stream
+실행의 진행을 SSE로 보냅니다. 받은 매니저가 자기 복제 상태에서 1초마다 읽어 바뀐 것만 보내며, 리더로 전달하지 않으므로 리더가 바뀌어도 이어집니다. 처음에 `snapshot`, 그다음 바뀐 노드 기록마다 `node`, 머리가 바뀌면 `run`, 15초 동안 보낼 것이 없으면 `: keepalive`, 실행이 끝나면(또는 기록이 지워지면) `end`를 보내고 닫습니다. 다시 붙으면 `snapshot`부터 다시 받습니다. 패널이 종료될 때는 스트림을 끊습니다. 이벤트 형식은 `docs/specs/websocket-spec.md`의 SSE 절을 보세요.
+
+- **응답 형식**: `text/event-stream` (SSE)
+
+**에러 응답 (스트림 시작 전):**
+| 코드 | HTTP 상태 | 조건 |
+|------|-----------|------|
+| `TASK_RUN_NOT_FOUND` | 404 | 그런 실행이 없음 |
+
+---
+
+### POST /api/v1/cluster/task-runs/:id/stop
+실행을 멈춥니다(리더). 새 단계를 시작하지 않고, 돌고 있는 잡은 노드에서 끝까지 돌게 둡니다. `force`면 돌고 있는 명령 잡을 취소하고(일시 유닛을 멈춤) 아직 일어나지 않은 재부팅을 취소합니다. 패키지·서비스·파일·스택 단계는 강제 중지에도 끝까지 돕니다(apt를 끊으면 dpkg가 깨질 수 있음). 이미 `stopping`인 실행에 `force`를 보내면 강제 중지가 되고, 끝난 실행은 그대로 답합니다.
+
+**Request Body** (생략 가능): `{ "force": true }`
+
+**Response (200):** 실행의 머리(`GET /cluster/task-runs/:id`의 `run`). 방금 멈춘 실행은 `status: "stopping"`, `reason: "stopped by <운영자>"`.
+
+**에러 응답:**
+| 코드 | HTTP 상태 | 조건 |
+|------|-----------|------|
+| `INVALID_REQUEST` | 400 | 읽을 수 없는 본문 |
+| `TASK_RUN_NOT_FOUND` | 404 | 그런 실행이 없음 |
+
+---
+
+### POST /api/v1/cluster/task-runs/:id/rerun
+끝난 실행을 고른 노드에 대해 새 실행으로 다시 돌립니다(리더). 원래 실행이 시작한 문서(지금의 작업이 아님)와 입력값, 확인한 단계, 물결 순서를 그대로 씁니다. 노드마다 **성공하지 못한 첫 단계부터** 돌고, 그 앞 단계는 `succeeded in run <원래 ID>`로 기록됩니다. 모든 단계가 성공한 노드는 처음부터 돕니다. 새 실행은 `POST /cluster/task-runs`와 같은 관문을 거칩니다.
+
+- `?only=failed`: 성공하지 않은 모든 노드(실패·결과 모름·건너뜀·중지·시작 못 함). 본문은 읽지 않음
+- 없으면 본문 `{ "nodes": ["node-a2", "node-a3"] }` — 원래 실행이 돌지 않은 ID는 버림
+
+**Response (202):** `{ "success": true, "data": { "run_id": "20261101-093000-77c0d4" } }`
+
+**에러 응답:**
+| 코드 | HTTP 상태 | 조건 |
+|------|-----------|------|
+| `INVALID_REQUEST` | 400 | `only`가 `failed`가 아님, 읽을 수 없는 본문 |
+| `TASK_RUN_NOT_FOUND` | 404 | 그런 실행이 없음 |
+| `TASK_RUN_ACTIVE` | 409 | 원래 실행이 아직 진행 중 (`details.run_id`) |
+| `TASK_NO_TARGETS` | 400 | 고른 노드가 원래 실행에 없거나, `only=failed`인데 모두 성공함 |
+| `TASK_MANAGERS_NOT_READY` · `TASK_TARGET_BUSY` · `UPDATE_IN_PROGRESS` · `CLUSTER_CA_ROTATING` · `TASK_CLUSTER_CHANGING` | 409 | `POST /cluster/task-runs`와 같음 |
+
+---
+
+### GET /api/v1/cluster/task-runs/:id/nodes/:node/steps/:n/output
+한 노드에서 한 단계(`:n`, 0부터)를 돈 잡의 상태와 출력. 출력은 노드에만 있어 받은 매니저가 그 노드에 기록된 잡 ID로 묻습니다. `?skip=<바이트>`부터 최대 256 KiB를 주며, 다음에 물을 위치가 `next_skip`, 출력이 다 왔으면 `done: true`입니다. 출력은 로그처럼 걸러지고(`SanitizeLog`), 조각 경계는 글자·이스케이프 시퀀스·비밀을 가르지 않습니다.
+
+**Response (200):**
+```json
+{
+  "success": true,
+  "data": {
+    "id": "20261101-091500-3fa2c1-2",
+    "run_id": "20261101-091500-3fa2c1",
+    "kind": "command",
+    "status": "succeeded",
+    "changed": true,
+    "exit_code": 0,
+    "summary": "exit 0",
+    "output": "syntax is ok\n[sfpanel-task] exit=0\n",
+    "next_skip": 35,
+    "done": true,
+    "started_at": "2026-11-01T09:17:02Z",
+    "ended_at": "2026-11-01T09:17:03Z"
+  }
+}
+```
+
+잡 `status`: `running`, `rebooting`(재부팅을 예약하고 다음 부팅을 기다림), `succeeded`, `failed`, `interrupted`(패널이 멈춰 결과를 모름), `cancelled`.
+
+**에러 응답:**
+| 코드 | HTTP 상태 | 조건 |
+|------|-----------|------|
+| `INVALID_REQUEST` | 400 | 잘못된 단계 번호나 `skip` |
+| `TASK_RUN_NOT_FOUND` | 404 | 그런 실행이 없음 |
+| `TASK_JOB_NOT_FOUND` | 404 | 그 노드에서 그 단계를 돈 잡이 없음(이 매니저가 답함), 또는 노드가 잡을 이미 정리함(노드의 답 — 노드는 잡을 최근 200개, 30일까지 둠) |
+| `CLUSTER_NODE_UNREACHABLE` | 502 | 노드가 답하지 않음 (`details.name`) |
+
+---
+
+### 노드의 작업 잡 (`/api/v1/task-jobs`, 클러스터 내부)
+
+리더의 실행 엔진이 단계 하나를 노드에 "작업 잡"으로 보내는 라우트입니다. 매니저와 에이전트 모두에 있으며 노드 간 서명(`X-SFPanel-Internal-Proxy-V2`)이 있는 요청만 받습니다 — 운영자의 세션은 `403 TASK_JOB_CLUSTER_ONLY`. 매니저는 브라우저의 `?node=` 요청을 이 라우트로 중계하지 않고 같은 코드로 거부합니다: 실행의 관문과 감사를 건너뛰어 단계를 돌리지 못하게 하기 위해서입니다. 노드는 한 번에 잡 하나만 돌리고(`running`·`rebooting`인 잡이 노드를 잡으며, 기록이 `task_jobs` 표에 있어 패널 재시작에도 유지), 같은 잡 ID는 다시 만들지 않습니다. 잡 종류별 동작은 `docs/specs/cluster-ops.md`의 "The node's side: one job at a time"를 보세요.
+
+| 메서드 | 경로 | 설명 |
+|--------|------|------|
+| POST | `/api/v1/task-jobs` | 잡 시작. 본문은 리더가 노드에 맞게 채운 단계(`tasks.JobSpec`: `id`=`<실행 ID>-<단계>`, `run_id`, `task`, `step`, `kind`, `confirmed`, 그리고 `kind`와 같은 이름의 설정 하나). 새 ID면 `201`, 이미 있는 ID면 `200`과 그 잡 |
+| POST | `/api/v1/task-jobs/check` | 미리 보기의 판정. 본문은 `JobSpec` 배열(50개까지), 답은 단계마다 `{step, refused, needs_confirm, code, reason}` |
+| GET | `/api/v1/task-jobs/:id?skip=` | 잡의 상태와 `skip` 바이트부터의 출력(위 출력 라우트와 같은 모양) |
+| POST | `/api/v1/task-jobs/:id/cancel` | `{ "force": true }`일 때만 돌고 있는 잡을 취소. 끝난 잡은 그대로 답함 |
+
+**에러 응답:**
+| 코드 | HTTP 상태 | 조건 |
+|------|-----------|------|
+| `TASK_JOB_CLUSTER_ONLY` | 403 | 노드 간 서명이 없음, 또는 매니저가 `?node=` 중계를 거부 |
+| `INVALID_REQUEST` | 400 | 잡 ID 형식, ID와 실행·단계 불일치, 단계 번호, 작업 이름 없음, 이 노드가 돌리지 않는 종류, 종류와 설정 불일치, `skip`, 판정 요청의 단계 50개 초과 |
+| `TASK_NODE_BUSY` | 409 | 다른 잡이 노드를 잡고 있음 (`details.job_id`, `run_id`, `task`) |
+| `TASK_REBOOT_PVE_HOST` | 409 | Proxmox VE 호스트에 보낸 재부팅 단계. 기록하기 전에 거부(필요 여부와 상관없이) |
+| `TASK_REBOOT_UNSUPPORTED` | 409 | 재부팅을 예약해야 하는데 systemd가 없음 |
+| `TASK_JOB_NOT_FOUND` | 404 | 그런 잡이 없음(시작된 적 없거나 정리됨) |
+| `TASK_JOB_RUNNING` | 409 | `force` 없이 돌고 있는 잡을 취소 |
+| `DB_ERROR` | 500 | 잡 기록을 읽거나 쓰지 못함 |
+| `INTERNAL_ERROR` | 500 | 잡 로그 파일을 만들지 못함 |
+
+---
+
+### 그룹 작업 오류 코드
+
+| 코드 | HTTP 상태 | details | 의미 |
+|------|-----------|---------|------|
+| `TASK_INVALID` | 400 | — | 작업 문서에 문제가 있음. 저장·수정의 문제 목록은 `data.problems` |
+| `TASK_TOO_LARGE` | 400 | `max_kib` | 문서가 64 KiB 초과 |
+| `TASK_NAME_TAKEN` | 409 | — | 다른 작업(저장된 것이나 내장)이 같은 이름 |
+| `TASK_NOT_FOUND` | 404 | — | 그런 작업이 없음 |
+| `TASK_READ_ONLY` | 409 | — | 내장 작업의 수정·삭제, Git에서 가져온 작업의 수정 |
+| `TASK_RUN_NOT_FOUND` | 404 | — | 그런 실행이 없음 |
+| `TASK_MANAGERS_NOT_READY` | 409 | `managers` | 모든 매니저가 `tasks-v1`을 알리기를 기다림 |
+| `TASK_INPUT_MISSING` | 400 | `input` | 필수 입력에 값도 기본값도 없음 |
+| `TASK_NO_TARGETS` | 400 | — | 실행이 돌릴 노드가 없음 |
+| `TASK_TOO_MANY_TARGETS` | 400 | `max` | 대상이 200대 초과 |
+| `TASK_TARGET_BUSY` | 409 | `node_id`, `run_id` | 진행 중인 다른 실행이 그 노드를 잡고 있음 |
+| `TASK_CLUSTER_CHANGING` | 409 | `what` | 전환(`conversion`)이나 승격(`promotion`)이 진행 중이라 실행을 시작하지 않음 |
+| `TASK_RUN_ACTIVE` | 409 | `run_id` | 그룹 작업 실행이 진행 중: 클러스터 업데이트·CA 교체·전환·승격을 시작하지 않음, 또는 진행 중인 실행을 다시 실행하려 함 |
+| `TASK_JOB_CLUSTER_ONLY` | 403 | — | 노드의 작업 잡 라우트에 서명 없는 요청이나 `?node=` 중계 |
+| `TASK_NODE_BUSY` | 409 | `job_id`, `run_id`, `task` | 노드가 다른 잡을 돌리는 중. 실행은 그 노드를 실패로 기록하고 이유에 그 잡을 적음 |
+| `TASK_JOB_NOT_FOUND` | 404 | — | 노드에 그 잡이 없음. 실행은 그 단계를 결과 모름(`unknown`)으로 기록하고 다시 시작하지 않음 |
+| `TASK_JOB_RUNNING` | 409 | — | 돌고 있는 잡을 `force` 없이 취소 |
+| `TASK_REBOOT_PVE_HOST` | 409 | — | Proxmox VE 호스트의 재부팅 거부. 실행은 그 단계를 건너뜀(`Proxmox host`)으로 기록하고 다음 단계로 감 |
+| `TASK_REBOOT_UNSUPPORTED` | 409 | — | systemd가 없는 노드라 재부팅을 예약하지 못함. 그 단계는 실패 |
 
 ---
 
@@ -6519,6 +6973,38 @@ WireGuard 키페어 생성 (`wg genkey` + `wg pubkey`).
 | POST | `/api/v1/cluster/rotate/ca/abort` | O | CA 교체 중단 — `promote` 전까지만 (202) |
 | GET | `/api/v1/cluster/rotation` | O | 비밀 교체의 노드별 상태 (리더가 답함, 비밀은 싣지 않음) |
 
+### 그룹 작업 (14개)
+
+매니저 전용. 쓰기와 미리 보기는 리더가 처리하고(팔로워는 전달), 나머지는 받은 매니저가 자기 복제 상태에서 답한다. 상세는 위의 "그룹 작업 API".
+
+| 메서드 | 경로 | 인증 | 설명 |
+|--------|------|------|------|
+| GET | `/api/v1/cluster/tasks` | O | 작업 목록 (내장 작업 먼저, 읽기 전용 표시) |
+| POST | `/api/v1/cluster/tasks` | O | 작업 저장 (리더, `{yaml}`) |
+| POST | `/api/v1/cluster/tasks/validate` | O | 작업 문서 검사 — 줄 번호가 붙은 문제 목록 |
+| GET | `/api/v1/cluster/tasks/:id` | O | 작업 하나 (문서와 파싱 결과) |
+| PUT | `/api/v1/cluster/tasks/:id` | O | 작업 수정 (리더, 내장·Git 작업은 409) |
+| DELETE | `/api/v1/cluster/tasks/:id` | O | 작업 삭제 (리더, 내장 작업은 409) |
+| POST | `/api/v1/cluster/task-runs/plan` | O | 미리 보기 — 순서, 빠지는 대상과 이유, 노드별 판정 (리더, 아무것도 기록하지 않음) |
+| POST | `/api/v1/cluster/task-runs` | O | 실행 시작 (202, 리더) |
+| GET | `/api/v1/cluster/task-runs` | O | 실행 목록 (최신순) |
+| GET | `/api/v1/cluster/task-runs/:id` | O | 실행 하나 (머리 + 노드별 기록) |
+| GET | `/api/v1/cluster/task-runs/:id/stream` | O | 실행 진행 (SSE, 어느 매니저든 답함) |
+| POST | `/api/v1/cluster/task-runs/:id/stop` | O | 중지 (리더, `{force}`) |
+| POST | `/api/v1/cluster/task-runs/:id/rerun` | O | 다시 실행 (202, 리더, `?only=failed` 또는 `{nodes}`) |
+| GET | `/api/v1/cluster/task-runs/:id/nodes/:node/steps/:n/output` | O | 한 노드의 한 단계 출력 (`?skip=`, 노드에 물어 가져옴) |
+
+### 작업 잡 (4개)
+
+매니저와 에이전트 모두. 리더의 실행 엔진이 부르며 `?node=` 중계는 거부한다.
+
+| 메서드 | 경로 | 인증 | 설명 |
+|--------|------|------|------|
+| POST | `/api/v1/task-jobs` | 내부 | 단계 하나를 잡으로 시작 (새 ID는 201, 있는 ID는 200, 노드당 한 번에 하나) |
+| POST | `/api/v1/task-jobs/check` | 내부 | 미리 보기의 단계별 판정 |
+| GET | `/api/v1/task-jobs/:id` | 내부 | 잡 상태와 출력 조각 (`?skip=`) |
+| POST | `/api/v1/task-jobs/:id/cancel` | 내부 | 잡 취소 (`force`일 때만) |
+
 ### 알림 시스템 (11개)
 
 | 메서드 | 경로 | 인증 | 설명 |
@@ -6540,7 +7026,7 @@ WireGuard 키페어 생성 (`wg genkey` + `wg pubkey`).
 - **규칙** (`alert_rules`): `{ id, name, type, condition(JSON), channel_ids(JSON 배열), severity:"info"|"warning"|"critical", cooldown(초), node_scope:"all"|"specific", node_ids(JSON), enabled, evaluated }`. `type`은 호스트형(`cpu`/`memory`/`disk`)이면 `condition={"operator":">","threshold":90}`, 컨테이너형(`container_down`/`container_oom`/`container_restart_loop`/`container_unhealthy`)이면 `condition={"container_pattern":"*","threshold_count":N,"window_seconds":N}`. `container_down`은 요청한 정지(die 전 60초 안에, 마지막 start 뒤에 kill 이벤트가 있는 경우 — docker stop·kill·restart, rm -f, compose stop·down, 패널 버튼)는 알리지 않으며 `condition`에 `"include_intentional_stops":true`가 있으면 그것도 알립니다(#135). `container_restart_loop`은 window 안의 비정상 종료(요청한 정지가 아닌 die) 횟수를 셉니다 — Docker는 재시작 정책으로 되살릴 때 `restart` 이벤트를 보내지 않습니다. 쿨다운은 컨테이너형이면 규칙×컨테이너 단위입니다. 평가되는 타입은 이 7개가 전부이고, 생성·수정은 다른 `type`을 `400 ALERT_RULE_TYPE_NOT_EVALUATED`(details `type`)로 거부합니다. v0.78.19까지는 화면이 `service`/`login`/`package`도 내놓고 서버가 그대로 저장했지만, 그 타입은 아무것도 평가하지 않아 알림이 한 번도 가지 않았습니다(#132). 그렇게 저장된 규칙은 목록에 `evaluated: false`로 나오고 삭제만 됩니다 — 수정은 `enabled`만 바꾸는 것까지 같은 코드로 거부합니다. `container_oom` 규칙은 보낸 `severity`와 상관없이 항상 `critical`로 발송되므로, 저장과 목록도 `critical`입니다(전에는 보낸 값을 저장·표시하고 발송만 `critical`이었음). `node_scope`는 `all` 또는 `specific`이고, `specific`이면 `node_ids`에 노드가 하나 이상 있어야 합니다. 아니면 생성과, 범위를 바꾸는 수정이 `400 INVALID_VALUE`로 거부됩니다 — 클러스터에서는 그런 규칙을 모든 노드가 건너뛰어, 화면에서 노드를 고르지 않고 저장한 규칙이 활성으로 표시된 채 발송되지 않았습니다.
 - **이력** (`alert_history`): `GET`은 `?page=&limit=` 페이지네이션 → `{items[], total, page, limit}`. 각 항목 `{ rule_id, rule_name, type, severity, message, sent_channels(JSON), created_at }`. `DELETE`는 전체 삭제.
 
-### SSE 스트리밍 (13개)
+### SSE 스트리밍 (14개)
 
 위 표들의 라우트 중 `Content-Type: text/event-stream`으로 응답하는 엔드포인트 목록. 자세한 이벤트 스키마는 `docs/specs/websocket-spec.md` 참조.
 
@@ -6559,6 +7045,7 @@ WireGuard 키페어 생성 (`wg genkey` + `wg pubkey`).
 | POST | `/api/v1/cluster/update` | 클러스터 멀티노드 업데이트 |
 | POST | `/api/v1/docker/compose/:project/migrate` | 노드 간 스택 이관 |
 | POST | `/api/v1/docker/compose/:project/migrate-source` | 이관의 원본 세션 (클러스터 내부) |
+| GET | `/api/v1/cluster/task-runs/:id/stream` | 그룹 작업 실행의 진행 (어느 매니저든 자기 복제 상태에서 답함) |
 
 ### WebSocket (7개)
 

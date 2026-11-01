@@ -344,6 +344,7 @@
     | 클러스터 CA (`rotate ca`) | FSM `cluster_ca_rotation` 기록과 `cluster_ca_next_*`. `trust`(두 CA 신뢰) → `reissue`(매니저는 직접, 에이전트는 gRPC `RenewCertificate`로 새 인증서) → `promote`(이전 CA 제외) → `done`. 신뢰는 핸드셰이크마다 `ca.crt`를 다시 읽음 | 모든 노드가 온라인이어야 시작. 단계마다 노드의 보고와 리더가 하트비트 연결에서 본 인증서로 판단. `trust`·`reissue`는 기한(기본 30분)이 지나면 현재 CA로 되돌아감, `promote` 뒤에는 되돌리기 없음. 진행 중 가입·등록·전환·승격·토큰·클러스터 업데이트 거부(토큰·업데이트는 `409 CLUSTER_CA_ROTATING`) |
 
     계정 비밀(비밀번호 해시·TOTP 비밀·복구 코드)은 교체하지 않는다 — 운영자가 JWT 교체 뒤 비밀번호를 바꾸고 2FA를 다시 등록하고 복구 코드를 새로 만든다
+  - **그룹 작업** (`/cluster/tasks`·`/cluster/task-runs`, 리더가 실행, 아직 화면·CLI 없음): YAML 작업 하나(64 KiB, 단계 50개 — `packages`·`service`·`command`·`file`·`stack`·`reboot`, 입력값과 `{{ node.name }}`·`{{ node.address }}` 채우기, 명령에는 셸 인용)를 대상(라벨 `group`·노드 종류·노드 ID, 200대까지)에 돌린다. 순서는 에이전트를 `batch`대씩 → 다른 매니저 한 대씩 → 리더(다른 매니저 투표자에게 리더십을 넘긴 뒤, 새 리더가 실행을 이어받음). 정의와 실행 기록(최근 200개)은 FSM 설정 키(`task/`·`taskrev/`·`taskrun/`)라 어느 매니저든 같은 기록을 답하고, 새 리더는 기록된 잡 ID로 이어받아 같은 잡을 두 번 시작하지 않는다. 노드 쪽은 `/api/v1/task-jobs`(매니저·에이전트, 서명된 클러스터 호출만): 노드당 잡 하나, 명령은 일시 유닛 `sfpanel-task-<id>.service`(`RuntimeMaxSec`), 패키지는 패키지 화면의 거래, 서비스·파일·스택은 각 엔드포인트의 가드를 그대로 거친다. 기록은 노드의 `task_jobs` 표, 출력은 `/var/log/sfpanel/task-jobs/<id>.log`(최근 200개·30일). 실패한 단계는 그 노드를 멈추고(`continue_on_error` 제외) `stop_on_failure`면 다음 묶음을 시작하지 않으며, 중지는 새 단계만 막는다(강제 중지는 명령 잡과 아직 일어나지 않은 재부팅을 취소). 매니저 재부팅은 정족수가 남을 때만, Proxmox VE 호스트의 재부팅은 건너뜀. 실행 중에는 클러스터 업데이트·CA 교체·전환·승격이 `409 TASK_RUN_ACTIVE`, 대상이 겹치는 실행은 `409 TASK_TARGET_BUSY`. 하트비트 능력 `tasks-v1`이 없는 노드는 빠지고, 모든 매니저가 알려야 실행된다(`TASK_MANAGERS_NOT_READY`). 리더는 실행의 시작·끝을 운영자 이름으로 감사 로그에 남긴다. 실패한 노드만 다시 실행하면 성공하지 못한 첫 단계부터 돈다. 운영 절차는 `cluster-ops.md`의 "Group tasks"
   - **CLI 명령어**: `sfpanel cluster init/join/leave/status/token/remove/convert/promote/rotate/list/leader-transfer/reissue-cert` (`cluster token --agent`는 에이전트 토큰, `cluster rotate jwt|proxy|agent-keys|ca|abort|status`는 비밀 교체), 에이전트 쪽은 `sfpanel agent join/status/reset`
   - **웹 UI API**: 클러스터 초기화/참여/탈퇴/해산/업데이트 REST API (~15개 엔드포인트)
 - **패키지 레이아웃**: `internal/cluster/` — `manager.go`, `raft_fsm.go`, `grpc_server.go`, `join.go`, `detect.go`, `tls.go`, `token.go`, `ws_relay.go` 외 다수. proto는 `proto/cluster.proto`, 생성물 `proto/cluster.pb.go` / `proto/cluster_grpc.pb.go`
@@ -841,6 +842,7 @@ SQLite (WAL 모드, busy_timeout 5000ms, `SetMaxOpenConns(4)`, 추가 프래그�
 | `POST /api/v1/ai/tools/:tool/install-stream` · `update-stream` | AI CLI 설치/업데이트 (계정별) | 평문 라인 + `[DONE]` |
 | `POST /api/v1/network/tailscale/install` | Tailscale 설치 | 평문 라인 + `[DONE]` |
 | `POST /api/v1/cluster/update` | 멀티노드 업데이트 오케스트레이션 | JSON — `{overall, …}` 실행 상태, `{wave, waves, nodes}` 물결, `{node_id, node_name, step, message}` 노드 |
+| `GET /api/v1/cluster/task-runs/:id/stream` | 그룹 작업 실행의 진행 (어느 매니저든 답함) | JSON `{type}` — `snapshot` / `node` / `run` / `end`, 15초 `: keepalive` |
 
 ### API 응답 형식
 

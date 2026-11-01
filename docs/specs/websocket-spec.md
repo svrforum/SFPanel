@@ -702,7 +702,7 @@ go func() {
 
 ## Server-Sent Events (SSE) 스트리밍
 
-WebSocket 외에 **단방향 진행률 푸시** 용도로 SSE 엔드포인트 13개가 존재한다. REST API와 달리 `Content-Type: text/event-stream`을 반환하고, 장시간 실행되는 명령(설치, 업데이트, 이미지 풀 등)의 출력을 라인 단위로 스트리밍한다.
+WebSocket 외에 **단방향 진행률 푸시** 용도로 SSE 엔드포인트 14개가 존재한다. REST API와 달리 `Content-Type: text/event-stream`을 반환하고, 장시간 실행되는 명령(설치, 업데이트, 이미지 풀 등)의 출력을 라인 단위로 스트리밍한다.
 
 ### 인증
 
@@ -732,6 +732,7 @@ WebSocket 외에 **단방향 진행률 푸시** 용도로 SSE 엔드포인트 13
 | `/api/v1/cluster/update` | POST | 클러스터 멀티노드 업데이트 오케스트레이션 (에이전트 물결 → 다른 매니저 한 대씩 → 리더) | JSON — 시작 `{"overall":"started","mode","total_nodes","waves","target"}`, 물결마다 `{"wave","waves","nodes"}`, 노드마다 `{node_id, node_name, step, message}` (step: `skipped` / `updating` / `waiting` / `online` / `transfer` / `error`), 끝 `{"overall":"complete","updated","failed","leader_restarting"}` 또는 `{"overall":"error","message",...}` |
 | `/api/v1/docker/compose/:project/migrate` | POST | 스택 노드 간 콜드 이관 (소스 정지 → 패키징 → 전송 → disposition). 에이전트의 스택은 요청을 받은 매니저가 중개 | JSON `{phase, message, done}` — phase: `preflight` / `quiesce` / `package` / `transfer` / `finalize` / 종료 `done`; 실패 시 `rollback`(소스 복구 후) 또는 `error` |
 | `/api/v1/docker/compose/:project/migrate-source` | POST | **클러스터 내부 전용** — 매니저가 이끄는 이관의 원본 세션 (정지 → 포장 → `ready` → 매니저의 결과를 기다림 → disposition 또는 되돌리기) | `/migrate`와 같은 JSON, 번들이 준비되면 `{"phase":"ready","session","sha256","bytes","done":false}` |
+| `/api/v1/cluster/task-runs/:id/stream` | GET | 그룹 작업 실행의 진행. 매니저 전용, 받은 매니저가 자기 복제 상태에서 답함(리더로 전달하지 않음) | JSON — 처음 `{"type":"snapshot","run","nodes"}`, 그 뒤 `{"type":"node","node_id","record"}`·`{"type":"run","run"}`, 끝 `{"type":"end"}`. 15초 무출력 시 `: keepalive` |
 
 ### 메시지 예시
 
@@ -817,9 +818,29 @@ data: {"phase":"ready","session":"5f0c…e9a1","sha256":"9b2d…","bytes":214748
 ```
 결과가 `imported`면 disposition을 적용해 `done`으로, `failed`면 스택을 다시 켜 `rollback`으로, `unknown`이면 멈춘 채 `error`로 끝난다. 결과 없이 스트림이 끝나거나 2시간이 지나면 번들이 통째로 나간 적이 없을 때만 다시 켜고, 나갔으면 대상에서 스택이 돌 수 있으므로 멈춘 채 `error`로 끝난다(REST 스펙의 `POST /docker/compose/:project/migrate-source` 참조).
 
+`/api/v1/cluster/task-runs/:id/stream` (그룹 작업 실행, 에이전트 둘을 한 물결로):
+```
+data: {"type":"snapshot","run":{"id":"20261101-091500-3fa2c1","task_name":"web security updates","status":"running","waves":[["node-a1","node-a2"],["node-m2"],["node-m1"]],…},"nodes":{"node-a1":{"status":"pending"},"node-a2":{"status":"pending"},"node-m1":{"status":"pending"},"node-m2":{"status":"pending"}}}
+
+data: {"type":"node","node_id":"node-a1","record":{"status":"running","steps":[{"status":"starting","job_id":"20261101-091500-3fa2c1-0","started_at":"2026-11-01T09:15:01Z"},{"status":"pending"}]}}
+
+data: {"type":"node","node_id":"node-a1","record":{"status":"succeeded","steps":[{"status":"succeeded","job_id":"20261101-091500-3fa2c1-0","summary":"exit 0","changed":true,…},{"status":"succeeded",…}]}}
+
+: keepalive
+
+data: {"type":"run","run":{"id":"20261101-091500-3fa2c1","status":"succeeded","ended_at":"2026-11-01T09:21:40Z",…}}
+
+data: {"type":"end"}
+```
+
+- 받은 매니저가 자기 복제 상태를 1초마다 읽어, 바뀐 노드 기록마다 `node`(노드 ID순), 그다음 머리가 바뀌었으면 `run`을 보낸다. 레코드 모양은 REST 스펙의 `GET /cluster/task-runs/:id`와 같다.
+- 실행이 끝나 있으면 `snapshot` 바로 뒤에 `end`가 온다. 기록이 정리되어 사라져도 `end`로 끝난다. 없는 실행은 스트림을 열기 전에 `404 TASK_RUN_NOT_FOUND`(JSON).
+- 리더로 전달하지 않으므로 리더가 바뀌어도 끊기지 않는다. 받은 매니저가 재시작해 끊기면 다른 매니저(또는 같은 매니저)에서 다시 열어 `snapshot`부터 받는다. 패널이 종료될 때는 이 스트림을 끊는다(`isStreamingEndpoint`).
+- 노드의 출력은 스트림에 없다. 단계마다 `GET /cluster/task-runs/:id/nodes/:node/steps/:n/output?skip=`으로 노드에서 가져온다.
+
 ### 클러스터 프록시
 
-SSE 엔드포인트에 `?node=X`가 오면 `ClusterProxyMiddleware`가 gRPC 프록시 대신 **HTTP 직접 릴레이**로 처리한다 (스트리밍 특성 때문에 gRPC 단일-응답 모델이 맞지 않음). 타임아웃 5분, `/cluster/update`와 스택 이관(`/migrate`, 원본 세션 `/migrate-source`)은 2시간 — 모든 물결과 매니저를 거치는 클러스터 업데이트와 큰 이관은 5분을 넘기고, 원본 세션은 전송이 끝날 때까지 결과를 기다린다 (`config.yaml` 조정 불가, 코드에 고정 — `proxy.go`의 `relayWindowFor`). 릴레이 식별은 경로의 `-stream` 접미사 또는 `/system/update`, `/appstore/.../install` 같은 화이트리스트. 예외로 `?node=`가 에이전트인 `/migrate`(와 `/migrate/preflight`)는 중계하지 않고 요청을 받은 매니저가 실행한다 — 에이전트는 다른 노드로 보낼 수 없으므로 매니저가 그 스택을 중개한다.
+SSE 엔드포인트에 `?node=X`가 오면 `ClusterProxyMiddleware`가 gRPC 프록시 대신 **HTTP 직접 릴레이**로 처리한다 (스트리밍 특성 때문에 gRPC 단일-응답 모델이 맞지 않음). 타임아웃 5분, `/cluster/update`와 스택 이관(`/migrate`, 원본 세션 `/migrate-source`)은 2시간 — 모든 물결과 매니저를 거치는 클러스터 업데이트와 큰 이관은 5분을 넘기고, 원본 세션은 전송이 끝날 때까지 결과를 기다린다 (`config.yaml` 조정 불가, 코드에 고정 — `proxy.go`의 `relayWindowFor`). 릴레이 식별은 경로의 `-stream` 접미사 또는 `/system/update`, `/appstore/.../install` 같은 화이트리스트. 예외로 `?node=`가 에이전트인 `/migrate`(와 `/migrate/preflight`)는 중계하지 않고 요청을 받은 매니저가 실행한다 — 에이전트는 다른 노드로 보낼 수 없으므로 매니저가 그 스택을 중개한다. 그룹 작업 실행 스트림(`/cluster/task-runs/:id/stream`)은 어느 매니저든 답하므로 `?node=`가 필요 없다. 붙이면 다른 SSE처럼 5분 릴레이로 그 매니저에 간다.
 
 ### 프론트엔드 소비
 

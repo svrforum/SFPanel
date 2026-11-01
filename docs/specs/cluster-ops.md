@@ -273,14 +273,16 @@ itself:
   until it is back. Wait for it, or remove it, rotate, and join its
   replacement with the new fingerprint.
 - **Also refused at the start:** a CA rotation under way, a cluster update
-  running (`409 UPDATE_IN_PROGRESS`), and a switch of the internal proxy
-  secret to the replicated one less than five minutes old — the secret it
-  replaced was derived from `ca.crt`.
-- **While it runs, nothing joins or updates.** Join tokens and cluster
-  updates are refused with `409 CLUSTER_CA_ROTATING`, conversions and
-  promotions with their own `409`, and joins and agent registrations with
-  the rotation's message. `sfpanel cluster reissue-cert` refuses on a node
-  whose `ca.crt` holds two CAs.
+  running (`409 UPDATE_IN_PROGRESS`), a group task run under way
+  (`409 TASK_RUN_ACTIVE`: its calls ride on the certificates a rotation
+  reissues), and a switch of the internal proxy secret to the replicated one
+  less than five minutes old — the secret it replaced was derived from
+  `ca.crt`.
+- **While it runs, nothing joins or updates.** Join tokens, cluster updates
+  and group task runs are refused with `409 CLUSTER_CA_ROTATING`,
+  conversions and promotions with their own `409`, and joins and agent
+  registrations with the rotation's message. `sfpanel cluster reissue-cert`
+  refuses on a node whose `ca.crt` holds two CAs.
 - **After it,** make new join commands (`sudo sfpanel cluster token`). Every
   one printed before carries the old CA's fingerprint, and a join with it is
   refused (`the CA fingerprint does not match …`).
@@ -369,7 +371,8 @@ not asked, and one the leader's heartbeats show offline is skipped.
   `409 UPDATE_IN_PROGRESS`. None starts while a CA rotation is under way
   (`409 CLUSTER_CA_ROTATING`), and a CA rotation does not start during an
   update: a node an update restarts would come back on whatever its disk
-  held.
+  held. None starts while a group task run is under way either
+  (`409 TASK_RUN_ACTIVE`, § Group tasks), and no run starts during an update.
 - The leader sends the release it looked up to every node with the request,
   so a run asks GitHub's API once however many nodes it updates: the API
   allows sixty unauthenticated requests an hour per address. A node takes
@@ -1076,6 +1079,9 @@ leader, which runs it.
 - The leader can sign certificates: it holds the CA key, on disk or in
   replicated state.
 - No CA rotation is under way.
+- No group task run is under way (`409 TASK_RUN_ACTIVE`, with the run's ID:
+  the node would leave Raft and restart under the run's steps). While a
+  conversion is being started, no run starts (`409 TASK_CLUSTER_CHANGING`).
 
 A leader starts one conversion at a time.
 
@@ -1165,6 +1171,9 @@ labels and join time. Any manager takes the request to the leader.
 cluster has room for another manager (32); the leader can sign certificates;
 the cluster has the agent at an IP and a port, which the token is bound to;
 and no CA rotation is under way. A refusal is `409 CLUSTER_PROMOTE_REFUSED`, nothing having changed.
+No group task run may be under way either (`409 TASK_RUN_ACTIVE`, with the
+run's ID: the agent restarts as a manager), and while a promotion is being
+started no run starts (`409 TASK_CLUSTER_CHANGING`).
 
 **Steps.**
 
@@ -1223,6 +1232,315 @@ the leader listing a manager the server is not. Remove the node on a manager
 (`sudo sfpanel cluster remove <node-id>`); on the server,
 `sudo sfpanel agent reset --yes` makes it a standalone panel, which can then
 join again.
+
+---
+
+## Group tasks
+
+A group task runs the same steps on a set of nodes: refresh and upgrade
+packages, restart a service, run a command, write a file, deploy a stack,
+reboot when one is needed. The leader runs it, node by node, and keeps the
+record in replicated state, so a run goes on when the browser that started it
+closes and when the leader changes. There is no screen or CLI for it yet; it
+is the `/api/v1/cluster/tasks` and `/api/v1/cluster/task-runs` routes in
+`api-spec.md` ("그룹 작업 API").
+
+### The task document
+
+A task is one YAML document, checked in full when it is saved or validated:
+every problem comes back with its line.
+
+```yaml
+name: web security updates        # required; no other task, stored or built in, may have it
+description: refresh, upgrade, restart nginx, reboot if needed
+inputs:                           # asked for when the task is run
+  service: { label: Service to restart, default: nginx, required: true }
+targets: { groups: [web], kinds: [agent], nodes: [] }   # defaults; a run may replace them
+batch: 2                          # agents at once; managers always go one at a time
+stop_on_failure: true             # the default
+steps:
+  - packages: { update: true, upgrade: all }
+  - name: restart the web server
+    service: { name: "{{ service }}", action: restart }  # start|stop|restart|enable|disable
+  - command: { run: "nginx -t", timeout: 2m }             # or script: | for several lines
+    continue_on_error: true
+  - file: { path: /etc/motd, content: "managed by {{ node.name }}\n", mode: "0644", owner: root }
+  - stack: { name: status, compose: "…", up: true }
+  - reboot: { only_if_required: true, wait: 10m }
+```
+
+- A step is exactly one of `packages`, `service`, `command`, `file`, `stack`,
+  `reboot`, with an optional `name` and `continue_on_error` (off by default).
+  A `packages` step takes `update` and at most one of `upgrade` (`all` or a
+  list), `install` or `remove`.
+- **Targets** are the union of the nodes whose `group` label is one of
+  `groups` (one group per node: set it with
+  `PATCH /api/v1/cluster/nodes/<node-id>/labels`), of the node kinds in
+  `kinds` (`manager`, `agent`) and of the node IDs in `nodes`.
+- **References.** `{{ input }}`, `{{ node.name }}` and `{{ node.address }}`
+  (the first address the cluster has for the node) are filled in for each
+  node. In a command each value is shell-quoted, one word whatever it holds,
+  unless its input says `raw: true`; in a service name, a file's path, content
+  and owner, and a stack's name and compose document it goes in as typed,
+  unquoted. A reference in a package list may hold several names, split on
+  spaces and commas. `{{.Names}}`-style Go templates for docker and similar
+  tools are left alone.
+- **Built-in tasks**, read-only and carried by every manager's binary:
+  `builtin/package-update`, `builtin/package-install`,
+  `builtin/service-restart`, `builtin/command` (its one input is `raw`: the
+  whole command line, as typed) and `builtin/reboot` (only when required).
+- **Limits:** 64 KiB per document, 50 steps per task, 200 targets per run
+  (counted before any is left out), a command's time limit 10 minutes unless
+  the step says otherwise, a reboot's wait 10 minutes.
+
+### The preview and the start
+
+`POST /api/v1/cluster/task-runs/plan` is the preview: the order the run would
+take, the targets it would leave out and why, and each planned node's own
+verdict on each step, filled in for that node. A node answers from the same
+guards its pages use — a protected service unit, a protected file path, a
+forbidden compose document, a Proxmox reboot — with the refusal's code, or
+says a step needs confirming (a service the Services page asks about, a risky
+compose document). The preview asks up to 16 nodes at once, 10 seconds each;
+a node that does not answer is shown with why.
+
+`POST /api/v1/cluster/task-runs` starts the run and answers `202` with its ID.
+It does not ask the nodes again, so a step the preview showed refused fails
+on that node when its turn comes (a Proxmox reboot is skipped instead, below).
+A step that needs confirming runs with the confirmation only when the
+operator listed its number (0-based) in `confirmed`.
+
+A target is left out, with the reason in the plan, when it is offline by the
+leader's live heartbeats (`offline`), reports no `tasks-v1`
+(`outdated`), is an agent this leader's probe does not reach
+(`unreachable`), is held by another run under way (`busy`), or when a node ID
+in `targets.nodes` names no node (`unknown`).
+
+### In what order
+
+1. **Agents first, `batch` at a time** (the run's `batch`, else the task's,
+   else 1). The agents of a wave run together; the next wave starts once every
+   one of them has finished.
+2. **Every other manager, one at a time.**
+3. **The leader, last**, after it hands the leadership to another manager
+   voter: the one online by live heartbeat that reaches the most agents, as
+   at the end of a cluster update (§ The leader goes to the manager that
+   reaches the most agents). The new leader takes the run over and runs the
+   old leader's steps as any manager's.
+
+Within each, nodes go by name, then ID, so a run takes the same order every
+time. Each node runs its steps in order, one at a time. A leader with no
+other manager voter online to hand over to — a lone manager, or one whose
+fellow voters are offline — runs its own steps; a reboot step among them
+still passes the quorum check below first. A handover that fails fails the
+leader's part of the run (`leadership could not be handed over to …`) and the
+run goes on without it: running steps that may restart the leader would leave
+the managers without one.
+
+The leader's turn is whichever wave holds the manager leading when that wave
+comes. Leadership may move during a run for other reasons — the leader goes
+to the manager that reaches the most agents — and a run does not hold it
+back: the new leader takes the run over (§ A new leader takes over).
+
+### Failure and stop
+
+- **A failed step stops its node**, unless the step says
+  `continue_on_error`. A step fails when its job fails or the node refuses it;
+  the step's summary carries the node's code and reason
+  (`INVALID_PATH: …`, `exit 3`, `timed out after 10m`).
+- **`stop_on_failure`** (the default) starts no later wave once a wave has a
+  failed node: the wave under way runs to its end, then every node not yet
+  started is recorded `stopped` and the run `failed`. Without it every wave
+  runs, and the run still ends `failed`.
+- **A node busy with another run's job** (`409 TASK_NODE_BUSY` from the node)
+  fails, its reason naming that job, run and task.
+- **Unknown.** A node that did not answer the job's start (posted three
+  times, two seconds apart), stopped answering about it for five minutes, or
+  no longer has it, ends `unknown`, never `succeeded`. Unknown counts as failed
+  for `stop_on_failure`.
+- **Stop** (`POST …/task-runs/<id>/stop`) starts no new step and lets the
+  jobs running end on their nodes: a node part-way through stops after the
+  step it is on, the nodes not yet started are recorded `stopped`, and the
+  run ends `stopped` (`stopped by <operator>`).
+- **A forced stop** (`{"force": true}`, also on a run already stopping) also
+  cancels the command jobs under way — their transient unit is stopped — and
+  calls off a reboot not yet under way (its timer is stopped). Package,
+  service, file and stack steps always run to their end: cutting apt short can
+  leave dpkg broken.
+
+### Quorum and Proxmox VE
+
+- **Before a manager's reboot step** the leader checks that the other manager
+  voters online by live heartbeat are still a majority of all manager voters.
+  If not, the step and the node are recorded `skipped` (`quorum`) and the run
+  ends `stopped` (`quorum: rebooting <name> would leave the managers without a
+  quorum`). Two voters therefore never reboot each other through a task. The
+  only manager voter is rebooted: it has no other manager to keep a quorum
+  for, and the run goes on once it is back.
+- **A Proxmox VE host refuses reboot steps** (`TASK_REBOOT_PVE_HOST`): the
+  panel does not know the guests running on it, which may be this cluster's
+  own nodes. The preview shows the refusal, and the run records the step
+  `skipped` (`Proxmox host`) and goes on to the node's next step.
+
+### A new leader takes over
+
+The runs are in Raft, so whichever manager leads takes them over. Every five
+seconds the leader, once its state holds every committed entry, starts a
+runner for each run in progress that has none; a manager that no longer leads
+stops its runners, leaving each run as recorded. A run left `handing_over`
+goes back to `running`.
+
+No job is started twice. Each step's job ID (`<run-id>-<step>`) is recorded
+before the job is posted, and a node keeps one job per ID: posted again, it
+answers with the job it has. A new leader posts a step recorded `starting`
+again with that ID — the post may never have arrived — and only asks about a
+step recorded `running`. A job the node no longer has is `unknown`, and is
+never started again; rerun the node to run it.
+
+A job does not depend on the leader. Command and package jobs run in
+transient units that a panel restart on the node does not stop either: the
+node takes them back at boot. A stack step runs inside the panel, and a panel
+restart in the middle of it leaves the job `interrupted`, which the run
+records as unknown.
+
+### Running failed nodes again
+
+`POST …/task-runs/<id>/rerun` starts a new run of the same document snapshot
+and inputs — not the task as it is now, which may have changed or been
+deleted — over the nodes chosen, in the old run's waves. `?only=failed` takes
+every node that did not succeed (failed, unknown, skipped, stopped, never
+started); without it the body's `{"nodes": […]}` names them. Each node starts
+at its first step that did not succeed, and the steps before it read
+`succeeded in run <id>`; a node whose every step succeeded starts from the
+first. The run being rerun must have ended (`409 TASK_RUN_ACTIVE`). The new
+run passes the same start checks as any; a chosen node offline when its turn
+comes fails.
+
+### What a run waits for, and what waits for a run
+
+A task run, a cluster update, a CA rotation, a conversion and a promotion
+are judged at their start under one lock on the leader, so two arriving
+together cannot both pass:
+
+- A run is refused while a cluster update is running
+  (`409 UPDATE_IN_PROGRESS`), a CA rotation is under way
+  (`409 CLUSTER_CA_ROTATING`), or a manager is being converted or an agent
+  promoted (`409 TASK_CLUSTER_CHANGING`, `details.what` `conversion` or
+  `promotion`).
+- A cluster update, a CA rotation, a conversion and a promotion are refused
+  while any run is under way, whatever its nodes
+  (`409 TASK_RUN_ACTIVE`, `details.run_id`): each restarts or re-keys nodes
+  under the run's steps. The runs are read from replicated state, so this
+  holds across a change of leader.
+- Two runs may run at once when their nodes do not overlap. A node held by a
+  run under way is left out of the next run's plan (`busy`); a start that
+  would leave no node, or that loses a race for a node to a run recorded
+  first, is `409 TASK_TARGET_BUSY` (`details.node_id`, `run_id`).
+
+### Mixed versions
+
+Every node whose code runs task jobs says `tasks-v1` in its heartbeat. A node
+that does not is left out of a run (`outdated`: update it). A run — and a
+rerun — starts only when every manager other than the leader is online and
+says it: `409 TASK_MANAGERS_NOT_READY`, whose `details.managers` names each
+one with why (`(not heard from)`, `(offline)`, or the release it runs).
+Definitions and run records are written with the config commands every
+manager release applies; there is no new Raft command.
+
+### Audit
+
+The leader writes two rows to its own audit log for each run, under the name
+of the operator who started it:
+
+- `POST /api/v1/cluster/task-runs/<id>#start`, status 202, when the run is
+  recorded;
+- `TASK /api/v1/cluster/task-runs/<id>#end:<status>`, status 200, written by
+  the leader that ends it — after a change of leader, another manager than
+  the one holding the start row.
+
+Each node's audit log has the job starts (`POST /api/v1/task-jobs`) under the
+same operator name; the preview's checks and a forced stop's cancels reach
+the node signed but without a name, and are recorded as `admin`. Inputs are
+never written to an audit row or the panel's log. They are kept in the run's
+record, which every manager holds and the API returns, and in the job specs
+on each node: do not pass secrets as inputs.
+
+### Storage and retention
+
+| What | Where | Kept |
+|------|-------|------|
+| Task definitions | Raft FSM `task/<id>` (JSON) | until deleted |
+| The document a run started from | `taskrev/<sha256 of the YAML>` | while a kept run uses it — one copy however many runs use it |
+| A run's head | `taskrun/<run-id>` (JSON) | the 200 newest runs, and every run in progress |
+| One node's part of a run | `taskrun/<run-id>/n/<node-id>` (JSON) | with its run |
+| A node's jobs | that node's SQLite, table `task_jobs` | the node's 200 newest jobs, none older than 30 days; a job running or waiting on its reboot is kept |
+| A job's output | that node's `/var/log/sfpanel/task-jobs/<job-id>.log` (directory `0700`, file `0600`) | with its job |
+
+The leader prunes the runs as each one ends; a node sweeps its jobs as it
+starts one and at boot, file and row together. A step's summary in the run
+record is cut to 200 bytes; the output stays on the node, and
+`GET …/task-runs/<id>/nodes/<node-id>/steps/<n>/output?skip=<bytes>` asks the
+node for it in pieces of at most 256 KiB, sanitized as logs are. A node not
+reached (`502 CLUSTER_NODE_UNREACHABLE`) or one that has swept the job
+(`404 TASK_JOB_NOT_FOUND`) is answered as such instead. Run IDs are
+`YYYYMMDD-HHMMSS-<6 hex>` in UTC, so they sort by start.
+
+### The node's side: one job at a time
+
+Each step reaches its node as a job on `/api/v1/task-jobs`, on managers and
+agents alike. Those routes take the task engine's signed calls only; a
+browser's `?node=` request for one is refused by the relaying manager
+(`403 TASK_JOB_CLUSTER_ONLY`), so no step runs past the run's gates and
+audit.
+
+- **One job at a time per node.** A job running or waiting on its reboot
+  holds the node; another is refused with `409 TASK_NODE_BUSY`, naming the
+  job that holds it. The hold is the job's row in `task_jobs`, so it survives
+  a panel restart.
+- **Command** steps run as root in a transient unit,
+  `sfpanel-task-<job-id>.service`, with `RuntimeMaxSec` set to the step's time
+  limit. The script is written beside the log (`<job-id>.sh`, `0700`) and
+  removed when the command ends; its output is appended to the job's log, and
+  the last line, `[sfpanel-task] exit=<n>`, says how it ended. A command always
+  counts as a change. On a host without systemd the panel runs it as its own
+  child, and a panel restart ends it.
+- **Packages** steps are the Packages page's own transactions, behind its
+  guards: the lists refresh first when `update` is set, then the upgrade,
+  install or removal in an `sfpanel-apt-<id>.service` unit, which a panel
+  restart does not stop. The leader never cancels one; a node asked to with
+  force lets the transaction under way run to its end and starts none after
+  it.
+- **Service** steps run `systemctl <action> <unit>` behind the Services
+  page's guard; a unit the page would ask about runs only when the step was
+  confirmed.
+- **File** steps write behind the file manager's write guard (so
+  `/etc/sfpanel`, `/root/.ssh` and `/etc/sudoers.d` are refused), at most
+  10 MiB, by an atomic rename and without a `.bak`. A file that already holds
+  the content, mode and owner is left alone and reads `unchanged`.
+- **Stack** steps create the stack, or update its compose file when it
+  differs, behind the compose endpoints' name rule and safety tiers
+  (forbidden always refused, risky only when confirmed); with `up` they run
+  `docker compose up -d`, capped at five minutes by the compose module's own
+  limit.
+- **Reboot** steps with `only_if_required` look for `/var/run/reboot-required`
+  and, without it, succeed at once as `not required`. Otherwise the reboot is
+  scheduled five seconds out (`systemd-run --on-active=5
+  --unit=sfpanel-task-reboot-<job-id> systemctl reboot`) and the job waits,
+  `rebooting`, until a panel starts in another boot — the kernel's boot ID
+  changed — and settles it `succeeded`. If the step's `wait` runs out first,
+  it fails. A node without systemd refuses a reboot it would have to schedule
+  (`TASK_REBOOT_UNSUPPORTED`).
+
+### Following a run
+
+`GET …/task-runs/<id>/stream` is a server-sent event stream that whichever
+manager receives it answers from its own replicated state; it is never sent
+to the leader, so it follows a run across a change of leader. It sends a
+`snapshot` of the run first, then a `node` event for each node record that
+changes and a `run` event when the head does, `: keepalive` after 15 seconds
+of quiet, and `end` once the run has ended. A client that comes back starts
+again from a snapshot. `GET …/task-runs/<id>` answers the same records once.
+See `websocket-spec.md`.
 
 ---
 
