@@ -861,8 +861,10 @@ node's page.
   - With none, the leader stops the install unit if it is still running,
     and looks once more: a join admitted before the token was revoked may
     land during the stop.
-  - Only a row with no agent then has its server cleaned, over the same SSH
-    connection. If the server had no SFPanel before, it runs
+  - Only a row with no agent then has its server cleaned, over SSH: the
+    row's connection, or a new login (approved host key only) when that
+    connection broke or was closed by the Stop while it opened a command.
+    If the server had no SFPanel before, it runs
     `install.sh uninstall --purge` and removes the empty `/opt/stacks` the
     run created.
   - A server that had SFPanel before is not purged. `install.sh` stops its
