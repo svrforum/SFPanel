@@ -249,3 +249,72 @@ func TestAFailedPromotionPutsTheAgentBack(t *testing.T) {
 		t.Fatalf("the token was not put back: %v", err)
 	}
 }
+
+// The token an install hands one server is bound to that server's IP alone:
+// it admits a new agent registering there, and nothing else — not an agent
+// at another address, not a manager, not an agent asking for an ID. Revoked
+// by its value once the install's row ends, it admits nothing.
+func TestAnIPBoundAgentTokenAdmitsOnlyANewAgentAtThatIP(t *testing.T) {
+	if _, err := (&Manager{}).CreateAgentTokenFor(net.ParseIP("192.0.2.10"), AgentInstallTokenTTL); !errors.Is(err, ErrNotLeader) {
+		t.Fatalf("off the leader: %v", err)
+	}
+	if err := (&Manager{}).RevokeJoinTokenValue("anything"); !errors.Is(err, ErrNotLeader) {
+		t.Fatalf("revoked off the leader: %v", err)
+	}
+	mgr, _, _, _ := realLeader(t)
+	settleRotation(t, mgr)
+	if _, err := mgr.CreateAgentTokenFor(nil, AgentInstallTokenTTL); err == nil {
+		t.Fatal("a token bound to no IP")
+	}
+	before := time.Now()
+	tok, err := mgr.CreateAgentTokenFor(net.ParseIP("192.0.2.10"), AgentInstallTokenTTL)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if tok.EffectiveKind() != KindAgent || tok.IP != "192.0.2.10" || tok.NodeID != "" || tok.ExpiresAt.Before(before.Add(AgentInstallTokenTTL)) || tok.ExpiresAt.After(time.Now().Add(AgentInstallTokenTTL)) {
+		t.Fatalf("minted %+v", tok)
+	}
+	for name, mutate := range map[string]func(*RegisterAgentInput){
+		"another address": func(in *RegisterAgentInput) { in.APIAddress, in.GRPCAddress = "192.0.2.11:3628", "192.0.2.11:3629" },
+		"an ID asked for": func(in *RegisterAgentInput) { in.NodeID = "node-x" },
+	} {
+		in := registerInput(t, tok.Token)
+		mutate(&in)
+		if _, err := mgr.HandleRegisterAgent(in); !errors.Is(err, ErrTokenBinding) {
+			t.Fatalf("%s: %v", name, err)
+		}
+	}
+	if _, _, _, _, err := mgr.HandleJoin("new-node", "n", "192.0.2.10:3628", "192.0.2.10:3629", tok.Token, nil); !errors.Is(err, ErrTokenKind) {
+		t.Fatalf("a manager join: %v", err)
+	}
+	if _, err := mgr.tokens.Peek(tok.Token); err != nil {
+		t.Fatalf("a refusal spent the token: %v", err)
+	}
+	res, err := mgr.HandleRegisterAgent(registerInput(t, tok.Token))
+	if err != nil {
+		t.Fatalf("a new agent at the token's IP: %v", err)
+	}
+	if n := mgr.raft.GetFSM().GetNode(res.NodeID); n == nil || n.Kind != KindAgent || n.GRPCAddress != "192.0.2.10:3629" {
+		t.Fatalf("registered %+v", n)
+	}
+
+	revoked, err := mgr.CreateAgentTokenFor(net.ParseIP("192.0.2.12"), AgentInstallTokenTTL)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := mgr.RevokeJoinTokenValue(revoked.Token); err != nil {
+		t.Fatal(err)
+	}
+	in := registerInput(t, revoked.Token)
+	in.NodeName, in.APIAddress, in.GRPCAddress = "agent-host-2", "192.0.2.12:3628", "192.0.2.12:3629"
+	if _, err := mgr.HandleRegisterAgent(in); !errors.Is(err, ErrTokenNotFound) {
+		t.Fatalf("a revoked token: %v", err)
+	}
+	// A row ends with a revoke whether or not its token was spent.
+	if err := mgr.RevokeJoinTokenValue(revoked.Token); err != nil {
+		t.Fatalf("revoked twice: %v", err)
+	}
+	if err := mgr.RevokeJoinTokenValue(tok.Token); err != nil {
+		t.Fatalf("a spent token revoked: %v", err)
+	}
+}

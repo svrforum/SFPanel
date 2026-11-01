@@ -669,6 +669,41 @@ func (m *Manager) CreateBoundJoinToken(ttl time.Duration, kind NodeKind, nodeID,
 	return m.tokens.CreateFor(ttl, m.nodeID, kind, nodeID, ip)
 }
 
+// AgentInstallTokenTTL is how long the token an agent install hands one
+// server lives: the server spends it minutes after it gets it, once the
+// install script has put SFPanel in place, and the install revokes it when
+// the server's row ends either way.
+const AgentInstallTokenTTL = 30 * time.Minute
+
+// CreateAgentTokenFor mints an agent token as CreateJoinToken does that
+// admits a new agent registering at ip and nothing else: not an agent at
+// another address, not one asking for an ID, not a manager. An agent install
+// hands it to the one server it installs, which registers at that IP.
+func (m *Manager) CreateAgentTokenFor(ip net.IP, ttl time.Duration) (*JoinToken, error) {
+	kind, err := m.roomFor(KindAgent)
+	if err != nil {
+		return nil, err
+	}
+	if ip == nil {
+		return nil, errors.New("an agent token for one server needs its IP address")
+	}
+	return m.tokens.CreateFor(ttl, m.nodeID, kind, "", ip.String())
+}
+
+// RevokeJoinTokenValue revokes the token whose value is token (leader only),
+// for a caller that holds the token itself rather than its fingerprint, as an
+// install does. A token already spent, expired or revoked is no error: a
+// caller revokes it when it is done with it, whatever became of it.
+func (m *Manager) RevokeJoinTokenValue(token string) error {
+	if m.raft == nil || !m.raft.IsLeader() {
+		return ErrNotLeader
+	}
+	if err := m.tokens.Revoke(tokenFingerprint(token)); err != nil && !errors.Is(err, ErrTokenNotFound) {
+		return err
+	}
+	return nil
+}
+
 // roomFor is kind, empty being a manager, when this node leads and the
 // cluster has room for another node of that kind.
 func (m *Manager) roomFor(kind NodeKind) (NodeKind, error) {
