@@ -1295,6 +1295,29 @@
       "pane": {
         "notYet": "This part of the Tasks tab is not built yet."
       },
+      "history": {
+        "kept": "The cluster keeps its 200 latest ended runs, and every run under way.",
+        "loadError": "Could not load the run history",
+        "empty": "No runs yet.",
+        "noMatch": "No runs match these filters.",
+        "statusFilter": "Filter by status",
+        "taskFilter": "Filter by task",
+        "allStatuses": "All statuses",
+        "allTasks": "All tasks",
+        "underWay": "Under way",
+        "status": "Status",
+        "task": "Task",
+        "nodes": "Nodes",
+        "startedBy": "Started by",
+        "startedAt": "Started",
+        "took": "Took",
+        "nodeCount_one": "{{count}} node",
+        "nodeCount_other": "{{count}} nodes",
+        "durationSeconds": "{{s}}s",
+        "durationMinutes": "{{m}}m {{s}}s",
+        "durationHours": "{{h}}h {{m}}m",
+        "page": "Page {{page}} / {{total}}"
+      },
       "builtins": {
         "packageUpdate": {
           "name": "Package update",

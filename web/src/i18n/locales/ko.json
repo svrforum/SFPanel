@@ -1292,6 +1292,28 @@
       "pane": {
         "notYet": "작업 탭의 이 부분은 아직 만들어지지 않았습니다."
       },
+      "history": {
+        "kept": "클러스터는 끝난 실행을 최근 200개까지, 진행 중인 실행은 모두 보관합니다.",
+        "loadError": "실행 기록을 불러오지 못했습니다",
+        "empty": "아직 실행한 작업이 없습니다.",
+        "noMatch": "조건에 맞는 실행이 없습니다.",
+        "statusFilter": "상태로 거르기",
+        "taskFilter": "작업으로 거르기",
+        "allStatuses": "모든 상태",
+        "allTasks": "모든 작업",
+        "underWay": "진행 중",
+        "status": "상태",
+        "task": "작업",
+        "nodes": "대상",
+        "startedBy": "시작한 사람",
+        "startedAt": "시작",
+        "took": "걸린 시간",
+        "nodeCount": "{{count}}대",
+        "durationSeconds": "{{s}}초",
+        "durationMinutes": "{{m}}분 {{s}}초",
+        "durationHours": "{{h}}시간 {{m}}분",
+        "page": "{{page}} / {{total}} 페이지"
+      },
       "builtins": {
         "packageUpdate": {
           "name": "패키지 업데이트",

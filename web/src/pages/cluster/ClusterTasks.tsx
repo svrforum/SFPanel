@@ -36,7 +36,9 @@ export default function ClusterTasks() {
   const [tasks, setTasks] = useState<TaskView[] | null>(null)
   const [tasksError, setTasksError] = useState<string | null>(null)
   const [tasksLoading, setTasksLoading] = useState(true)
-  const [runs, setRuns] = useState<RunRecord[]>([])
+  // Every run the cluster keeps: the band's and the history's one source.
+  const [runs, setRuns] = useState<RunRecord[] | null>(null)
+  const [runsError, setRunsError] = useState<string | null>(null)
   // Outside a cluster there are no runs to ask for every ten seconds.
   const standalone = useRef(false)
 
@@ -61,11 +63,17 @@ export default function ClusterTasks() {
   }, [loadTasks])
 
   // Runs under way, for the band: a run started in another browser, or this
-  // one before it was closed, is a click away.
+  // one before it was closed, is a click away. The history lists the same.
   const loadRuns = useCallback(() => {
     if (standalone.current) return
-    api.listTaskRuns().then(setRuns, () => {})
-  }, [])
+    api.listTaskRuns().then(
+      (list) => {
+        setRuns(list)
+        setRunsError(null)
+      },
+      (err) => setRunsError(taskErrorMessage(err, t)),
+    )
+  }, [t])
   useVisibleInterval(loadRuns, RUNS_POLL_MS)
 
   const listed = useMemo<ListedTask[]>(
@@ -100,7 +108,18 @@ export default function ClusterTasks() {
   const task = taskId ? tasks?.find((x) => x.id === taskId) : undefined
   let pane
   if (runId) pane = <TaskRunView key={runId} runId={runId} />
-  else if (isHistory) pane = <TaskRunHistory />
+  else if (isHistory) {
+    pane = (
+      <TaskRunHistory
+        runs={runs}
+        error={runsError}
+        onRetry={() => {
+          setRunsError(null)
+          loadRuns()
+        }}
+      />
+    )
+  }
   else if (isNew || isEdit) {
     pane = (
       <Suspense fallback={<Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />}>
@@ -130,7 +149,7 @@ export default function ClusterTasks() {
       skeletonCount={6}
     />
   )
-  const active = activeRuns(runs)
+  const active = activeRuns(runs ?? [])
 
   return (
     <div className="space-y-4">

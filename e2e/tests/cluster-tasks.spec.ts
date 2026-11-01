@@ -1071,3 +1071,202 @@ test.describe('run progress', () => {
     })
   })
 })
+
+// ------------------------------------------------------------ the history --
+
+// The clock the history's "when" is read against.
+const NOW = new Date('2026-11-01T12:00:00Z')
+const ago = (seconds: number) => new Date(NOW.getTime() - seconds * 1000).toISOString()
+/** A run started `since` seconds before NOW that took `took` seconds; null: under way. */
+const histRun = (id: string, since: number, took: number | null, over: Record<string, unknown> = {}) => runRecord({
+  id, started_at: ago(since), ended_at: took === null ? undefined : ago(since - took), ...over,
+})
+// Newest first, as the server lists them.
+const HISTORY = [
+  histRun('r-5', 120, null, { task_id: DEPLOY_ID, task_name: 'Deploy web', nodes: ['a-1', 'a-2', 'm-1'], status: 'running' }),
+  histRun('r-4', 3600, 95, { status: 'failed', started_by: 'ops' }),
+  histRun('r-3', 86_400, 3725, { task_id: DEPLOY_ID, task_name: 'Deploy web', nodes: ['a-1'] }),
+  histRun('r-2', 2 * 86_400, 42, { task_id: 'builtin/command', task_name: '명령 실행', nodes: ['a-1', 'a-2', 'a-3', 'a-4'], status: 'stopped' }),
+]
+
+const historyPane = (page: Page) => page.getByTestId('task-pane-history')
+/** The desktop table's rows, the header row left out. */
+const historyRows = (page: Page) => page.getByTestId('task-history-table').locator('tbody tr')
+const cellsOf = (page: Page, i: number) => historyRows(page).nth(i).getByRole('cell')
+const statusFilter = (page: Page) => historyPane(page).getByLabel('Filter by status')
+const taskFilter = (page: Page) => historyPane(page).getByLabel('Filter by task')
+
+test.describe('history', () => {
+  test.beforeEach(async ({ page }) => {
+    await page.clock.setFixedTime(NOW)
+  })
+
+  test('lists the runs newest first: status, task, nodes, who, when and how long', async ({ page }) => {
+    await mock(page, { runs: HISTORY })
+    await page.goto('/cluster/tasks/runs')
+    await expect(historyPane(page).getByRole('heading', { name: 'Run history' })).toBeVisible()
+    await expect(page.getByTestId('task-history-table').getByRole('columnheader'))
+      .toHaveText(['Status', 'Task', 'Nodes', 'Started by', 'Started', 'Took'])
+    await expect(historyRows(page)).toHaveCount(4)
+    await expect(cellsOf(page, 0)).toHaveText(['Running', 'Deploy web', '3 nodes', 'admin', '2 minutes ago', 'Under way'])
+    // A built-in in the screen's words, whatever name the run kept.
+    await expect(cellsOf(page, 1)).toHaveText(['Failed', 'Package update', '2 nodes', 'ops', '1 hour ago', '1m 35s'])
+    await expect(cellsOf(page, 2)).toHaveText(['Succeeded', 'Deploy web', '1 node', 'admin', '1 day ago', '1h 2m'])
+    await expect(cellsOf(page, 3)).toHaveText(['Stopped', 'Run a command', '4 nodes', 'admin', '2 days ago', '42s'])
+    await expect(historyPane(page)).not.toContainText('패키지')
+  })
+
+  test('narrows the list by status and by task', async ({ page }) => {
+    await mock(page, { runs: HISTORY })
+    await page.goto('/cluster/tasks/runs')
+    await expect(historyRows(page)).toHaveCount(4)
+    await expect(statusFilter(page).locator('option'))
+      .toHaveText(['All statuses', 'Under way', 'Succeeded', 'Failed', 'Stopped'])
+    // Each task the history holds, once, in the screen's words.
+    await expect(taskFilter(page).locator('option'))
+      .toHaveText(['All tasks', 'Deploy web', 'Package update', 'Run a command'])
+
+    await statusFilter(page).selectOption({ label: 'Failed' })
+    await expect(historyRows(page)).toHaveCount(1)
+    await expect(cellsOf(page, 0).nth(1)).toHaveText('Package update')
+    await statusFilter(page).selectOption({ label: 'Under way' })
+    await expect(historyRows(page)).toHaveCount(1)
+    await expect(cellsOf(page, 0).first()).toHaveText('Running')
+
+    await statusFilter(page).selectOption({ label: 'All statuses' })
+    await taskFilter(page).selectOption({ label: 'Deploy web' })
+    await expect(historyRows(page).locator('td:nth-child(5)')).toHaveText(['2 minutes ago', '1 day ago'])
+    await statusFilter(page).selectOption({ label: 'Succeeded' })
+    await expect(historyRows(page)).toHaveCount(1)
+    await expect(cellsOf(page, 0).nth(4)).toHaveText('1 day ago')
+    await statusFilter(page).selectOption({ label: 'Stopped' })
+    await expect(historyPane(page)).toContainText('No runs match these filters.')
+    await expect(historyRows(page)).toHaveCount(0)
+  })
+
+  test('a row leads to that run, which ends at once when it has ended', async ({ page }) => {
+    const ended = HISTORY[1]
+    const endedNodes = { 'a-1': rec('failed', [st('failed', { job_id: 'j-1' })]), 'm-1': rec('pending') }
+    const { requests } = await mock(page, {
+      runs: HISTORY,
+      runDetails: { 'r-4': { run: ended, nodes: endedNodes, steps: [{ name: 'Upgrade the packages', kind: 'package' }] } },
+      streams: { 'r-4': [sse(snapshot(ended, endedNodes), { type: 'end' })] },
+    })
+    await page.goto('/cluster/tasks/runs')
+    const link = historyRows(page).nth(1).getByRole('link')
+    await expect(link).toHaveAttribute('href', '/cluster/tasks/runs/r-4')
+    // Anywhere on the row will do, not just the name.
+    await cellsOf(page, 1).nth(3).click()
+    await expect(page).toHaveURL(/\/cluster\/tasks\/runs\/r-4$/)
+    await expect(runPane(page).getByTestId('task-run-status')).toHaveText('Failed')
+    await expect(cell(page, 'a-1', 0)).toHaveText('Failed')
+    await expect(runPane(page).getByRole('button', { name: 'Rerun failed nodes only' })).toBeVisible()
+    // The snapshot and its end are all there is: nothing is opened again.
+    const streams = () => requests.filter((r) => r === 'GET /cluster/task-runs/r-4/stream').length
+    const opened = streams()
+    expect(opened).toBeGreaterThan(0)
+    await page.waitForTimeout(2500)
+    expect(streams()).toBe(opened)
+  })
+
+  test('shows 50 runs to a page, and a filter starts again from the first', async ({ page }) => {
+    // 120 runs a minute apart, newest first; every third one failed.
+    const many = Array.from({ length: 120 }, (_, i) => histRun(`r-${String(120 - i).padStart(3, '0')}`, 60 * (i + 1), 10, {
+      status: i % 3 === 2 ? 'failed' : 'succeeded',
+    }))
+    await mock(page, { runs: many })
+    await page.goto('/cluster/tasks/runs')
+    const link = (i: number) => historyRows(page).nth(i).getByRole('link')
+    await expect(historyRows(page)).toHaveCount(50)
+    await expect(link(0)).toHaveAttribute('href', '/cluster/tasks/runs/r-120')
+    await expect(historyPane(page)).toContainText('Page 1 / 3')
+    const next = historyPane(page).getByRole('button', { name: 'Next' })
+    await next.click()
+    await expect(historyPane(page)).toContainText('Page 2 / 3')
+    await expect(link(0)).toHaveAttribute('href', '/cluster/tasks/runs/r-070')
+    await next.click()
+    await expect(historyRows(page)).toHaveCount(20)
+    await expect(link(19)).toHaveAttribute('href', '/cluster/tasks/runs/r-001')
+    await expect(next).toBeDisabled()
+
+    // From page 3, a filter starts on the first page of what it keeps: 80
+    // succeeded runs, two pages.
+    await statusFilter(page).selectOption({ label: 'Succeeded' })
+    await expect(historyPane(page)).toContainText('Page 1 / 2')
+    await expect(link(0)).toHaveAttribute('href', '/cluster/tasks/runs/r-120')
+    // 40 failed runs fit one page: no pager.
+    await statusFilter(page).selectOption({ label: 'Failed' })
+    await expect(historyRows(page)).toHaveCount(40)
+    await expect(historyPane(page)).not.toContainText('Page ')
+    await expect(link(0)).toHaveAttribute('href', '/cluster/tasks/runs/r-118')
+  })
+
+  test('says when there is nothing yet, and when the list does not load', async ({ page }) => {
+    const replies: Record<string, Reply> = { 'GET /cluster/task-runs': fail(503, 'INTERNAL_ERROR', 'leader changed') }
+    const { requests } = await mock(page, { replies })
+    await page.goto('/cluster/tasks/runs')
+    await expect(historyPane(page)).toContainText('Could not load the run history')
+    // A 503 in the task screen's words, not the server's.
+    await expect(historyPane(page)).toContainText('The cluster leader is changing or catching up.')
+    await expect(historyPane(page)).not.toContainText('leader changed')
+    const before = requests.filter((r) => r === 'GET /cluster/task-runs').length
+    replies['GET /cluster/task-runs'] = ok([])
+    await historyPane(page).getByRole('button', { name: 'Retry' }).click()
+    await expect(historyPane(page)).toContainText('No runs yet.')
+    expect(requests.filter((r) => r === 'GET /cluster/task-runs').length).toBeGreaterThan(before)
+  })
+
+  test('task names and who started a run render as text', async ({ page }) => {
+    await mock(page, { runs: [histRun('r-x', 60, 5, { task_id: '3d4e5f6071829304', task_name: '<b>{{x}}</b>', started_by: '<i>ops</i>' })] })
+    await page.goto('/cluster/tasks/runs')
+    await expect(cellsOf(page, 0).nth(1)).toHaveText('<b>{{x}}</b>')
+    await expect(cellsOf(page, 0).nth(3)).toHaveText('<i>ops</i>')
+    await expect(historyPane(page).locator('b, i')).toHaveCount(0)
+  })
+
+  test.describe('Korean', () => {
+    test.use({ locale: 'ko-KR' })
+
+    test('counts the nodes in 대 and words the rest in Korean', async ({ page }) => {
+      await page.addInitScript(() => localStorage.setItem('sfpanel_language', 'ko'))
+      await mock(page, { runs: HISTORY })
+      await page.goto('/cluster/tasks/runs')
+      await expect(page.getByTestId('task-history-table').getByRole('columnheader'))
+        .toHaveText(['상태', '작업', '대상', '시작한 사람', '시작', '걸린 시간'])
+      await expect(cellsOf(page, 0)).toHaveText(['진행 중', 'Deploy web', '3대', 'admin', '2분 전', '진행 중'])
+      await expect(cellsOf(page, 1)).toHaveText(['실패', '패키지 업데이트', '2대', 'ops', '1시간 전', '1분 35초'])
+      await expect(cellsOf(page, 2).last()).toHaveText('1시간 2분')
+      await expect(statusFilter(page)).toHaveCount(0)
+      await expect(historyPane(page).getByLabel('상태로 거르기').locator('option'))
+        .toHaveText(['모든 상태', '진행 중', '성공', '실패', '중지됨'])
+    })
+  })
+
+  test.describe('phone', () => {
+    test.use({ viewport: { width: 412, height: 860 }, hasTouch: true })
+
+    test('runs are cards, and a card tapped opens its run', async ({ page }) => {
+      const ended = HISTORY[1]
+      await mock(page, {
+        runs: HISTORY,
+        runDetails: { 'r-4': { run: ended, nodes: {} } },
+        streams: { 'r-4': [sse(snapshot(ended, {}), { type: 'end' })] },
+      })
+      await page.goto('/cluster/tasks/runs')
+      const cards = page.getByTestId('task-history-card')
+      await expect(cards).toHaveCount(4)
+      // The table is there, and hidden.
+      await expect(page.getByTestId('task-history-table')).toHaveCount(1)
+      await expect(page.getByTestId('task-history-table')).toBeHidden()
+      const card = cards.nth(1)
+      await expect(card).toContainText('Package update')
+      await expect(card).toContainText('2 nodes')
+      await expect(card).toContainText('1m 35s')
+      const box = await card.boundingBox()
+      expect(box && box.x >= 0 && box.x + box.width <= 412).toBe(true)
+      await card.tap()
+      await expect(page).toHaveURL(/\/cluster\/tasks\/runs\/r-4$/)
+      await expect(runPane(page).getByTestId('task-run-status')).toHaveText('Failed')
+    })
+  })
+})
