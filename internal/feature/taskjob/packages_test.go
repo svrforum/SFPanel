@@ -175,9 +175,14 @@ func TestAPackagesJobRunsUpdateFirst(t *testing.T) {
 	pk3 := n3.h.runners[tasks.StepPackages].(*PackageRunner).Packages.(procPkgs).pkgs.(*fakePackages)
 	s3 := packagesSpec(runB, tasks.PackagesStep{UpgradeAll: true})
 	startOK(t, n3, s3)
-	if c := pk3.next(t, 0); c.kind != "upgrade" || c.names != nil {
+	c := pk3.next(t, 0)
+	if c.kind != "upgrade" || c.names != nil {
 		t.Errorf("upgrade: all started %+v, want upgrade of everything", c)
 	}
+	// Ended and waited for: a runner still polling would write the job's log
+	// while the test's directories are removed.
+	pk3.end(t, c.id, aptSummary(0, 0, 0), "success", 0)
+	n3.ended(t, s3.ID)
 }
 
 // A refusal is the packages module's, with its reason: on a Proxmox VE host
