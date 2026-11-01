@@ -108,6 +108,11 @@ func TestIsStreamingEndpoint(t *testing.T) {
 		{"/api/v1/docker/compose/myproj/migrate-source/bundle", false},
 		{"/api/v1/docker/compose/myproj/migrate-source/info", false},
 		{"/api/v1/docker/compose/myproj/migrate-source/outcome", false},
+		// A group task run's progress stream; its other routes are unary.
+		{"/api/v1/cluster/task-runs/20261101-120000-abcdef/stream", true},
+		{"/api/v1/cluster/task-runs/20261101-120000-abcdef", false},
+		{"/api/v1/cluster/task-runs/plan", false},
+		{"/api/v1/cluster/task-runs/20261101-120000-abcdef/nodes/n1/steps/0/output", false},
 	}
 	for _, tc := range cases {
 		if got := isStreamingEndpoint(tc.path); got != tc.want {
@@ -150,6 +155,8 @@ func TestStreamingAllowlist_KnownSSEHandlers(t *testing.T) {
 		"/api/v1/network/tailscale/install",
 		// cluster orchestrator
 		"/api/v1/cluster/update",
+		// group task run progress (run-templated)
+		"/api/v1/cluster/task-runs/20261101-120000-abcdef/stream",
 		// ai (tool-templated)
 		"/api/v1/ai/tools/claude/install-stream",
 		"/api/v1/ai/tools/claude/update-stream",

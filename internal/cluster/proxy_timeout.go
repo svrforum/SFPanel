@@ -33,6 +33,9 @@ var longProxyPaths = []string{
 	// client bounds it.
 	"/system/update",
 	"/disks/network-shares/tools/install",
+	// A group task's preview asks every target node for its verdicts, and a
+	// follower sends it on to the leader.
+	"/api/v1/cluster/task-runs/plan",
 }
 
 // ProxyTimeoutFor is how long a proxied request may take, on the sending

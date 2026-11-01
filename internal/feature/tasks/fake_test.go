@@ -27,10 +27,77 @@ type fakeStore struct {
 	heads  map[string]cluster.RunRecord
 	nodes  map[string]map[string]cluster.RunNodeRecord
 	pruned []int
+	tasks  map[string]cluster.StoredTask
+	// notReady is what TasksReady names.
+	notReady []string
+	// afterGetRun runs once a run's head has been read, before GetRun
+	// returns it.
+	afterGetRun func(id string)
 }
 
 func newFakeStore() *fakeStore {
-	return &fakeStore{revs: map[string]string{}, heads: map[string]cluster.RunRecord{}, nodes: map[string]map[string]cluster.RunNodeRecord{}}
+	return &fakeStore{revs: map[string]string{}, heads: map[string]cluster.RunRecord{}, nodes: map[string]map[string]cluster.RunNodeRecord{}, tasks: map[string]cluster.StoredTask{}}
+}
+
+func (s *fakeStore) PutTask(t cluster.StoredTask) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if len(t.YAML) > tasks.MaxDocumentBytes {
+		return cluster.ErrTaskTooLarge
+	}
+	for _, other := range s.tasks {
+		if other.ID != t.ID && other.Name == t.Name {
+			return cluster.ErrTaskNameTaken
+		}
+	}
+	s.tasks[t.ID] = t
+	return nil
+}
+
+func (s *fakeStore) GetTask(id string) (cluster.StoredTask, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	t, ok := s.tasks[id]
+	if !ok {
+		return cluster.StoredTask{}, cluster.ErrTaskNotFound
+	}
+	return t, nil
+}
+
+func (s *fakeStore) ListTasks() ([]cluster.StoredTask, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	var out []cluster.StoredTask
+	for _, t := range s.tasks {
+		out = append(out, t)
+	}
+	sort.Slice(out, func(i, j int) bool { return out[i].Name < out[j].Name })
+	return out, nil
+}
+
+func (s *fakeStore) DeleteTask(id string) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if _, ok := s.tasks[id]; !ok {
+		return cluster.ErrTaskNotFound
+	}
+	delete(s.tasks, id)
+	return nil
+}
+
+func (s *fakeStore) PutTaskRevision(yaml string) (string, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	sum := sha256.Sum256([]byte(yaml))
+	sha := hex.EncodeToString(sum[:])
+	s.revs[sha] = yaml
+	return sha, nil
+}
+
+func (s *fakeStore) TasksReady() []string {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return slices.Clone(s.notReady)
 }
 
 func (s *fakeStore) TaskRevision(sha string) (string, error) {
@@ -55,6 +122,12 @@ func (s *fakeStore) GetRun(id string) (cluster.RunRecord, map[string]cluster.Run
 		v.Steps = slices.Clone(v.Steps)
 		nodes[k] = v
 	}
+	hook := s.afterGetRun
+	s.mu.Unlock()
+	if hook != nil {
+		hook(id)
+	}
+	s.mu.Lock()
 	return h, nodes, nil
 }
 
@@ -162,6 +235,11 @@ type fakeEnv struct {
 	// onStart runs as a job is posted, before it is recorded.
 	onStart func(node string, spec tasks.JobSpec)
 
+	// readsOutput lets GetJob be asked for output, as the API's output
+	// route does; output is each job's whole output, per "node/step".
+	readsOutput bool
+	output      map[string]string
+
 	jobs     map[string]*fakeJob
 	started  []string // node/step, in order posted
 	cancels  []string // node/step force-cancelled
@@ -179,7 +257,7 @@ func newFakeEnv(t *testing.T, local string, nodes ...cluster.Node) *fakeEnv {
 		checks: map[string][]tasks.CheckVerdict{}, checkErr: map[string]error{},
 		refuse: map[string]error{}, outcome: map[string]tasks.JobView{}, polls: map[string]int{},
 		getErrs: map[string]int{}, startStatus: map[string]string{},
-		jobs: map[string]*fakeJob{}, specs: map[string]tasks.JobSpec{},
+		jobs: map[string]*fakeJob{}, specs: map[string]tasks.JobSpec{}, output: map[string]string{},
 	}
 }
 
@@ -221,6 +299,7 @@ func (e *fakeEnv) Health() map[string]cluster.NodeStatus {
 func (e *fakeEnv) Capable(id string) bool     { return !e.outdated[id] }
 func (e *fakeEnv) Unreachable(id string) bool { return e.unreachable[id] }
 func (e *fakeEnv) Store() runStore            { return e.store }
+func (e *fakeEnv) Tasks() taskStore           { return e.store }
 
 func (e *fakeEnv) Now() time.Time {
 	e.mu.Lock()
@@ -298,7 +377,7 @@ func (e *fakeEnv) viewLocked(j *fakeJob) tasks.JobView {
 }
 
 func (e *fakeEnv) GetJob(_ context.Context, nodeID, jobID string, skip int64) (tasks.JobView, error) {
-	if skip != statusOnly {
+	if skip != statusOnly && !e.readsOutput {
 		e.t.Errorf("GetJob(%s, %s) asked for output from %d: the leader reads the state only", nodeID, jobID, skip)
 	}
 	e.mu.Lock()
@@ -321,7 +400,11 @@ func (e *fakeEnv) GetJob(_ context.Context, nodeID, jobID string, skip int64) (t
 		j.polls-- // the node never heard this poll
 		return tasks.JobView{}, errors.New("connection refused")
 	}
-	return e.viewLocked(j), nil
+	v := e.viewLocked(j)
+	if out := e.output[k]; skip < int64(len(out)) {
+		v.Output, v.NextSkip = out[skip:], int64(len(out))
+	}
+	return v, nil
 }
 
 func (e *fakeEnv) CancelJob(_ context.Context, nodeID, jobID string, force bool) error {

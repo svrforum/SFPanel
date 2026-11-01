@@ -97,14 +97,35 @@ func (p Plan) NodeIDs() []string {
 // filled in for it; a required input left out is an error
 // (tasks.ErrInputMissing).
 func planRun(env runEnv, t *tasks.Task, targets tasks.Targets, inputs map[string]string, batch int) (Plan, error) {
+	plan, byID, err := orderRun(env, targets, runBatch(t, batch))
+	if err != nil {
+		return Plan{}, err
+	}
+	if err := checkPlan(env, t, inputs, byID, plan); err != nil {
+		return Plan{}, err
+	}
+	return plan, nil
+}
+
+// runBatch is how many agents a run of t takes at once: batch when the
+// operator gave one, else the task's, else 1.
+func runBatch(t *tasks.Task, batch int) int {
 	if batch < 1 {
 		batch = t.Batch
 	}
 	if batch < 1 {
 		batch = 1
 	}
+	return batch
+}
+
+// orderRun is planRun's order without the nodes' verdicts: the targets in
+// their waves, and the ones left out with why. It asks no node, so starting
+// a run stays well inside the thirty seconds a follower's forward of it
+// gets; only the preview asks. byID is every node of the cluster.
+func orderRun(env runEnv, targets tasks.Targets, batch int) (plan Plan, byID map[string]cluster.Node, err error) {
 	localID := env.LocalID()
-	byID := map[string]cluster.Node{}
+	byID = map[string]cluster.Node{}
 	var chosen []cluster.Node
 	for _, n := range env.Nodes() {
 		byID[n.ID] = n
@@ -112,19 +133,18 @@ func planRun(env runEnv, t *tasks.Task, targets tasks.Targets, inputs map[string
 			chosen = append(chosen, n)
 		}
 	}
-	var plan Plan
 	for _, id := range targets.Nodes {
 		if _, ok := byID[id]; !ok {
 			plan.Left = append(plan.Left, PlanNode{ID: id, Name: id, Reason: LeftUnknown})
 		}
 	}
 	if len(chosen) > MaxTargets {
-		return Plan{}, ErrTooManyTargets
+		return Plan{}, nil, ErrTooManyTargets
 	}
 
 	held, err := heldNodes(env.Store())
 	if err != nil {
-		return Plan{}, err
+		return Plan{}, nil, err
 	}
 	health := env.Health()
 	var agents, managers []PlanNode
@@ -167,11 +187,7 @@ func planRun(env runEnv, t *tasks.Task, targets tasks.Targets, inputs map[string
 	if leader != nil {
 		plan.Waves = append(plan.Waves, []PlanNode{*leader})
 	}
-
-	if err := checkPlan(env, t, inputs, byID, plan); err != nil {
-		return Plan{}, err
-	}
-	return plan, nil
+	return plan, byID, nil
 }
 
 // targeted reports whether n is in one of the targets' groups, of its
@@ -221,19 +237,9 @@ func sortPlanNodes(s []PlanNode) {
 // checkParallel nodes at once. The steps are rendered for each node first:
 // a missing input fails the whole plan, before any node is asked.
 func checkPlan(env runEnv, t *tasks.Task, inputs map[string]string, byID map[string]cluster.Node, plan Plan) error {
-	type job struct {
-		node  *PlanNode
-		specs []tasks.JobSpec
-	}
-	var jobs []job
-	for _, w := range plan.Waves {
-		for i := range w {
-			specs, err := tasks.Render(t, inputs, nodeVars(byID[w[i].ID]))
-			if err != nil {
-				return err
-			}
-			jobs = append(jobs, job{node: &w[i], specs: specs})
-		}
+	jobs, err := renderPlan(t, inputs, byID, plan)
+	if err != nil {
+		return err
 	}
 	sem := make(chan struct{}, checkParallel)
 	var wg sync.WaitGroup
@@ -255,6 +261,29 @@ func checkPlan(env runEnv, t *tasks.Task, inputs map[string]string, byID map[str
 	}
 	wg.Wait()
 	return nil
+}
+
+// planJob is one planned node with its steps filled in for it.
+type planJob struct {
+	node  *PlanNode
+	specs []tasks.JobSpec
+}
+
+// renderPlan fills the steps in for every node the plan runs: a required
+// input left out fails it (tasks.ErrInputMissing) before any node is asked
+// or any run recorded.
+func renderPlan(t *tasks.Task, inputs map[string]string, byID map[string]cluster.Node, plan Plan) ([]planJob, error) {
+	var jobs []planJob
+	for _, w := range plan.Waves {
+		for i := range w {
+			specs, err := tasks.Render(t, inputs, nodeVars(byID[w[i].ID]))
+			if err != nil {
+				return nil, err
+			}
+			jobs = append(jobs, planJob{node: &w[i], specs: specs})
+		}
+	}
+	return jobs, nil
 }
 
 // nodeVars are the values {{ node.name }} and {{ node.address }} take on n:

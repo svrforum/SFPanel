@@ -30,6 +30,20 @@ type runStore interface {
 	PruneRuns(keep int) error
 }
 
+// taskStore is the task store as the API reads and writes it: the run
+// store, the definitions and revisions, and whether every manager can keep
+// them. Writes are the leader's; reads answer from this manager's own FSM.
+type taskStore interface {
+	runStore
+	PutTask(t cluster.StoredTask) error
+	GetTask(id string) (cluster.StoredTask, error)
+	ListTasks() ([]cluster.StoredTask, error)
+	DeleteTask(id string) error
+	PutTaskRevision(yaml string) (string, error)
+	// TasksReady names the managers a run waits for, each with why.
+	TasksReady() []string
+}
+
 // runEnv is what planning and running a task need from the cluster, so the
 // order and every decision can be tested without one.
 type runEnv interface {
@@ -56,6 +70,8 @@ type runEnv interface {
 	CancelJob(ctx context.Context, nodeID, jobID string, force bool) error
 	Check(ctx context.Context, nodeID string, specs []tasks.JobSpec) ([]tasks.CheckVerdict, error)
 	Store() runStore
+	// Tasks is the whole task store, for the API.
+	Tasks() taskStore
 	// HandOver hands the leadership to another manager voter and names it,
 	// or names none and does nothing when there is none to take it.
 	HandOver() (target string, err error)
@@ -137,7 +153,8 @@ func (e clusterRunEnv) Capable(id string) bool {
 
 func (e clusterRunEnv) Unreachable(id string) bool { return e.mgr.Unreachable(id) }
 
-func (e clusterRunEnv) Store() runStore { return e.mgr }
+func (e clusterRunEnv) Store() runStore  { return e.mgr }
+func (e clusterRunEnv) Tasks() taskStore { return e.mgr }
 
 // HandOver hands the leadership to the manager voter pickTransferTarget
 // takes: online, and reaching the most agents.

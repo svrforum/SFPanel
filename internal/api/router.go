@@ -44,8 +44,10 @@ import (
 	featureSettings "github.com/svrforum/SFPanel/internal/feature/settings"
 	featureSystem "github.com/svrforum/SFPanel/internal/feature/system"
 	featureTaskJob "github.com/svrforum/SFPanel/internal/feature/taskjob"
+	featureTasks "github.com/svrforum/SFPanel/internal/feature/tasks"
 	featureTerminal "github.com/svrforum/SFPanel/internal/feature/terminal"
 	featureWS "github.com/svrforum/SFPanel/internal/feature/websocket"
+	"github.com/svrforum/SFPanel/internal/paneltls"
 	"github.com/svrforum/SFPanel/internal/tasks"
 )
 
@@ -244,6 +246,9 @@ func NewRouter(database *sql.DB, auditWriter *sfdb.AsyncWriter, alertManager *fe
 	// which also keeps every WebSocket below on this node.
 	getMgr := func() *cluster.Manager { return nil }
 	var clusterHandler *featureCluster.Handler
+	// tasksHandler serves group tasks and runs the runs this manager leads;
+	// set right below the cluster handler, which activates managers.
+	var tasksHandler *featureTasks.Handler
 	if !agent {
 		clusterHandler = &featureCluster.Handler{
 			Manager:      clusterMgr,
@@ -268,6 +273,11 @@ func NewRouter(database *sql.DB, auditWriter *sfdb.AsyncWriter, alertManager *fe
 				if onManagerActivated != nil {
 					onManagerActivated(m)
 				}
+				// The task run supervisor follows a manager made at runtime;
+				// the boot manager's starts below.
+				if tasksHandler != nil && m != nil {
+					tasksHandler.Start(context.Background())
+				}
 			},
 		}
 		// Boot path wires Manager via the struct literal above, bypassing
@@ -277,6 +287,20 @@ func NewRouter(database *sql.DB, auditWriter *sfdb.AsyncWriter, alertManager *fe
 		// guard makes this safe even though it runs after Raft replay has begun.
 		clusterHandler.ActivateBootManager()
 		getMgr = clusterHandler.GetManager
+
+		tasksHandler = featureTasks.New(clusterHandler.GetManager, clusterHandler, auditWriter, paneltls.Self{
+			TLSEnabled: cfg.Server.TLS.Enabled,
+			Dir:        cfg.Server.TLS.Dir,
+			CertFile:   cfg.Server.TLS.CertFile,
+			CAFile:     cfg.Server.TLS.CAFile,
+			Port:       cfg.Server.Port,
+		})
+		// A cluster update, a CA rotation, a conversion and a promotion wait
+		// for a task run under way, read from this node's replicated state.
+		clusterHandler.SetTaskRunsActive(tasksHandler.ActiveRun)
+		// The boot manager, if any: ActivateBootManager does not call
+		// OnManagerActivated. Outside a cluster it returns at once.
+		tasksHandler.Start(context.Background())
 	}
 
 	// Protected routes
@@ -418,6 +442,23 @@ func NewRouter(database *sql.DB, auditWriter *sfdb.AsyncWriter, alertManager *fe
 		clusterGroup.POST("/rotate/ca", clusterHandler.RotateCA)
 		clusterGroup.POST("/rotate/ca/abort", clusterHandler.AbortCARotation)
 		clusterGroup.GET("/rotation", clusterHandler.GetRotation)
+		// Group tasks: definitions, and runs the leader carries out over the
+		// nodes. Writes and the plan go to the leader; reads, the stream and a
+		// step's output answer from this manager's replicated state.
+		clusterGroup.GET("/tasks", tasksHandler.ListTasks)
+		clusterGroup.POST("/tasks", tasksHandler.CreateTask)
+		clusterGroup.POST("/tasks/validate", tasksHandler.ValidateTask)
+		clusterGroup.GET("/tasks/:id", tasksHandler.GetTask)
+		clusterGroup.PUT("/tasks/:id", tasksHandler.UpdateTask)
+		clusterGroup.DELETE("/tasks/:id", tasksHandler.DeleteTask)
+		clusterGroup.POST("/task-runs/plan", tasksHandler.PlanRun)
+		clusterGroup.POST("/task-runs", tasksHandler.StartRun)
+		clusterGroup.GET("/task-runs", tasksHandler.ListRuns)
+		clusterGroup.GET("/task-runs/:id", tasksHandler.GetRun)
+		clusterGroup.GET("/task-runs/:id/stream", tasksHandler.StreamRun)
+		clusterGroup.POST("/task-runs/:id/stop", tasksHandler.StopRun)
+		clusterGroup.POST("/task-runs/:id/rerun", tasksHandler.RerunRun)
+		clusterGroup.GET("/task-runs/:id/nodes/:node/steps/:n/output", tasksHandler.StepOutput)
 	} else {
 		// An agent's half of its promotion to a manager, which the leader
 		// calls (POST /cluster/nodes/:id/promote): under /system, as an agent

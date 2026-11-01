@@ -240,8 +240,18 @@ func (r *runner) readHead(fresh bool) (cluster.RunRecord, error) {
 	return head, nil
 }
 
+// headMu is held around every read-modify-write of a run's head on this
+// node: the engine's (putHead, resumeHandedOver) and the operator's stop.
+// The store has no compare-and-swap, so a stop written between the engine's
+// read and its write would be overwritten and lost. Every head write is the
+// leader's, so one lock in its process is enough. It is held only around the
+// read and the write, never across a node call or a leadership handover.
+var headMu sync.Mutex
+
 // putHead writes the run's head with change applied to its latest record.
 func (r *runner) putHead(change func(h *cluster.RunRecord)) error {
+	headMu.Lock()
+	defer headMu.Unlock()
 	head, err := r.readHead(true)
 	if err != nil {
 		return err

@@ -539,6 +539,46 @@ const (
 	ErrTaskRunActive = "TASK_RUN_ACTIVE"
 )
 
+// Group task error codes: the task and task-run API on a manager.
+const (
+	// ErrTaskInvalid is returned (HTTP 400) for a task document with
+	// problems. The response's data.problems lists each with its line.
+	ErrTaskInvalid = "TASK_INVALID"
+	// ErrTaskTooLarge is returned (HTTP 400) for a task document over 64 KiB.
+	ErrTaskTooLarge = "TASK_TOO_LARGE"
+	// ErrTaskNameTaken is returned (HTTP 409) when another task, stored or
+	// built in, already has the name.
+	ErrTaskNameTaken = "TASK_NAME_TAKEN"
+	// ErrTaskNotFound is returned (HTTP 404) for a task ID that names no
+	// stored or built-in task.
+	ErrTaskNotFound = "TASK_NOT_FOUND"
+	// ErrTaskRunNotFound is returned (HTTP 404) for a run ID that names no
+	// run kept in the cluster's state.
+	ErrTaskRunNotFound = "TASK_RUN_NOT_FOUND"
+	// ErrTaskReadOnly is returned (HTTP 409) when a built-in task is asked
+	// to change or go, or a task imported from Git to change.
+	ErrTaskReadOnly = "TASK_READ_ONLY"
+	// ErrTaskManagersNotReady is returned (HTTP 409) when a run is asked for
+	// before every manager runs code that keeps the task store. Details:
+	// managers, the ones it waits for with why, comma-separated.
+	ErrTaskManagersNotReady = "TASK_MANAGERS_NOT_READY"
+	// ErrTaskInputMissing is returned (HTTP 400) when a required input was
+	// not given and has no default. Details: input.
+	ErrTaskInputMissing = "TASK_INPUT_MISSING"
+	// ErrTaskNoTargets is returned (HTTP 400) when a run would take no node.
+	ErrTaskNoTargets = "TASK_NO_TARGETS"
+	// ErrTaskTooManyTargets is returned (HTTP 400) when a run's targets come
+	// to more than 200 nodes. Details: max.
+	ErrTaskTooManyTargets = "TASK_TOO_MANY_TARGETS"
+	// ErrTaskTargetBusy is returned (HTTP 409) when a node a run would take
+	// is held by another run under way. Details: node_id, run_id.
+	ErrTaskTargetBusy = "TASK_TARGET_BUSY"
+	// ErrTaskClusterChanging is returned (HTTP 409) when a run is asked for
+	// while a manager is being converted to an agent or an agent promoted to
+	// a manager. Details: what (conversion | promotion).
+	ErrTaskClusterChanging = "TASK_CLUSTER_CHANGING"
+)
+
 // File manager error codes
 const (
 	// ErrNotTextFile is returned (HTTP 415) when a caller asks to read a file

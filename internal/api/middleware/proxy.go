@@ -68,6 +68,10 @@ func isStreamingEndpoint(path string) bool {
 	// relay; its info and outcome are unary JSON.
 	case strings.HasSuffix(path, "/migrate-source"):
 		return true
+	// A group task run's progress, which any manager serves for as long as
+	// the run takes; listed so a panel shutting down cuts it (Streams).
+	case strings.HasPrefix(path, "/api/v1/cluster/task-runs/") && strings.HasSuffix(path, "/stream"):
+		return true
 	}
 	return false
 }

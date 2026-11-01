@@ -98,6 +98,9 @@ func TestProxyAllowsTheOperationsTheHandlersAllow(t *testing.T) {
 		"/api/v1/system/restore",
 		"/api/v1/system/restore/file",
 		"/api/v1/disks/network-shares/tools/install",
+		// A follower sends a group task's preview to the leader, which asks
+		// every target node for its verdicts.
+		"/api/v1/cluster/task-runs/plan",
 	}
 	for _, p := range long {
 		if got := ProxyTimeoutFor(p); got != 5*time.Minute {
@@ -116,6 +119,8 @@ func TestProxyKeepsOrdinaryRequestsShort(t *testing.T) {
 		"/api/v1/network/interfaces",
 		"/api/v1/logs/read",
 		"/api/v1/system/processes",
+		// Starting a run asks no node: it stays inside the default.
+		"/api/v1/cluster/task-runs",
 	}
 	for _, p := range short {
 		if got := ProxyTimeoutFor(p); got != 30*time.Second {

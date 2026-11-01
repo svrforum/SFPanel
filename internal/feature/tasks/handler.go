@@ -7,14 +7,26 @@ package featuretasks
 
 import (
 	"context"
+	"errors"
+	"fmt"
 	"net/http"
+	"net/url"
+	"slices"
+	"strconv"
+	"strings"
 	"sync"
+	"time"
 
+	"github.com/labstack/echo/v4"
+
+	"github.com/svrforum/SFPanel/internal/api/middleware"
+	"github.com/svrforum/SFPanel/internal/api/response"
 	"github.com/svrforum/SFPanel/internal/cluster"
 	sfdb "github.com/svrforum/SFPanel/internal/db"
 	"github.com/svrforum/SFPanel/internal/feature/audit"
 	featurecluster "github.com/svrforum/SFPanel/internal/feature/cluster"
 	"github.com/svrforum/SFPanel/internal/paneltls"
+	"github.com/svrforum/SFPanel/internal/tasks"
 )
 
 // Handler serves group tasks on a manager and runs the runs this node leads.
@@ -32,21 +44,83 @@ type Handler struct {
 	// newEnv is the cluster as a run sees it from this node, nil outside
 	// one: clusterEnv, which tests replace.
 	newEnv func() runEnv
+	// startGate is gate.StartGate, and toLeader sends a request on to the
+	// leader (middleware.ProxyToLeader): both replaced in tests.
+	startGate func(claim func(featurecluster.Busy) error) error
+	toLeader  func(c echo.Context) (handled bool, err error)
 
 	// runners are the runs this node is running, by run ID; wg counts
 	// their goroutines. runCtx is the supervisor's context while it runs,
-	// which every runner lives under.
-	mu      sync.Mutex
-	runners map[string]context.CancelFunc
-	wg      sync.WaitGroup
-	runCtx  context.Context
+	// which every runner lives under; supervisorOn says one runs.
+	mu           sync.Mutex
+	runners      map[string]context.CancelFunc
+	wg           sync.WaitGroup
+	runCtx       context.Context
+	supervisorOn bool
 }
 
 // New returns a Handler.
 func New(getMgr func() *cluster.Manager, gate *featurecluster.Handler, audit *sfdb.AsyncWriter, self paneltls.Self) *Handler {
 	h := &Handler{getMgr: getMgr, gate: gate, audit: audit, self: self, runners: map[string]context.CancelFunc{}}
 	h.newEnv = h.clusterEnv
+	h.startGate = func(claim func(featurecluster.Busy) error) error {
+		if h.gate == nil {
+			return claim(featurecluster.Busy{})
+		}
+		return h.gate.StartGate(claim)
+	}
+	h.toLeader = func(c echo.Context) (bool, error) { return middleware.ProxyToLeader(c, h.getMgr()) }
 	return h
+}
+
+// Start runs the supervisor (supervise) for the cluster manager this node
+// has now: at boot, and again each time a manager is activated without a
+// restart. One runs at a time: a start while one runs does nothing. It ends
+// by itself with its manager, and at once outside a cluster.
+func (h *Handler) Start(ctx context.Context) {
+	h.mu.Lock()
+	if h.supervisorOn {
+		h.mu.Unlock()
+		return
+	}
+	h.supervisorOn = true
+	h.mu.Unlock()
+	go func() {
+		defer func() {
+			h.mu.Lock()
+			h.supervisorOn = false
+			h.mu.Unlock()
+		}()
+		h.supervise(ctx)
+	}()
+}
+
+// supervising reports whether a supervisor runs.
+func (h *Handler) supervising() bool {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	return h.supervisorOn
+}
+
+// ActiveRun is the ID of a run under way in this node's replicated state, or
+// "" with none: the start gate's view of the runs (SetTaskRunsActive), so a
+// cluster update, a CA rotation, a conversion and a promotion wait for it.
+func (h *Handler) ActiveRun() string {
+	env := h.newEnv()
+	if env == nil {
+		return ""
+	}
+	runs, err := env.Store().ListRuns()
+	if err != nil {
+		logger.Warn("listing task runs for the start gate", "error", err)
+		return ""
+	}
+	for _, r := range runs {
+		if r.Active() {
+			return r.ID
+		}
+	}
+	return ""
 }
 
 // clusterEnv is the cluster as a run sees it from this node, or nil outside
@@ -134,4 +208,756 @@ func (h *Handler) auditStart(nodeID string, run cluster.RunRecord) {
 // auditEnd records how a run ended under the operator who started it.
 func (h *Handler) auditEnd(nodeID string, run cluster.RunRecord) {
 	audit.RecordEvent(h.audit, run.StartedBy, "TASK", taskRunsAuditPath+run.ID+"#end:"+run.Status, http.StatusOK, nodeID)
+}
+
+// The task and task-run API (design §8), under the manager-only /cluster
+// group. Writes and the plan are the leader's: a follower sends them on
+// (forward). Reads, the stream and a step's output answer from the
+// receiving manager's own replicated state.
+
+// sourceBuiltin is the source of a built-in task as the API shows it: built
+// into every manager, never stored.
+const sourceBuiltin = "builtin"
+
+// apiError is a refusal the API answers with: its status, code and details.
+type apiError struct {
+	status  int
+	code    string
+	message string
+	details map[string]string
+}
+
+func (e *apiError) Error() string { return e.code + ": " + e.message }
+
+func refusal(status int, code, message string, details map[string]string) *apiError {
+	return &apiError{status: status, code: code, message: message, details: details}
+}
+
+// fail answers err: a refusal as itself; a write a follower was left with
+// (the leader changed under it) 503; anything else 500.
+func fail(c echo.Context, err error) error {
+	var ae *apiError
+	switch {
+	case errors.As(err, &ae):
+		return response.FailWith(c, ae.status, ae.code, ae.message, ae.details)
+	case errors.Is(err, cluster.ErrNotLeader):
+		return response.Fail(c, http.StatusServiceUnavailable, response.ErrInternalError, "This node is not the cluster leader: retry in a few seconds")
+	}
+	logger.Error("task API", "path", c.Path(), "error", err)
+	return response.Fail(c, http.StatusInternalServerError, response.ErrInternalError, "The task store could not be read or written")
+}
+
+// apiEnv is the cluster for one request, or nil after answering that this
+// node is in none.
+func (h *Handler) apiEnv(c echo.Context) (runEnv, error) {
+	env := h.newEnv()
+	if env == nil {
+		return nil, response.Fail(c, http.StatusBadRequest, response.ErrInvalidRequest, "Cluster not configured")
+	}
+	return env, nil
+}
+
+// forward sends a write on to the leader when this manager is not it, as
+// the cluster handler's label and token writes do. handled says the request
+// was answered.
+func (h *Handler) forward(c echo.Context, env runEnv) (handled bool, err error) {
+	if env.IsLeader() {
+		return false, nil
+	}
+	return h.toLeader(c)
+}
+
+func operator(c echo.Context) string {
+	username, _ := c.Get("username").(string)
+	return username
+}
+
+// taskDoc is a task as the API knows it: stored, or built in.
+type taskDoc struct {
+	ID        string
+	Name      string
+	YAML      string
+	Source    cluster.TaskSource
+	UpdatedAt time.Time
+	UpdatedBy string
+}
+
+func (d taskDoc) builtin() bool { return d.Source.Kind == sourceBuiltin }
+
+// readOnly reports whether the task may not be changed here: a built-in, or
+// one imported from Git, whose next fetch would undo the change.
+func (d taskDoc) readOnly() bool { return d.builtin() || d.Source.Kind == cluster.TaskSourceGit }
+
+// builtins are the built-in tasks with their names, read once.
+var builtins = sync.OnceValue(func() []taskDoc {
+	var out []taskDoc
+	for _, b := range tasks.Builtins() {
+		d := taskDoc{ID: b.ID, Name: b.ID, YAML: string(b.YAML), Source: cluster.TaskSource{Kind: sourceBuiltin}}
+		if t, _ := tasks.Parse(b.YAML); t != nil {
+			d.Name = t.Name
+		}
+		out = append(out, d)
+	}
+	return out
+})
+
+func builtinDoc(id string) (taskDoc, bool) {
+	for _, d := range builtins() {
+		if d.ID == id {
+			return d, true
+		}
+	}
+	return taskDoc{}, false
+}
+
+// builtinName reports whether a built-in task has name: a stored task may
+// not take it, or an operator could not tell the two apart.
+func builtinName(name string) bool {
+	return slices.ContainsFunc(builtins(), func(d taskDoc) bool { return d.Name == name })
+}
+
+// taskParam is the task ID in the path. A built-in's ID has a slash, which
+// the panel sends escaped (builtin%2Fcommand) and Echo hands over as sent.
+func taskParam(c echo.Context) string {
+	id := c.Param("id")
+	if u, err := url.PathUnescape(id); err == nil {
+		return u
+	}
+	return id
+}
+
+// loadTask is the task id names, stored or built in.
+func loadTask(st taskStore, id string) (taskDoc, error) {
+	if d, ok := builtinDoc(id); ok {
+		return d, nil
+	}
+	t, err := st.GetTask(id)
+	if errors.Is(err, cluster.ErrTaskNotFound) {
+		return taskDoc{}, refusal(http.StatusNotFound, response.ErrTaskNotFound, "No such task", nil)
+	}
+	if err != nil {
+		return taskDoc{}, err
+	}
+	return taskDoc{ID: t.ID, Name: t.Name, YAML: t.YAML, Source: t.Source, UpdatedAt: t.UpdatedAt, UpdatedBy: t.UpdatedBy}, nil
+}
+
+// taskView is a task as the API answers with it. The list leaves out the
+// document; one task carries it, parsed when it parses.
+type taskView struct {
+	ID          string             `json:"id"`
+	Name        string             `json:"name"`
+	Description string             `json:"description,omitempty"`
+	Source      cluster.TaskSource `json:"source"`
+	ReadOnly    bool               `json:"read_only"`
+	UpdatedAt   time.Time          `json:"updated_at,omitzero"`
+	UpdatedBy   string             `json:"updated_by,omitempty"`
+	YAML        string             `json:"yaml,omitempty"`
+	Task        *tasks.Task        `json:"task,omitempty"`
+}
+
+func viewOf(d taskDoc, full bool) taskView {
+	v := taskView{ID: d.ID, Name: d.Name, Source: d.Source, ReadOnly: d.readOnly(), UpdatedAt: d.UpdatedAt, UpdatedBy: d.UpdatedBy}
+	t, _ := tasks.Parse([]byte(d.YAML))
+	if t != nil {
+		v.Description = t.Description
+	}
+	if full {
+		v.YAML, v.Task = d.YAML, t
+	}
+	return v
+}
+
+// taskBody is the body of a task's create, change and check: the document.
+type taskBody struct {
+	YAML string `json:"yaml"`
+}
+
+// checkDocument parses a task document for a create or a change. Too large
+// is 400 TASK_TOO_LARGE; problems are 400 TASK_INVALID, listed with their
+// lines in data.problems, as error details are strings only.
+func checkDocument(c echo.Context, doc string) (*tasks.Task, bool, error) {
+	if len(doc) > tasks.MaxDocumentBytes {
+		return nil, false, response.FailWith(c, http.StatusBadRequest, response.ErrTaskTooLarge,
+			cluster.ErrTaskTooLarge.Error(), map[string]string{"max_kib": strconv.Itoa(tasks.MaxDocumentBytes >> 10)})
+	}
+	t, problems := tasks.Parse([]byte(doc))
+	if t == nil {
+		return nil, false, c.JSON(http.StatusBadRequest, response.Response{
+			Success: false,
+			Data:    map[string]any{"problems": problems},
+			Error:   &response.ErrorBody{Code: response.ErrTaskInvalid, Message: "The task document has problems"},
+		})
+	}
+	return t, true, nil
+}
+
+// storeError answers a store write's refusal.
+func storeError(err error) error {
+	switch {
+	case errors.Is(err, cluster.ErrTaskNameTaken):
+		return refusal(http.StatusConflict, response.ErrTaskNameTaken, "Another task already has this name", nil)
+	case errors.Is(err, cluster.ErrTaskTooLarge):
+		return refusal(http.StatusBadRequest, response.ErrTaskTooLarge, err.Error(), nil)
+	case errors.Is(err, cluster.ErrTaskNotFound):
+		return refusal(http.StatusNotFound, response.ErrTaskNotFound, "No such task", nil)
+	}
+	return err
+}
+
+var errBuiltinName = refusal(http.StatusConflict, response.ErrTaskNameTaken, "A built-in task already has this name", nil)
+
+// ListTasks answers GET /cluster/tasks: the built-ins, read-only, then the
+// stored tasks by name.
+func (h *Handler) ListTasks(c echo.Context) error {
+	env, err := h.apiEnv(c)
+	if env == nil {
+		return err
+	}
+	stored, err := env.Tasks().ListTasks()
+	if err != nil {
+		return fail(c, err)
+	}
+	out := make([]taskView, 0, len(builtins())+len(stored))
+	for _, d := range builtins() {
+		out = append(out, viewOf(d, false))
+	}
+	for _, t := range stored {
+		out = append(out, viewOf(taskDoc{ID: t.ID, Name: t.Name, YAML: t.YAML, Source: t.Source, UpdatedAt: t.UpdatedAt, UpdatedBy: t.UpdatedBy}, false))
+	}
+	return response.OK(c, out)
+}
+
+// GetTask answers GET /cluster/tasks/:id with its document, parsed.
+func (h *Handler) GetTask(c echo.Context) error {
+	env, err := h.apiEnv(c)
+	if env == nil {
+		return err
+	}
+	d, err := loadTask(env.Tasks(), taskParam(c))
+	if err != nil {
+		return fail(c, err)
+	}
+	return response.OK(c, viewOf(d, true))
+}
+
+// ValidateTask answers POST /cluster/tasks/validate {yaml}: whether the
+// document is a task, its problems with their lines, and the task parsed.
+// It writes nothing, so any manager answers it.
+func (h *Handler) ValidateTask(c echo.Context) error {
+	var body taskBody
+	if err := c.Bind(&body); err != nil {
+		return response.Fail(c, http.StatusBadRequest, response.ErrInvalidRequest, "Invalid request body")
+	}
+	if len(body.YAML) > tasks.MaxDocumentBytes {
+		return response.FailWith(c, http.StatusBadRequest, response.ErrTaskTooLarge,
+			cluster.ErrTaskTooLarge.Error(), map[string]string{"max_kib": strconv.Itoa(tasks.MaxDocumentBytes >> 10)})
+	}
+	t, problems := tasks.Parse([]byte(body.YAML))
+	if problems == nil {
+		problems = []tasks.Problem{}
+	}
+	return response.OK(c, map[string]any{"valid": t != nil, "problems": problems, "task": t})
+}
+
+// CreateTask answers POST /cluster/tasks {yaml} (leader): the task stored
+// under a new ID, named by its document.
+func (h *Handler) CreateTask(c echo.Context) error {
+	env, err := h.apiEnv(c)
+	if env == nil {
+		return err
+	}
+	if handled, err := h.forward(c, env); handled {
+		return err
+	}
+	var body taskBody
+	if err := c.Bind(&body); err != nil {
+		return response.Fail(c, http.StatusBadRequest, response.ErrInvalidRequest, "Invalid request body")
+	}
+	t, ok, err := checkDocument(c, body.YAML)
+	if !ok {
+		return err
+	}
+	if builtinName(t.Name) {
+		return fail(c, errBuiltinName)
+	}
+	st := cluster.StoredTask{ID: cluster.NewTaskID(), Name: t.Name, YAML: body.YAML,
+		Source: cluster.TaskSource{Kind: cluster.TaskSourceUser}, UpdatedAt: env.Now().UTC(), UpdatedBy: operator(c)}
+	if err := env.Tasks().PutTask(st); err != nil {
+		return fail(c, storeError(err))
+	}
+	return response.OK(c, viewOf(taskDoc{ID: st.ID, Name: st.Name, YAML: st.YAML, Source: st.Source, UpdatedAt: st.UpdatedAt, UpdatedBy: st.UpdatedBy}, true))
+}
+
+// UpdateTask answers PUT /cluster/tasks/:id {yaml} (leader): the stored
+// task's new document, and the name it gives. A built-in or a task from Git
+// is 409 TASK_READ_ONLY.
+func (h *Handler) UpdateTask(c echo.Context) error {
+	env, err := h.apiEnv(c)
+	if env == nil {
+		return err
+	}
+	if handled, err := h.forward(c, env); handled {
+		return err
+	}
+	d, err := loadTask(env.Tasks(), taskParam(c))
+	if err != nil {
+		return fail(c, err)
+	}
+	if d.readOnly() {
+		return response.Fail(c, http.StatusConflict, response.ErrTaskReadOnly, "This task is read-only: built in, or imported from Git")
+	}
+	var body taskBody
+	if err := c.Bind(&body); err != nil {
+		return response.Fail(c, http.StatusBadRequest, response.ErrInvalidRequest, "Invalid request body")
+	}
+	t, ok, err := checkDocument(c, body.YAML)
+	if !ok {
+		return err
+	}
+	if builtinName(t.Name) {
+		return fail(c, errBuiltinName)
+	}
+	st := cluster.StoredTask{ID: d.ID, Name: t.Name, YAML: body.YAML, Source: d.Source, UpdatedAt: env.Now().UTC(), UpdatedBy: operator(c)}
+	if err := env.Tasks().PutTask(st); err != nil {
+		return fail(c, storeError(err))
+	}
+	return response.OK(c, viewOf(taskDoc{ID: st.ID, Name: st.Name, YAML: st.YAML, Source: st.Source, UpdatedAt: st.UpdatedAt, UpdatedBy: st.UpdatedBy}, true))
+}
+
+// DeleteTask answers DELETE /cluster/tasks/:id (leader). A built-in is 409
+// TASK_READ_ONLY. A task from Git may go: nothing else would remove it. Its
+// runs keep their own copy of the document.
+func (h *Handler) DeleteTask(c echo.Context) error {
+	env, err := h.apiEnv(c)
+	if env == nil {
+		return err
+	}
+	if handled, err := h.forward(c, env); handled {
+		return err
+	}
+	d, err := loadTask(env.Tasks(), taskParam(c))
+	if err != nil {
+		return fail(c, err)
+	}
+	if d.builtin() {
+		return response.Fail(c, http.StatusConflict, response.ErrTaskReadOnly, "A built-in task cannot be deleted")
+	}
+	if err := env.Tasks().DeleteTask(d.ID); err != nil {
+		return fail(c, storeError(err))
+	}
+	return response.OK(c, map[string]string{"id": d.ID})
+}
+
+// runRequest is the body of POST /cluster/task-runs and of its plan. Left
+// out, the targets, the batch and stop_on_failure are the task's.
+type runRequest struct {
+	TaskID        string            `json:"task_id"`
+	Inputs        map[string]string `json:"inputs"`
+	Targets       *tasks.Targets    `json:"targets"`
+	Batch         int               `json:"batch"`
+	StopOnFailure *bool             `json:"stop_on_failure"`
+	// Confirmed are the steps (0-based) the operator confirmed.
+	Confirmed []int `json:"confirmed"`
+}
+
+// runTarget is what a run request asks for, read and checked.
+type runTarget struct {
+	doc     taskDoc
+	task    *tasks.Task
+	targets tasks.Targets
+	batch   int
+}
+
+// readRunRequest binds a run request and loads its task.
+func readRunRequest(c echo.Context, st taskStore) (runRequest, runTarget, error) {
+	var req runRequest
+	if err := c.Bind(&req); err != nil {
+		return req, runTarget{}, refusal(http.StatusBadRequest, response.ErrInvalidRequest, "Invalid request body", nil)
+	}
+	d, err := loadTask(st, req.TaskID)
+	if err != nil {
+		return req, runTarget{}, err
+	}
+	t, problems := tasks.Parse([]byte(d.YAML))
+	if t == nil {
+		msg := "The task's document has problems"
+		if len(problems) > 0 {
+			msg += fmt.Sprintf(": line %d: %s", problems[0].Line, problems[0].Message)
+		}
+		return req, runTarget{}, refusal(http.StatusBadRequest, response.ErrTaskInvalid, msg, nil)
+	}
+	rt := runTarget{doc: d, task: t, targets: t.Targets, batch: runBatch(t, req.Batch)}
+	if req.Targets != nil {
+		rt.targets = *req.Targets
+	}
+	return req, rt, nil
+}
+
+// planError answers what ordering or filling in a run refused.
+func planError(err error) error {
+	var missing *tasks.InputMissingError
+	switch {
+	case errors.As(err, &missing):
+		return refusal(http.StatusBadRequest, response.ErrTaskInputMissing, missing.Error(), map[string]string{"input": missing.Name})
+	case errors.Is(err, ErrTooManyTargets):
+		return refusal(http.StatusBadRequest, response.ErrTaskTooManyTargets, err.Error(), map[string]string{"max": strconv.Itoa(MaxTargets)})
+	}
+	return err
+}
+
+func busyNode(nodeID, runID string) error {
+	return refusal(http.StatusConflict, response.ErrTaskTargetBusy, "Node "+nodeID+" is taken by run "+runID+", which is under way",
+		map[string]string{"node_id": nodeID, "run_id": runID})
+}
+
+func managersNotReady(st taskStore) error {
+	if wait := st.TasksReady(); len(wait) > 0 {
+		return refusal(http.StatusConflict, response.ErrTaskManagersNotReady,
+			"Every manager must run a version that keeps group tasks: waiting for "+strings.Join(wait, ", "),
+			map[string]string{"managers": strings.Join(wait, ", ")})
+	}
+	return nil
+}
+
+// PlanRun answers POST /cluster/task-runs/plan (leader), the preview: the
+// waves, the targets left out with why, and each node's verdicts on the
+// steps. It records nothing.
+func (h *Handler) PlanRun(c echo.Context) error {
+	env, err := h.apiEnv(c)
+	if env == nil {
+		return err
+	}
+	if handled, err := h.forward(c, env); handled {
+		return err
+	}
+	req, rt, err := readRunRequest(c, env.Tasks())
+	if err != nil {
+		return fail(c, err)
+	}
+	plan, err := planRun(env, rt.task, rt.targets, req.Inputs, rt.batch)
+	if err != nil {
+		return fail(c, planError(err))
+	}
+	return response.OK(c, plan)
+}
+
+// StartRun answers POST /cluster/task-runs (leader): the run is judged and
+// recorded in one StartGate claim, then started; 202 {run_id}. Every
+// manager must keep task runs (TasksReady). The plan asks no node for its
+// verdicts, so the request stays well inside the thirty seconds a
+// follower's forward of it gets; the preview asked them.
+func (h *Handler) StartRun(c echo.Context) error {
+	env, err := h.apiEnv(c)
+	if env == nil {
+		return err
+	}
+	if handled, err := h.forward(c, env); handled {
+		return err
+	}
+	st := env.Tasks()
+	req, rt, err := readRunRequest(c, st)
+	if err != nil {
+		return fail(c, err)
+	}
+	if err := managersNotReady(st); err != nil {
+		return fail(c, err)
+	}
+	confirmed := slices.Clone(req.Confirmed)
+	slices.Sort(confirmed)
+	confirmed = slices.Compact(confirmed)
+	for _, n := range confirmed {
+		if n < 0 || n >= len(rt.task.Steps) {
+			return response.Fail(c, http.StatusBadRequest, response.ErrInvalidRequest, fmt.Sprintf("The task has no step %d to confirm", n))
+		}
+	}
+
+	plan, byID, err := orderRun(env, rt.targets, rt.batch)
+	if err != nil {
+		return fail(c, planError(err))
+	}
+	if _, err := renderPlan(rt.task, req.Inputs, byID, plan); err != nil {
+		return fail(c, planError(err))
+	}
+	if len(plan.Waves) == 0 {
+		for _, n := range plan.Left {
+			if n.Reason == LeftBusy {
+				return fail(c, busyNode(n.ID, n.RunID))
+			}
+		}
+		return response.Fail(c, http.StatusBadRequest, response.ErrTaskNoTargets, "The run would take no node")
+	}
+
+	// Only the task's own inputs are kept: the run record is replicated to
+	// every manager, and a key the task never reads has no place in it.
+	var inputs map[string]string
+	for _, in := range rt.task.Inputs {
+		if v, ok := req.Inputs[in.Name]; ok {
+			if inputs == nil {
+				inputs = map[string]string{}
+			}
+			inputs[in.Name] = v
+		}
+	}
+	stopOnFailure := rt.task.StopOnFailure
+	if req.StopOnFailure != nil {
+		stopOnFailure = *req.StopOnFailure
+	}
+	run := cluster.RunRecord{
+		TaskID: rt.doc.ID, TaskName: rt.task.Name, Inputs: inputs,
+		Nodes: plan.NodeIDs(), Waves: plan.WaveIDs(), Confirmed: confirmed,
+		Batch: rt.batch, StopOnFailure: stopOnFailure, Status: cluster.RunRunning, StartedBy: operator(c),
+	}
+	if err := h.claim(env, &run, rt.doc.YAML); err != nil {
+		return fail(c, err)
+	}
+	h.begin(run)
+	return response.Accepted(c, map[string]string{"run_id": run.ID})
+}
+
+// claim judges and records run under the start gate, with doc the document
+// it runs: refused while a cluster update, a CA rotation, a conversion or a
+// promotion is under way, or while another run holds one of its nodes — read
+// again here, as two requests for one node may both have planned before
+// either was recorded. It gives the run its ID, revision and start time, and
+// writes its head and a pending record for every node.
+func (h *Handler) claim(env runEnv, run *cluster.RunRecord, doc string) error {
+	st := env.Tasks()
+	return h.startGate(func(b featurecluster.Busy) error {
+		switch {
+		case b.UpdateRunning:
+			return refusal(http.StatusConflict, response.ErrUpdateInProgress, "A cluster update is under way", nil)
+		case b.CARotation:
+			return refusal(http.StatusConflict, response.ErrClusterCARotating, cluster.ErrCARotationInProgress.Error(), nil)
+		case b.Converting:
+			return refusal(http.StatusConflict, response.ErrTaskClusterChanging, "A manager is being converted to an agent", map[string]string{"what": "conversion"})
+		case b.Promoting:
+			return refusal(http.StatusConflict, response.ErrTaskClusterChanging, "An agent is being promoted to a manager", map[string]string{"what": "promotion"})
+		}
+		held, err := heldNodes(st)
+		if err != nil {
+			return err
+		}
+		for _, id := range run.Nodes {
+			if other := held[id]; other != "" {
+				return busyNode(id, other)
+			}
+		}
+		rev, err := st.PutTaskRevision(doc)
+		if err != nil {
+			return storeError(err)
+		}
+		now := env.Now().UTC()
+		run.ID, run.Rev, run.StartedAt = cluster.NewRunID(now), rev, now
+		if err := st.PutRun(*run); err != nil {
+			return err
+		}
+		for _, id := range run.Nodes {
+			if err := st.PutRunNode(run.ID, id, cluster.RunNodeRecord{Status: cluster.RunNodePending}); err != nil {
+				// Not started: a run some of whose nodes have no record is
+				// ended rather than left for the supervisor to take up.
+				ended := *run
+				ended.Status, ended.Reason, ended.EndedAt = cluster.RunFailed, "the run could not be recorded: "+err.Error(), now
+				if perr := st.PutRun(ended); perr != nil {
+					logger.Warn("ending a task run that could not be recorded", "run", run.ID, "error", perr)
+				}
+				return err
+			}
+		}
+		return nil
+	})
+}
+
+// ListRuns answers GET /cluster/task-runs: every run's head, newest first,
+// from this manager's own replicated state.
+func (h *Handler) ListRuns(c echo.Context) error {
+	env, err := h.apiEnv(c)
+	if env == nil {
+		return err
+	}
+	runs, err := env.Store().ListRuns()
+	if err != nil {
+		return fail(c, err)
+	}
+	if runs == nil {
+		runs = []cluster.RunRecord{}
+	}
+	return response.OK(c, runs)
+}
+
+// runNotFound is 404 TASK_RUN_NOT_FOUND for cluster.ErrTaskRunNotFound.
+func runNotFound(err error) error {
+	if errors.Is(err, cluster.ErrTaskRunNotFound) {
+		return refusal(http.StatusNotFound, response.ErrTaskRunNotFound, "No such task run", nil)
+	}
+	return err
+}
+
+// GetRun answers GET /cluster/task-runs/:id: the run's head and its nodes'
+// records, from this manager's own replicated state.
+func (h *Handler) GetRun(c echo.Context) error {
+	env, err := h.apiEnv(c)
+	if env == nil {
+		return err
+	}
+	run, nodes, err := env.Store().GetRun(c.Param("id"))
+	if err != nil {
+		return fail(c, runNotFound(err))
+	}
+	return response.OK(c, map[string]any{"run": run, "nodes": nodes})
+}
+
+// StopRun answers POST /cluster/task-runs/:id/stop {force} (leader): a run
+// under way goes to stopping, by the operator; the engine starts no new
+// step, and with force cancels the command jobs under way. A run already
+// stopping is forced when asked; one that has ended is answered as it is.
+// The head is read and written under headMu, so a write the engine makes
+// from an earlier read does not undo the stop.
+func (h *Handler) StopRun(c echo.Context) error {
+	env, err := h.apiEnv(c)
+	if env == nil {
+		return err
+	}
+	if handled, err := h.forward(c, env); handled {
+		return err
+	}
+	var body struct {
+		Force bool `json:"force"`
+	}
+	if err := c.Bind(&body); err != nil {
+		return response.Fail(c, http.StatusBadRequest, response.ErrInvalidRequest, "Invalid request body")
+	}
+	st := env.Store()
+	headMu.Lock()
+	defer headMu.Unlock()
+	head, _, err := st.GetRun(c.Param("id"))
+	if err != nil {
+		return fail(c, runNotFound(err))
+	}
+	changed := false
+	switch head.Status {
+	case cluster.RunRunning, cluster.RunHandingOver:
+		head.Status, head.Force, head.Reason = cluster.RunStopping, body.Force, "stopped by "+operator(c)
+		changed = true
+	case cluster.RunStopping:
+		if body.Force && !head.Force {
+			head.Force, changed = true, true
+		}
+	}
+	if changed {
+		if err := st.PutRun(head); err != nil {
+			return fail(c, err)
+		}
+	}
+	return response.OK(c, head)
+}
+
+// RerunRun answers POST /cluster/task-runs/:id/rerun (leader): a new run of
+// the run's own document and inputs over the nodes chosen — with
+// ?only=failed every node that did not succeed, else the body's
+// {"nodes": [...]} that the run ran — each from its first step that did not
+// succeed. The run must have ended; the new one is judged and recorded as
+// any run is (claim). 202 {run_id}.
+func (h *Handler) RerunRun(c echo.Context) error {
+	env, err := h.apiEnv(c)
+	if env == nil {
+		return err
+	}
+	if handled, err := h.forward(c, env); handled {
+		return err
+	}
+	st := env.Tasks()
+	src, nodes, err := st.GetRun(c.Param("id"))
+	if err != nil {
+		return fail(c, runNotFound(err))
+	}
+	if src.Active() {
+		return response.FailWith(c, http.StatusConflict, response.ErrTaskRunActive, "Run "+src.ID+" is still under way",
+			map[string]string{"run_id": src.ID})
+	}
+	var only []string
+	switch c.QueryParam("only") {
+	case "failed":
+		for _, id := range src.Nodes {
+			if nodes[id].Status != cluster.RunNodeSucceeded {
+				only = append(only, id)
+			}
+		}
+	case "":
+		var body struct {
+			Nodes []string `json:"nodes"`
+		}
+		if err := c.Bind(&body); err != nil {
+			return response.Fail(c, http.StatusBadRequest, response.ErrInvalidRequest, "Invalid request body")
+		}
+		only = body.Nodes
+	default:
+		return response.Fail(c, http.StatusBadRequest, response.ErrInvalidRequest, "only takes failed")
+	}
+	run, _ := rerunFrom(src, nodes, only)
+	if len(run.Nodes) == 0 {
+		return response.Fail(c, http.StatusBadRequest, response.ErrTaskNoTargets, "None of the nodes chosen is one the run ran, or every one succeeded")
+	}
+	if err := managersNotReady(st); err != nil {
+		return fail(c, err)
+	}
+	doc, err := st.TaskRevision(src.Rev)
+	if err != nil {
+		return fail(c, fmt.Errorf("the run's document: %w", err))
+	}
+	run.StartedBy = operator(c)
+	if err := h.claim(env, &run, doc); err != nil {
+		return fail(c, err)
+	}
+	h.begin(run)
+	return response.Accepted(c, map[string]string{"run_id": run.ID})
+}
+
+// StepOutput answers GET /cluster/task-runs/:id/nodes/:node/steps/:n/output
+// ?skip=: the step's job as its node has it, output from byte skip on. The
+// output stays on the node; this manager asks it for the job the run
+// recorded. A step no job has run yet is 404 TASK_JOB_NOT_FOUND; the node's
+// refusal comes back as it gave it; a node not reached is 502
+// CLUSTER_NODE_UNREACHABLE.
+func (h *Handler) StepOutput(c echo.Context) error {
+	env, err := h.apiEnv(c)
+	if env == nil {
+		return err
+	}
+	_, nodes, err := env.Store().GetRun(c.Param("id"))
+	if err != nil {
+		return fail(c, runNotFound(err))
+	}
+	nodeID := c.Param("node")
+	step, err := strconv.Atoi(c.Param("n"))
+	if err != nil || step < 0 {
+		return response.Fail(c, http.StatusBadRequest, response.ErrInvalidRequest, "Invalid step")
+	}
+	skip := int64(0)
+	if s := c.QueryParam("skip"); s != "" {
+		if skip, err = strconv.ParseInt(s, 10, 64); err != nil || skip < 0 {
+			return response.Fail(c, http.StatusBadRequest, response.ErrInvalidRequest, "Invalid skip")
+		}
+	}
+	rec, ok := nodes[nodeID]
+	if !ok || step >= len(rec.Steps) || rec.Steps[step].JobID == "" {
+		return response.Fail(c, http.StatusNotFound, response.ErrTaskJobNotFound, "No job has run this step on this node")
+	}
+	ctx, cancel := context.WithTimeout(c.Request().Context(), callTimeout)
+	defer cancel()
+	view, err := env.GetJob(ctx, nodeID, rec.Steps[step].JobID, skip)
+	var ref *jobRefusal
+	switch {
+	case errors.As(err, &ref):
+		return response.FailWith(c, ref.Status, ref.Code, ref.Message, ref.Details)
+	case err != nil:
+		name := nodeID
+		for _, n := range env.Nodes() {
+			if n.ID == nodeID && n.Name != "" {
+				name = n.Name
+			}
+		}
+		return response.FailWith(c, http.StatusBadGateway, response.ErrClusterNodeUnreachable,
+			name+" did not answer: "+response.SanitizeOutput(err.Error()), map[string]string{"name": name})
+	}
+	return response.OK(c, view)
 }

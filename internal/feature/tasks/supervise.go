@@ -87,8 +87,11 @@ func (h *Handler) superviseOnce(ctx context.Context, env runEnv) {
 }
 
 // resumeHandedOver puts a run handed over with the leadership back to
-// running, from its latest record: a stop written since is kept.
+// running, from its latest record: a stop written since is kept, and one
+// written while it does waits for it (headMu).
 func resumeHandedOver(st runStore, run *cluster.RunRecord) error {
+	headMu.Lock()
+	defer headMu.Unlock()
 	head, _, err := st.GetRun(run.ID)
 	if err != nil {
 		return err
