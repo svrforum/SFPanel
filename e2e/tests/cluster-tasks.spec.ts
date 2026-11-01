@@ -834,6 +834,17 @@ test.describe('run setup', () => {
     await expect(recent).not.toContainText('r-other')
   })
 
+  test('recent runs that did not load say why, not that the task has not run', async ({ page }) => {
+    await mock(page, {
+      taskDetails: TASK_DETAILS,
+      replies: { 'GET /cluster/task-runs': fail(503, 'INTERNAL_ERROR', 'No cluster leader available — retry in a few seconds') },
+    })
+    await page.goto(`/cluster/tasks/${DEPLOY_ID}`)
+    const recent = setup(page).getByRole('region', { name: 'Recent runs' })
+    await expect(recent).toContainText('The cluster leader is changing or catching up. Try again in a few seconds.')
+    await expect(recent).not.toContainText('This task has not run yet')
+  })
+
   test.describe('Korean', () => {
     test.use({ locale: 'ko-KR' })
 

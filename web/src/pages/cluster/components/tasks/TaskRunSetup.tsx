@@ -424,25 +424,29 @@ function RunForm({ task }: { task: TaskView }) {
 }
 
 // The task's last runs, newest first: the history has no filter, so this
-// one picks them out of the list.
+// one picks them out of the list. A list that did not load says why: it is
+// not a task that has not run.
 function RecentRuns({ taskId }: { taskId: string }) {
   const { t } = useTranslation()
   const id = useId()
   const [runs, setRuns] = useState<RunRecord[] | null>(null)
+  const [error, setError] = useState<string | null>(null)
 
   useEffect(() => {
     let live = true
     api.listTaskRuns().then(
       (all) => live && setRuns(all.filter((r) => r.task_id === taskId).slice(0, RECENT_RUNS)),
-      () => live && setRuns([]),
+      (err) => live && setError(taskErrorMessage(err, t)),
     )
     return () => { live = false }
-  }, [taskId])
+  }, [taskId, t])
 
   return (
     <section aria-labelledby={`${id}-recent`} className="space-y-2 border-t border-border pt-4">
       <h3 id={`${id}-recent`} className="text-[14px] font-semibold">{t('cluster.tasks.setup.recent')}</h3>
-      {runs === null ? (
+      {error ? (
+        <p role="alert" className="text-[13px] text-muted-foreground break-words">{error}</p>
+      ) : runs === null ? (
         <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />
       ) : runs.length === 0 ? (
         <p className="text-[13px] text-muted-foreground">{t('cluster.tasks.setup.noRecent')}</p>
