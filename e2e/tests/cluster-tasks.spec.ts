@@ -1665,6 +1665,37 @@ test.describe('editor', () => {
     expect(readsAfter).toBe(2)
   })
 
+  test('a delete waited for while the operator opens another task leaves the page on that task', async ({ page }) => {
+    const ID = '1b2c3d4e5f607182'
+    let deleted = false
+    let readsAfter = 0
+    await mock(page, {
+      taskDetails: TASK_DETAILS,
+      replies: {
+        'GET /cluster/tasks': () => {
+          if (!deleted) return ok(TASKS)
+          readsAfter += 1
+          // The follower has the delete from the third read, 1.5 s on.
+          return ok(readsAfter >= 3 ? TASKS.filter((x) => x.id !== ID) : TASKS)
+        },
+        [`DELETE /cluster/tasks/${ID}`]: () => {
+          deleted = true
+          return ok({})
+        },
+      },
+    })
+    await page.goto(`/cluster/tasks/${ID}`)
+    await page.getByTestId('task-pane-setup').getByRole('button', { name: 'Delete', exact: true }).click()
+    await page.getByRole('dialog').getByRole('button', { name: 'Delete', exact: true }).click()
+    await expect.poll(() => readsAfter).toBeGreaterThanOrEqual(1)
+    await list(page).getByRole('link', { name: 'Deploy web' }).click()
+    await expect(page).toHaveURL(new RegExp(`/cluster/tasks/${DEPLOY_ID}$`))
+    await expect(section(page, 'My tasks').getByRole('link')).toHaveText(['Deploy web'])
+    expect(readsAfter).toBe(3)
+    await page.waitForTimeout(500)
+    await expect(page).toHaveURL(new RegExp(`/cluster/tasks/${DEPLOY_ID}$`))
+  })
+
   test('read-only tasks offer no edit: a built-in only a clone, a Git task a delete as well', async ({ page }) => {
     await mock(page, { taskDetails: TASK_DETAILS })
     const actions = async (path: string, name: string) => {
