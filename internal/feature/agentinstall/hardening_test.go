@@ -3,7 +3,9 @@ package agentinstall
 import (
 	"context"
 	"errors"
+	"strings"
 	"testing"
+	"unicode/utf8"
 
 	"github.com/svrforum/SFPanel/internal/api/response"
 	"github.com/svrforum/SFPanel/internal/cluster"
@@ -46,5 +48,33 @@ func TestALabelThatFailsLeavesTheRowSucceeded(t *testing.T) {
 	}
 	if h.Status != cluster.RunSucceeded || !h.CredentialsUntil.IsZero() {
 		t.Fatalf("run = %s, credentials until %v; want succeeded with none kept", h.Status, h.CredentialsUntil)
+	}
+}
+
+// What the target writes reaches a row's reason details, which Raft copies
+// to every manager: each value is cut at 256 bytes, on a rune boundary.
+func TestReasonDetailsAreCut(t *testing.T) {
+	env := newFakeEnv()
+	s := passingServer(t, env, 1)
+	// Nearly 1 MiB: the probe's lines are read up to 1 MiB each.
+	s.facts.OSID = "x" + strings.Repeat("A", 1<<20-64)
+	s.facts.OSLike = strings.Repeat("데비안", 1<<16)
+	e := newTestEngine(env, newFakeDialer(s))
+	id, err := e.Start(context.Background(), request(s))
+	if err != nil {
+		t.Fatal(err)
+	}
+	approveAll(t, e, env, id, "s1")
+	env.waitEnded(t, id)
+	r := env.row(id, "s1")
+	if r.Reason != response.ErrAgentInstallOS {
+		t.Fatalf("s1 = %s %d details, want %s", r.Reason, len(r.ReasonDetails), response.ErrAgentInstallOS)
+	}
+	id1, like := r.ReasonDetails["os_id"], r.ReasonDetails["os_like"]
+	if len(id1) == 0 || len(id1) > maxDetail || !strings.HasPrefix(id1, "xAAA") {
+		t.Fatalf("os_id is %d bytes, want 1 to %d of the server's", len(id1), maxDetail)
+	}
+	if len(like) == 0 || len(like) > maxDetail || !utf8.ValidString(like) || !strings.HasPrefix(like, "데비안") {
+		t.Fatalf("os_like is %d bytes (valid UTF-8 %v), want 1 to %d cut on a rune", len(like), utf8.ValidString(like), maxDetail)
 	}
 }

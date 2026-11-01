@@ -70,12 +70,15 @@ type row struct {
 	verifying, reverted bool
 }
 
-// update changes the row's record and writes it.
+// update changes the row's record and writes it. Every write of a row's
+// record passes here, so this is where its reason details are cut to
+// maxDetail: whichever path set them, Judge's refusals included.
 func (r *row) update(fn func(rec *cluster.RunNodeRecord)) {
 	r.wmu.Lock()
 	defer r.wmu.Unlock()
 	r.s.mu.Lock()
 	fn(&r.rec)
+	capDetails(r.rec.ReasonDetails)
 	rec := copyRec(r.rec)
 	r.s.mu.Unlock()
 	r.s.putRow(r.key, rec)

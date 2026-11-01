@@ -10,6 +10,7 @@ import (
 	"strconv"
 	"sync"
 	"time"
+	"unicode/utf8"
 
 	"github.com/svrforum/SFPanel/internal/api/response"
 	"github.com/svrforum/SFPanel/internal/cluster"
@@ -513,6 +514,26 @@ func (l *phaseLog) from(skip int64) (string, int64) {
 		skip = n
 	}
 	return string(l.buf[skip:]), n
+}
+
+// maxDetail bounds each value of a row's reason details: several come from
+// what the target answers (its os-release, its hostname, a command's error),
+// and the record is copied to every manager through Raft.
+const maxDetail = 256
+
+// capDetails cuts each value of d longer than maxDetail at a rune boundary,
+// in place.
+func capDetails(d map[string]string) {
+	for k, v := range d {
+		if len(v) <= maxDetail {
+			continue
+		}
+		cut := maxDetail
+		for cut > 0 && !utf8.RuneStart(v[cut]) {
+			cut--
+		}
+		d[k] = v[:cut]
+	}
 }
 
 // mergeDetails adds more to a row's reason details.
