@@ -326,7 +326,20 @@ type fakeServer struct {
 	installExit int
 	installHang bool
 	noRegister  bool
-	labels      map[string]string
+	// registerAnyway registers the agent as install.sh starts, whatever
+	// installExit says: the join succeeded and a later step failed, or is
+	// still running.
+	registerAnyway bool
+	// dropAfterInstall breaks the connection that started install.sh: its
+	// next commands cannot be run. A new connection works.
+	dropAfterInstall bool
+	// registerOnStop registers the agent as the install unit is stopped:
+	// a join admitted before the stop that lands after it.
+	registerOnStop bool
+	// revokedAtStop says whether the row's token was revoked by the time
+	// the install unit was stopped.
+	revokedAtStop bool
+	labels        map[string]string
 	// probeDelay holds the probe, so rows overlap.
 	probeDelay time.Duration
 	// keyChanged has Dial meet another host key; authFail refuses the login.
@@ -493,10 +506,13 @@ func (s *fakeServer) run(ctx context.Context, cmd string, stdin []byte) ([]byte,
 		s.dir = strings.Replace(unquote(strings.TrimPrefix(inner, "mktemp -d ")), "XXXXXXXXXX", "abcDEF0123", 1)
 		return []byte(s.dir + "\n"), nil, 0, nil
 	case strings.HasPrefix(inner, "systemd-run "):
+		if s.registerAnyway {
+			s.env.register(s.ip, s.facts.Hostname, s.labels)
+		}
 		if !s.installHang {
 			s.files[s.dir+"/install.log"] = []byte("\x1b[0;32m[INFO]\x1b[0m installing\n")
 			s.files[s.dir+"/exit"] = []byte(strconv.Itoa(s.installExit) + "\n")
-			if s.installExit == 0 && !s.noRegister {
+			if s.installExit == 0 && !s.noRegister && !s.registerAnyway {
 				s.env.register(s.ip, s.facts.Hostname, s.labels)
 			}
 		}
@@ -511,8 +527,13 @@ func (s *fakeServer) run(ctx context.Context, cmd string, stdin []byte) ([]byte,
 			return nil, nil, 0, nil
 		}
 		return b[n-1:], nil, 0, nil
-	case strings.HasPrefix(inner, "systemctl stop "),
-		strings.HasSuffix(inner, " uninstall --purge"),
+	case strings.HasPrefix(inner, "systemctl stop "):
+		s.revokedAtStop = len(s.env.revokedTokens()) > 0
+		if s.registerOnStop {
+			s.env.register(s.ip, s.facts.Hostname, s.labels)
+		}
+		return nil, nil, 0, nil
+	case strings.HasSuffix(inner, " uninstall --purge"),
 		strings.HasPrefix(inner, "rmdir /opt/stacks"):
 		return nil, nil, 0, nil
 	case strings.HasPrefix(inner, "rm -rf "):
@@ -634,17 +655,26 @@ type fakeTarget struct {
 	d      *fakeDialer
 	s      *fakeServer
 	closed bool
+	// broken is a connection that dropped: nothing more runs over it.
+	broken bool
 }
 
 func (t *fakeTarget) Run(ctx context.Context, cmd string, stdin []byte) ([]byte, []byte, int, error) {
 	if t.closed {
 		return nil, nil, -1, errors.New("closed")
 	}
-	return t.s.run(ctx, cmd, stdin)
+	if t.broken {
+		return nil, nil, -1, errors.New("sshexec: open a session: EOF")
+	}
+	out, errOut, exit, err := t.s.run(ctx, cmd, stdin)
+	if t.s.dropAfterInstall && strings.Contains(cmd, "systemd-run ") {
+		t.broken = true
+	}
+	return out, errOut, exit, err
 }
 
 func (t *fakeTarget) Upload(_ context.Context, path string, mode os.FileMode, data []byte) error {
-	if t.closed {
+	if t.closed || t.broken {
 		return errors.New("closed")
 	}
 	t.s.upload(path, mode, data)

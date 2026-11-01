@@ -721,6 +721,10 @@ const (
 	// cluster has already, or another server of the same install. Details:
 	// name and/or ip, and row, the other server's, when it is one.
 	ErrAgentInstallIdentityTaken = "AGENT_INSTALL_IDENTITY_TAKEN"
+	// ErrAgentInstallStopped is a row stopped by the operator after its
+	// agent registered: the node stays in the cluster until the row is
+	// reverted. Details: registered ("1").
+	ErrAgentInstallStopped = "AGENT_INSTALL_STOPPED"
 )
 
 // File manager error codes

@@ -165,20 +165,22 @@ func stepStatus(err error) string {
 	return cluster.RunStepFailed
 }
 
-// end ends the row whatever came of it: before a registration it takes off
-// the server what this install put there, and in every case it removes the
-// row's directory, revokes its token and closes its connection.
+// end ends the row whatever came of it. It revokes the row's token first,
+// so no join can come after it. A row whose install started and that ended
+// short of a registration is then looked for in the cluster (unwind): an
+// agent at its IP is its own and stays, and only a row with none is cleaned.
+// In every case it removes the row's directory and closes its connection.
 func (r *row) end(err error) {
 	ctx, cancel := context.WithTimeout(context.Background(), r.s.e.t.cleanup)
 	defer cancel()
+	r.revokeToken()
 	r.s.mu.Lock()
 	registered := r.rec.NodeID != ""
 	r.s.mu.Unlock()
-	if err != nil && !registered {
-		r.cleanTarget(ctx)
+	if err != nil && !registered && r.installStarted {
+		r.unwind(ctx)
 	}
 	r.removeTemp(ctx)
-	r.revokeToken()
 	r.closeTarget()
 	for _, l := range r.logs {
 		l.flush()
@@ -195,7 +197,7 @@ func (r *row) end(err error) {
 		case errors.Is(err, errDeclined):
 			rec.Status = cluster.RunNodeSkipped
 		case errors.Is(err, errRejected), errors.Is(err, context.Canceled):
-			rec.Status = cluster.RunNodeStopped
+			stopRecord(rec)
 		default:
 			rec.Status, rec.Reason = cluster.RunNodeFailed, response.ErrAgentInstallFailed
 			rec.ReasonDetails = map[string]string{"error": err.Error()}
@@ -206,6 +208,16 @@ func (r *row) end(err error) {
 			}
 		}
 	})
+}
+
+// stopRecord ends a row stopped by the operator. One that registered keeps
+// its node, which stays in the cluster until the row is reverted, and says
+// so (AGENT_INSTALL_STOPPED).
+func stopRecord(rec *cluster.RunNodeRecord) {
+	rec.Status = cluster.RunNodeStopped
+	if rec.NodeID != "" {
+		rec.Reason, rec.ReasonDetails = response.ErrAgentInstallStopped, map[string]string{"registered": "1"}
+	}
 }
 
 // connect is phase 0: the server's address, its host key approved by the
@@ -605,7 +617,12 @@ func (r *row) mktemp(ctx context.Context) error {
 }
 
 // follow reads the install's log and exit status every poll, until it
-// ends or installLimit passes.
+// ends or installLimit passes. install.sh registers the agent inside its
+// join and has steps after it, so an install.sh that fails or runs out of
+// time after an agent registered at the row's IP still goes on to the
+// registration and the connection check. A command that cannot be run is a
+// broken connection: it is closed, and dialled again at the next poll
+// against the approved key, for as long as installLimit allows.
 func (r *row) follow(ctx context.Context) error {
 	t, log := r.s.e.t, r.logs[phaseInstall]
 	deadline := time.Now().Add(t.installLimit)
@@ -617,34 +634,67 @@ func (r *row) follow(ctx context.Context) error {
 			return ctx.Err()
 		case <-time.After(t.poll):
 		}
-		// The exit status first: once it is written, the log is complete.
-		status, _, _, err := r.tgt.Run(ctx, "cat "+sshexec.ShellQuote(r.tmp+"/exit"), nil)
+		var status []byte
+		err := r.reconnect(ctx, log)
+		if err == nil {
+			// The exit status first: once it is written, the log is complete.
+			status, _, _, err = r.tgt.Run(ctx, "cat "+sshexec.ShellQuote(r.tmp+"/exit"), nil)
+		}
 		if err == nil {
 			var out []byte
 			out, _, _, err = r.tgt.Run(ctx, "tail -c +"+strconv.FormatInt(off+1, 10)+" "+sshexec.ShellQuote(r.tmp+"/install.log"), nil)
 			off += int64(len(out))
 			log.write(out)
 		}
-		if err != nil {
-			if ctx.Err() != nil {
-				return ctx.Err()
-			}
+		var f *rowFail
+		switch {
+		case err != nil && ctx.Err() != nil:
+			return ctx.Err()
+		case errors.As(err, &f) && f.code != response.ErrAgentInstallUnreachable:
+			// A login the server now refuses, or a host key that changed:
+			// no use dialling again.
+			return err
+		case err != nil:
 			if !warned {
 				log.printf("reading the install's progress failed: %v", err)
 				warned = true
 			}
-		} else if n, done := exitStatus(status); done {
-			r.installExited = true
-			if n != 0 {
+			r.closeTarget()
+		default:
+			if n, done := exitStatus(status); done {
+				r.installExited = true
+				if n == 0 {
+					return nil
+				}
+				if a, ok := r.agent(); ok {
+					log.printf("install.sh exited %d after the agent registered as node %s", n, a.ID)
+					return nil
+				}
 				return fail(response.ErrAgentInstallFailed, fmt.Sprintf("install.sh exited %d", n), "step", "install", "exit", strconv.Itoa(n))
 			}
-			return nil
 		}
 		if time.Now().After(deadline) {
+			if a, ok := r.agent(); ok {
+				log.printf("install.sh did not end in time after the agent registered as node %s", a.ID)
+				return nil
+			}
 			return fail(response.ErrAgentInstallFailed, "install.sh did not end in time", "step", "install",
 				"timeout_minutes", strconv.Itoa(int(t.installLimit/time.Minute)))
 		}
 	}
+}
+
+// reconnect dials the server again when the row's connection was closed for
+// a command that could not be run.
+func (r *row) reconnect(ctx context.Context, log *phaseLog) error {
+	if r.tgt != nil {
+		return nil
+	}
+	if err := r.dial(ctx, log); err != nil {
+		return err
+	}
+	log.printf("reconnected to %s", r.addr)
+	return nil
 }
 
 // exitStatus reads the exit file: nothing until install.sh has ended.
@@ -656,39 +706,66 @@ func exitStatus(b []byte) (int, bool) {
 // register is phase 3: the agent install.sh registered, found in the
 // cluster by the address its token was bound to.
 func (r *row) register(context.Context) error {
-	for _, n := range r.s.env.Nodes() {
-		if n.IsManager() {
-			continue
-		}
-		for _, a := range n.AllAddresses() {
-			if ip := net.ParseIP(a); ip != nil && ip.Equal(r.ip) {
-				r.update(func(rec *cluster.RunNodeRecord) { rec.NodeID = n.ID })
-				r.logs[phaseRegister].printf("registered as node %s (%s)", n.ID, n.Name)
-				return nil
-			}
-		}
+	a, ok := r.agent()
+	if !ok {
+		return fail(response.ErrAgentInstallFailed, "install.sh ended, but no agent registered at the address", "step", "register", "ip", r.ip.String())
 	}
-	return fail(response.ErrAgentInstallFailed, "install.sh ended, but no agent registered at the address", "step", "register", "ip", r.ip.String())
+	r.adopt(a, r.logs[phaseRegister])
+	return nil
 }
 
-// cleanTarget takes off the server what this install put there before its
-// agent registered: the install, when this run started one and the server
-// had no SFPanel before, and the /opt/stacks the panel made, when the server
-// had none.
-func (r *row) cleanTarget(ctx context.Context) {
-	if r.tgt == nil || !r.installStarted {
-		return
-	}
+// agent is the agent this row's install.sh registered, if there is one: the
+// node that is no manager at the row's IP. The pre-flight's gates refused a
+// node at that IP, so one found there after the install started is this
+// row's.
+func (r *row) agent() (cluster.Node, bool) {
+	return cluster.AgentAt(r.s.env.Nodes(), r.ip)
+}
+
+// adopt records a as the node the row registered as.
+func (r *row) adopt(a cluster.Node, log *phaseLog) {
+	r.update(func(rec *cluster.RunNodeRecord) { rec.NodeID = a.ID })
+	log.printf("registered as node %s (%s)", a.ID, a.Name)
+}
+
+// unwind ends an install that started and ended short of a registration as
+// far as the row saw, once its token is revoked. An agent at the row's IP is
+// the row's: it is adopted and the install unit, past the join, is left to
+// finish. With none, the unit is stopped and the cluster looked at again,
+// for a join admitted before the token went; only a row with no agent then
+// has its server cleaned.
+func (r *row) unwind(ctx context.Context) {
 	log := r.logs[phaseInstall]
-	if !r.installExited {
-		if _, _, exit, err := r.priv(ctx, "systemctl stop "+sshexec.ShellQuote(r.unit+".service"), nil); err != nil || exit != 0 {
-			log.printf("stopping %s failed (exit %d): %v", r.unit, exit, err)
-		}
-	}
-	if r.sfpanelBefore {
+	if a, ok := r.agent(); ok {
+		r.adopt(a, log)
 		return
 	}
-	r.purge(ctx, r.tmp, log)
+	r.stopInstall(ctx)
+	if a, ok := r.agent(); ok {
+		r.adopt(a, log)
+		return
+	}
+	r.cleanTarget(ctx)
+}
+
+// stopInstall stops the install unit if it is still running.
+func (r *row) stopInstall(ctx context.Context) {
+	if r.tgt == nil || r.installExited {
+		return
+	}
+	if _, _, exit, err := r.priv(ctx, "systemctl stop "+sshexec.ShellQuote(r.unit+".service"), nil); err != nil || exit != 0 {
+		r.logs[phaseInstall].printf("stopping %s failed (exit %d): %v", r.unit, exit, err)
+	}
+}
+
+// cleanTarget takes off the server what an install that registered no agent
+// put there, once its unit has stopped: SFPanel, when the server had none
+// before, and the /opt/stacks the panel made, when the server had none.
+func (r *row) cleanTarget(ctx context.Context) {
+	if r.tgt == nil || r.sfpanelBefore {
+		return
+	}
+	r.purge(ctx, r.tmp, r.logs[phaseInstall])
 }
 
 // purge runs the uploaded install.sh's uninstall --purge, then removes

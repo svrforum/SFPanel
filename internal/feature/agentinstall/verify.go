@@ -193,7 +193,7 @@ func (e *Engine) Recheck(runID, key string) error {
 			case errors.As(err, &f):
 				rec.Status, rec.Reason, rec.ReasonDetails = cluster.RunNodeFailed, f.code, maps.Clone(f.details)
 			default:
-				rec.Status = cluster.RunNodeStopped
+				stopRecord(rec)
 			}
 		})
 		s.mu.Lock()
@@ -203,21 +203,23 @@ func (e *Engine) Recheck(runID, key string) error {
 	return nil
 }
 
-// Revert takes back row key's agent, which registered and failed its
-// checks: the node is removed from the cluster, and while the credentials
-// last, a server that had no SFPanel before is purged of it in the
-// background (install.sh uninstall --purge, then an /opt/stacks it did not
-// have). A server that ran a standalone panel before is not touched: its
-// local account went when it booted as an agent. Once the credentials are
-// gone the node is removed all the same and the row says so
-// (AGENT_INSTALL_CREDENTIALS_GONE): the screen shows how to clean up by hand.
+// Revert takes back row key's agent: one that registered and then failed,
+// or that the operator stopped. The node is removed from the cluster, and
+// while the credentials last, a server that had no SFPanel before is purged
+// of it in the background (install.sh uninstall --purge, then an
+// /opt/stacks it did not have). A server that ran a standalone panel
+// before is not touched: its local account went when it booted as an
+// agent. Once the credentials are gone (always so after a stop) the node is
+// removed all the same and the row says so (AGENT_INSTALL_CREDENTIALS_GONE):
+// the screen shows how to clean up by hand.
 func (e *Engine) Revert(runID, key, by string) error {
 	s, r, err := e.row(runID, key)
 	if err != nil {
 		return err
 	}
 	s.mu.Lock()
-	if r.rec.Status != cluster.RunNodeFailed || r.rec.NodeID == "" || r.reverted || r.verifying {
+	ended := r.rec.Status == cluster.RunNodeFailed || r.rec.Status == cluster.RunNodeStopped
+	if !ended || r.rec.NodeID == "" || r.reverted || r.verifying {
 		s.mu.Unlock()
 		return notWaiting("This server has no registered agent to revert")
 	}

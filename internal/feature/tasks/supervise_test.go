@@ -828,3 +828,26 @@ func TestAnInstallRecordSurvivesALeaderChangeAsAFailure(t *testing.T) {
 		}
 	})
 }
+
+// A row the supervisor ends whose install step had begun may have
+// registered its agent inside install.sh's join, unseen by the session that
+// left: a node that is no manager at the row's IP is that agent, and the
+// row names it. A row still in its connection or pre-flight is never
+// matched: no install of its ran.
+func TestALeftInstallNamesTheAgentItsInstallRegistered(t *testing.T) {
+	shortSupervise(t)
+	at := func(n cluster.Node, ip string) cluster.Node { n.GRPCAddress = ip + ":3629"; return n }
+	e := newFakeEnv(t, "m2", manager("m1", "mgr-1"), manager("m2", "mgr-2"),
+		at(agent("a7", "web-3"), "198.51.100.3"), at(agent("a6", "web-2"), "198.51.100.2"), agent("a8", "web-5"), agent("a9", "web-4"))
+	installRun(t, e.store, testRunID, cluster.RunRunning, installRows(), installKeys...)
+	supervising(t, &Handler{runners: map[string]context.CancelFunc{}, newEnv: func() runEnv { return e }})
+	waitFor(t, "the install to end", runEnded(e.store, testRunID))
+
+	wantInstallLeftBehind(t, e.store)
+	if rec := e.store.node(testRunID, "s3"); rec.NodeID != "a7" {
+		t.Errorf("row s3 = %+v, want it to name a7, the agent at its IP", rec)
+	}
+	if rec := e.store.node(testRunID, "s2"); rec.NodeID != "" {
+		t.Errorf("row s2 = %+v, want no node: it never reached its install", rec)
+	}
+}

@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"net"
 	"slices"
 	"testing"
 	"time"
@@ -173,4 +174,29 @@ func TestTheAPIListsANodeAtItsRegisteredAddressFirst(t *testing.T) {
 		check("GetOverview", n)
 	}
 	check("GetNode", m.GetNode("m1"))
+}
+
+// An agent is found at any of its addresses, in any spelling of it; a
+// manager at the address is not an agent there.
+func TestAgentAtFindsTheAgentHoldingAnAddress(t *testing.T) {
+	nodes := []Node{
+		{ID: "m1", Kind: KindManager, GRPCAddress: "192.0.2.20:3629"},
+		{ID: "old", GRPCAddress: "192.0.2.21:3629"},
+		{ID: "a1", Kind: KindAgent, GRPCAddress: "192.0.2.10:3629", Addresses: []string{"192.0.2.10", "100.64.0.10"}},
+	}
+	for _, c := range []struct {
+		ip   string
+		want string
+	}{
+		{"192.0.2.10", "a1"}, {"100.64.0.10", "a1"}, {"::ffff:192.0.2.10", "a1"},
+		{"192.0.2.20", ""}, {"192.0.2.21", ""}, {"198.51.100.1", ""},
+	} {
+		n, ok := AgentAt(nodes, net.ParseIP(c.ip))
+		if ok != (c.want != "") || n.ID != c.want {
+			t.Errorf("AgentAt(%s) = %q, %v; want %q", c.ip, n.ID, ok, c.want)
+		}
+	}
+	if _, ok := AgentAt(nodes, nil); ok {
+		t.Error("AgentAt(nil) found a node")
+	}
 }

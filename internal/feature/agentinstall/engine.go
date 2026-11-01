@@ -557,8 +557,9 @@ func (e *Engine) Proceed(runID string) error {
 }
 
 // Stop stops the install for the operator by: every row under way ends
-// stopped, cleaned up as far as a short wait allows, its token revoked; then
-// the credentials go. On an install that has ended it only drops the
+// stopped, its token revoked; one whose agent has not registered is cleaned
+// up as far as a short wait allows, and one whose agent has keeps its node
+// until it is reverted. Then the credentials go. On an install that has ended it only drops the
 // credentials it kept.
 func (e *Engine) Stop(runID, by string) error {
 	s, err := e.session(runID)

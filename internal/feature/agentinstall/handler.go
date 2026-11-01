@@ -356,9 +356,9 @@ func (h *Handler) Recheck(c echo.Context) error {
 }
 
 // Revert answers POST /cluster/agent-installs/:id/servers/:key/revert
-// (leader): a registered agent that did not come online is removed from the
-// cluster, and what this run installed on the server goes while the
-// credentials are still held.
+// (leader): a registered agent that did not come online, or whose row was
+// stopped, is removed from the cluster, and what this run installed on the
+// server goes while the credentials are still held.
 func (h *Handler) Revert(c echo.Context) error {
 	if handled, err := h.forward(c); handled {
 		return err

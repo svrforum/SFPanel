@@ -2,6 +2,7 @@ package featuretasks
 
 import (
 	"context"
+	"net"
 	"time"
 
 	"github.com/svrforum/SFPanel/internal/api/response"
@@ -123,8 +124,10 @@ func resumeHandedOver(st runStore, run *cluster.RunRecord) error {
 // token went with the session. Every row that had not ended fails for the
 // leader change (AGENT_INSTALL_LEADER_CHANGED) — a row that registered keeps
 // its NodeID, which names the node it became — and its step under way is
-// unknown: what ran on the server under systemd-run may have gone on. Its
-// wait for the operator ends with it. The run fails for the same reason, its
+// unknown: what ran on the server under systemd-run may have gone on. A row
+// whose install step had begun and that names no node is given the agent
+// at its IP, if there is one: install.sh registers it inside its join,
+// before the session could see it. Its wait for the operator ends with it. The run fails for the same reason, its
 // credentials time cleared, and its end is audited as a run's is. It is
 // read and written under headMu, as a stop is; one that has ended, or that
 // a session on this node now owns, is left as it is.
@@ -148,6 +151,11 @@ func (h *Handler) endLeftInstall(env runEnv, id string) error {
 		if ok && rec.Status != cluster.RunNodePending && rec.Status != cluster.RunNodeRunning {
 			continue
 		}
+		if rec.NodeID == "" && installBegan(rec) {
+			if a, ok := cluster.AgentAt(env.Nodes(), net.ParseIP(rec.IP)); ok {
+				rec.NodeID = a.ID
+			}
+		}
 		rec.Status, rec.Reason = cluster.RunNodeFailed, response.ErrAgentInstallLeaderChanged
 		rec.Awaiting, rec.CheckURL = "", ""
 		for i, s := range rec.Steps {
@@ -170,6 +178,17 @@ func (h *Handler) endLeftInstall(env runEnv, id string) error {
 	}
 	h.auditEnd(env.LocalID(), head)
 	return nil
+}
+
+// installBegan reports whether an install row's install step (its third)
+// had begun: a row still in its connection or pre-flight ran no install.
+func installBegan(rec cluster.RunNodeRecord) bool {
+	const installStep = 2
+	if len(rec.Steps) <= installStep {
+		return false
+	}
+	st := rec.Steps[installStep].Status
+	return st != cluster.RunStepPending && st != cluster.RunStepSkipped
 }
 
 func (h *Handler) hasRunner(id string) bool {

@@ -77,6 +77,27 @@ func (n *Node) AllAddresses() []string {
 	return out
 }
 
+// AgentAt is the node of nodes that is no manager and holds ip, if there is
+// one: how an agent install finds the agent its install.sh registered, by
+// the address the join token was bound to. Node addresses are unique, so
+// there is at most one.
+func AgentAt(nodes []Node, ip net.IP) (Node, bool) {
+	if ip == nil {
+		return Node{}, false
+	}
+	for _, n := range nodes {
+		if n.IsManager() {
+			continue
+		}
+		for _, a := range n.AllAddresses() {
+			if p := net.ParseIP(a); p != nil && p.Equal(ip) {
+				return n, true
+			}
+		}
+	}
+	return Node{}, false
+}
+
 // ClusterState holds the full cluster state managed by Raft FSM.
 type ClusterState struct {
 	Name     string                   `json:"name"`
