@@ -164,6 +164,8 @@ func TestJudgePasses(t *testing.T) {
 		}, standalone: true, online: true, nodeName: "web-01"},
 		{name: "a standalone panel of the same version", facts: func(f *Facts) { f.SFPanelVersion = "0.81.0" },
 			standalone: true, online: true, nodeName: "web-01"},
+		{name: "SFPanel's data without its binary", facts: func(f *Facts) { f.SFPanelData = true },
+			standalone: true, online: true, nodeName: "web-01"},
 		{name: "a given name over an unusable hostname", facts: func(f *Facts) { f.Hostname = "localhost.localdomain_" + strings.Repeat("x", 60) },
 			input: func(in *JudgeInput) { in.Name = "db-02" }, online: true, nodeName: "db-02"},
 		{name: "the IP on Tailscale", input: func(in *JudgeInput) { in.IP = net.ParseIP("100.64.0.10") }, online: true, nodeName: "web-01"},
@@ -213,6 +215,7 @@ systemd=1
 hostname=web-01
 addrs=192.0.2.10,fe80::1,100.64.0.10,
 sfpanel_version=0.80.2
+sfpanel_data=1
 role=
 cluster_enabled=0
 manager_files=
@@ -246,6 +249,7 @@ func TestParseFactsIgnoresNoise(t *testing.T) {
 		Hostname:       "web-01",
 		Addrs:          []net.IP{net.ParseIP("192.0.2.10"), net.ParseIP("fe80::1"), net.ParseIP("100.64.0.10")},
 		SFPanelVersion: "0.80.2",
+		SFPanelData:    true,
 		Ports:          []int{3628, 3629},
 		PortsBusy:      []BusyPort{{Port: 3628, Owner: "sfpanel"}, {Port: 3629, Owner: "?"}},
 		ToolsMissing:   []string{"curl"},
@@ -261,7 +265,7 @@ func TestParseFactsIgnoresNoise(t *testing.T) {
 		t.Errorf("release arch = %q, want arm64", got)
 	}
 
-	for _, key := range []string{"uid", "sudo", "arch", "addrs", "now", "disk_kb", "ports_busy", "sfpanel_version"} {
+	for _, key := range []string{"uid", "sudo", "arch", "addrs", "now", "disk_kb", "ports_busy", "sfpanel_version", "sfpanel_data"} {
 		t.Run("without "+key, func(t *testing.T) {
 			var kept []string
 			for _, line := range strings.Split(probeOutput, "\n") {
@@ -495,6 +499,7 @@ echo '/dev/sda2 20000000 1000000 1500000 6% /var'`,
 		Hostname:        "web-01",
 		Addrs:           []net.IP{net.ParseIP("127.0.0.1"), net.ParseIP("192.0.2.10"), net.ParseIP("fd7a:115c:a1e0::1")},
 		SFPanelVersion:  "0.80.2",
+		SFPanelData:     true,
 		ManagerFiles:    []string{"/srv/cluster/tokens.json"},
 		OperatorTLSNoCA: true,
 		Ports:           []int{8443, 3629},
@@ -515,6 +520,69 @@ echo '/dev/sda2 20000000 1000000 1500000 6% /var'`,
 	}
 	if url := release.DownloadPrefix + version + "/checksums.txt"; !strings.Contains(string(args), "\n"+url+"\n") {
 		t.Errorf("curl was given\n%s\nwant the URL %s as one argument", args, url)
+	}
+}
+
+// TestTheProbeSeesSFPanelsDataWithoutItsBinary runs the probe over a server
+// SFPanel was uninstalled from without --purge: install.sh's default keeps
+// the configuration and the database. That is SFPanel before the install,
+// which the operator confirms as a standalone panel and nothing purges.
+func TestTheProbeSeesSFPanelsDataWithoutItsBinary(t *testing.T) {
+	bash, err := exec.LookPath("bash")
+	if err != nil {
+		t.Skip("bash is not installed")
+	}
+	dir := t.TempDir()
+	root := filepath.Join(dir, "root")
+	bin := filepath.Join(dir, "bin")
+	writeFile(t, filepath.Join(root, "etc/os-release"), "ID=ubuntu\nID_LIKE=debian\n", 0o644)
+	if err := os.MkdirAll(filepath.Join(root, "run/systemd/system"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	writeFile(t, filepath.Join(root, "etc/sfpanel/config.yaml"), "server:\n  port: 3628\n", 0o600)
+	writeFile(t, filepath.Join(root, "var/lib/sfpanel/sfpanel.db"), "SQLite format 3\x00", 0o600)
+	stubTools(t, bin, []string{"bash", "awk", "sed", "grep", "head", "sort", "tr", "cat", "timeout"}, map[string]string{
+		"uname": `echo x86_64`, "hostname": `echo web-01`, "date": `echo 1800000000`,
+		"ip": `echo '2: eth0    inet 192.0.2.10/24 scope global eth0'`,
+		"ss": `echo 'State Recv-Q Send-Q Local Address:Port Peer Address:Port Process'`,
+		"df": `echo 'Filesystem 1024-blocks Used Available Capacity Mounted on'; echo '/dev/sda1 20000000 1000000 900000 6% /'`,
+		"curl": `exit 0`, "tar": `exit 0`, "sha256sum": `exit 0`,
+	})
+	listener, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer listener.Close()
+	go func() {
+		for {
+			c, err := listener.Accept()
+			if err != nil {
+				return
+			}
+			c.Close()
+		}
+	}()
+	leader := listener.Addr().String()
+	cmd := exec.Command(bash, "-c", probeScript(root, []string{leader}, "0.81.0", false))
+	cmd.Env = []string{"PATH=" + bin, "LC_ALL=C"}
+	out, err := cmd.Output()
+	if err != nil {
+		t.Fatalf("probe: %v\n%s", err, out)
+	}
+	if !strings.Contains(string(out), "\nsfpanel_data=1\n") {
+		t.Fatalf("the probe printed\n%s\nwant sfpanel_data=1", out)
+	}
+	f, err := ParseFacts(append([]byte("uid=0\nbash=1\nsudo=none\n"), out...))
+	if err != nil {
+		t.Fatalf("%v\n%s", err, out)
+	}
+	if f.SFPanelVersion != "" || !f.SFPanelData {
+		t.Fatalf("sfpanel version %q, data %v; want no binary and its data", f.SFPanelVersion, f.SFPanelData)
+	}
+	in := passingInput()
+	in.Managers, in.Mode = []string{leader}, ModeOffline
+	if v := Judge(f, in); v.Code != "" || !v.Standalone {
+		t.Fatalf("verdict = %+v, want a pass on SFPanel before, asking about the standalone panel", v)
 	}
 }
 

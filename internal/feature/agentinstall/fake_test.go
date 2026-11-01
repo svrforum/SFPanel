@@ -430,6 +430,7 @@ func probeText(f Facts) string {
 	}
 	kv("addrs", strings.Join(addrs, ","))
 	kv("sfpanel_version", f.SFPanelVersion)
+	kv("sfpanel_data", flagText(f.SFPanelData))
 	kv("role", f.Role)
 	kv("cluster_enabled", flagText(f.ClusterEnabled))
 	kv("manager_files", strings.Join(f.ManagerFiles, ","))

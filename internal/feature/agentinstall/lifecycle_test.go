@@ -260,3 +260,73 @@ func TestAnInstallWithNoAgentIsCleanedAfterTheTokenGoes(t *testing.T) {
 		})
 	}
 }
+
+// keptData is a server SFPanel was uninstalled from without --purge: no
+// binary, its data kept.
+func keptData(s *fakeServer) { s.facts.SFPanelData = true }
+
+// confirmStandalone confirms row s1's standalone panel when it asks.
+func confirmStandalone(t *testing.T, e *Engine, env *fakeEnv, id string) {
+	t.Helper()
+	env.waitRow(t, id, "s1", func(r cluster.RunNodeRecord) bool { return r.Awaiting == awaitStandalone }, "to ask about its panel")
+	if err := e.ConfirmStandalone(id, "s1", true); err != nil {
+		t.Fatal(err)
+	}
+}
+
+// SFPanel's data on a server is SFPanel before the install, binary or not:
+// the row records it, and nothing purges the server.
+func TestKeptDataIsSFPanelBefore(t *testing.T) {
+	t.Run("a failed install runs no purge", func(t *testing.T) {
+		env := newFakeEnv()
+		s := passingServer(t, env, 1)
+		keptData(s)
+		s.installExit = 1
+		e := newTestEngine(env, newFakeDialer(s))
+		id, err := e.Start(context.Background(), request(s))
+		if err != nil {
+			t.Fatal(err)
+		}
+		approveAll(t, e, env, id, "s1")
+		confirmStandalone(t, e, env, id)
+		env.waitEnded(t, id)
+		r := env.row(id, "s1")
+		if r.Status != cluster.RunNodeFailed || !r.SFPanelBefore {
+			t.Fatalf("s1 = %+v, want failed with sfpanel_before", r)
+		}
+		if s.rootRan("uninstall --purge") || s.rootRan("rmdir /opt/stacks") {
+			t.Fatalf("commands %q: the kept data was purged", s.commands())
+		}
+	})
+	t.Run("a revert without the credentials removes the node only", func(t *testing.T) {
+		env := newFakeEnv()
+		env.heartbeat = func(string) (bool, bool, string) { return false, false, "" }
+		s := passingServer(t, env, 1)
+		keptData(s)
+		d := newFakeDialer(s)
+		e := newTestEngine(env, d)
+		id, err := e.Start(context.Background(), request(s))
+		if err != nil {
+			t.Fatal(err)
+		}
+		approveAll(t, e, env, id, "s1")
+		confirmStandalone(t, e, env, id)
+		env.waitEnded(t, id)
+		env.advance(10 * time.Minute)
+		waitFor(t, "the credentials to go", func() bool { return env.head(id).CredentialsUntil.IsZero() })
+		dials, _, _ := d.counts()
+		if err := e.Revert(id, "s1", "operator"); err != nil {
+			t.Fatal(err)
+		}
+		r := env.row(id, "s1")
+		if !reflect.DeepEqual(env.removedNodes(), []string{"a-web-1"}) || r.Reason != response.ErrAgentInstallOffline ||
+			r.ReasonDetails["reverted"] != "removed" || r.ReasonDetails["standalone"] != "1" {
+			t.Fatalf("removed %v, s1 = %s %v; want a-web-1 removed, %s kept and {reverted: removed, standalone: 1}",
+				env.removedNodes(), r.Reason, r.ReasonDetails, response.ErrAgentInstallOffline)
+		}
+		time.Sleep(20 * time.Millisecond)
+		if after, _, _ := d.counts(); after != dials || s.ran("uninstall --purge") {
+			t.Fatal("the server with SFPanel before was touched")
+		}
+	})
+}

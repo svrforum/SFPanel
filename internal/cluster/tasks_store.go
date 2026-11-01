@@ -212,6 +212,10 @@ type RunNodeRecord struct {
 	Name   string `json:"name,omitempty"`
 	Group  string `json:"group,omitempty"`
 	NodeID string `json:"node_id,omitempty"`
+	// SFPanelBefore is whether an install row's server had SFPanel, its
+	// binary or its data, before the install: set once the pre-flight
+	// passes. Nothing purges such a server.
+	SFPanelBefore bool `json:"sfpanel_before,omitempty"`
 	// Awaiting is what the row waits for the operator on: host_key, check,
 	// standalone or review. HostKey is the server's host key fingerprint
 	// ("ED25519 SHA256:…") to approve, CheckURL the address Tailscale SSH

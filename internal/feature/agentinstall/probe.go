@@ -96,6 +96,10 @@ type Facts struct {
 	// SFPanelVersion is the installed SFPanel's version, "unknown" when its
 	// binary does not say, or "" when none is installed.
 	SFPanelVersion string
+	// SFPanelData is whether any of /etc/sfpanel, /var/lib/sfpanel and
+	// /var/log/sfpanel exists: install.sh uninstall keeps them, binary or
+	// not.
+	SFPanelData bool
 	// Role and ClusterEnabled are cluster.role and cluster.enabled of an
 	// existing config.yaml.
 	Role           string
@@ -128,6 +132,11 @@ type Facts struct {
 	// Now is the server's clock as the probe ended.
 	Now time.Time
 }
+
+// SFPanelBefore is whether the server had SFPanel before the install: its
+// binary, or its data without it. The operator confirms converting it as a
+// standalone panel, and nothing purges it.
+func (f Facts) SFPanelBefore() bool { return f.SFPanelVersion != "" || f.SFPanelData }
 
 // ReleaseArch is the release's name for the server's CPU (amd64 or arm64),
 // or "" when no release is built for it.
@@ -261,6 +270,7 @@ if [ -x "$R/usr/local/bin/sfpanel" ]; then
   [ -n "$installed" ] || installed=unknown
 fi
 kv sfpanel_version "$installed"
+if [ -e "$R/etc/sfpanel" ] || [ -e "$R/var/lib/sfpanel" ] || [ -e "$R/var/log/sfpanel" ]; then kv sfpanel_data 1; else kv sfpanel_data 0; fi
 kv role "$(cfg cluster.role)"
 case "$(cfg cluster.enabled | tr 'A-Z' 'a-z')" in
   true|yes|on|y) kv cluster_enabled 1 ;;
@@ -321,7 +331,7 @@ var (
 var (
 	loginKeys = []string{"uid", "bash", "sudo"}
 	probeKeys = []string{"os_id", "os_like", "debian", "arch", "systemd", "hostname", "addrs",
-		"sfpanel_version", "role", "cluster_enabled", "manager_files", "operator_tls_no_ca",
+		"sfpanel_version", "sfpanel_data", "role", "cluster_enabled", "manager_files", "operator_tls_no_ca",
 		"ports", "ports_busy", "tools_missing", "disk_kb", "opt_stacks", "now"}
 	optionalKeys = []string{"github"}
 )
@@ -427,7 +437,7 @@ func ParseFacts(out []byte) (Facts, error) {
 	for _, b := range []struct {
 		key string
 		to  *bool
-	}{{"debian", &f.Debian}, {"systemd", &f.Systemd}, {"cluster_enabled", &f.ClusterEnabled},
+	}{{"debian", &f.Debian}, {"systemd", &f.Systemd}, {"sfpanel_data", &f.SFPanelData}, {"cluster_enabled", &f.ClusterEnabled},
 		{"operator_tls_no_ca", &f.OperatorTLSNoCA}, {"github", &f.GitHub}, {"opt_stacks", &f.OptStacks}} {
 		if *b.to, err = flag(kv, b.key); err != nil {
 			return Facts{}, err
@@ -484,8 +494,9 @@ type Verdict struct {
 	Code    string
 	Message string
 	Details map[string]string
-	// Standalone is a pass on a server that runs a standalone SFPanel: the
-	// install converts it, and the operator has to agree first.
+	// Standalone is a pass on a server that had SFPanel before
+	// (Facts.SFPanelBefore), its binary or only its data: the install
+	// converts it, and the operator has to agree first.
 	Standalone bool
 	// Online is whether to install online: the target downloads the archive.
 	Online bool
@@ -672,5 +683,5 @@ func Judge(f Facts, in JudgeInput) Verdict {
 		return refuse(response.ErrAgentInstallDisk, "the server is short of disk space for the install",
 			"free_kb", strconv.FormatInt(f.DiskKB, 10), "need_kb", strconv.Itoa(minDiskKB))
 	}
-	return Verdict{Standalone: f.SFPanelVersion != "", Online: online, Name: name}
+	return Verdict{Standalone: f.SFPanelBefore(), Online: online, Name: name}
 }

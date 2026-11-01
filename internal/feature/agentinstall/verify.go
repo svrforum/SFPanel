@@ -207,11 +207,12 @@ func (e *Engine) Recheck(runID, key string) error {
 // or that the operator stopped. The node is removed from the cluster, and
 // while the credentials last, a server that had no SFPanel before is purged
 // of it in the background (install.sh uninstall --purge, then an
-// /opt/stacks it did not have). A server that ran a standalone panel
-// before is not touched: its local account went when it booted as an
-// agent. Once the credentials are gone (always so after a stop) the node is
-// removed all the same and the row says so (AGENT_INSTALL_CREDENTIALS_GONE):
-// the screen shows how to clean up by hand.
+// /opt/stacks it did not have). A server that had SFPanel before, its
+// binary or its data, is not touched, credentials or not, and its row keeps
+// its reason: its local account went when it booted as an agent, and its
+// data was there first. Otherwise, once the credentials are gone (always so
+// after a stop), the node is removed all the same and the row says so
+// (AGENT_INSTALL_CREDENTIALS_GONE): the screen shows how to clean up by hand.
 func (e *Engine) Revert(runID, key, by string) error {
 	s, r, err := e.row(runID, key)
 	if err != nil {
@@ -242,17 +243,17 @@ func (e *Engine) Revert(runID, key, by string) error {
 	r.logs[phaseVerify].printf("node %s removed from the cluster by %s", id, by)
 
 	switch {
-	case !held:
-		r.update(func(rec *cluster.RunNodeRecord) {
-			rec.Reason = response.ErrAgentInstallCredentialsGone
-			rec.ReasonDetails = mergeDetails(rec.ReasonDetails, map[string]string{"reverted": "removed"})
-		})
-		return nil
 	case r.sfpanelBefore:
 		r.update(func(rec *cluster.RunNodeRecord) {
 			rec.ReasonDetails = mergeDetails(rec.ReasonDetails, map[string]string{"reverted": "removed", "standalone": "1"})
 		})
 		s.dropUnused()
+		return nil
+	case !held:
+		r.update(func(rec *cluster.RunNodeRecord) {
+			rec.Reason = response.ErrAgentInstallCredentialsGone
+			rec.ReasonDetails = mergeDetails(rec.ReasonDetails, map[string]string{"reverted": "removed"})
+		})
 		return nil
 	}
 	r.update(func(rec *cluster.RunNodeRecord) {

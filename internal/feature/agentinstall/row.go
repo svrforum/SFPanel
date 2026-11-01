@@ -47,8 +47,8 @@ type row struct {
 	name     string
 	online   bool
 	arch     string
-	// sfpanelBefore and optStacksBefore are what the pre-flight found
-	// before this install touched the server.
+	// sfpanelBefore (SFPanel's binary or its data) and optStacksBefore are
+	// what the pre-flight found before this install touched the server.
 	sfpanelBefore, optStacksBefore bool
 
 	tgt  Target
@@ -413,8 +413,8 @@ func (r *row) preflight(ctx context.Context) error {
 		return &rowFail{code: v.Code, message: v.Message, details: v.Details}
 	}
 	r.name, r.online, r.arch = v.Name, v.Online, facts.ReleaseArch()
-	r.sfpanelBefore, r.optStacksBefore = facts.SFPanelVersion != "", facts.OptStacks
-	r.update(func(rec *cluster.RunNodeRecord) { rec.Name = v.Name })
+	r.sfpanelBefore, r.optStacksBefore = facts.SFPanelBefore(), facts.OptStacks
+	r.update(func(rec *cluster.RunNodeRecord) { rec.Name, rec.SFPanelBefore = v.Name, r.sfpanelBefore })
 	if other := s.claim(s.names, v.Name, r.key); other != "" {
 		return fail(response.ErrAgentInstallIdentityTaken, "another server of this install has the same name", "name", v.Name, "row", other)
 	}
@@ -759,8 +759,9 @@ func (r *row) stopInstall(ctx context.Context) {
 }
 
 // cleanTarget takes off the server what an install that registered no agent
-// put there, once its unit has stopped: SFPanel, when the server had none
-// before, and the /opt/stacks the panel made, when the server had none.
+// put there, once its unit has stopped: SFPanel, when the server had neither
+// its binary nor its data before, and the /opt/stacks the panel made, when
+// the server had none.
 func (r *row) cleanTarget(ctx context.Context) {
 	if r.tgt == nil || r.sfpanelBefore {
 		return
