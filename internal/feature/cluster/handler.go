@@ -11,7 +11,6 @@ import (
 	"net"
 	"net/http"
 	"os"
-	"regexp"
 	"sort"
 	"strconv"
 	"strings"
@@ -963,37 +962,6 @@ func wouldDropBelowQuorum(mgr *cluster.Manager, nodeID string) (string, bool) {
 	return checkQuorumAfterRemoval(nodeID, voters)
 }
 
-// validateLabels enforces a small bounded schema on user-supplied node
-// labels — without this, the FSM Apply path persisted whatever the caller
-// sent (including multi-MB strings) into the Raft log forever. Following
-// k8s conventions: 63 chars max per key/value, key starts with alnum,
-// allowed chars [A-Za-z0-9._-]. Caps total label count at 32 per node.
-func validateLabels(labels map[string]string) error {
-	if len(labels) > 32 {
-		return fmt.Errorf("too many labels (max 32)")
-	}
-	for k, v := range labels {
-		if len(k) == 0 || len(k) > 63 {
-			return fmt.Errorf("label key %q must be 1..63 chars", k)
-		}
-		if !labelKeyRE.MatchString(k) {
-			return fmt.Errorf("label key %q has invalid characters (allowed: alnum + .-_)", k)
-		}
-		if len(v) > 63 {
-			return fmt.Errorf("label value for %q exceeds 63 chars", k)
-		}
-		if !labelValueRE.MatchString(v) {
-			return fmt.Errorf("label value for %q has invalid characters", k)
-		}
-	}
-	return nil
-}
-
-var (
-	labelKeyRE   = regexp.MustCompile(`^[a-zA-Z0-9][a-zA-Z0-9._-]*$`)
-	labelValueRE = regexp.MustCompile(`^[a-zA-Z0-9._-]*$`)
-)
-
 // checkQuorumAfterRemoval is the pure math behind the guard, split out so
 // the boundary cases (1, 2, 3, 5 voters) are testable without standing up
 // a real Manager+Raft. Returns true when removing one voter from a cluster
@@ -1094,7 +1062,7 @@ func (h *Handler) UpdateNodeLabels(c echo.Context) error {
 	if err := c.Bind(&body); err != nil {
 		return response.Fail(c, http.StatusBadRequest, response.ErrInvalidRequest, "Invalid request body")
 	}
-	if err := validateLabels(body.Labels); err != nil {
+	if err := cluster.ValidateLabels(body.Labels); err != nil {
 		return response.Fail(c, http.StatusBadRequest, response.ErrInvalidRequest, err.Error())
 	}
 
