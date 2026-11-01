@@ -1341,6 +1341,74 @@
             "0": "Reboot if required"
           }
         }
+      },
+      "setup": {
+        "loadError": "Could not load the task",
+        "unparsable": "The task's document no longer reads as a task. Fix it in the editor before running it.",
+        "inputs": "Inputs",
+        "inputsWarning": "Input values are kept in the run history and copied to every manager. Do not enter passwords.",
+        "required": "Required",
+        "raw": "Goes in as typed",
+        "defaultValue": "Default: {{value}}",
+        "inputRequired": "This value is required.",
+        "inputTooLarge": "This value is over 16 KiB.",
+        "inputsTooLarge": "The values together are over 64 KiB.",
+        "targets": "Targets",
+        "groups": "Groups",
+        "noGroups": "No node has a group label.",
+        "kinds": "Kinds",
+        "managers": "Managers",
+        "agents": "Agents",
+        "nodes": "Nodes",
+        "nodesError": "Could not load the nodes",
+        "targetCount_one": "{{count}} node targeted",
+        "targetCount_other": "{{count}} nodes targeted",
+        "howItRuns": "How it runs",
+        "batch": "Batch size",
+        "batchHint": "How many agents run at a time. Managers always run one at a time, the leader last.",
+        "stopOnFailure": "Stop on failure",
+        "stopOnFailureHint": "A node that fails keeps the next batches from starting.",
+        "preview": "Preview",
+        "run": "Run",
+        "recent": "Recent runs",
+        "noRecent": "This task has not run yet.",
+        "targetBusy": "{{node}} is held by another run under way. Try again once that run has finished."
+      },
+      "plan": {
+        "title": "Preview: {{name}}",
+        "description": "What the run would do, asked of every node without running anything.",
+        "empty": "(empty)",
+        "default": "(default)",
+        "waves": "Batches",
+        "wave": "Batch {{n}}",
+        "step": "Step {{n}}",
+        "allFine": "Every step can run",
+        "checkError": "Could not check this node: {{error}}",
+        "skippedPve": "Skipped (Proxmox host)",
+        "left": "Left out",
+        "confirm": "Confirmations",
+        "confirmStep": "Confirm “{{step}}” on every node",
+        "managersNotReady": "Not every manager runs a version that knows group tasks, so the run cannot start. Waiting for:",
+        "changed": "The task, its inputs or its targets changed since the preview, so it was previewed again. Check it and run again.",
+        "leftReason": {
+          "unknown": "No such node",
+          "offline": "Offline",
+          "outdated": "Its version does not know group tasks",
+          "unreachable": "The leader cannot reach it",
+          "busy": "Held by another run"
+        },
+        "verdict": {
+          "serviceConfirm": "This unit is needed to manage the host or run its guests. Confirm the step to run it.",
+          "serviceProtected": "The panel won't do this to this unit: the host, its cluster or its guests depend on it."
+        }
+      },
+      "runStatus": {
+        "running": "Running",
+        "stopping": "Stopping",
+        "handingOver": "Handing over",
+        "succeeded": "Succeeded",
+        "failed": "Failed",
+        "stopped": "Stopped"
       }
     }
   },

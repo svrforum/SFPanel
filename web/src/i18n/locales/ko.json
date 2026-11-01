@@ -1338,6 +1338,73 @@
             "0": "필요할 때 재부팅"
           }
         }
+      },
+      "setup": {
+        "loadError": "작업을 불러오지 못했습니다",
+        "unparsable": "작업 문서를 더는 작업으로 읽을 수 없습니다. 편집기에서 고친 뒤 실행하세요.",
+        "inputs": "입력값",
+        "inputsWarning": "입력값은 실행 기록에 남고 모든 매니저에 복제됩니다. 비밀번호를 넣지 마세요.",
+        "required": "필수",
+        "raw": "그대로 들어감",
+        "defaultValue": "기본값: {{value}}",
+        "inputRequired": "필수 입력값입니다.",
+        "inputTooLarge": "입력값이 16 KiB를 넘습니다.",
+        "inputsTooLarge": "입력값을 모두 합쳐 64 KiB를 넘습니다.",
+        "targets": "대상",
+        "groups": "그룹",
+        "noGroups": "그룹 라벨이 붙은 노드가 없습니다.",
+        "kinds": "종류",
+        "managers": "매니저",
+        "agents": "에이전트",
+        "nodes": "노드",
+        "nodesError": "노드 목록을 불러오지 못했습니다",
+        "targetCount": "대상 {{count}}대",
+        "howItRuns": "실행 방식",
+        "batch": "묶음 크기",
+        "batchHint": "에이전트를 한 번에 몇 대씩 실행할지 정합니다. 매니저는 늘 한 대씩, 리더는 마지막에 실행합니다.",
+        "stopOnFailure": "실패하면 멈춤",
+        "stopOnFailureHint": "실패한 노드가 있으면 다음 묶음을 시작하지 않습니다.",
+        "preview": "미리보기",
+        "run": "실행",
+        "recent": "최근 실행",
+        "noRecent": "이 작업은 아직 실행한 적이 없습니다.",
+        "targetBusy": "진행 중인 다른 실행이 {{node}}을(를) 잡고 있습니다. 그 실행이 끝난 뒤 다시 하세요."
+      },
+      "plan": {
+        "title": "미리보기: {{name}}",
+        "description": "아무것도 실행하지 않고 노드마다 물어본, 실행하면 일어날 일입니다.",
+        "empty": "(비어 있음)",
+        "default": "(기본값)",
+        "waves": "묶음",
+        "wave": "묶음 {{n}}",
+        "step": "단계 {{n}}",
+        "allFine": "모든 단계 실행 가능",
+        "checkError": "이 노드를 확인하지 못했습니다: {{error}}",
+        "skippedPve": "건너뜀 (Proxmox 호스트)",
+        "left": "빠지는 노드",
+        "confirm": "확인",
+        "confirmStep": "모든 노드에서 “{{step}}” 단계를 확인합니다",
+        "managersNotReady": "그룹 작업을 아는 버전이 아닌 매니저가 있어 실행할 수 없습니다. 기다리는 매니저:",
+        "changed": "미리보기 뒤에 작업이나 입력값, 대상이 바뀌어 미리보기를 다시 받았습니다. 확인하고 다시 실행하세요.",
+        "leftReason": {
+          "unknown": "없는 노드",
+          "offline": "오프라인",
+          "outdated": "그룹 작업을 모르는 버전",
+          "unreachable": "리더가 닿지 못함",
+          "busy": "다른 실행이 잡고 있음"
+        },
+        "verdict": {
+          "serviceConfirm": "이 유닛은 호스트를 관리하거나 게스트를 실행하는 데 필요합니다. 실행하려면 이 단계를 확인하세요.",
+          "serviceProtected": "패널은 이 유닛에 이 작업을 하지 않습니다. 호스트나 클러스터, 게스트가 이 유닛에 의존합니다."
+        }
+      },
+      "runStatus": {
+        "running": "진행 중",
+        "stopping": "멈추는 중",
+        "handingOver": "넘기는 중",
+        "succeeded": "성공",
+        "failed": "실패",
+        "stopped": "중지됨"
       }
     }
   },

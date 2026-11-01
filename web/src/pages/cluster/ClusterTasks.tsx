@@ -107,7 +107,7 @@ export default function ClusterTasks() {
         <TaskEditor taskId={isEdit ? taskId : undefined} name={taskId ? nameOf(taskId) : undefined} />
       </Suspense>
     )
-  } else if (taskId) pane = tasks === null ? null : <TaskRunSetup task={task} />
+  } else if (taskId) pane = tasks === null ? null : <TaskRunSetup key={taskId} task={task} />
   else {
     pane = (
       <section data-testid="task-pane-none" className="hidden md:block rounded-2xl bg-card p-5 card-shadow space-y-2">
