@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"reflect"
 	"slices"
 	"strings"
@@ -1664,4 +1665,195 @@ func TestTheFormatRoute(t *testing.T) {
 		save := f.do("POST", "/api/v1/cluster/tasks", map[string]string{"yaml": out.YAML})
 		wantRefusal(t, "saving it", save, http.StatusBadRequest, response.ErrTaskTooLarge, map[string]string{"max_kib": "64"})
 	})
+}
+
+// A task run's leadership hand-over would cut an install's sessions off, so
+// one waits for the other: an install under way refuses a task run's start
+// and a rerun, and none under way lets them through.
+func TestTaskRunsAndAnInstallExcludeEachOther(t *testing.T) {
+	f := newAPI(t)
+	f.store("t1", greetDoc)
+	f.runOf(srcRun, cluster.RunFailed, nil, "a1")
+	fi := &fakeInstalls{active: true}
+	f.h.SetInstallRuns(fi)
+
+	start := map[string]any{"task_id": "t1", "inputs": map[string]string{"who": "x"}}
+	wantRefusal(t, "a run during an install", f.do("POST", "/api/v1/cluster/task-runs", start), 409, response.ErrAgentInstallActive, nil)
+	wantRefusal(t, "a rerun during an install", f.do("POST", "/api/v1/cluster/task-runs/"+srcRun+"/rerun?only=failed", nil), 409, response.ErrAgentInstallActive, nil)
+	if runs, _ := f.env.store.ListRuns(); len(runs) != 1 {
+		t.Errorf("runs = %+v, want the refused ones unrecorded", runs)
+	}
+
+	fi.mu.Lock()
+	fi.active = false
+	fi.mu.Unlock()
+	if a := f.do("POST", "/api/v1/cluster/task-runs", start); a.Status != http.StatusAccepted {
+		t.Errorf("a run with no install = %d %+v, want 202", a.Status, a.Error)
+	}
+}
+
+func TestAnInstallIsNotRerunAsATask(t *testing.T) {
+	f := newAPI(t)
+	installRun(t, f.env.store, srcRun, cluster.RunFailed, installRows(), installKeys...)
+	for _, path := range []string{"/rerun?only=failed", "/rerun"} {
+		a := f.do("POST", "/api/v1/cluster/task-runs/"+srcRun+path, map[string]any{"nodes": []string{"s1"}})
+		wantRefusal(t, "POST "+path, a, 409, response.ErrAgentInstallNotRerunnable, nil)
+	}
+	if runs, _ := f.env.store.ListRuns(); len(runs) != 1 {
+		t.Errorf("runs = %+v, want the install alone", runs)
+	}
+}
+
+// An install's rows are servers, and their output is in the memory of the
+// leader's session: no node has a job for it.
+func TestAnInstallsOutputComesFromTheLeadersSession(t *testing.T) {
+	path := "/api/v1/cluster/task-runs/" + srcRun + "/nodes/s3/steps/2/output?skip=6"
+	setup := func(t *testing.T) (*apiFixture, *fakeInstalls) {
+		f := newAPI(t)
+		installRun(t, f.env.store, srcRun, cluster.RunRunning, installRows(), installKeys...)
+		// A node asked for a job answers 418, which no answer here is.
+		f.env.getRefusal = &jobRefusal{Status: http.StatusTeapot, Code: "ASKED_A_NODE"}
+		fi := &fakeInstalls{active: true, owns: map[string]bool{srcRun: true},
+			view: tasks.JobView{ID: "install/s3/2", Status: tasks.JobRunning, Output: "world\n", NextSkip: 12}}
+		f.h.SetInstallRuns(fi)
+		return f, fi
+	}
+
+	t.Run("the session answers", func(t *testing.T) {
+		f, fi := setup(t)
+		a := f.do("GET", path, nil)
+		var v tasks.JobView
+		a.data(t, &v)
+		if a.Status != 200 || v.ID != "install/s3/2" || v.Output != "world\n" || v.NextSkip != 12 {
+			t.Errorf("output = %d %+v (%+v), want the session's", a.Status, v, a.Error)
+		}
+		if want := []string{srcRun + "/s3/2/6"}; !slices.Equal(fi.outputs, want) {
+			t.Errorf("the session was asked %v, want %v", fi.outputs, want)
+		}
+	})
+	t.Run("no session has it", func(t *testing.T) {
+		f, fi := setup(t)
+		fi.owns = nil
+		wantRefusal(t, "a session gone", f.do("GET", path, nil), 404, response.ErrAgentInstallLogGone, nil)
+		if len(fi.outputs) != 0 {
+			t.Errorf("a session that does not own the run was asked %v", fi.outputs)
+		}
+	})
+	t.Run("the session has no such output", func(t *testing.T) {
+		f, fi := setup(t)
+		fi.outErr = errors.New("no row s3")
+		wantRefusal(t, "an output the session lacks", f.do("GET", path, nil), 404, response.ErrAgentInstallLogGone, nil)
+	})
+	t.Run("no installer is set", func(t *testing.T) {
+		f, _ := setup(t)
+		f.h.SetInstallRuns(nil)
+		wantRefusal(t, "no installer", f.do("GET", path, nil), 404, response.ErrAgentInstallLogGone, nil)
+	})
+	t.Run("a follower asks the leader", func(t *testing.T) {
+		f, fi := setup(t)
+		f.env.notLeader = true
+		a := f.do("GET", path, nil)
+		if a.Status != http.StatusTeapot || len(f.forwarded) != 1 || len(fi.outputs) != 0 {
+			t.Errorf("answer %d, forwarded %v, asked %v; want the leader's answer", a.Status, f.forwarded, fi.outputs)
+		}
+	})
+}
+
+func TestStoppingAnInstallStopsItsSession(t *testing.T) {
+	t.Run("its session stops it", func(t *testing.T) {
+		f := newAPI(t)
+		installRun(t, f.env.store, srcRun, cluster.RunRunning, installRows(), installKeys...)
+		fi := &fakeInstalls{active: true, owns: map[string]bool{srcRun: true}}
+		f.h.SetInstallRuns(fi)
+		a := f.do("POST", "/api/v1/cluster/task-runs/"+srcRun+"/stop", map[string]bool{"force": true})
+		var head cluster.RunRecord
+		a.data(t, &head)
+		if a.Status != 200 || head.ID != srcRun {
+			t.Errorf("stop = %d %+v, want the run's head", a.Status, a.Error)
+		}
+		if want := []string{srcRun + ":operator"}; !slices.Equal(fi.stops, want) {
+			t.Errorf("the session was stopped %v, want %v", fi.stops, want)
+		}
+		if h := f.env.store.head(srcRun); h.Status != cluster.RunRunning {
+			t.Errorf("run = %s, want the session to write its own stop", h.Status)
+		}
+	})
+	t.Run("no session runs it", func(t *testing.T) {
+		f := newAPI(t)
+		installRun(t, f.env.store, srcRun, cluster.RunRunning, installRows(), installKeys...)
+		fi := &fakeInstalls{}
+		f.h.SetInstallRuns(fi)
+		a := f.do("POST", "/api/v1/cluster/task-runs/"+srcRun+"/stop", nil)
+		var head cluster.RunRecord
+		a.data(t, &head)
+		if a.Status != 200 || head.Status != cluster.RunFailed || head.Reason != response.ErrAgentInstallLeaderChanged {
+			t.Errorf("stop = %d %+v (%+v), want the install ended for the leader change", a.Status, head, a.Error)
+		}
+		if len(fi.stops) != 0 {
+			t.Errorf("a session that does not own the run was stopped: %v", fi.stops)
+		}
+		if rec := f.env.store.node(srcRun, "s1"); rec.Status != cluster.RunNodeFailed || rec.Reason != response.ErrAgentInstallLeaderChanged {
+			t.Errorf("row s1 = %+v, want failed for the leader change", rec)
+		}
+	})
+}
+
+// The install is listed with the built-ins, so the screen opens its own
+// form from it; it has no document, and no task route runs it.
+func TestTheInstallBuiltinIsListedButIsNotATask(t *testing.T) {
+	f := newAPI(t)
+	f.store("t1", greetDoc)
+
+	var list []taskView
+	f.do("GET", "/api/v1/cluster/tasks", nil).data(t, &list)
+	n := len(tasks.Builtins())
+	if len(list) != n+2 {
+		t.Fatalf("listed %d tasks, want %d built-ins, the install and t1", len(list), n)
+	}
+	v := list[n]
+	if v.ID != cluster.AgentInstallTaskID || v.Name == "" || v.Description == "" || !v.ReadOnly || v.Source.Kind != sourceBuiltin || v.YAML != "" {
+		t.Errorf("listed after the built-ins: %+v, want the install, named, described, read-only, built in, no document", v)
+	}
+	if list[n+1].ID != "t1" {
+		t.Errorf("listed last: %s, want the stored task", list[n+1].ID)
+	}
+
+	id := url.PathEscape(cluster.AgentInstallTaskID)
+	var one taskView
+	a := f.do("GET", "/api/v1/cluster/tasks/"+id, nil)
+	a.data(t, &one)
+	if a.Status != 200 || one.ID != cluster.AgentInstallTaskID || one.Name != v.Name || one.YAML != "" || one.Task != nil || !one.ReadOnly {
+		t.Errorf("GET the install = %d %+v, want its view without a document or a model", a.Status, one)
+	}
+
+	body := map[string]any{"task_id": cluster.AgentInstallTaskID}
+	wantRefusal(t, "plan the install", f.do("POST", "/api/v1/cluster/task-runs/plan", body), 404, response.ErrTaskNotFound, nil)
+	wantRefusal(t, "start the install", f.do("POST", "/api/v1/cluster/task-runs", body), 404, response.ErrTaskNotFound, nil)
+	wantRefusal(t, "PUT the install", f.do("PUT", "/api/v1/cluster/tasks/"+id, map[string]string{"yaml": greetDoc}), 409, response.ErrTaskReadOnly, nil)
+	wantRefusal(t, "DELETE the install", f.do("DELETE", "/api/v1/cluster/tasks/"+id, nil), 409, response.ErrTaskReadOnly, nil)
+	if runs, _ := f.env.store.ListRuns(); len(runs) != 0 {
+		t.Errorf("runs = %+v, want none", runs)
+	}
+}
+
+// An install's record is replicated to every manager and kept: none of its
+// fields may be one a secret could go in. A field named for one fails here
+// before review; host_key is the server's public key fingerprint.
+func TestInstallFieldsCarryNoSecret(t *testing.T) {
+	forbidden := []string{"password", "passwd", "passphrase", "secret", "token", "private", "sudo", "credential", "key"}
+	allowed := map[string]bool{"host_key": true, "credentials_until": true}
+	for _, typ := range []reflect.Type{reflect.TypeFor[cluster.RunRecord](), reflect.TypeFor[cluster.RunNodeRecord](), reflect.TypeFor[cluster.RunStepRecord]()} {
+		for i := range typ.NumField() {
+			field := typ.Field(i)
+			tag, _, _ := strings.Cut(field.Tag.Get("json"), ",")
+			if allowed[tag] {
+				continue
+			}
+			for _, word := range forbidden {
+				if strings.Contains(strings.ToLower(tag), word) || strings.Contains(strings.ToLower(field.Name), word) {
+					t.Errorf("%s.%s (json %q) is named for a secret (%s)", typ.Name(), field.Name, tag, word)
+				}
+			}
+		}
+	}
 }

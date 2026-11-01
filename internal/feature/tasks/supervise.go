@@ -4,6 +4,7 @@ import (
 	"context"
 	"time"
 
+	"github.com/svrforum/SFPanel/internal/api/response"
 	"github.com/svrforum/SFPanel/internal/cluster"
 )
 
@@ -19,7 +20,9 @@ var superviseInterval = 5 * time.Second
 // is not the leader, or leads with an FSM still replaying, cancels its
 // runners: what it would write is refused, and the leader runs them. It
 // returns when ctx ends or the cluster manager stops, once its runners have
-// returned. One supervisor runs per Handler.
+// returned. One supervisor runs per Handler. An agent install is no task:
+// it is left to its session, or ended when this node has none for it
+// (endLeftInstall).
 func (h *Handler) supervise(ctx context.Context) {
 	env := h.newEnv()
 	if env == nil {
@@ -74,6 +77,15 @@ func (h *Handler) superviseOnce(ctx context.Context, env runEnv) {
 		if !run.Active() || h.hasRunner(run.ID) {
 			continue
 		}
+		if run.Kind == cluster.RunKindAgentInstall {
+			if ir := h.installRuns(); ir != nil && ir.Owns(run.ID) {
+				continue
+			}
+			if err := h.endLeftInstall(env, run.ID); err != nil {
+				logger().Warn("ending an agent install left behind by a leader change", "run", run.ID, "error", err)
+			}
+			continue
+		}
 		if run.Status == cluster.RunHandingOver {
 			if err := resumeHandedOver(st, &run); err != nil {
 				logger().Warn("taking a handed-over task run back to running", "run", run.ID, "error", err)
@@ -103,6 +115,60 @@ func resumeHandedOver(st runStore, run *cluster.RunRecord) error {
 		}
 	}
 	*run = head
+	return nil
+}
+
+// endLeftInstall ends install id, under way with no session on this node to
+// run it: the leader changed or restarted, and the credentials and the
+// token went with the session. Every row that had not ended fails for the
+// leader change (AGENT_INSTALL_LEADER_CHANGED) — a row that registered keeps
+// its NodeID, which names the node it became — and its step under way is
+// unknown: what ran on the server under systemd-run may have gone on. Its
+// wait for the operator ends with it. The run fails for the same reason, its
+// credentials time cleared, and its end is audited as a run's is. It is
+// read and written under headMu, as a stop is; one that has ended, or that
+// a session on this node now owns, is left as it is.
+func (h *Handler) endLeftInstall(env runEnv, id string) error {
+	st := env.Store()
+	headMu.Lock()
+	defer headMu.Unlock()
+	head, recs, err := st.GetRun(id)
+	if err != nil {
+		return err
+	}
+	if !head.Active() {
+		return nil
+	}
+	if ir := h.installRuns(); ir != nil && ir.Owns(id) {
+		return nil
+	}
+	now := env.Now().UTC()
+	for _, key := range head.Nodes {
+		rec, ok := recs[key]
+		if ok && rec.Status != cluster.RunNodePending && rec.Status != cluster.RunNodeRunning {
+			continue
+		}
+		rec.Status, rec.Reason = cluster.RunNodeFailed, response.ErrAgentInstallLeaderChanged
+		rec.Awaiting, rec.CheckURL = "", ""
+		for i, s := range rec.Steps {
+			if s.Status == cluster.RunStepStarting || s.Status == cluster.RunStepRunning {
+				rec.Steps[i].Status, rec.Steps[i].EndedAt = cluster.RunStepUnknown, now
+			}
+		}
+		if err := st.PutRunNode(id, key, rec); err != nil {
+			return err
+		}
+	}
+	head.Status, head.Reason, head.EndedAt = cluster.RunFailed, response.ErrAgentInstallLeaderChanged, now
+	head.CredentialsUntil = time.Time{}
+	if err := st.PutRun(head); err != nil {
+		return err
+	}
+	logger().Warn("agent install ended: it was left behind by a leader change", "run", id)
+	if err := st.PruneRuns(keepRuns); err != nil {
+		logger().Warn("pruning task runs", "error", err)
+	}
+	h.auditEnd(env.LocalID(), head)
 	return nil
 }
 

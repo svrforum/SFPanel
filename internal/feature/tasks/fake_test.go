@@ -508,3 +508,93 @@ func steps(stopOnFailure bool, lines ...string) string {
 	}
 	return b.String()
 }
+
+// fakeInstalls is the agent installer as the engine sees it: which install
+// runs have a session here, and the calls made to it.
+type fakeInstalls struct {
+	mu     sync.Mutex
+	active bool
+	owns   map[string]bool
+	// view and outErr are what StepOutput answers.
+	view   tasks.JobView
+	outErr error
+
+	asked   int      // Owns calls
+	stops   []string // "runID:by"
+	outputs []string // "runID/key/step/skip"
+}
+
+func (f *fakeInstalls) Active() bool {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return f.active
+}
+
+func (f *fakeInstalls) Owns(runID string) bool {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.asked++
+	return f.owns[runID]
+}
+
+func (f *fakeInstalls) Stop(runID, by string) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.stops = append(f.stops, runID+":"+by)
+	return nil
+}
+
+func (f *fakeInstalls) StepOutput(runID, key string, step int, skip int64) (tasks.JobView, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.outputs = append(f.outputs, fmt.Sprintf("%s/%s/%d/%d", runID, key, step, skip))
+	return f.view, f.outErr
+}
+
+func (f *fakeInstalls) askedOwns() int {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return f.asked
+}
+
+// installRun records an agent install run over the rows keys, with the row
+// records given; a row not given has none yet, as one whose turn has not
+// come.
+func installRun(t *testing.T, st *fakeStore, id, status string, recs map[string]cluster.RunNodeRecord, keys ...string) {
+	t.Helper()
+	r := cluster.RunRecord{ID: id, Kind: cluster.RunKindAgentInstall, TaskID: cluster.AgentInstallTaskID, TaskName: "agent install",
+		Nodes: keys, Waves: [][]string{keys}, Batch: 3, Status: status, StartedBy: "operator",
+		StartedAt: time.Date(2026, 11, 1, 11, 0, 0, 0, time.UTC), CredentialsUntil: time.Date(2026, 11, 1, 12, 10, 0, 0, time.UTC)}
+	if err := st.PutRun(r); err != nil {
+		t.Fatal(err)
+	}
+	for k, rec := range recs {
+		if err := st.PutRunNode(id, k, rec); err != nil {
+			t.Fatal(err)
+		}
+	}
+}
+
+// installRows are an install's rows as a leader change finds them: s1 not
+// yet started, s2 waiting on its host key, s3 installing, s4 registered as
+// node a9 and being checked, s5 done as node a8, s6 refused by its
+// pre-flight.
+func installRows() map[string]cluster.RunNodeRecord {
+	step := func(statuses ...string) []cluster.RunStepRecord {
+		var out []cluster.RunStepRecord
+		for _, s := range statuses {
+			out = append(out, cluster.RunStepRecord{Status: s})
+		}
+		return out
+	}
+	p, r, ok := cluster.RunStepPending, cluster.RunStepRunning, cluster.RunStepSucceeded
+	return map[string]cluster.RunNodeRecord{
+		"s2": {Status: cluster.RunNodeRunning, Host: "198.51.100.2", IP: "198.51.100.2", Awaiting: "host_key", HostKey: "ED25519 SHA256:abc", Steps: step(r, p, p, p, p)},
+		"s3": {Status: cluster.RunNodeRunning, Host: "web-3", IP: "198.51.100.3", Steps: step(ok, ok, r, p, p)},
+		"s4": {Status: cluster.RunNodeRunning, Host: "100.64.0.4", IP: "100.64.0.4", NodeID: "a9", Steps: step(ok, ok, ok, ok, r)},
+		"s5": {Status: cluster.RunNodeSucceeded, Host: "198.51.100.5", IP: "198.51.100.5", NodeID: "a8", Steps: step(ok, ok, ok, ok, ok)},
+		"s6": {Status: cluster.RunNodeFailed, Reason: response.ErrAgentInstallOS, Host: "198.51.100.6", IP: "198.51.100.6", Steps: step(ok, cluster.RunStepFailed, p, p, p)},
+	}
+}
+
+var installKeys = []string{"s1", "s2", "s3", "s4", "s5", "s6"}

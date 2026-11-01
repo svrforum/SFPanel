@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"errors"
 	"path/filepath"
+	"reflect"
 	"slices"
 	"strings"
 	"sync"
@@ -13,6 +14,7 @@ import (
 
 	_ "modernc.org/sqlite"
 
+	"github.com/svrforum/SFPanel/internal/api/response"
 	"github.com/svrforum/SFPanel/internal/cluster"
 	sfdb "github.com/svrforum/SFPanel/internal/db"
 	"github.com/svrforum/SFPanel/internal/tasks"
@@ -707,5 +709,122 @@ func TestARunTakenOverWhileStoppingClosesTheNodesLeftUnderWay(t *testing.T) {
 		wantStarted(t, e)
 		wantNode(t, e, "a1", cluster.RunNodeSucceeded, "")
 		wantHead(t, e, cluster.RunStopped, "stopped by operator")
+	})
+}
+
+// wantInstallLeftBehind checks install testRunID as ending it for a leader
+// change leaves it: failed, every row that had not ended failed for the
+// leader change with its step under way unknown — a registered row still
+// naming its node — and the rows that had ended as they were.
+func wantInstallLeftBehind(t *testing.T, st *fakeStore) {
+	t.Helper()
+	head := st.head(testRunID)
+	if head.Status != cluster.RunFailed || head.Reason != response.ErrAgentInstallLeaderChanged || head.EndedAt.IsZero() {
+		t.Errorf("run = %s (%q) ended %v, want failed for %s", head.Status, head.Reason, head.EndedAt, response.ErrAgentInstallLeaderChanged)
+	}
+	if !head.CredentialsUntil.IsZero() {
+		t.Errorf("credentials_until = %v, want none: the credentials left with the old leader", head.CredentialsUntil)
+	}
+	for _, k := range []string{"s1", "s2", "s3", "s4"} {
+		rec := st.node(testRunID, k)
+		if rec.Status != cluster.RunNodeFailed || rec.Reason != response.ErrAgentInstallLeaderChanged {
+			t.Errorf("row %s = %s (%q), want failed for %s", k, rec.Status, rec.Reason, response.ErrAgentInstallLeaderChanged)
+		}
+		if rec.Awaiting != "" || rec.CheckURL != "" {
+			t.Errorf("row %s still waits for %q (%q)", k, rec.Awaiting, rec.CheckURL)
+		}
+		for i, s := range rec.Steps {
+			if s.Status == cluster.RunStepRunning || s.Status == cluster.RunStepStarting {
+				t.Errorf("row %s step %d is still %s", k, i, s.Status)
+			}
+		}
+	}
+	if rec := st.node(testRunID, "s2"); rec.Steps[0].Status != cluster.RunStepUnknown || rec.HostKey == "" {
+		t.Errorf("row s2 = %+v, want its step under way unknown and its host key kept", rec)
+	}
+	if rec := st.node(testRunID, "s4"); rec.NodeID != "a9" || rec.Steps[4].Status != cluster.RunStepUnknown {
+		t.Errorf("row s4 = %+v, want node a9 named and its check unknown", rec)
+	}
+	if rec := st.node(testRunID, "s5"); rec.Status != cluster.RunNodeSucceeded || rec.Reason != "" || rec.NodeID != "a8" {
+		t.Errorf("row s5 = %+v, want it left succeeded", rec)
+	}
+	if rec := st.node(testRunID, "s6"); rec.Status != cluster.RunNodeFailed || rec.Reason != response.ErrAgentInstallOS {
+		t.Errorf("row s6 = %+v, want its own failure kept", rec)
+	}
+}
+
+// An install's credentials and session live on the leader that started it.
+// A leader that finds one under way that no session of its own runs — it
+// took over, or restarted — ends it rather than run it as a task: its rows
+// fail for the leader change, and the end is audited as a run's is. One a
+// session of its own runs is left to that session.
+func TestAnInstallRecordSurvivesALeaderChangeAsAFailure(t *testing.T) {
+	t.Run("no session of this leader runs it", func(t *testing.T) {
+		shortSupervise(t)
+		d := openAuditDB(t)
+		wctx, wcancel := context.WithCancel(context.Background())
+		w := sfdb.NewAsyncWriter(wctx, d, "audit", 16)
+		e := newFakeEnv(t, "m2", manager("m1", "mgr-1"), manager("m2", "mgr-2"), agent("a8", "web-5"), agent("a9", "web-4"))
+		installRun(t, e.store, testRunID, cluster.RunRunning, installRows(), installKeys...)
+		fi := &fakeInstalls{active: true, owns: map[string]bool{"20261101-000000-ffffff": true}}
+		h := &Handler{audit: w, runners: map[string]context.CancelFunc{}, newEnv: func() runEnv { return e }}
+		h.SetInstallRuns(fi)
+		stop := supervising(t, h)
+		waitFor(t, "the install to end", runEnded(e.store, testRunID))
+		stop()
+		wcancel()
+		w.Wait()
+
+		wantInstallLeftBehind(t, e.store)
+		if posts := e.postList(); len(posts) != 0 {
+			t.Errorf("the supervisor posted jobs %v: an install is no task", posts)
+		}
+		var got []auditRow
+		rows, err := d.Query("SELECT username, method, path, status, node_id FROM audit_logs")
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer rows.Close()
+		for rows.Next() {
+			var r auditRow
+			if err := rows.Scan(&r.User, &r.Method, &r.Path, &r.Status, &r.Node); err != nil {
+				t.Fatal(err)
+			}
+			got = append(got, r)
+		}
+		want := []auditRow{{"operator", "TASK", "/api/v1/cluster/task-runs/" + testRunID + "#end:failed", 200, "m2"}}
+		if !slices.Equal(got, want) {
+			t.Errorf("audit rows = %+v, want %+v", got, want)
+		}
+	})
+	t.Run("no installer is set", func(t *testing.T) {
+		shortSupervise(t)
+		e := newFakeEnv(t, "m2", manager("m1", "mgr-1"), manager("m2", "mgr-2"))
+		installRun(t, e.store, testRunID, cluster.RunRunning, installRows(), installKeys...)
+		supervising(t, &Handler{runners: map[string]context.CancelFunc{}, newEnv: func() runEnv { return e }})
+		waitFor(t, "the install to end", runEnded(e.store, testRunID))
+		wantInstallLeftBehind(t, e.store)
+	})
+	t.Run("a session of this leader runs it", func(t *testing.T) {
+		shortSupervise(t)
+		e := newFakeEnv(t, "m1", manager("m1", "mgr-1"))
+		installRun(t, e.store, testRunID, cluster.RunRunning, installRows(), installKeys...)
+		fi := &fakeInstalls{active: true, owns: map[string]bool{testRunID: true}}
+		h := &Handler{runners: map[string]context.CancelFunc{}, newEnv: func() runEnv { return e }}
+		h.SetInstallRuns(fi)
+		stop := supervising(t, h)
+		waitFor(t, "three looks at the install", func() bool { return fi.askedOwns() >= 3 })
+		stop()
+		if head := e.store.head(testRunID); head.Status != cluster.RunRunning || head.Reason != "" {
+			t.Errorf("run = %s (%q), want it left running to its session", head.Status, head.Reason)
+		}
+		for k, want := range installRows() {
+			if got := e.store.node(testRunID, k); !reflect.DeepEqual(got, want) {
+				t.Errorf("row %s = %+v, want it untouched: %+v", k, got, want)
+			}
+		}
+		if h.runnerCount() != 0 || len(e.postList()) != 0 {
+			t.Errorf("runners %d, posts %v: an install is no task", h.runnerCount(), e.postList())
+		}
 	})
 }

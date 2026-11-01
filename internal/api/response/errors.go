@@ -543,10 +543,20 @@ const (
 	// Details: run_id of the run it waits for.
 	ErrTaskRunActive = "TASK_RUN_ACTIVE"
 	// ErrAgentInstallActive is returned (HTTP 409) when a manual leadership
-	// transfer is asked for while an agent install is under way: the
-	// install's sessions, credentials and tokens live on the leader that
-	// started it.
+	// transfer, or a group task run's start or rerun, is asked for while an
+	// agent install is under way: the install's sessions, credentials and
+	// tokens live on the leader that started it, and a task run hands the
+	// leadership over when its turn comes to the leader.
 	ErrAgentInstallActive = "AGENT_INSTALL_ACTIVE"
+	// ErrAgentInstallNotRerunnable is returned (HTTP 409) when an agent
+	// install's run is asked to run again as a task: the credentials are
+	// gone with it, so another install is started from its form.
+	ErrAgentInstallNotRerunnable = "AGENT_INSTALL_NOT_RERUNNABLE"
+	// ErrAgentInstallLogGone is returned (HTTP 404) for the output of an
+	// agent install's phase that no session on the leader holds any more:
+	// it lives in the memory of the leader that ran the install, and goes
+	// with it.
+	ErrAgentInstallLogGone = "AGENT_INSTALL_LOG_GONE"
 )
 
 // Group task error codes: the task and task-run API on a manager.

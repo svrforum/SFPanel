@@ -77,6 +77,19 @@ const (
 	RunStepCancelled = "cancelled"
 )
 
+// RunKindAgentInstall is the kind of a run that is an agent install over SSH
+// (internal/feature/agentinstall): its rows are servers, keyed s1, s2, … in
+// the order given, and its steps the install's five fixed phases. A run of
+// a task has no kind. The install's session runs in the memory of the
+// leader that started it, with the credentials; the task engine never runs
+// one.
+const RunKindAgentInstall = "agent-install"
+
+// AgentInstallTaskID is the task ID an install run records, and the
+// built-in the task list shows for it: it has no document, and no task
+// route runs it.
+const AgentInstallTaskID = "builtin/agent-install"
+
 // Where a stored task came from.
 const (
 	TaskSourceUser = "user"
@@ -128,9 +141,13 @@ type StoredTask struct {
 }
 
 // RunRecord is a run's head: what was started, by whom, over which nodes,
-// and where the run stands.
+// and where the run stands. Every manager keeps it, in its Raft log and
+// snapshots: nothing secret goes in it.
 type RunRecord struct {
-	ID       string `json:"id"`
+	ID string `json:"id"`
+	// Kind is "" for a run of a task, RunKindAgentInstall for an install,
+	// whose Nodes are its row keys and which has no Rev.
+	Kind     string `json:"kind,omitempty"`
 	TaskID   string `json:"task_id"`
 	TaskName string `json:"task_name"`
 	// Rev is the sha256 of the document the run was started from, stored
@@ -159,6 +176,11 @@ type RunRecord struct {
 	// each of its nodes starts at.
 	RerunOf string         `json:"rerun_of,omitempty"`
 	StartAt map[string]int `json:"start_at,omitempty"`
+	// CredentialsUntil is when an install's session drops the credentials
+	// it keeps after the install ended with a failed row, for a recheck or a
+	// revert; zero when it keeps none. The credentials never leave that
+	// leader's memory.
+	CredentialsUntil time.Time `json:"credentials_until,omitzero"`
 }
 
 // Active reports whether the run has not ended: a leader owes it a runner,
@@ -171,11 +193,29 @@ func (r RunRecord) Active() bool {
 	return false
 }
 
-// RunNodeRecord is one node's part of a run.
+// RunNodeRecord is one node's part of a run, or one server's row of an
+// install. An install row's Reason is one of the AGENT_INSTALL_* row codes
+// of internal/api/response, which the screen words.
 type RunNodeRecord struct {
 	Status string          `json:"status"`
 	Reason string          `json:"reason,omitempty"`
 	Steps  []RunStepRecord `json:"steps,omitempty"`
+
+	// An install row's server: Host as the operator gave it, IP the address
+	// it resolved to, which the agent registers at; Name and Group the node
+	// name and group label asked for. NodeID is the node it registered as.
+	Host   string `json:"host,omitempty"`
+	IP     string `json:"ip,omitempty"`
+	Name   string `json:"name,omitempty"`
+	Group  string `json:"group,omitempty"`
+	NodeID string `json:"node_id,omitempty"`
+	// Awaiting is what the row waits for the operator on: host_key, check,
+	// standalone or review. HostKey is the server's host key fingerprint
+	// ("ED25519 SHA256:…") to approve, CheckURL the address Tailscale SSH
+	// asks the operator to open.
+	Awaiting string `json:"awaiting,omitempty"`
+	HostKey  string `json:"host_key,omitempty"`
+	CheckURL string `json:"check_url,omitempty"`
 }
 
 // RunStepRecord is one step on one node. JobID is written before the job is

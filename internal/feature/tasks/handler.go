@@ -53,6 +53,10 @@ type Handler struct {
 	startGate func(claim func(featurecluster.Busy) error) error
 	toLeader  func(c echo.Context) (handled bool, err error)
 
+	// installs is the agent installer (SetInstallRuns), nil until set:
+	// read under mu.
+	installs InstallRuns
+
 	// runners are the runs this node is running, by run ID; wg counts
 	// their goroutines. runCtx is the supervisor's context while it runs,
 	// which every runner lives under; supervisorOn says one runs.
@@ -75,6 +79,43 @@ func New(getMgr func() *cluster.Manager, gate *featurecluster.Handler, audit *sf
 	}
 	h.toLeader = func(c echo.Context) (bool, error) { return middleware.ProxyToLeader(c, h.getMgr()) }
 	return h
+}
+
+// InstallRuns is the agent installer (internal/feature/agentinstall) as the
+// task engine sees it. An install's record is a run, of kind
+// cluster.RunKindAgentInstall, so the history, the stream and the start
+// gate's view of the runs take it as they are; but its rows run in a
+// session in the memory of the leader that started it, with the
+// credentials, and the engine never runs one as a task.
+type InstallRuns interface {
+	// Active reports whether an install is under way on this node: a task
+	// run's start waits for it to end.
+	Active() bool
+	// Owns reports whether a session on this node runs install runID. It
+	// must report true from before the run's record is written: the
+	// supervisor ends an install under way that no session here owns.
+	Owns(runID string) bool
+	// Stop stops install runID's session, for the operator by: the session
+	// writes how its rows and the run end.
+	Stop(runID, by string) error
+	// StepOutput is the output of row key's phase step from byte skip on, in
+	// the shape a step's output route answers with. An error says the
+	// session holds no such output.
+	StepOutput(runID, key string, step int, skip int64) (tasks.JobView, error)
+}
+
+// SetInstallRuns gives the handler the agent installer. Until it is set no
+// install is under way and none is owned here.
+func (h *Handler) SetInstallRuns(i InstallRuns) {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	h.installs = i
+}
+
+func (h *Handler) installRuns() InstallRuns {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	return h.installs
 }
 
 // Start runs the supervisor (supervise) for the cluster manager this node
@@ -284,12 +325,15 @@ func operator(c echo.Context) string {
 
 // taskDoc is a task as the API knows it: stored, or built in.
 type taskDoc struct {
-	ID        string
-	Name      string
-	YAML      string
-	Source    cluster.TaskSource
-	UpdatedAt time.Time
-	UpdatedBy string
+	ID   string
+	Name string
+	// Description is the install built-in's, which has no document to
+	// carry one.
+	Description string
+	YAML        string
+	Source      cluster.TaskSource
+	UpdatedAt   time.Time
+	UpdatedBy   string
 }
 
 func (d taskDoc) builtin() bool { return d.Source.Kind == sourceBuiltin }
@@ -298,7 +342,16 @@ func (d taskDoc) builtin() bool { return d.Source.Kind == sourceBuiltin }
 // one imported from Git, whose next fetch would undo the change.
 func (d taskDoc) readOnly() bool { return d.builtin() || d.Source.Kind == cluster.TaskSourceGit }
 
-// builtins are the built-in tasks with their names, read once.
+// installBuiltin is the agent install as the task list shows it, after the
+// built-in tasks: the screen opens the install's own form from it. It has no
+// document, so no task route plans, starts or changes it
+// (readRunRequest), and a stored task may not take its name.
+var installBuiltin = taskDoc{ID: cluster.AgentInstallTaskID, Name: "에이전트 설치 (SSH)",
+	Description: "SSH로 서버에 접속해 SFPanel 에이전트를 설치하고 클러스터에 등록합니다.",
+	Source:      cluster.TaskSource{Kind: sourceBuiltin}}
+
+// builtins are the built-in tasks with their names, read once, then the
+// install.
 var builtins = sync.OnceValue(func() []taskDoc {
 	var out []taskDoc
 	for _, b := range tasks.Builtins() {
@@ -308,7 +361,7 @@ var builtins = sync.OnceValue(func() []taskDoc {
 		}
 		out = append(out, d)
 	}
-	return out
+	return append(out, installBuiltin)
 })
 
 func builtinDoc(id string) (taskDoc, bool) {
@@ -366,7 +419,10 @@ type taskView struct {
 }
 
 func viewOf(d taskDoc, full bool) taskView {
-	v := taskView{ID: d.ID, Name: d.Name, Source: d.Source, ReadOnly: d.readOnly(), UpdatedAt: d.UpdatedAt, UpdatedBy: d.UpdatedBy}
+	v := taskView{ID: d.ID, Name: d.Name, Description: d.Description, Source: d.Source, ReadOnly: d.readOnly(), UpdatedAt: d.UpdatedAt, UpdatedBy: d.UpdatedBy}
+	if d.YAML == "" {
+		return v // the install: no document, and no model
+	}
 	t, _ := tasks.Parse([]byte(d.YAML))
 	if t != nil {
 		v.Description = t.Description
@@ -680,6 +736,9 @@ func readRunRequest(c echo.Context, st taskStore) (runRequest, runTarget, error)
 	if err := c.Bind(&req); err != nil {
 		return req, runTarget{}, refusal(http.StatusBadRequest, response.ErrInvalidRequest, "Invalid request body", nil)
 	}
+	if req.TaskID == cluster.AgentInstallTaskID {
+		return req, runTarget{}, refusal(http.StatusNotFound, response.ErrTaskNotFound, "The agent install is not a task: it starts from its own form", nil)
+	}
 	d, err := loadTask(st, req.TaskID)
 	if err != nil {
 		return req, runTarget{}, err
@@ -831,12 +890,13 @@ func (h *Handler) StartRun(c echo.Context) error {
 }
 
 // claim judges and records run under the start gate, with doc the document
-// it runs: refused while a cluster update, a CA rotation, a conversion or a
-// promotion is under way, or while another run holds one of its nodes — read
-// again here, as two requests for one node may both have planned before
-// either was recorded. It gives the run its ID, revision and start time, and
-// writes its head alone: one write, so a run is recorded whole or not at all,
-// and a failed write leaves nothing a leader would take up. A node has no
+// it runs: refused while a cluster update, a CA rotation, a conversion, a
+// promotion or an agent install is under way, or while another run holds one
+// of its nodes — read again here, as two requests for one node may both have
+// planned before either was recorded. It gives the run its ID, revision and
+// start time, and writes its head alone: one write, so a run is recorded
+// whole or not at all, and a failed write leaves nothing a leader would take
+// up. A node has no
 // record until its turn comes (the engine writes it as the node starts);
 // until then it is pending, as GetRun and the stream show it (withPending).
 func (h *Handler) claim(env runEnv, run *cluster.RunRecord, doc string) error {
@@ -851,6 +911,11 @@ func (h *Handler) claim(env runEnv, run *cluster.RunRecord, doc string) error {
 			return refusal(http.StatusConflict, response.ErrTaskClusterChanging, "A manager is being converted to an agent", map[string]string{"what": "conversion"})
 		case b.Promoting:
 			return refusal(http.StatusConflict, response.ErrTaskClusterChanging, "An agent is being promoted to a manager", map[string]string{"what": "promotion"})
+		}
+		// A run hands the leadership over when its turn comes to the leader,
+		// which would cut the install's sessions off with their credentials.
+		if ir := h.installRuns(); ir != nil && ir.Active() {
+			return refusal(http.StatusConflict, response.ErrAgentInstallActive, "An agent install is under way: start the run once it has finished", nil)
 		}
 		held, err := heldNodes(st)
 		if err != nil {
@@ -1001,7 +1066,7 @@ func stepLabels(t *tasks.Task) []runStep {
 // GetRun answers GET /cluster/task-runs/:id: the run's head and its nodes'
 // records, from this manager's own replicated state; a node not yet started
 // is pending. steps names the steps of the document the run ran, and is
-// left out when that revision is gone.
+// left out when that revision is gone, and for an install.
 func (h *Handler) GetRun(c echo.Context) error {
 	env, err := h.apiEnv(c)
 	if env == nil {
@@ -1012,8 +1077,11 @@ func (h *Handler) GetRun(c echo.Context) error {
 		return fail(c, runNotFound(err))
 	}
 	out := map[string]any{"run": run, "nodes": withPending(run, nodes)}
-	if steps := runSteps(env.Tasks(), run); steps != nil {
-		out["steps"] = steps
+	// An install's steps are its fixed phases, which the screen names.
+	if run.Kind != cluster.RunKindAgentInstall {
+		if steps := runSteps(env.Tasks(), run); steps != nil {
+			out["steps"] = steps
+		}
 	}
 	return response.OK(c, out)
 }
@@ -1025,7 +1093,8 @@ func (h *Handler) GetRun(c echo.Context) error {
 // StoppedBy names who stopped it, or forced the stop: a forced cancel goes to
 // the node under that name.
 // The head is read and written under headMu, so a write the engine makes
-// from an earlier read does not undo the stop.
+// from an earlier read does not undo the stop. An install is stopped by its
+// session (stopInstall).
 func (h *Handler) StopRun(c echo.Context) error {
 	env, err := h.apiEnv(c)
 	if env == nil {
@@ -1041,6 +1110,9 @@ func (h *Handler) StopRun(c echo.Context) error {
 		return response.Fail(c, http.StatusBadRequest, response.ErrInvalidRequest, "Invalid request body")
 	}
 	st := env.Store()
+	if head, _, err := st.GetRun(c.Param("id")); err == nil && head.Kind == cluster.RunKindAgentInstall {
+		return h.stopInstall(c, env, head)
+	}
 	headMu.Lock()
 	defer headMu.Unlock()
 	head, _, err := st.GetRun(c.Param("id"))
@@ -1065,6 +1137,29 @@ func (h *Handler) StopRun(c echo.Context) error {
 	return response.OK(c, head)
 }
 
+// stopInstall stops install head under way: its session on this leader
+// stops it and writes how it ends. With no session here — the leader changed
+// or restarted, and the supervisor has not yet looked — it is ended as the
+// supervisor ends it (endLeftInstall). Either way the answer is the run's
+// head as it then stands, as a stop's is; one that has ended is answered as
+// it is.
+func (h *Handler) stopInstall(c echo.Context, env runEnv, head cluster.RunRecord) error {
+	if head.Active() {
+		if ir := h.installRuns(); ir != nil && ir.Owns(head.ID) {
+			if err := ir.Stop(head.ID, operator(c)); err != nil {
+				return fail(c, err)
+			}
+		} else if err := h.endLeftInstall(env, head.ID); err != nil {
+			return fail(c, runNotFound(err))
+		}
+	}
+	head, _, err := env.Store().GetRun(head.ID)
+	if err != nil {
+		return fail(c, runNotFound(err))
+	}
+	return response.OK(c, head)
+}
+
 // RerunRun answers POST /cluster/task-runs/:id/rerun (leader): a new run of
 // the run's own document, inputs and confirmations over the nodes chosen —
 // with ?only=failed every node that did not succeed, else the body's
@@ -1073,6 +1168,8 @@ func (h *Handler) StopRun(c echo.Context) error {
 // cluster as it is now (orderRun), as the leader may have moved and a node
 // changed kind since, and the ones a new run would leave out are left out;
 // the new run is judged and recorded as any run is (claim). 202 {run_id}.
+// An install is 409 AGENT_INSTALL_NOT_RERUNNABLE: its credentials went with
+// it.
 func (h *Handler) RerunRun(c echo.Context) error {
 	env, err := h.apiEnv(c)
 	if env == nil {
@@ -1085,6 +1182,10 @@ func (h *Handler) RerunRun(c echo.Context) error {
 	src, nodes, err := st.GetRun(c.Param("id"))
 	if err != nil {
 		return fail(c, runNotFound(err))
+	}
+	if src.Kind == cluster.RunKindAgentInstall {
+		return response.Fail(c, http.StatusConflict, response.ErrAgentInstallNotRerunnable,
+			"An agent install does not run again as a task: start another install from its form")
 	}
 	if src.Active() {
 		return response.FailWith(c, http.StatusConflict, response.ErrTaskRunActive, "Run "+src.ID+" is still under way",
@@ -1150,13 +1251,14 @@ func (h *Handler) RerunRun(c echo.Context) error {
 // recorded. A step no job has run yet is 404 TASK_JOB_NOT_FOUND; the node's
 // refusal comes back as it gave it, but for a 401, which is 502
 // CLUSTER_AGENT_AUTH_FAILED from an agent and 502 INTERNAL_ERROR from a
-// manager; a node not reached is 502 CLUSTER_NODE_UNREACHABLE.
+// manager; a node not reached is 502 CLUSTER_NODE_UNREACHABLE. An install's
+// output is the leader's: installOutput.
 func (h *Handler) StepOutput(c echo.Context) error {
 	env, err := h.apiEnv(c)
 	if env == nil {
 		return err
 	}
-	_, nodes, err := env.Store().GetRun(c.Param("id"))
+	run, nodes, err := env.Store().GetRun(c.Param("id"))
 	if err != nil {
 		return fail(c, runNotFound(err))
 	}
@@ -1170,6 +1272,9 @@ func (h *Handler) StepOutput(c echo.Context) error {
 		if skip, err = strconv.ParseInt(s, 10, 64); err != nil || skip < 0 {
 			return response.Fail(c, http.StatusBadRequest, response.ErrInvalidRequest, "Invalid skip")
 		}
+	}
+	if run.Kind == cluster.RunKindAgentInstall {
+		return h.installOutput(c, env, run.ID, nodeID, step, skip)
 	}
 	rec, ok := nodes[nodeID]
 	if !ok || step >= len(rec.Steps) || rec.Steps[step].JobID == "" {
@@ -1208,4 +1313,29 @@ func (h *Handler) StepOutput(c echo.Context) error {
 	}
 	return response.FailWith(c, http.StatusBadGateway, response.ErrClusterNodeUnreachable,
 		name+" did not answer: "+response.SanitizeOutput(err.Error()), map[string]string{"name": name})
+}
+
+// installOutput answers the output of install runID's row key, phase step,
+// from byte skip on: it lives in the memory of the session on the leader
+// that ran the install, so a follower sends the request on to the leader,
+// and no node is asked for a job. With no session here holding it — the
+// leader changed or restarted since — it is 404 AGENT_INSTALL_LOG_GONE.
+func (h *Handler) installOutput(c echo.Context, env runEnv, runID, key string, step int, skip int64) error {
+	if handled, err := h.forward(c, env); handled {
+		return err
+	}
+	gone := func() error {
+		return response.Fail(c, http.StatusNotFound, response.ErrAgentInstallLogGone,
+			"This install's output went with the session that ran it")
+	}
+	ir := h.installRuns()
+	if ir == nil || !ir.Owns(runID) {
+		return gone()
+	}
+	view, err := ir.StepOutput(runID, key, step, skip)
+	if err != nil {
+		logger().Debug("install output not held by its session", "run", runID, "row", key, "step", step, "error", err)
+		return gone()
+	}
+	return response.OK(c, view)
 }
