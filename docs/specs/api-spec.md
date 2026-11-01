@@ -2409,7 +2409,7 @@ GitHub 저장소의 compose 파일을 한 번 읽어 새 스택으로 만듭니�
 ```
 
 - `url`: GitHub HTTPS URL만 허용 (`https://github.com/<user>/<repo>[.git]`)
-- `branch`: 생략 시 `main`, `path`: 생략 시 `docker-compose.yml`
+- `branch`: 생략 시 `main`, `path`: 생략 시 `docker-compose.yml` — 경로는 마디마다 이스케이프되므로 `#`·`?`가 든 파일 이름도 그대로 받는다
 - `name`: 소문자·숫자·하이픈 1~50자
 - **`acknowledge_risks`** (선택, 기본 `false`): 가져온 파일에 대해 `POST /api/v1/docker/compose`와 동일한 두 단계 검사가 돌아갑니다. `COMPOSE_RISKY`는 같은 요청에 `"acknowledge_risks": true`를 넣으면 통과하고, `COMPOSE_FORBIDDEN`(`/etc/sfpanel`, `/var/lib/sfpanel`, `/root/.ssh`, `/etc/sudoers.d` 바인드)은 승인해도 거부됩니다.
 
@@ -2418,10 +2418,12 @@ GitHub 저장소의 compose 파일을 한 번 읽어 새 스택으로 만듭니�
 **에러 응답:**
 | 코드 | HTTP 상태 | 조건 |
 |------|-----------|------|
-| `INVALID_REQUEST` | 400 | URL/이름 형식 위반, 바디 파싱 실패 |
-| `GIT_AUTH_FAILED` | 401 | private 저장소인데 PAT가 없거나 잘못됨 |
-| `GIT_REPO_NOT_FOUND` | 404 | 저장소 없음 |
+| `INVALID_REQUEST` | 400 | URL/이름 형식 위반(`https://github.com/<owner>/.git` 포함), 경로에 빈 마디·`.`·`..`·`\`·NUL, 바디 파싱 실패 |
+| `GIT_AUTH_FAILED` | 400 | GitHub가 PAT를 거부함(401), 또는 사용량 제한이 아닌 403(권한 없는 토큰, SSO). 401이 아닌 이유: 브라우저는 401을 패널 세션 만료로 읽는다 |
+| `GIT_RATE_LIMITED` | 429 | GitHub 사용량 제한(익명은 주소당 시간당 60회): GitHub의 429, 또는 `X-RateLimit-Remaining: 0`이나 `Retry-After`가 붙은 403. `details`: `reset_at`(RFC 3339 UTC), `limit`, `retry_after`(초) — GitHub가 알려 준 것만 |
+| `GIT_REPO_NOT_FOUND` | 404 | 저장소 없음(토큰 없이 본 private 저장소도 같다) |
 | `GIT_PATH_NOT_FOUND` | 404 | 해당 경로에 파일 없음 |
+| `FILE_TOO_LARGE` | 400 | 파일이 8 MiB를 넘음 (자르지 않고 거부) |
 | `COMPOSE_RISKY` | 400 | 위험 패턴 발견, `acknowledge_risks` 미설정 |
 | `COMPOSE_FORBIDDEN` | 400 | 패널 자체 경로 바인드 (승인 불가) |
 | `INVALID_YAML` | 400 | compose 문서 파싱 실패 |

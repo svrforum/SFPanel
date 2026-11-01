@@ -56,6 +56,7 @@ func TestImportFromGit_RejectsBadURL(t *testing.T) {
 	_ = h.ImportFromGit(c)
 
 	require.Equal(t, http.StatusBadRequest, rec.Code)
+	require.Equal(t, response.ErrInvalidRequest, errCode(t, rec))
 }
 
 // The git host refusing the PAT is not the operator's session failing: the
