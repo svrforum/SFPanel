@@ -211,6 +211,42 @@ steps:
 `,
 			line: 1, want: `"name" is required`,
 		},
+		{
+			name: "the name is an empty string",
+			doc: `description: d
+name: ""
+steps:
+  - command: { run: "true" }
+`,
+			line: 2, want: "the task's name is blank",
+		},
+		{
+			name: "the name is an empty block",
+			doc: `description: d
+name: |
+steps:
+  - command: { run: "true" }
+`,
+			line: 2, want: "the task's name is blank",
+		},
+		{
+			name: "the name is an empty tagged string",
+			doc: `description: d
+name: !!str
+steps:
+  - command: { run: "true" }
+`,
+			line: 2, want: "the task's name is blank",
+		},
+		{
+			name: "the name is only spaces",
+			doc: `description: d
+name: "   "
+steps:
+  - command: { run: "true" }
+`,
+			line: 2, want: "the task's name is blank",
+		},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {

@@ -295,9 +295,12 @@ func (p *parser) task(root *yaml.Node) *Task {
 	}
 	t := &Task{Batch: 1, StopOnFailure: true}
 
-	t.Name, _, _ = p.str(f, "name", "the task", true, doc)
-	if t.Name != "" && strings.TrimSpace(t.Name) == "" {
-		p.addf(f["name"].val.Line, "the task's name is blank")
+	name, nameNode, named := p.str(f, "name", "the task", true, doc)
+	t.Name = name
+	// Present but blank ("", an empty block, !!str) is refused here: the
+	// store would refuse it anyway, as a server error rather than a line.
+	if named && strings.TrimSpace(name) == "" {
+		p.addf(nameNode.Line, "the task's name is blank")
 	}
 	t.Description, _, _ = p.str(f, "description", "the task", false, doc)
 

@@ -410,6 +410,9 @@ func storeError(err error) error {
 		return refusal(http.StatusBadRequest, response.ErrTaskTooLarge, err.Error(), map[string]string{"max_kib": strconv.Itoa(tasks.MaxDocumentBytes >> 10)})
 	case errors.Is(err, cluster.ErrTaskNotFound):
 		return refusal(http.StatusNotFound, response.ErrTaskNotFound, "No such task", nil)
+	case errors.Is(err, cluster.ErrTaskNameRequired):
+		// Parse refuses a blank name first; this is the backstop.
+		return refusal(http.StatusBadRequest, response.ErrTaskInvalid, "The task's name is blank", nil)
 	}
 	return err
 }

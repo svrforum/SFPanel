@@ -45,6 +45,9 @@ func (s *fakeStore) PutTask(t cluster.StoredTask) error {
 	if len(t.YAML) > tasks.MaxDocumentBytes {
 		return cluster.ErrTaskTooLarge
 	}
+	if strings.TrimSpace(t.Name) == "" {
+		return cluster.ErrTaskNameRequired
+	}
 	for _, other := range s.tasks {
 		if other.ID != t.ID && other.Name == t.Name {
 			return cluster.ErrTaskNameTaken

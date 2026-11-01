@@ -551,6 +551,32 @@ func TestAnImportListsTheFilesItCouldNotTakeAndWritesTheRest(t *testing.T) {
 	}
 }
 
+// A blank name is the file's problem: the files around it are still written.
+func TestAnImportListsAFileWithABlankNameAndWritesTheOthers(t *testing.T) {
+	f, gh := newGitAPI(t)
+	gh.commit("main", commitA, map[string]string{
+		"tasks/a.yaml": named("first"),
+		"tasks/b.yaml": named(`""`),
+		"tasks/c.yaml": named("third"),
+	})
+	a := f.do("POST", importAt, importBody(commitA, "tasks/a.yaml", "tasks/b.yaml", "tasks/c.yaml"))
+	if a.Status != 200 {
+		t.Fatalf("import = %d %+v", a.Status, a.Error)
+	}
+	var ans importAnswer
+	a.data(t, &ans)
+	if len(ans.Imported) != 2 || ans.Imported[0].Name != "first" || ans.Imported[1].Name != "third" {
+		t.Errorf("imported = %+v, want first and third", ans.Imported)
+	}
+	if len(ans.Failed) != 1 || ans.Failed[0].Code != response.ErrTaskInvalid ||
+		ans.Failed[0].Details["path"] != "tasks/b.yaml" || !strings.Contains(ans.Failed[0].Message, "name is blank") {
+		t.Errorf("failed = %+v, want tasks/b.yaml alone as %s, its name blank", ans.Failed, response.ErrTaskInvalid)
+	}
+	if n := len(f.env.store.tasks); n != 2 {
+		t.Errorf("stored tasks = %d, want first and third", n)
+	}
+}
+
 // The same repository, branch and path is the same task: a fresh import
 // changes it in place and moves its commit.
 func TestAReimportKeepsTheTaskAndMovesItsCommit(t *testing.T) {

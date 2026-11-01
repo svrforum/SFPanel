@@ -1519,6 +1519,24 @@ steps:
 	})
 }
 
+// A blank name reaches the store only past Parse, which refuses it first;
+// the store's refusal is still the document's problem, not a server error.
+func TestTheStoresBlankNameRefusalIsTheDocumentsProblem(t *testing.T) {
+	c := echo.New().NewContext(httptest.NewRequest("POST", "/", nil), httptest.NewRecorder())
+	if err := fail(c, storeError(cluster.ErrTaskNameRequired)); err != nil {
+		t.Fatal(err)
+	}
+	var a answer
+	if err := json.Unmarshal(c.Response().Writer.(*httptest.ResponseRecorder).Body.Bytes(), &a); err != nil {
+		t.Fatal(err)
+	}
+	a.Status = c.Response().Status
+	wantRefusal(t, "the store's refusal", a, 400, response.ErrTaskInvalid, nil)
+	if a.Error == nil || a.Error.Message != "The task's name is blank" {
+		t.Errorf("message = %+v, want %q", a.Error, "The task's name is blank")
+	}
+}
+
 func TestTheFormatRoute(t *testing.T) {
 	const path = "/api/v1/cluster/tasks/format"
 	model, problems := tasks.Parse([]byte(greetDoc))
