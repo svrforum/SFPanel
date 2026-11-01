@@ -258,9 +258,6 @@ func TestAnIPBoundAgentTokenAdmitsOnlyANewAgentAtThatIP(t *testing.T) {
 	if _, err := (&Manager{}).CreateAgentTokenFor(net.ParseIP("192.0.2.10"), AgentInstallTokenTTL); !errors.Is(err, ErrNotLeader) {
 		t.Fatalf("off the leader: %v", err)
 	}
-	if err := (&Manager{}).RevokeJoinTokenValue("anything"); !errors.Is(err, ErrNotLeader) {
-		t.Fatalf("revoked off the leader: %v", err)
-	}
 	mgr, _, _, _ := realLeader(t)
 	settleRotation(t, mgr)
 	if _, err := mgr.CreateAgentTokenFor(nil, AgentInstallTokenTTL); err == nil {
@@ -316,5 +313,31 @@ func TestAnIPBoundAgentTokenAdmitsOnlyANewAgentAtThatIP(t *testing.T) {
 	}
 	if err := mgr.RevokeJoinTokenValue(tok.Token); err != nil {
 		t.Fatalf("a spent token revoked: %v", err)
+	}
+}
+
+// An install's token is made in the token store of the leader that ran the
+// install, and tokens.json is per node: a leader that lost its role while the
+// row ran still takes back the token it made, from its own store.
+func TestATokenIsRevokedOnTheNodeThatMadeItWhetherOrNotItLeads(t *testing.T) {
+	m := &Manager{nodeID: "m1", tokens: NewTokenManager()}
+	if m.IsLeader() {
+		t.Fatal("a manager with no Raft leads")
+	}
+	tok, err := m.tokens.CreateFor(AgentInstallTokenTTL, m.nodeID, KindAgent, "", "192.0.2.10")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := m.RevokeJoinTokenValue(tok.Token); err != nil {
+		t.Fatalf("revoked off the leader: %v", err)
+	}
+	if _, err := m.tokens.Peek(tok.Token); !errors.Is(err, ErrTokenNotFound) {
+		t.Fatalf("the token after its revoke: %v, want ErrTokenNotFound", err)
+	}
+	if _, err := m.tokens.Validate(tok.Token, KindAgent); !errors.Is(err, ErrTokenNotFound) {
+		t.Fatalf("a registration with the token after its revoke: %v, want ErrTokenNotFound", err)
+	}
+	if err := m.RevokeJoinTokenValue(tok.Token); err != nil {
+		t.Fatalf("revoked twice off the leader: %v", err)
 	}
 }

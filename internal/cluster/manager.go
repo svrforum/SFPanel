@@ -690,14 +690,14 @@ func (m *Manager) CreateAgentTokenFor(ip net.IP, ttl time.Duration) (*JoinToken,
 	return m.tokens.CreateFor(ttl, m.nodeID, kind, "", ip.String())
 }
 
-// RevokeJoinTokenValue revokes the token whose value is token (leader only),
-// for a caller that holds the token itself rather than its fingerprint, as an
-// install does. A token already spent, expired or revoked is no error: a
-// caller revokes it when it is done with it, whatever became of it.
+// RevokeJoinTokenValue revokes the token whose value is token, for a caller
+// that holds the token itself rather than its fingerprint, as an install
+// does. It revokes from this node's own token store whether or not this node
+// leads: the install's token was made here, and tokens.json is per node, so a
+// leader that lost its role while the install ran still takes it back. A
+// token already spent, expired or revoked is no error: a caller revokes it
+// when it is done with it, whatever became of it.
 func (m *Manager) RevokeJoinTokenValue(token string) error {
-	if m.raft == nil || !m.raft.IsLeader() {
-		return ErrNotLeader
-	}
 	if err := m.tokens.Revoke(tokenFingerprint(token)); err != nil && !errors.Is(err, ErrTokenNotFound) {
 		return err
 	}
