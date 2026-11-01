@@ -293,10 +293,8 @@ func TestTheTaskRoutesAnswerWithTheirStatusAndCode(t *testing.T) {
 					!slices.Equal(head.Confirmed, []int{1}) || fmt.Sprint(head.Waves) != "[[a1 a2] [a3]]" || !head.StartedAt.Equal(f.env.now) {
 					t.Errorf("head = %+v (doc %q)", head, doc)
 				}
-				for _, id := range []string{"a1", "a2", "a3"} {
-					if nodes[id].Status != cluster.RunNodePending {
-						t.Errorf("node %s = %+v, want pending", id, nodes[id])
-					}
+				if len(nodes) != 0 {
+					t.Errorf("node records = %+v, want none until each node starts", nodes)
 				}
 			}},
 		{name: "a run of a built-in", method: "POST", path: "/api/v1/cluster/task-runs",
@@ -624,8 +622,12 @@ func TestOnlyFailedRunsTheNodesThatDidNotSucceed(t *testing.T) {
 	if !slices.Equal(h.Nodes, []string{"a2", "a3", "a4"}) || fmt.Sprint(h.StartAt) != "map[a2:1 a3:0 a4:0]" || h.Inputs["who"] != "world" {
 		t.Errorf("rerun = nodes %v, start at %v, inputs %v; want a2 from step 1, a3 and a4 from 0, with the run's inputs", h.Nodes, h.StartAt, h.Inputs)
 	}
+	var got struct {
+		Nodes map[string]cluster.RunNodeRecord `json:"nodes"`
+	}
+	f.do("GET", "/api/v1/cluster/task-runs/"+d.RunID, nil).data(t, &got)
 	for _, id := range h.Nodes {
-		if rec := f.env.store.node(d.RunID, id); rec.Status != cluster.RunNodePending {
+		if rec := got.Nodes[id]; rec.Status != cluster.RunNodePending {
 			t.Errorf("node %s = %+v, want pending", id, rec)
 		}
 	}
@@ -928,4 +930,58 @@ func TestTheStreamStartsWithASnapshotAndKeepsAlive(t *testing.T) {
 		f := newAPI(t)
 		wantRefusal(t, "stream", f.do("GET", "/api/v1/cluster/task-runs/"+srcRun+"/stream", nil), 404, response.ErrTaskRunNotFound, nil)
 	})
+}
+
+// A run is recorded in one write, its head: a head written with only some of
+// its nodes' records would be a run that started in part, which a new leader
+// would take up although the operator was told to retry. A node with no
+// record yet is pending, and the run's readers say so.
+func TestARunIsRecordedInOneWrite(t *testing.T) {
+	old := streamPoll
+	streamPoll = 2 * time.Millisecond
+	t.Cleanup(func() { streamPoll = old })
+
+	f := newAPI(t)
+	f.store("t1", greetDoc)
+	a := f.do("POST", "/api/v1/cluster/task-runs", map[string]any{"task_id": "t1", "inputs": map[string]string{"who": "x"}})
+	if a.Status != http.StatusAccepted {
+		t.Fatalf("start = %d %+v", a.Status, a.Error)
+	}
+	var started struct {
+		RunID string `json:"run_id"`
+	}
+	a.data(t, &started)
+	f.env.store.mu.Lock()
+	recorded := len(f.env.store.nodes[started.RunID])
+	f.env.store.mu.Unlock()
+	if recorded != 0 {
+		t.Errorf("node records written at the start = %d, want none: the head alone", recorded)
+	}
+
+	var got struct {
+		Run   cluster.RunRecord                `json:"run"`
+		Nodes map[string]cluster.RunNodeRecord `json:"nodes"`
+	}
+	f.do("GET", "/api/v1/cluster/task-runs/"+started.RunID, nil).data(t, &got)
+	if len(got.Nodes) != 3 {
+		t.Errorf("GET nodes = %+v, want a1, a2 and a3", got.Nodes)
+	}
+	for _, id := range []string{"a1", "a2", "a3"} {
+		if got.Nodes[id].Status != cluster.RunNodePending {
+			t.Errorf("GET node %s = %+v, want pending", id, got.Nodes[id])
+		}
+	}
+
+	s := openStream(t, f, started.RunID)
+	var snap struct {
+		Nodes map[string]cluster.RunNodeRecord `json:"nodes"`
+	}
+	if typ := s.event(&snap); typ != "snapshot" || len(snap.Nodes) != 3 {
+		t.Fatalf("first event = %s %+v, want a snapshot of every node", typ, snap)
+	}
+	for _, id := range []string{"a1", "a2", "a3"} {
+		if snap.Nodes[id].Status != cluster.RunNodePending {
+			t.Errorf("snapshot node %s = %+v, want pending", id, snap.Nodes[id])
+		}
+	}
 }

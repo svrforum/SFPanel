@@ -719,7 +719,10 @@ func (h *Handler) StartRun(c echo.Context) error {
 // promotion is under way, or while another run holds one of its nodes — read
 // again here, as two requests for one node may both have planned before
 // either was recorded. It gives the run its ID, revision and start time, and
-// writes its head and a pending record for every node.
+// writes its head alone: one write, so a run is recorded whole or not at all,
+// and a failed write leaves nothing a leader would take up. A node has no
+// record until its turn comes (the engine writes it as the node starts);
+// until then it is pending, as GetRun and the stream show it (withPending).
 func (h *Handler) claim(env runEnv, run *cluster.RunRecord, doc string) error {
 	st := env.Tasks()
 	return h.startGate(func(b featurecluster.Busy) error {
@@ -748,23 +751,22 @@ func (h *Handler) claim(env runEnv, run *cluster.RunRecord, doc string) error {
 		}
 		now := env.Now().UTC()
 		run.ID, run.Rev, run.StartedAt = cluster.NewRunID(now), rev, now
-		if err := st.PutRun(*run); err != nil {
-			return err
-		}
-		for _, id := range run.Nodes {
-			if err := st.PutRunNode(run.ID, id, cluster.RunNodeRecord{Status: cluster.RunNodePending}); err != nil {
-				// Not started: a run some of whose nodes have no record is
-				// ended rather than left for the supervisor to take up.
-				ended := *run
-				ended.Status, ended.Reason, ended.EndedAt = cluster.RunFailed, "the run could not be recorded: "+err.Error(), now
-				if perr := st.PutRun(ended); perr != nil {
-					logger.Warn("ending a task run that could not be recorded", "run", run.ID, "error", perr)
-				}
-				return err
-			}
-		}
-		return nil
+		return st.PutRun(*run)
 	})
+}
+
+// withPending is a run's node records with every node of the run that has
+// none yet recorded pending, so a client sees every node from the start.
+func withPending(run cluster.RunRecord, nodes map[string]cluster.RunNodeRecord) map[string]cluster.RunNodeRecord {
+	if nodes == nil {
+		nodes = map[string]cluster.RunNodeRecord{}
+	}
+	for _, id := range run.Nodes {
+		if _, ok := nodes[id]; !ok {
+			nodes[id] = cluster.RunNodeRecord{Status: cluster.RunNodePending}
+		}
+	}
+	return nodes
 }
 
 // ListRuns answers GET /cluster/task-runs: every run's head, newest first,
@@ -793,7 +795,8 @@ func runNotFound(err error) error {
 }
 
 // GetRun answers GET /cluster/task-runs/:id: the run's head and its nodes'
-// records, from this manager's own replicated state.
+// records, from this manager's own replicated state; a node not yet started
+// is pending.
 func (h *Handler) GetRun(c echo.Context) error {
 	env, err := h.apiEnv(c)
 	if env == nil {
@@ -803,7 +806,7 @@ func (h *Handler) GetRun(c echo.Context) error {
 	if err != nil {
 		return fail(c, runNotFound(err))
 	}
-	return response.OK(c, map[string]any{"run": run, "nodes": nodes})
+	return response.OK(c, map[string]any{"run": run, "nodes": withPending(run, nodes)})
 }
 
 // StopRun answers POST /cluster/task-runs/:id/stop {force} (leader): a run

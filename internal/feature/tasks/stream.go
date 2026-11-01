@@ -40,8 +40,8 @@ type streamEvent struct {
 
 // StreamRun answers GET /cluster/task-runs/:id/stream with the run's
 // progress as server-sent events. Any manager serves it from its own
-// replicated state, as the records are replicated: it is never sent on to
-// the leader, and it follows a run across a change of leader. It reads the
+// replicated state, as the records are replicated: a node with no record yet
+// is sent as pending (withPending). It is never sent on to the leader, and it follows a run across a change of leader. It reads the
 // run every streamPoll and sends what changed, a keepalive after
 // streamKeepalive of quiet, and "end" once the run has ended (or been
 // pruned). A client that comes back starts again from a snapshot. The path
@@ -82,9 +82,7 @@ func (h *Handler) StreamRun(c echo.Context) error {
 		write("data: " + string(b) + "\n\n")
 	}
 
-	if nodes == nil {
-		nodes = map[string]cluster.RunNodeRecord{}
-	}
+	nodes = withPending(head, nodes)
 	send(streamEvent{Type: "snapshot", Run: &head, Nodes: nodes})
 	ticker := time.NewTicker(streamPoll)
 	defer ticker.Stop()
@@ -106,6 +104,7 @@ func (h *Handler) StreamRun(c echo.Context) error {
 		case err != nil:
 			logger.Warn("reading a task run for its stream", "run", id, "error", err)
 		default:
+			nextNodes = withPending(next, nextNodes)
 			ids := make([]string, 0, len(nextNodes))
 			for nid := range nextNodes {
 				ids = append(ids, nid)
