@@ -60,6 +60,17 @@ export function waitingLine(
   return line
 }
 
+/**
+ * A manager a start would wait for, "<name> (<reason>)" as the leader writes
+ * it (TasksReady), in the screen's words (the preview's list, and a
+ * refused start's or rerun's sentence): offline and not heard from as the
+ * rotation cards word them, a bare version as one that does not know group
+ * tasks. A line this screen does not know, as sent.
+ */
+export function notReadyText(line: string, t: TFunction): string {
+  return waitingLine(line, t, (name, version) => t('cluster.tasks.plan.notReadyVersion', { name, version }))
+}
+
 /** The way forward, and the branch a stopped or timed-out rotation takes back. */
 export const CA_STEPS = ['trust', 'reissue', 'promote', 'done'] as const
 export const CA_BACK_STEPS = ['rollback', 'drop', 'aborted'] as const

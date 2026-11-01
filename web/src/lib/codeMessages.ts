@@ -1,3 +1,6 @@
+import type { TFunction } from 'i18next'
+import { notReadyText } from './clusterRotation'
+
 // Error codes the panel words itself, in the operator's language. The server's
 // message is English and stays the fallback; a code missing here shows as sent.
 // The error's details (unit, vmid, device…) fill in the message's placeholders.
@@ -101,10 +104,14 @@ export const CODE_DEFAULTS: Record<string, Record<string, string>> = {
 // put in words before it fills the message. A formatter answers null for a
 // value it cannot read, and the placeholder then takes its CODE_DEFAULTS
 // wording, as if the detail were missing.
-export const CODE_DETAIL_FORMATS: Record<string, Record<string, (value: string) => string | null>> = {
+export const CODE_DETAIL_FORMATS: Record<string, Record<string, (value: string, t: TFunction) => string | null>> = {
   // An RFC 3339 time as this browser's clock reads it. Not "in 12 minutes":
   // the message is worded once, when the error is made, and stays on screen.
   GIT_RATE_LIMITED: { reset_at: localClockTime },
+  // The leader's own lines, "<name> (<reason>)" joined by ", ", each worded
+  // as the preview words it. "; " between them: a worded version line holds
+  // a comma.
+  TASK_MANAGERS_NOT_READY: { managers: (v, t) => v.split(', ').map((line) => notReadyText(line, t)).join('; ') },
 }
 
 const pad2 = (n: number) => String(n).padStart(2, '0')

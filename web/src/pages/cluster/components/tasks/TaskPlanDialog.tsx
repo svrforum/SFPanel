@@ -8,7 +8,8 @@ import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, D
 import { StatusPill } from '@/components/StatusPill'
 import { cn } from '@/lib/utils'
 import type { CheckVerdict, PlanNode, TaskPlan } from '@/types/api'
-import { PVE_REBOOT_CODE, confirmSteps, leftReasonText, notReadyText, planBlocked, verdictSays, verdictText, type RunErrorText } from './taskPlan'
+import { notReadyText } from '@/lib/clusterRotation'
+import { PVE_REBOOT_CODE, confirmSteps, leftReasonText, planBlocked, verdictSays, verdictText, type RunErrorText } from './taskPlan'
 
 /** An input as the run fills it: the value given, else the default. */
 export interface FilledInput {

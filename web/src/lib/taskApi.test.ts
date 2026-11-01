@@ -285,6 +285,44 @@ describe('task and Git refusals', () => {
   })
 })
 
+// A rerun has no preview, and a start can be refused after a clean one: the
+// managers the leader waits for then come in its own lines, "<name>
+// (<reason>)" joined by ", ". Each reads as the preview words it, and they
+// are joined by "; ", since a worded version line holds a comma itself.
+describe('TASK_MANAGERS_NOT_READY managers', () => {
+  async function wording(lng: string) {
+    await freshApi()
+    const { apiErrorFrom, setApiTranslator } = await import('./api')
+    const i18n = i18next.createInstance()
+    await i18n.init({ lng, resources: { en: { translation: en }, ko: { translation: ko } }, interpolation: { escapeValue: false } })
+    setApiTranslator((key, fallback, params) => i18n.t(key, { ...params, defaultValue: fallback }))
+    return (managers: string) =>
+      apiErrorFrom(409, { success: false, error: { code: 'TASK_MANAGERS_NOT_READY', message: 'Waiting for managers', details: { managers } } }).message
+  }
+  const managers = 'manager-3 (offline), manager-2 (0.79.0)'
+
+  it('reads in Korean', async () => {
+    const word = await wording('ko')
+    expect(word(managers)).toBe(
+      '모든 매니저가 온라인이고 그룹 작업을 아는 버전이어야 합니다. 기다리는 매니저: manager-3: 오프라인; manager-2: 0.79.0, 그룹 작업을 모르는 버전 — 업데이트하세요',
+    )
+  })
+
+  it('reads in English', async () => {
+    const word = await wording('en')
+    expect(word(managers)).toBe(
+      'Every manager must be online and run a version that knows group tasks. Waiting for: manager-3: offline; manager-2: runs 0.79.0, which does not know group tasks — update it',
+    )
+  })
+
+  it('keeps a line it does not know as the leader sent it', async () => {
+    const word = await wording('en')
+    expect(word('manager-3 (has gone to lunch), manager-2 (not heard from)')).toBe(
+      'Every manager must be online and run a version that knows group tasks. Waiting for: manager-3 (has gone to lunch); manager-2: not heard from',
+    )
+  })
+})
+
 // GitHub says when its allowance resets as an RFC 3339 UTC time. The message
 // is worded once, when the error is made, and stays on screen: a relative
 // "in 12 minutes" would go stale, so the reset reads as a local clock time.

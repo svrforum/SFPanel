@@ -1,6 +1,5 @@
 import type { TFunction } from 'i18next'
 import type { ApiError } from '@/lib/api'
-import { waitingLine } from '@/lib/clusterRotation'
 import { taskErrorMessage } from '@/lib/taskErrors'
 import { warningText } from '@/lib/warnings'
 import type { CheckVerdict, PlanLeftReason, PlanNode, TaskPlan } from '@/types/api'
@@ -50,16 +49,6 @@ export function planNeedsReview(plan: TaskPlan): boolean {
  */
 export function planBlocked(plan: TaskPlan): boolean {
   return (plan.managers_not_ready?.length ?? 0) > 0 || planNodes(plan).length === 0
-}
-
-/**
- * A manager a start would wait for, "<name> (<reason>)" as the leader writes
- * it (TasksReady), in the screen's words: offline and not heard from as the
- * rotation cards word them, a bare version as one that does not know group
- * tasks. A line this screen does not know, as sent.
- */
-export function notReadyText(line: string, t: TFunction): string {
-  return waitingLine(line, t, (name, version) => t('cluster.tasks.plan.notReadyVersion', { name, version }))
 }
 
 const LEFT_REASON: Record<PlanLeftReason, (t: TFunction) => string> = {

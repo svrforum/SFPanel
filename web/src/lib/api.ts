@@ -90,6 +90,7 @@ import type {
   TaskImportPreview,
   TaskImportResult,
 } from '@/types/api'
+import type { TFunction } from 'i18next'
 import { CODE_DEFAULTS, CODE_DETAIL_FORMATS, CODE_MESSAGES } from './codeMessages'
 import type { ApiWarning } from './warnings'
 
@@ -149,12 +150,16 @@ function codeText(code: string | undefined, sent: string, details?: Record<strin
   return translate(CODE_MESSAGES[code], sent, { ...defaults, ...formatDetails(code, details) })
 }
 
+// The module's translator as the i18next t a detail formatter takes: a key
+// with no entry reads as the key, as i18next has it.
+const detailT = ((key: string, params?: Record<string, string>) => translate(key, key, params)) as unknown as TFunction
+
 function formatDetails(code: string, details?: Record<string, string>): Record<string, string> {
   const formats = CODE_DETAIL_FORMATS[code] ?? {}
   const out: Record<string, string> = {}
   for (const [name, value] of Object.entries(details ?? {})) {
     const format = Object.hasOwn(formats, name) ? formats[name] : undefined
-    const worded = format ? format(value) : value
+    const worded = format ? format(value, detailT) : value
     if (worded !== null) out[name] = worded
   }
   return out
