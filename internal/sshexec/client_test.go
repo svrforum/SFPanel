@@ -207,7 +207,7 @@ func TestNothingSecretInArgv(t *testing.T) {
 	cmd, head := SudoCommand(writeToken, false, []byte(sudoPW))
 	// -k: sudo asks for the password whatever it has cached, so it reads the
 	// first line every time rather than leave it on the command's stdin.
-	if want := "sudo -k -S -p '' bash -c 'umask 077 && cat > /tmp/sfpanel-install.X/token'"; cmd != want {
+	if want := "env LC_ALL=C sudo -k -S -p '' bash -c 'umask 077 && cat > /tmp/sfpanel-install.X/token'"; cmd != want {
 		t.Fatalf("sudo command = %q, want %q", cmd, want)
 	}
 	if _, _, exit, err := c.Run(ctx, cmd, append(head, token...)); err != nil || exit != 0 {
@@ -243,7 +243,7 @@ func TestSudoCommandForms(t *testing.T) {
 		t.Fatalf("root: %q, %q; want the command as is and no stdin", cmd, head)
 	}
 	cmd, head = SudoCommand("echo 'hi'", false, nil)
-	if want := `sudo -n bash -c 'echo '\''hi'\'''`; cmd != want || head != nil {
+	if want := `env LC_ALL=C sudo -n bash -c 'echo '\''hi'\'''`; cmd != want || head != nil {
 		t.Fatalf("no sudo password: %q, %q; want %q and no stdin", cmd, head, want)
 	}
 	pw := []byte("pw")

@@ -380,6 +380,9 @@ func (c *Client) Upload(ctx context.Context, path string, mode os.FileMode, data
 // Otherwise it runs under bash through sudo: with a sudo password, through
 // sudo -S with an empty prompt and the password as stdin's first line;
 // without one, through sudo -n, which fails rather than waits for a password.
+// Either line starts with "env LC_ALL=C ", so sudo answers in English on a
+// server set to another language: its refusal of a password is read from
+// its stderr. cmd itself runs in that locale too.
 //
 // The head is a new slice holding the password; the caller appends the
 // command's own stdin after it and wipes both when done. With -S, sudo reads
@@ -392,12 +395,12 @@ func SudoCommand(cmd string, root bool, sudoPassword []byte) (string, []byte) {
 		return cmd, nil
 	}
 	if len(sudoPassword) == 0 {
-		return "sudo -n bash -c " + ShellQuote(cmd), nil
+		return "env LC_ALL=C sudo -n bash -c " + ShellQuote(cmd), nil
 	}
 	head := make([]byte, 0, len(sudoPassword)+1)
 	head = append(head, sudoPassword...)
 	head = append(head, '\n')
-	return "sudo -k -S -p '' bash -c " + ShellQuote(cmd), head
+	return "env LC_ALL=C sudo -k -S -p '' bash -c " + ShellQuote(cmd), head
 }
 
 // ShellQuote quotes s as one POSIX shell word.

@@ -742,7 +742,7 @@ func TestSudoGetsThePasswordOnStdinOnly(t *testing.T) {
 			t.Fatalf("first command %q, want the login check on stdin", x[0].cmd)
 		}
 		probe := ProbeScript([]string{"192.0.2.1:3629"}, "0.81.0", true)
-		if x[1].cmd != "sudo -k -S -p '' bash -c 'bash -s'" || string(x[1].stdin) != "sudo-pw\n"+probe {
+		if x[1].cmd != "env LC_ALL=C sudo -k -S -p '' bash -c 'bash -s'" || string(x[1].stdin) != "sudo-pw\n"+probe {
 			t.Fatalf("probe = %q with stdin %d bytes, want bash -s under sudo -S with the password line, then the script", x[1].cmd, len(x[1].stdin))
 		}
 		for _, c := range s.commands() {
@@ -765,12 +765,14 @@ func TestSudoGetsThePasswordOnStdinOnly(t *testing.T) {
 			t.Fatalf("run = %s", h.Status)
 		}
 		for _, x := range s.execList() {
-			if strings.HasPrefix(x.cmd, "sudo") && (!strings.HasPrefix(x.cmd, sudoNoPassword) || bytes.Contains(x.stdin, []byte("sudo-pw"))) {
+			if strings.Contains(x.cmd, "sudo ") && (!strings.HasPrefix(x.cmd, sudoNoPassword) || bytes.Contains(x.stdin, []byte("sudo-pw"))) {
 				t.Fatalf("command %q stdin %q: want sudo -n and no password", x.cmd, x.stdin)
 			}
 		}
 	})
-	t.Run("a refused password is no root", func(t *testing.T) {
+	// The fake's sudo answers in Korean unless the line runs it in the C
+	// locale, and only its English answer says the password was refused.
+	t.Run("a refused password is no root, whatever the server's language", func(t *testing.T) {
 		env := newFakeEnv()
 		s := passingServer(t, env, 1)
 		s.sudoPw = "another"

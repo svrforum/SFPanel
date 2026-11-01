@@ -371,7 +371,8 @@ func (r *row) priv(ctx context.Context, cmd string, stdin []byte) (stdout, stder
 }
 
 // sudoRefused is sudo's answer to a wrong password: "Sorry, try again."
-// and "N incorrect password attempts".
+// and "N incorrect password attempts", in English because SudoCommand runs
+// sudo in the C locale.
 func sudoRefused(stderr []byte) bool {
 	s := strings.ToLower(string(stderr))
 	return strings.Contains(s, "incorrect password") || strings.Contains(s, "try again")

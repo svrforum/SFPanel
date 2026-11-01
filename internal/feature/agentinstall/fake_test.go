@@ -453,10 +453,22 @@ func probeText(f Facts) string {
 	return w.String()
 }
 
+// The sudo lines the engine sends, in the C locale so sudo answers in
+// English. A line without cLocale is answered in the server's own language.
 const (
-	sudoWithPassword = "sudo -k -S -p '' bash -c "
-	sudoNoPassword   = "sudo -n bash -c "
+	cLocale          = "env LC_ALL=C "
+	sudoWithPassword = cLocale + "sudo -k -S -p '' bash -c "
+	sudoNoPassword   = cLocale + "sudo -n bash -c "
 )
+
+// sudoWrongPassword is sudo's answer to a wrong password: in English in the
+// C locale, in Korean, the server's language, otherwise.
+func sudoWrongPassword(cmd string) []byte {
+	if strings.HasPrefix(cmd, cLocale) {
+		return []byte("Sorry, try again.\nsudo: 3 incorrect password attempts\n")
+	}
+	return []byte("죄송합니다. 다시 시도하십시오.\nsudo: 3번의 잘못된 비밀번호 시도\n")
+}
 
 // run answers one command as the server would.
 func (s *fakeServer) run(ctx context.Context, cmd string, stdin []byte) ([]byte, []byte, int, error) {
@@ -464,19 +476,22 @@ func (s *fakeServer) run(ctx context.Context, cmd string, stdin []byte) ([]byte,
 	s.execs = append(s.execs, fakeExec{cmd: cmd, stdin: slices.Clone(stdin)})
 	s.mu.Unlock()
 	inner := cmd
+	// sudo runs with or without the C locale; only its language differs.
+	line := strings.TrimPrefix(cmd, cLocale)
+	withPassword, noPassword := strings.TrimPrefix(sudoWithPassword, cLocale), strings.TrimPrefix(sudoNoPassword, cLocale)
 	switch {
-	case strings.HasPrefix(cmd, sudoWithPassword):
-		line, rest, _ := bytes.Cut(stdin, []byte("\n"))
-		if string(line) != s.sudoPw {
-			return nil, []byte("Sorry, try again.\nsudo: 3 incorrect password attempts\n"), 1, nil
+	case strings.HasPrefix(line, withPassword):
+		pw, rest, _ := bytes.Cut(stdin, []byte("\n"))
+		if string(pw) != s.sudoPw {
+			return nil, sudoWrongPassword(cmd), 1, nil
 		}
 		stdin = rest
-		inner = unquote(strings.TrimPrefix(cmd, sudoWithPassword))
-	case strings.HasPrefix(cmd, sudoNoPassword):
+		inner = unquote(strings.TrimPrefix(line, withPassword))
+	case strings.HasPrefix(line, noPassword):
 		if s.facts.Sudo != SudoNoPassword {
 			return nil, []byte("sudo: a password is required\n"), 1, nil
 		}
-		inner = unquote(strings.TrimPrefix(cmd, sudoNoPassword))
+		inner = unquote(strings.TrimPrefix(line, noPassword))
 	}
 
 	s.mu.Lock()
