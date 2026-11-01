@@ -23,6 +23,7 @@ import (
 	"github.com/svrforum/SFPanel/internal/cluster"
 	"github.com/svrforum/SFPanel/internal/composex"
 	"github.com/svrforum/SFPanel/internal/docker"
+	"github.com/svrforum/SFPanel/internal/githubapi"
 	"gopkg.in/yaml.v3"
 )
 
@@ -589,8 +590,8 @@ func (h *Handler) DiffStack(c echo.Context) error {
 	return response.OK(c, res)
 }
 
-// ImportFromGit clones a GitHub repo (one-shot, no persistent link),
-// reads the compose YAML at the requested path, and creates a stack.
+// ImportFromGit reads one compose file from a GitHub repo through the Contents
+// API (one-shot, no persistent link) and creates a stack from it.
 // POST /api/v1/docker/compose/import
 func (h *Handler) ImportFromGit(c echo.Context) error {
 	var req ImportRequest
@@ -612,22 +613,8 @@ func (h *Handler) ImportFromGit(c echo.Context) error {
 
 	yamlBody, err := fetchComposeFile(ctx, req)
 	if err != nil {
-		switch {
-		case errors.Is(err, ErrAuthFailed):
-			// 400, not 401: the git host refused the PAT, and the browser
-			// reads a 401 as this panel's session ending.
-			return response.Fail(c, http.StatusBadRequest, response.ErrGitAuthFailed,
-				"인증 실패. PAT가 필요한 private 저장소입니다.")
-		case errors.Is(err, ErrRepoNotFound):
-			return response.Fail(c, http.StatusNotFound, response.ErrGitRepoNotFound,
-				"저장소를 찾을 수 없습니다.")
-		case errors.Is(err, ErrPathNotFound):
-			return response.Fail(c, http.StatusNotFound, response.ErrGitPathNotFound,
-				"해당 경로의 파일이 없습니다.")
-		default:
-			return response.Fail(c, http.StatusInternalServerError, response.ErrGitCloneFailed,
-				response.SanitizeOutput(err.Error()))
-		}
+		status, code, msg, details := githubapi.Refusal(err)
+		return response.FailWith(c, status, code, msg, details)
 	}
 
 	report, aerr := composex.Analyze(yamlBody)

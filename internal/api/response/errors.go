@@ -70,7 +70,12 @@ const (
 	ErrGitRepoNotFound     = "GIT_REPO_NOT_FOUND"
 	ErrGitPathNotFound     = "GIT_PATH_NOT_FOUND"
 	ErrGitCloneFailed      = "GIT_CLONE_FAILED"
-	ErrStackAlreadyExists  = "STACK_ALREADY_EXISTS"
+	// ErrGitRateLimited is returned (HTTP 429) when GitHub refused the call
+	// because the hourly allowance of this address or token is used up, not
+	// because the token was refused. Details: reset_at (RFC 3339, UTC),
+	// limit, retry_after (seconds), each when GitHub said it.
+	ErrGitRateLimited     = "GIT_RATE_LIMITED"
+	ErrStackAlreadyExists = "STACK_ALREADY_EXISTS"
 )
 
 // File error codes

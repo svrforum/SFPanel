@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/stretchr/testify/require"
+	"github.com/svrforum/SFPanel/internal/githubapi"
 )
 
 func TestValidateImportRequest_URLPattern(t *testing.T) {
@@ -65,7 +66,7 @@ func TestValidateImportRequest_NameRules(t *testing.T) {
 	}
 }
 
-func TestOwnerRepoFromURL(t *testing.T) {
+func TestRepoFromURL(t *testing.T) {
 	cases := []struct {
 		url, owner, repo string
 		ok               bool
@@ -77,25 +78,25 @@ func TestOwnerRepoFromURL(t *testing.T) {
 	}
 	for _, tc := range cases {
 		t.Run(tc.url, func(t *testing.T) {
-			owner, repo, err := ownerRepoFromURL(tc.url)
+			r, err := githubapi.ParseRepoURL(tc.url)
 			if !tc.ok {
 				require.Error(t, err)
 				return
 			}
 			require.NoError(t, err)
-			require.Equal(t, tc.owner, owner)
-			require.Equal(t, tc.repo, repo)
+			require.Equal(t, tc.owner, r.Owner)
+			require.Equal(t, tc.repo, r.Name)
 		})
 	}
 }
 
-// withFakeGitHub points githubAPIBase at the given handler for the test's scope.
+// withFakeGitHub points githubapi.BaseURL at the given handler for the test's scope.
 func withFakeGitHub(t *testing.T, h http.HandlerFunc) {
 	t.Helper()
 	srv := httptest.NewServer(h)
-	prev := githubAPIBase
-	githubAPIBase = srv.URL
-	t.Cleanup(func() { githubAPIBase = prev; srv.Close() })
+	prev := githubapi.BaseURL
+	githubapi.BaseURL = srv.URL
+	t.Cleanup(func() { githubapi.BaseURL = prev; srv.Close() })
 }
 
 func TestFetchComposeFile_HappyPath(t *testing.T) {
@@ -129,7 +130,7 @@ func TestFetchComposeFile_AuthFailed(t *testing.T) {
 		w.WriteHeader(http.StatusUnauthorized)
 	})
 	_, err := fetchComposeFile(context.Background(), ImportRequest{URL: "https://github.com/foo/bar", Token: "bad"})
-	require.ErrorIs(t, err, ErrAuthFailed)
+	require.ErrorIs(t, err, githubapi.ErrAuthFailed)
 }
 
 func TestFetchComposeFile_PathNotFound(t *testing.T) {
@@ -142,7 +143,7 @@ func TestFetchComposeFile_PathNotFound(t *testing.T) {
 		w.WriteHeader(http.StatusOK) // repo exists
 	})
 	_, err := fetchComposeFile(context.Background(), ImportRequest{URL: "https://github.com/foo/bar", Path: "missing.yml"})
-	require.ErrorIs(t, err, ErrPathNotFound)
+	require.ErrorIs(t, err, githubapi.ErrPathNotFound)
 }
 
 func TestFetchComposeFile_RepoNotFound(t *testing.T) {
@@ -150,5 +151,5 @@ func TestFetchComposeFile_RepoNotFound(t *testing.T) {
 		w.WriteHeader(http.StatusNotFound) // both contents and repo probe 404
 	})
 	_, err := fetchComposeFile(context.Background(), ImportRequest{URL: "https://github.com/foo/bar"})
-	require.ErrorIs(t, err, ErrRepoNotFound)
+	require.ErrorIs(t, err, githubapi.ErrRepoNotFound)
 }
