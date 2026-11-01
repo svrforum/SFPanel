@@ -589,7 +589,10 @@ func (s *GRPCServer) serveHeartbeat(stream grpc.BidiStreamingServer[pb.Heartbeat
 		defer follow.Stop()
 		handOver = follow.C
 	}
-	led := s.manager.IsLeader()
+	// Whether this manager led while the stream was open. Nothing is read
+	// before the first ping is checked (counted): a ping that is not the
+	// peer's own is refused before the manager is touched.
+	led := false
 
 	// Counted from its first ping, so that a stream refused at that ping says
 	// nothing about a node that is up on another (LiveHealth).
@@ -673,6 +676,7 @@ func (s *GRPCServer) serveHeartbeat(stream grpc.BidiStreamingServer[pb.Heartbeat
 				Managers:          s.manager.managerInfos(),
 				FromLeader:        s.manager.IsLeader(),
 			}
+			led = led || pong.FromLeader
 			if !promote {
 				// Agents learn a CA rotation from here; managers from their FSM.
 				pong.Ca = s.manager.caHint()
@@ -687,6 +691,9 @@ func (s *GRPCServer) serveHeartbeat(stream grpc.BidiStreamingServer[pb.Heartbeat
 				return notMemberError(s.manager, peerCN)
 			}
 		case <-handOver:
+			if !counted {
+				continue
+			}
 			if s.manager.IsLeader() {
 				led = true
 				continue
