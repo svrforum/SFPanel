@@ -21,6 +21,7 @@ import (
 	"golang.org/x/crypto/ssh"
 
 	"github.com/svrforum/SFPanel/internal/cluster"
+	"github.com/svrforum/SFPanel/internal/sshexec"
 )
 
 // sshTarget is an SSH server on 127.0.0.1 standing in for a target: it
@@ -159,12 +160,23 @@ func (st *sshTarget) session(ch ssh.Channel, reqs <-chan *ssh.Request) {
 
 func (st *sshTarget) exec(cmd string, stdin []byte) ([]byte, []byte, int) {
 	// The login check and the probe never run here, whatever their
-	// command line has become.
+	// command line has become: they are known by their text, on stdin or
+	// in the command.
 	switch {
-	case bytes.Contains(stdin, []byte(LoginCheckScript())):
+	case bytes.Contains(stdin, []byte(LoginCheckScript())) || strings.Contains(cmd, LoginCheckScript()):
 		return []byte(loginText(st.facts.Login)), nil, 0
-	case strings.Contains(cmd, "bash -s"):
+	case strings.Contains(cmd, "bash -s") || bytes.Contains(stdin, []byte(probeMark)) || strings.Contains(cmd, probeMark):
 		return []byte(probeText(st.facts)), nil, 0
+	}
+	// Nothing runs whose command line names a path outside the test's
+	// directory: a slip in the engine, or a mutation of it, must not reach
+	// this host's system paths through the stubs. (Stdin is a file's bytes
+	// for cat, or a script the cases above answer.)
+	within := strings.ReplaceAll(cmd, st.root, "")
+	for _, p := range hostPaths {
+		if strings.Contains(within, p) {
+			return nil, []byte("refused by the e2e target: the command names " + p), 126
+		}
 	}
 	c := exec.Command("bash", "-c", cmd)
 	c.Dir = st.root
@@ -183,6 +195,14 @@ func (st *sshTarget) exec(cmd string, stdin []byte) ([]byte, []byte, int) {
 	}
 	return out.Bytes(), errOut.Bytes(), 0
 }
+
+// probeMark is a line of the probe's own text, by which the target knows it
+// on stdin or in a command line whatever surrounds it.
+const probeMark = "kv() { printf"
+
+// hostPaths are this host's system paths the e2e target refuses a command
+// to name: everything it runs stays under its own directory.
+var hostPaths = []string{"/opt/", "/opt ", "/etc/", "/var/", "/usr/local", "/root", "/home/"}
 
 func (st *sshTarget) record(name string) string {
 	b, _ := os.ReadFile(filepath.Join(st.root, "record", name))
@@ -207,6 +227,9 @@ exit 0
 `
 
 func TestEndToEndOverSSH(t *testing.T) {
+	if !strings.Contains(ProbeScript([]string{"192.0.2.1:3629"}, "0.0.0", false), probeMark) {
+		t.Fatal("the probe no longer carries the line the e2e target knows it by: it would run on this host")
+	}
 	const password = "e2e-login-pw-71c3"
 	var logs bytes.Buffer
 	prev := slog.Default()
@@ -318,5 +341,30 @@ func TestEndToEndOverSSH(t *testing.T) {
 	}
 	if !isZero(pw) {
 		t.Fatal("the password outlived the install")
+	}
+}
+
+// The e2e target runs the engine's commands on this host, under stubs: it
+// must refuse one that names a system path, and answer the probe from its
+// facts however the probe reaches it, rather than run either.
+func TestTheE2ETargetRunsNothingOutsideItsDirectory(t *testing.T) {
+	st := startSSHTarget(t, "pw", passingFacts())
+	for _, cmd := range []string{"ls /etc/hostname", "rmdir /opt/stacks", "cat /home/x", "ls /var/lib", "ls /usr/local/bin", "ls /root"} {
+		if _, stderr, exit := st.exec(cmd, nil); exit != 126 || !strings.Contains(string(stderr), "refused by the e2e target") {
+			t.Errorf("%q: exit %d %q, want refused unrun", cmd, exit, stderr)
+		}
+	}
+	if out, _, exit := st.exec("echo ok > "+filepath.Join(st.root, "tmp", "x")+" && cat "+filepath.Join(st.root, "tmp", "x"), nil); exit != 0 || strings.TrimSpace(string(out)) != "ok" {
+		t.Errorf("a command within the target's directory: exit %d %q, want it run", exit, out)
+	}
+	probe := ProbeScript([]string{"192.0.2.1:3629"}, "0.0.0", true)
+	for _, c := range []struct{ cmd, stdin string }{
+		{"bash -s", probe},
+		{"sudo -k -S -p '' bash -c 'bash'", "pw\n" + probe},
+		{"bash -c " + sshexec.ShellQuote(probe), ""},
+	} {
+		if out, _, exit := st.exec(c.cmd, []byte(c.stdin)); exit != 0 || string(out) != probeText(st.facts) {
+			t.Errorf("probe as %q: exit %d, want the facts, not a run", c.cmd, exit)
+		}
 	}
 }
