@@ -1025,6 +1025,17 @@ test.describe('run progress', () => {
     await expect(runPane(page)).toContainText('No such run. It may have been cleared from the history.', { timeout: 10_000 })
   })
 
+  test('a run this manager had not caught up with is read again for its step names', async ({ page }) => {
+    // Read a moment too early (a run just started on the leader): the stream
+    // finds it, and the run is read once more for the names of its steps.
+    await mock(page, {
+      replies: { [`GET ${RUN_PATH}`]: [fail(404, 'TASK_RUN_NOT_FOUND', 'No such task run'), ok(runDetail(liveRun(), FIRST_BATCH))] },
+      streams: { [RUN_ID]: [UNDER_WAY] },
+    })
+    await page.goto(`/cluster/tasks/runs/${RUN_ID}`)
+    await expect(matrix(page).getByRole('columnheader')).toHaveText(['Node', 'Update the web stack', 'Restart nginx'])
+  })
+
   test.describe('Korean', () => {
     test.use({ locale: 'ko-KR' })
 
