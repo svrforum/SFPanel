@@ -833,6 +833,7 @@ data: {"type":"run","run":{"id":"20261101-091500-3fa2c1","status":"succeeded","e
 data: {"type":"end"}
 ```
 
+- `snapshot`의 `nodes`에는 실행의 모든 노드가 있다. 차례가 오지 않은 노드는 아직 기록이 없어 `{"status":"pending"}`으로 채워 보내고, 그 노드가 시작하면 `node` 이벤트가 온다.
 - 받은 매니저가 자기 복제 상태를 1초마다 읽어, 바뀐 노드 기록마다 `node`(노드 ID순), 그다음 머리가 바뀌었으면 `run`을 보낸다. 레코드 모양은 REST 스펙의 `GET /cluster/task-runs/:id`와 같다.
 - 실행이 끝나 있으면 `snapshot` 바로 뒤에 `end`가 온다. 기록이 정리되어 사라져도 `end`로 끝난다. 없는 실행은 스트림을 열기 전에 `404 TASK_RUN_NOT_FOUND`(JSON).
 - 리더로 전달하지 않으므로 리더가 바뀌어도 끊기지 않는다. 받은 매니저가 재시작해 끊기면 다른 매니저(또는 같은 매니저)에서 다시 열어 `snapshot`부터 받는다. 패널이 종료될 때는 이 스트림을 끊는다(`isStreamingEndpoint`).

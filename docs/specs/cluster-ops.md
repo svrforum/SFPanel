@@ -1291,7 +1291,11 @@ steps:
   whole command line, as typed) and `builtin/reboot` (only when required).
 - **Limits:** 64 KiB per document, 50 steps per task, 200 targets per run
   (counted before any is left out), a command's time limit 10 minutes unless
-  the step says otherwise, a reboot's wait 10 minutes.
+  the step says otherwise, a reboot's wait 10 minutes. An input value is at
+  most 16 KiB and a run's values 64 KiB together (`400 TASK_TOO_LARGE`,
+  `details.input` the input, or `*` for the total): they are kept in the run
+  record every manager holds. A request body to the task routes is at most
+  1 MiB (`413`).
 
 ### The preview and the start
 
@@ -1301,14 +1305,29 @@ verdict on each step, filled in for that node. A node answers from the same
 guards its pages use — a protected service unit, a protected file path, a
 forbidden compose document, a Proxmox reboot — with the refusal's code, or
 says a step needs confirming (a service the Services page asks about, a risky
-compose document). The preview asks up to 16 nodes at once, 10 seconds each;
-a node that does not answer is shown with why.
+compose document). The preview asks up to 16 nodes at once, 10 seconds each,
+under the name of the operator who asked; a node that does not answer is
+shown with why. It also names the managers a start would wait for
+(`managers_not_ready`, § Mixed versions), and carries a `plan_id`: the
+SHA-256 of the document's revision, the task's own inputs as given and the
+targets as given or the task's own.
 
 `POST /api/v1/cluster/task-runs` starts the run and answers `202` with its ID.
 It does not ask the nodes again, so a step the preview showed refused fails
 on that node when its turn comes (a Proxmox reboot is skipped instead, below).
 A step that needs confirming runs with the confirmation only when the
-operator listed its number (0-based) in `confirmed`.
+operator listed its number (0-based) in `confirmed`. A confirmation is a yes
+to what the preview showed, so a start with `confirmed` must send the
+preview's `plan_id` back (`400 INVALID_REQUEST` without it), and the leader
+refuses it when the task, the inputs or the targets have changed since
+(`409 TASK_PLAN_CHANGED`: preview again) — else a step number confirmed for
+one step could unlock another one, or the same step filled in with another
+unit. A start with no confirmation needs no `plan_id`.
+
+The run is recorded in one write, its head. A node's own record is written
+when its turn comes; until then the API and the stream show it `pending`.
+A write that fails leaves nothing recorded, so the `503` that asks the
+operator to retry is true.
 
 A target is left out, with the reason in the plan, when it is offline by the
 leader's live heartbeats (`offline`), reports no `tasks-v1`
@@ -1377,6 +1396,13 @@ back: the new leader takes the run over (§ A new leader takes over).
   quorum`). Two voters therefore never reboot each other through a task. The
   only manager voter is rebooted: it has no other manager to keep a quorum
   for, and the run goes on once it is back.
+- **One run at a time reboots managers.** The check above sees the managers
+  online, and a manager whose reboot another run has just scheduled is still
+  online for a few seconds; two runs rebooting different managers could each
+  pass it. So a run whose document has a reboot step and whose nodes include
+  a manager is refused while another such run is under way
+  (`409 TASK_REBOOT_BUSY`, `details.run_id`). Runs that reboot agents only
+  are not held back.
 - **A Proxmox VE host refuses reboot steps** (`TASK_REBOOT_PVE_HOST`): the
   panel does not know the guests running on it, which may be this cluster's
   own nodes. The preview shows the refusal, and the run records the step
@@ -1388,14 +1414,30 @@ The runs are in Raft, so whichever manager leads takes them over. Every five
 seconds the leader, once its state holds every committed entry, starts a
 runner for each run in progress that has none; a manager that no longer leads
 stops its runners, leaving each run as recorded. A run left `handing_over`
-goes back to `running`.
+goes back to `running`. The API's writes wait for the same thing: until a
+new leader has caught up, the task and task-run writes and the preview
+answer `503 INTERNAL_ERROR` (`The cluster leader is catching up: retry in a
+few seconds`) and write nothing, as a stop judged from a state that misses
+the run's end would undo it.
 
 No job is started twice. Each step's job ID (`<run-id>-<step>`) is recorded
 before the job is posted, and a node keeps one job per ID: posted again, it
-answers with the job it has. A new leader posts a step recorded `starting`
-again with that ID — the post may never have arrived — and only asks about a
-step recorded `running`. A job the node no longer has is `unknown`, and is
-never started again; rerun the node to run it.
+answers with the job it has. For a step recorded `starting` a new leader asks
+the node for that ID first: a job the node has is followed, never posted
+again; one it has no record of means the post never arrived, and the step is
+a new one again — a stop recorded since applies to it, and so does the
+quorum check of a manager's reboot — posted with the recorded ID; a node that
+does not answer gets the post again with that ID. A step recorded `running`
+is only asked about. A job the node no longer has is `unknown`, and is never
+started again; rerun the node to run it.
+
+A leader records a step's end and its node's end in two writes, so a leader
+lost between them leaves the node `running` with the step ended. The leader
+that takes over closes such a node from its own record before running
+anything: the first step recorded `failed` (without `continue_on_error`)
+ends it `failed`, `unknown` ends it `unknown`, `cancelled` ends it `stopped`;
+a node whose every step has ended otherwise ends `succeeded`, whatever its
+health, as no step is left to post.
 
 A job does not depend on the leader. Command and package jobs run in
 transient units that a panel restart on the node does not stop either: the
@@ -1406,15 +1448,21 @@ records as unknown.
 ### Running failed nodes again
 
 `POST …/task-runs/<id>/rerun` starts a new run of the same document snapshot
-and inputs — not the task as it is now, which may have changed or been
-deleted — over the nodes chosen, in the old run's waves. `?only=failed` takes
+inputs and confirmations — not the task as it is now, which may have changed
+or been deleted — over the nodes chosen. The nodes are ordered anew over the
+cluster as it is now, as for a new run: agents in batches, then the other
+managers one at a time, then the leader, so a leadership that moved puts the
+new leader last and a node promoted since gets a wave of its own; a node
+offline, outdated, out of reach or held by another run is left out, and with
+none left the rerun is `400 TASK_NO_TARGETS` (`409 TASK_TARGET_BUSY` when one
+is held). `?only=failed` takes
 every node that did not succeed (failed, unknown, skipped, stopped, never
 started); without it the body's `{"nodes": […]}` names them. Each node starts
 at its first step that did not succeed, and the steps before it read
 `succeeded in run <id>`; a node whose every step succeeded starts from the
 first. The run being rerun must have ended (`409 TASK_RUN_ACTIVE`). The new
-run passes the same start checks as any; a chosen node offline when its turn
-comes fails.
+run passes the same start checks as any, `TASK_REBOOT_BUSY` included; a
+chosen node that goes offline before its turn comes fails.
 
 ### What a run waits for, and what waits for a run
 
@@ -1436,6 +1484,8 @@ together cannot both pass:
   run under way is left out of the next run's plan (`busy`); a start that
   would leave no node, or that loses a race for a node to a run recorded
   first, is `409 TASK_TARGET_BUSY` (`details.node_id`, `run_id`).
+- Two runs that both reboot a manager do not run at once
+  (`409 TASK_REBOOT_BUSY`, § Quorum and Proxmox VE).
 
 ### Mixed versions
 
@@ -1459,8 +1509,9 @@ of the operator who started it:
   the one holding the start row.
 
 Each node's audit log has the job starts (`POST /api/v1/task-jobs`) under the
-same operator name; the preview's checks and a forced stop's cancels reach
-the node signed but without a name, and are recorded as `admin`. Inputs are
+same operator name, the preview's checks under the operator who asked for
+the preview, and a forced stop's cancels under the operator who stopped the
+run or forced the stop (the run's `stopped_by`, else who started it). Inputs are
 never written to an audit row or the panel's log. They are kept in the run's
 record, which every manager holds and the API returns, and in the job specs
 on each node: do not pass secrets as inputs.
@@ -1471,8 +1522,8 @@ on each node: do not pass secrets as inputs.
 |------|-------|------|
 | Task definitions | Raft FSM `task/<id>` (JSON) | until deleted |
 | The document a run started from | `taskrev/<sha256 of the YAML>` | while a kept run uses it — one copy however many runs use it |
-| A run's head | `taskrun/<run-id>` (JSON) | the 200 newest runs, and every run in progress |
-| One node's part of a run | `taskrun/<run-id>/n/<node-id>` (JSON) | with its run |
+| A run's head | `taskrun/<run-id>` (JSON), written once at the start | the 200 newest runs, and every run in progress |
+| One node's part of a run | `taskrun/<run-id>/n/<node-id>` (JSON), written from the node's turn on; none before (read as `pending`) | with its run |
 | A node's jobs | that node's SQLite, table `task_jobs` | the node's 200 newest jobs, none older than 30 days; a job running or waiting on its reboot is kept |
 | A job's output | that node's `/var/log/sfpanel/task-jobs/<job-id>.log` (directory `0700`, file `0600`) | with its job |
 
