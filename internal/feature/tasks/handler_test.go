@@ -985,3 +985,50 @@ func TestARunIsRecordedInOneWrite(t *testing.T) {
 		}
 	}
 }
+
+// A new leader's FSM may not yet hold what the previous one committed: a
+// write it judged from that state could undo a run's end or miss a run that
+// holds a node. Every write waits for the leader to catch up, and writes
+// nothing meanwhile.
+func TestWritesWaitForTheLeaderToCatchUp(t *testing.T) {
+	writes := []struct{ method, path string }{
+		{"POST", "/api/v1/cluster/tasks"},
+		{"PUT", "/api/v1/cluster/tasks/t1"},
+		{"DELETE", "/api/v1/cluster/tasks/t1"},
+		{"POST", "/api/v1/cluster/task-runs/plan"},
+		{"POST", "/api/v1/cluster/task-runs"},
+		{"POST", "/api/v1/cluster/task-runs/" + otherRun + "/stop"},
+		{"POST", "/api/v1/cluster/task-runs/" + srcRun + "/rerun"},
+	}
+	for _, w := range writes {
+		t.Run(w.method+" "+w.path, func(t *testing.T) {
+			f := newAPI(t)
+			// Each write would be answered without the wait: t1 runs on the
+			// agents, a3 is free, srcRun has ended and otherRun is under way.
+			f.store("t1", "name: other\ntargets: { kinds: [agent] }\nsteps:\n  - command: { run: \"true\" }\n")
+			f.runOf(srcRun, cluster.RunFailed, nil, "a1")
+			f.runOf(otherRun, cluster.RunRunning, nil, "a2")
+			f.env.behind = true
+			a := f.do(w.method, w.path, map[string]any{"yaml": greetDoc, "task_id": "t1", "nodes": []string{"a1"}})
+			wantRefusal(t, w.method+" "+w.path, a, http.StatusServiceUnavailable, response.ErrInternalError, nil)
+			if a.Error != nil && a.Error.Message != "The cluster leader is catching up: retry in a few seconds" {
+				t.Errorf("message = %q, want the catching-up one", a.Error.Message)
+			}
+			if len(f.forwarded) != 0 {
+				t.Errorf("forwarded %v: this node is the leader", f.forwarded)
+			}
+			if runs, _ := f.env.store.ListRuns(); len(runs) != 2 {
+				t.Errorf("runs = %+v, want the two recorded before", runs)
+			}
+			if h := f.env.store.head(otherRun); h.Status != cluster.RunRunning || h.Reason != "" {
+				t.Errorf("head = %s %q, want running as it was", h.Status, h.Reason)
+			}
+			if task, err := f.env.store.GetTask("t1"); err != nil || task.Name != "other" {
+				t.Errorf("t1 = %+v (%v), want it as it was", task, err)
+			}
+			if tasks, _ := f.env.store.ListTasks(); len(tasks) != 1 {
+				t.Errorf("tasks = %+v, want t1 alone", tasks)
+			}
+		})
+	}
+}

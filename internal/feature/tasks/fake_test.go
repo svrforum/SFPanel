@@ -213,9 +213,12 @@ type fakeEnv struct {
 	outdated    map[string]bool
 	unreachable map[string]bool
 	notLeader   bool
-	stopped     chan struct{}
-	store       *fakeStore
-	now         time.Time
+	// behind is a leader whose FSM has not yet applied every entry the
+	// previous leader committed.
+	behind  bool
+	stopped chan struct{}
+	store   *fakeStore
+	now     time.Time
 
 	checks   map[string][]tasks.CheckVerdict
 	checkErr map[string]error
@@ -273,7 +276,7 @@ func agent(id, name string) cluster.Node {
 }
 
 func (e *fakeEnv) IsLeader() bool  { return !e.notLeader }
-func (e *fakeEnv) CaughtUp() bool  { return !e.notLeader }
+func (e *fakeEnv) CaughtUp() bool  { return !e.notLeader && !e.behind }
 func (e *fakeEnv) LocalID() string { return e.local }
 
 // Done is the manager's lifetime: a test that supervises closes stopped.

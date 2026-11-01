@@ -258,13 +258,19 @@ func (h *Handler) apiEnv(c echo.Context) (runEnv, error) {
 }
 
 // forward sends a write on to the leader when this manager is not it, as
-// the cluster handler's label and token writes do. handled says the request
-// was answered.
+// the cluster handler's label and token writes do. On the leader it answers
+// 503 until the leader has caught up (CaughtUp, as the supervisor waits for):
+// a new leader's FSM may not yet hold what the previous one committed, and a
+// write judged from it could undo a run's end or miss a run that holds a
+// node. handled says the request was answered.
 func (h *Handler) forward(c echo.Context, env runEnv) (handled bool, err error) {
-	if env.IsLeader() {
-		return false, nil
+	if !env.IsLeader() {
+		return h.toLeader(c)
 	}
-	return h.toLeader(c)
+	if !env.CaughtUp() {
+		return true, response.Fail(c, http.StatusServiceUnavailable, response.ErrInternalError, "The cluster leader is catching up: retry in a few seconds")
+	}
+	return false, nil
 }
 
 func operator(c echo.Context) string {
