@@ -12,6 +12,7 @@ import (
 	"slices"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -392,8 +393,17 @@ func TestTheTaskRoutesAnswerWithTheirStatusAndCode(t *testing.T) {
 			f.runOf(otherRun, cluster.RunRunning, nil, "a1")
 		}, method: "POST", path: "/api/v1/cluster/task-runs/" + srcRun + "/rerun?only=failed", status: 409, code: response.ErrTaskTargetBusy,
 			details: map[string]string{"node_id": "a1", "run_id": otherRun}},
-		{name: "the output of a step no job ran", setup: func(f *apiFixture) { f.runOf(srcRun, cluster.RunRunning, nil, "a1") }, method: "GET",
-			path: "/api/v1/cluster/task-runs/" + srcRun + "/nodes/a1/steps/0/output", status: 404, code: response.ErrTaskJobNotFound},
+		{name: "the output of a step no job ran", setup: func(f *apiFixture) {
+			f.runOf(srcRun, cluster.RunRunning, map[string]cluster.RunNodeRecord{"a1": {Status: cluster.RunNodeRunning, Steps: []cluster.RunStepRecord{{Status: cluster.RunStepPending}}}}, "a1")
+		}, method: "GET",
+			path: "/api/v1/cluster/task-runs/" + srcRun + "/nodes/a1/steps/0/output", status: 404, code: response.ErrTaskJobNotFound,
+			check: func(t *testing.T, f *apiFixture, a answer) {
+				// This manager's answer, not a node's: no node is asked for a job
+				// the run never recorded.
+				if a.Error != nil && a.Error.Message != "No job has run this step on this node" {
+					t.Errorf("message = %q, want this manager's", a.Error.Message)
+				}
+			}},
 		{name: "the output of a step of an unknown run", method: "GET", path: "/api/v1/cluster/task-runs/" + srcRun + "/nodes/a1/steps/0/output", status: 404, code: response.ErrTaskRunNotFound},
 	}
 	for _, tc := range cases {
@@ -645,18 +655,22 @@ func TestAStopBetweenTheEnginesReadAndWriteIsKept(t *testing.T) {
 		t.Run(name, func(t *testing.T) {
 			f := newAPI(t)
 			f.runOf(srcRun, cluster.RunHandingOver, nil, "a1")
-			var once sync.Once
+			// The first read is the engine's; the stop's own read must not wait
+			// on this hook (a sync.Once would make it), or it would be held
+			// back by the test rather than by the lock.
+			var hooked atomic.Bool
 			stopped := make(chan answer, 1)
 			f.env.store.afterGetRun = func(string) {
-				once.Do(func() {
-					go func() { stopped <- f.do("POST", "/api/v1/cluster/task-runs/"+srcRun+"/stop", nil) }()
-					// Give the stop the time to land, as it would without the lock.
-					select {
-					case a := <-stopped:
-						stopped <- a
-					case <-time.After(50 * time.Millisecond):
-					}
-				})
+				if !hooked.CompareAndSwap(false, true) {
+					return
+				}
+				go func() { stopped <- f.do("POST", "/api/v1/cluster/task-runs/"+srcRun+"/stop", nil) }()
+				// Give the stop the time to land, as it would without the lock.
+				select {
+				case a := <-stopped:
+					stopped <- a
+				case <-time.After(50 * time.Millisecond):
+				}
 			}
 			if err := write(f); err != nil {
 				t.Fatal(err)
