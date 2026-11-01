@@ -23,6 +23,10 @@ import (
 // maxFileContent is the file manager's limit on what one save writes.
 const maxFileContent = 10 << 20
 
+// mkdirAll makes a new file's directories; a variable so a test can stand in
+// for a link planted while they are made.
+var mkdirAll = os.MkdirAll
+
 // FileRunner runs file steps.
 type FileRunner struct{}
 
@@ -116,8 +120,13 @@ func writeFileStep(step *tasks.FileStep) Result {
 			}
 		}
 	case errors.Is(err, os.ErrNotExist):
-		if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		if err := mkdirAll(filepath.Dir(path), 0o755); err != nil {
 			return fileFailed(err, false)
+		}
+		// MkdirAll walks links already on disk: judge the path again now
+		// that its directories exist, before anything is written into them.
+		if err := files.ValidatePathForWrite(step.Path); err != nil {
+			return refusedResult(response.ErrInvalidPath, err.Error())
 		}
 	default:
 		return fileFailed(err, false)

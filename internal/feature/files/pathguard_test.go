@@ -8,6 +8,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/labstack/echo/v4"
@@ -298,5 +299,72 @@ func TestUploadHandlerAllowsOrdinaryDestination(t *testing.T) {
 	}
 	if string(got) != "hello" {
 		t.Errorf("content = %q, want %q", got, "hello")
+	}
+}
+
+// A symlink in a parent directory has to be resolved too, for a file that
+// does not exist yet. EvalSymlinks of the whole path fails when the leaf is
+// missing, and Readlink of the leaf fails because the leaf is no link, so the
+// first versions of this check saw only the literal path: a write to
+// <dir>/link/new, with link pointing at /etc/sudoers.d, was allowed, and
+// MkdirAll and the write then followed the link into the protected tree.
+// Nothing is written here; the test only validates paths.
+func TestWriteRefusesASymlinkedParentOfAPathNotCreatedYet(t *testing.T) {
+	const reason = "this path holds panel credentials"
+	tmp := t.TempDir()
+	for _, target := range []string{"/etc/sfpanel", "/etc/sudoers.d", "/root/.ssh"} {
+		link := filepath.Join(tmp, filepath.Base(target)+".link")
+		if err := os.Symlink(target, link); err != nil {
+			t.Fatalf("symlink: %v", err)
+		}
+		for _, p := range []string{
+			filepath.Join(link, "new-leaf"),
+			filepath.Join(link, "new-dir", "new-leaf"),
+		} {
+			err := validatePathForWrite(p)
+			if err == nil || !strings.Contains(err.Error(), reason) {
+				t.Errorf("validatePathForWrite(%s) with %s -> %s = %v, want it refused as %q", p, link, target, err, reason)
+			}
+		}
+	}
+
+	// A link to the protected directory's parent, and a chain of links, reach
+	// the same place.
+	etc := filepath.Join(tmp, "etc.link")
+	if err := os.Symlink("/etc", etc); err != nil {
+		t.Fatal(err)
+	}
+	hop := filepath.Join(tmp, "hop.link")
+	if err := os.Symlink(filepath.Join(tmp, "sudoers.d.link"), hop); err != nil {
+		t.Fatal(err)
+	}
+	for _, p := range []string{
+		filepath.Join(etc, "sfpanel", "new-leaf"),
+		filepath.Join(etc, "sudoers.d", "new-dir", "new-leaf"),
+		filepath.Join(hop, "new-leaf"),
+	} {
+		err := validatePathForWrite(p)
+		if err == nil || !strings.Contains(err.Error(), reason) {
+			t.Errorf("validatePathForWrite(%s) = %v, want it refused as %q", p, err, reason)
+		}
+	}
+}
+
+// The same resolution must leave a symlinked parent that leads somewhere
+// ordinary alone.
+func TestWriteAllowsANewPathUnderABenignSymlinkedParent(t *testing.T) {
+	tmp := t.TempDir()
+	real := filepath.Join(tmp, "real")
+	if err := os.MkdirAll(real, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	link := filepath.Join(tmp, "link")
+	if err := os.Symlink(real, link); err != nil {
+		t.Fatal(err)
+	}
+	for _, p := range []string{filepath.Join(link, "new"), filepath.Join(link, "a", "b", "new")} {
+		if err := validatePathForWrite(p); err != nil {
+			t.Errorf("validatePathForWrite(%s) = %v, want it allowed", p, err)
+		}
 	}
 }

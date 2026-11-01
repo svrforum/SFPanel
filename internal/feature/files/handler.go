@@ -151,12 +151,72 @@ func validatePathForWrite(p string) error {
 		}
 		candidates = append(candidates, filepath.Clean(target))
 	}
+	// Neither of those sees a symlink in a parent of a path not created yet:
+	// EvalSymlinks fails on the missing leaf and the leaf is no link, so
+	// <dir>/link/new with link -> /etc/sudoers.d passed as its literal self,
+	// and MkdirAll and the write then followed the link. The path the kernel
+	// would reach — every link on the way followed, the missing rest joined
+	// on as written — is checked as well.
+	reached, err := resolveForWrite(p)
+	if err != nil {
+		return err
+	}
+	candidates = append(candidates, reached)
 	for _, c := range candidates {
 		if isWriteProtectedPath(c) {
 			return fmt.Errorf("this path holds panel credentials and cannot be written through the file API")
 		}
 	}
 	return nil
+}
+
+// maxWriteLinkHops bounds the links resolveForWrite follows, as the kernel's
+// ELOOP limit does.
+const maxWriteLinkHops = 40
+
+// resolveForWrite resolves p the way the kernel does when a write creates it:
+// component by component, following every symlink on the way — one in a
+// parent, one whose target does not exist yet, a chain of them — and joining
+// the part that does not exist (or cannot be looked at) on as written. It is
+// EvalSymlinks of the deepest existing ancestor joined with the rest, done by
+// hand so a dangling or unreadable link in the middle is followed too rather
+// than ending the resolution.
+func resolveForWrite(p string) (string, error) {
+	rest := strings.Split(filepath.Clean(p), "/")
+	cur := "/"
+	hops := 0
+	for len(rest) > 0 {
+		name := rest[0]
+		rest = rest[1:]
+		switch name {
+		case "", ".":
+			continue
+		case "..":
+			cur = filepath.Dir(cur)
+			continue
+		}
+		next := filepath.Join(cur, name)
+		fi, err := os.Lstat(next)
+		if err != nil {
+			return filepath.Join(append([]string{next}, rest...)...), nil
+		}
+		if fi.Mode()&os.ModeSymlink == 0 {
+			cur = next
+			continue
+		}
+		if hops++; hops > maxWriteLinkHops {
+			return "", fmt.Errorf("too many levels of symbolic links")
+		}
+		target, err := os.Readlink(next)
+		if err != nil {
+			return "", fmt.Errorf("read the symbolic link %s: %w", next, err)
+		}
+		if filepath.IsAbs(target) {
+			cur = "/"
+		}
+		rest = append(strings.Split(target, "/"), rest...)
+	}
+	return cur, nil
 }
 
 // ValidatePathForWrite is validatePathForWrite for a task job's file step:

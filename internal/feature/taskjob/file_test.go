@@ -119,3 +119,30 @@ func TestAFileStepWritesOnlyWhatDiffers(t *testing.T) {
 		t.Errorf("the directory holds %s, want app.conf alone (no .bak, no temporary file)", strings.Join(names, ", "))
 	}
 }
+
+// A file step judges its path again once its directories exist. MkdirAll
+// walks links already on disk, so a link that appears in the chain between
+// the first check and the write — here mkdirAll itself plants one, as a
+// race would — must still stop the write. The link points at a directory
+// that does not exist, so nothing could be written even were the check gone.
+func TestAFileStepChecksItsPathAgainAfterMakingItsDirectories(t *testing.T) {
+	dir := t.TempDir()
+	parent := filepath.Join(dir, "made")
+	path := filepath.Join(parent, "app.conf")
+	target := "/etc/sfpanel/task-job-test-missing-dir"
+	orig := mkdirAll
+	t.Cleanup(func() { mkdirAll = orig })
+	mkdirAll = func(p string, _ os.FileMode) error {
+		if p != parent {
+			t.Errorf("mkdirAll(%s), want %s", p, parent)
+		}
+		return os.Symlink(target, p)
+	}
+
+	k := newKindNode(t, exec.NewMockCommander())
+	r := k.run(t, fileSpec(0, tasks.FileStep{Path: path, Content: "x"}))
+	want := response.ErrInvalidPath + ": " + files.ValidatePathForWrite(path).Error()
+	if r.status != tasks.JobFailed || r.summary != want || r.changed {
+		t.Errorf("job ended %s changed=%v %q, want failed %q", r.status, r.changed, r.summary, want)
+	}
+}
