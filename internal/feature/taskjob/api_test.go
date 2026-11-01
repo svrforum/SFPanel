@@ -91,7 +91,6 @@ type testNode struct {
 // testJWTSecret signs the browser sessions the tests send as unsigned calls.
 const testJWTSecret = "task-job-test-jwt-secret"
 
-
 func newTestNode(t *testing.T) *testNode {
 	t.Helper()
 	dir := t.TempDir()
