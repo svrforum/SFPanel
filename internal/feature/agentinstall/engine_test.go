@@ -837,7 +837,8 @@ func TestTheWaitsAreTheDesigns(t *testing.T) {
 	got := New(newFakeEnv()).t
 	want := timings{poll: 2 * time.Second, installLimit: 30 * time.Minute, verifyEvery: 3 * time.Second,
 		verifyLimit: 3 * time.Minute, checkWait: 10 * time.Minute, answerWait: 30 * time.Minute,
-		keep: 10 * time.Minute, sweep: 5 * time.Second, cleanup: time.Minute, call: 10 * time.Second, tmpBase: "/tmp"}
+		keep: 10 * time.Minute, sweep: 5 * time.Second, cleanup: time.Minute, call: 10 * time.Second,
+		retry: time.Second, retryMax: 30 * time.Second, tmpBase: "/tmp"}
 	if got != want {
 		t.Fatalf("timings = %+v, want %+v", got, want)
 	}

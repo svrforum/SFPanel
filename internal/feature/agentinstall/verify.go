@@ -183,9 +183,8 @@ func (e *Engine) Recheck(runID, key string) error {
 	r.verifying = true
 	s.running++
 	s.head.Status, s.head.EndedAt = cluster.RunRunning, time.Time{}
-	head := s.head
 	s.mu.Unlock()
-	s.putHead(head)
+	s.putHead()
 	r.update(func(rec *cluster.RunNodeRecord) {
 		rec.Status, rec.Reason, rec.ReasonDetails = cluster.RunNodeRunning, "", nil
 	})
@@ -234,10 +233,9 @@ func (e *Engine) Revert(runID, key, by string) error {
 	r.reverted = true
 	held := s.credentialsLocked()
 	id := r.rec.NodeID
-	head := s.head
 	s.mu.Unlock()
 	if !held {
-		s.putHead(head)
+		s.putHead()
 	}
 
 	if err := s.env.RemoveNode(id); err != nil && !errors.Is(err, cluster.ErrNodeNotFound) {

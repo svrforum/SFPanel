@@ -726,6 +726,7 @@ func fastTimings() timings {
 		checkWait: 2 * time.Second, answerWait: 10 * time.Second,
 		keep: 10 * time.Minute, sweep: 2 * time.Millisecond,
 		cleanup: 2 * time.Second, call: time.Second,
+		retry: 2 * time.Millisecond, retryMax: 20 * time.Millisecond,
 		tmpBase: "/tmp",
 	}
 }

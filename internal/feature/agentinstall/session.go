@@ -56,6 +56,9 @@ type session struct {
 	gone     chan struct{}
 	goneOnce sync.Once
 
+	// hmu orders the writes of the head: each writes the head as it stands
+	// when it takes hmu, so a later state is never overwritten by an earlier.
+	hmu sync.Mutex
 	// mu guards everything below and every row's rec.
 	mu      sync.Mutex
 	auth    sshexec.Auth
@@ -69,6 +72,9 @@ type session struct {
 	// waits for CredentialsUntil.
 	credsGone bool
 	sweeping  bool
+	// endUnwritten says the last write of the ended head failed: the record
+	// may still show the install running.
+	endUnwritten bool
 	// ips and names are the addresses and node names rows have claimed, so
 	// two servers of one install never register as one.
 	ips, names map[string]string
@@ -170,9 +176,69 @@ func (s *session) launch() {
 }
 
 // putHead and putRow write the record; a leader that lost its role can
-// write nothing more, so the session stops.
-func (s *session) putHead(head cluster.RunRecord) {
-	s.written(s.env.PutRun(head))
+// write nothing more, so the session stops. putHead writes the head as it
+// stands.
+func (s *session) putHead() {
+	s.written(s.writeHead())
+}
+
+// writeHead writes the head as it stands, and notes whether an ended head
+// failed to be written.
+func (s *session) writeHead() error {
+	s.hmu.Lock()
+	defer s.hmu.Unlock()
+	s.mu.Lock()
+	head := s.head
+	s.mu.Unlock()
+	err := s.env.PutRun(head)
+	s.mu.Lock()
+	s.endUnwritten = err != nil && !head.Active()
+	s.mu.Unlock()
+	return err
+}
+
+// putEnd writes the install's ended head. A write that fails for any reason
+// but a lost leadership is tried again, after retry and then twice as long
+// each time up to retryMax, until it is written or the session is dropped:
+// a run the record shows running while this idle engine owns it is skipped
+// by the supervisor and refuses every other run. A lost leadership leaves
+// it to the next leader's supervisor, which ends it. Each try writes the
+// head as it then stands; once a recheck has made the run active again, or
+// another write wrote the end, there is nothing left to retry.
+func (s *session) putEnd() {
+	wait := s.e.t.retry
+	failing := false
+	for {
+		err := s.writeHead()
+		switch {
+		case err == nil:
+			if failing {
+				logger().Info("agent install's end written", "run", s.id)
+			}
+			return
+		case errors.Is(err, cluster.ErrNotLeader):
+			s.written(err)
+			return
+		}
+		if !failing {
+			logger().Warn("agent install's end not written: writing it again until it is", "run", s.id, "error", err)
+			failing = true
+		}
+		timer := time.NewTimer(wait)
+		select {
+		case <-s.gone:
+			timer.Stop()
+			return
+		case <-timer.C:
+		}
+		wait = min(2*wait, s.e.t.retryMax)
+		s.mu.Lock()
+		done := !s.endUnwritten || s.head.Active()
+		s.mu.Unlock()
+		if done {
+			return
+		}
+	}
 }
 
 func (s *session) putRow(key string, rec cluster.RunNodeRecord) {
@@ -203,9 +269,9 @@ func (s *session) rowDone() {
 }
 
 // finish ends the install's head: failed when a row failed, stopped when
-// the operator stopped it, succeeded otherwise. The credentials go at once
-// unless a registered row failed, for which they stay keep longer, for a
-// recheck or a revert.
+// the operator stopped it, succeeded otherwise, and writes it until it is
+// written (putEnd). The credentials go at once unless a registered row
+// failed, for which they stay keep longer, for a recheck or a revert.
 func (s *session) finish() {
 	s.mu.Lock()
 	failed, keep := false, false
@@ -240,7 +306,7 @@ func (s *session) finish() {
 	}
 	head := s.head
 	s.mu.Unlock()
-	s.putHead(head)
+	s.putEnd()
 	s.env.Audit(head.StartedBy, "TASK", auditPath(s.id)+"#end:"+head.Status, 200)
 }
 
@@ -259,9 +325,8 @@ func (s *session) dropUnused() {
 		}
 	}
 	s.wipeLocked()
-	head := s.head
 	s.mu.Unlock()
-	s.putHead(head)
+	s.putHead()
 }
 
 // sweep drops the credentials once CredentialsUntil passes by the leader's
@@ -284,9 +349,8 @@ func (s *session) sweep() {
 			s.mu.Unlock()
 			continue
 		}
-		head := s.head
 		s.mu.Unlock()
-		s.putHead(head)
+		s.putHead()
 		return
 	}
 }
@@ -324,26 +388,24 @@ func (s *session) sudoPassword() []byte {
 
 // stop is the operator's stop: rows under way end stopped and the
 // credentials go when they have; an install that has ended only drops what
-// it kept.
+// it kept, and writes its end again if that write failed.
 func (s *session) stop(by string) {
 	s.mu.Lock()
 	if s.running == 0 {
-		had := !s.credsGone
+		had, unwritten := !s.credsGone, s.endUnwritten
 		s.wipeLocked()
-		head := s.head
 		s.mu.Unlock()
 		s.cancel()
-		if had {
-			s.putHead(head)
+		if had || unwritten {
+			s.putHead()
 		}
 		return
 	}
 	s.stopped = true
 	s.head.Status = cluster.RunStopping
 	s.head.StoppedBy = by
-	head := s.head
 	s.mu.Unlock()
-	s.putHead(head)
+	s.putHead()
 	s.cancel()
 }
 
@@ -355,10 +417,10 @@ func (s *session) drop() {
 	s.mu.Lock()
 	kept := !s.head.CredentialsUntil.IsZero()
 	s.wipeLocked()
-	head := s.head
+	active := s.head.Active()
 	s.mu.Unlock()
-	if kept && !head.Active() {
-		s.putHead(head)
+	if kept && !active {
+		s.putHead()
 	}
 }
 

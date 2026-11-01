@@ -170,6 +170,9 @@ type timings struct {
 	keep, sweep time.Duration
 	// cleanup bounds the clean-up at a row's end.
 	cleanup time.Duration
+	// retry is the first wait before an install's ending head write that
+	// failed is tried again; each wait doubles, up to retryMax.
+	retry, retryMax time.Duration
 	// call bounds one online check's request.
 	call time.Duration
 	// tmpBase is where the per-row directory is made on the target.
@@ -183,6 +186,7 @@ func defaultTimings() timings {
 		checkWait: 10 * time.Minute, answerWait: 30 * time.Minute,
 		keep: 10 * time.Minute, sweep: 5 * time.Second,
 		cleanup: time.Minute, call: 10 * time.Second,
+		retry: time.Second, retryMax: 30 * time.Second,
 		tmpBase: "/tmp",
 	}
 }

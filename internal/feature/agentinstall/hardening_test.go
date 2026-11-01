@@ -4,7 +4,9 @@ import (
 	"context"
 	"errors"
 	"strings"
+	"sync"
 	"testing"
+	"time"
 	"unicode/utf8"
 
 	"github.com/svrforum/SFPanel/internal/api/response"
@@ -77,4 +79,77 @@ func TestReasonDetailsAreCut(t *testing.T) {
 	if len(like) == 0 || len(like) > maxDetail || !utf8.ValidString(like) || !strings.HasPrefix(like, "데비안") {
 		t.Fatalf("os_like is %d bytes (valid UTF-8 %v), want 1 to %d cut on a rune", len(like), utf8.ValidString(like), maxDetail)
 	}
+}
+
+// endFailEnv fails the install's ending head writes, failures of them, with
+// raft.Apply's enqueue timeout: an error other than a lost leadership.
+type endFailEnv struct {
+	*fakeEnv
+	mu       sync.Mutex
+	failures int
+	failed   int
+}
+
+func (f *endFailEnv) PutRun(r cluster.RunRecord) error {
+	f.mu.Lock()
+	if !r.Active() && f.failed < f.failures {
+		f.failed++
+		f.mu.Unlock()
+		return errors.New("timed out enqueuing operation")
+	}
+	f.mu.Unlock()
+	return f.fakeEnv.PutRun(r)
+}
+
+// An install's ending head write that fails is written again, so the run
+// does not stay running in the record while the engine, idle, owns it: the
+// supervisor would skip it, and every other run would be refused.
+func TestTheEndingHeadWriteIsWrittenAgain(t *testing.T) {
+	t.Run("by the retry", func(t *testing.T) {
+		base := newFakeEnv()
+		env := &endFailEnv{fakeEnv: base, failures: 1}
+		s := passingServer(t, base, 1)
+		e := testEngineOver(env, base, newFakeDialer(s))
+		id, err := e.Start(context.Background(), request(s))
+		if err != nil {
+			t.Fatal(err)
+		}
+		approveAll(t, e, base, id, "s1")
+		h := base.waitEnded(t, id)
+		if h.Status != cluster.RunSucceeded || h.EndedAt.IsZero() || e.Active() {
+			t.Fatalf("run = %s ended %v, engine active %v; want succeeded and idle", h.Status, h.EndedAt, e.Active())
+		}
+		env.mu.Lock()
+		defer env.mu.Unlock()
+		if env.failed != 1 {
+			t.Fatalf("%d ending writes failed, want the one", env.failed)
+		}
+	})
+	t.Run("by a Stop on the ended install", func(t *testing.T) {
+		base := newFakeEnv()
+		env := &endFailEnv{fakeEnv: base, failures: 1}
+		s := passingServer(t, base, 1)
+		e := testEngineOver(env, base, newFakeDialer(s))
+		// No retry comes in the test's time: only the Stop writes the end.
+		e.t.retry, e.t.retryMax = time.Hour, time.Hour
+		id, err := e.Start(context.Background(), request(s))
+		if err != nil {
+			t.Fatal(err)
+		}
+		approveAll(t, e, base, id, "s1")
+		waitFor(t, "the ending write to fail", func() bool {
+			env.mu.Lock()
+			defer env.mu.Unlock()
+			return env.failed == 1
+		})
+		if h := base.head(id); !h.Active() || e.Active() {
+			t.Fatalf("before the Stop: run %s, engine active %v; want the record left running by an idle engine", h.Status, e.Active())
+		}
+		if err := e.Stop(id, "admin"); err != nil {
+			t.Fatal(err)
+		}
+		if h := base.head(id); h.Status != cluster.RunSucceeded || h.EndedAt.IsZero() {
+			t.Fatalf("after the Stop: run %s ended %v, want succeeded", h.Status, h.EndedAt)
+		}
+	})
 }
