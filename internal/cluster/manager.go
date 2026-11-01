@@ -1361,6 +1361,11 @@ func (m *Manager) pickTransferTarget() string {
 	return cands[0].id
 }
 
+// PickTransferTarget is pickTransferTarget for a caller outside the package:
+// the manager voter a task run's leader hands over to when its own turn
+// comes, or "" when there is none.
+func (m *Manager) PickTransferTarget() string { return m.pickTransferTarget() }
+
 // ReachCount is how many agents manager nodeID reaches: this manager's own
 // fresh probe, another's last ping. It is -1 when that is unknown — no fresh
 // probe here, no ping there, or a ping that named none: an empty list and an
