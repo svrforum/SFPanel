@@ -1279,12 +1279,23 @@ steps:
   `kinds` (`manager`, `agent`) and of the node IDs in `nodes`.
 - **References.** `{{ input }}`, `{{ node.name }}` and `{{ node.address }}`
   (the first address the cluster has for the node) are filled in for each
-  node. In a command each value is shell-quoted, one word whatever it holds,
-  unless its input says `raw: true`; in a service name, a file's path, content
-  and owner, and a stack's name and compose document it goes in as typed,
-  unquoted. A reference in a package list may hold several names, split on
-  spaces and commas. `{{.Names}}`-style Go templates for docker and similar
-  tools are left alone.
+  node. In a command each value is shell-quoted unless its input says
+  `raw: true`. The quoting makes the value one word whatever it holds, but
+  only *where the shell reads a word*, so a command's reference must stand
+  there: unquoted, at the top level, as in `echo {{ x }}`, `--opt={{ x }}` or
+  `X={{ x }}`. A task that puts one inside single or double quotes, `$( )`,
+  `$(( ))`, backticks, `${ }`, a heredoc body or a comment is refused at its
+  line, because the quotes Render adds would open the value to the shell
+  there. To use a value inside a string, assign it first (`X={{ x }}`) and
+  write `"$X"`. The check reads the text the way `/bin/sh` does and refuses
+  whatever it cannot follow (`$'…'`, `$[…]`, quotes inside `${…}`, `case`
+  inside `( )` or `$( )`), so a reference after such syntax is refused too;
+  assign it near the top of the script instead. A `raw` input is exempt: it
+  is spliced as written, wherever it stands. In a service name, a file's
+  path, content and owner, and a stack's name and compose document a value
+  goes in as typed, unquoted. A reference in a package list may hold several
+  names, split on spaces and commas. `{{.Names}}`-style Go templates for
+  docker and similar tools are left alone.
 - **Built-in tasks**, read-only and carried by every manager's binary:
   `builtin/package-update`, `builtin/package-install`,
   `builtin/service-restart`, `builtin/command` (its one input is `raw`: the

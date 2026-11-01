@@ -69,7 +69,7 @@ func Parse(doc []byte) (*Task, []Problem) {
 		return nil, []Problem{{Line: extra.Line, Message: "a task is one YAML document; remove the second one"}}
 	}
 
-	p := &parser{inputs: map[string]bool{}}
+	p := &parser{inputs: map[string]bool{}, raw: map[string]bool{}}
 	task := p.task(&root)
 	if len(p.problems) > 0 {
 		sort.SliceStable(p.problems, func(i, j int) bool { return p.problems[i].Line < p.problems[j].Line })
@@ -92,6 +92,7 @@ func syntaxProblem(err error) Problem {
 type parser struct {
 	problems []Problem
 	inputs   map[string]bool // defined input names
+	raw      map[string]bool // inputs spliced into a command as written
 }
 
 func (p *parser) addf(line int, format string, args ...any) {
@@ -241,15 +242,43 @@ func (p *parser) refs(v *yaml.Node) {
 		if p.inputs[name] || name == refNodeName || name == refNodeAddress {
 			continue
 		}
-		line := v.Line
-		if v.Style&yaml.LiteralStyle != 0 {
-			line = v.Line + 1 + strings.Count(v.Value[:m[0]], "\n")
-		}
+		line := refLine(v, m[0])
 		if strings.HasPrefix(name, "node.") {
 			p.addf(line, "%q is not a node variable; use node.name or node.address", name)
 			continue
 		}
 		p.addf(line, "%q is not an input of this task; define it under inputs", name)
+	}
+}
+
+// refLine is the line of the reference at offset off in v. In a literal
+// block (script: |) that is the reference's own line rather than the block's
+// first.
+func refLine(v *yaml.Node, off int) int {
+	if v.Style&yaml.LiteralStyle != 0 {
+		return v.Line + 1 + strings.Count(v.Value[:off], "\n")
+	}
+	return v.Line
+}
+
+// shellRefs refuses a reference in a command's text that does not stand
+// where the shell reads a word: Render's quoting makes it one word there and
+// nowhere else (see shellPlaces). Raw inputs are spliced as written, by
+// design, and are not judged.
+func (p *parser) shellRefs(v *yaml.Node) {
+	if v == nil {
+		return
+	}
+	known := func(name string) bool { return p.inputs[name] || name == refNodeName || name == refNodeAddress }
+	quoted := func(name string) bool { return !p.raw[name] }
+	for _, r := range shellPlaces(v.Value, quoted, known) {
+		switch r.verdict {
+		case placeWord:
+		case placeEnclosed:
+			p.addf(refLine(v, r.start), "{{ %s }} is inside quotes, a command substitution, a heredoc or a comment: write it unquoted where a word goes — its value is quoted for you. To use it inside a string, assign it first (X={{ %s }}) and write \"$X\"", r.name, r.name)
+		default:
+			p.addf(refLine(v, r.start), "{{ %s }} comes after shell syntax this check cannot follow ($'…', $[…], quotes inside ${…}, case inside ( ) or $( ), or a \\ or $ right before a reference): assign it near the top of the script (X={{ %s }}) and write \"$X\" where you need it", r.name, r.name)
+		}
 	}
 }
 
@@ -347,6 +376,7 @@ func (p *parser) inputList(n *yaml.Node) []Input {
 		in.Default, _, _ = p.str(f, "default", what, false, e.val)
 		in.Required = p.boolean(f, "required", what, false)
 		in.Raw = p.boolean(f, "raw", what, false)
+		p.raw[name] = in.Raw
 		out = append(out, in)
 	}
 	return out
@@ -546,6 +576,8 @@ func (p *parser) command(n *yaml.Node, what string) *CommandStep {
 	}
 	p.refs(rv)
 	p.refs(sv)
+	p.shellRefs(rv)
+	p.shellRefs(sv)
 	s.Timeout = p.duration(f, "timeout", "command", DefaultCommandTimeout)
 	return s
 }

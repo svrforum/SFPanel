@@ -2,6 +2,8 @@ package tasks
 
 import (
 	"fmt"
+	"os"
+	osexec "os/exec"
 	"strings"
 	"testing"
 	"time"
@@ -370,5 +372,176 @@ func TestParseRefusesASecondDocument(t *testing.T) {
 	_, problems := Parse([]byte("name: t\nsteps:\n  - reboot: {}\n---\nname: u\n"))
 	if len(problems) != 1 || problems[0].Line != 4 || !strings.Contains(problems[0].Message, "one YAML document") {
 		t.Errorf("problems = %+v, want one on line 4 (the ---) about a second document", problems)
+	}
+}
+
+// quotingMessage is the start of the problem a reference in the wrong place
+// gets; the rest says how to write it instead.
+const quotingMessage = "is inside quotes, a command substitution, a heredoc or a comment"
+
+func TestParseRefusesAReferenceInACommandWhereItsQuotingWouldBreak(t *testing.T) {
+	// Render puts 'value' in place of the reference. That is one word only
+	// where the shell reads a word; inside quotes, a substitution, a heredoc
+	// or a comment the value is opened up to the shell instead, so Parse
+	// refuses the reference there.
+	cases := []struct {
+		name string
+		step string // the lines after "steps:"
+		ref  string
+		line int
+	}{
+		{"single quotes", `  - command: { run: "echo '{{ x }}'" }`, "x", 5},
+		{"double quotes", `  - command: { run: 'echo "{{ x }}"' }`, "x", 5},
+		{"inside a double-quoted string with other words", `  - command: { run: 'echo "a {{ x }} b"' }`, "x", 5},
+		{"a command substitution inside double quotes", `  - command: { run: 'echo "$(echo {{ x }})"' }`, "x", 5},
+		{"a command substitution", `  - command: { run: 'echo $(echo {{ x }})' }`, "x", 5},
+		{"backticks", "  - command: { run: 'echo `{{ x }}`' }", "x", 5},
+		{"arithmetic", `  - command: { run: 'echo $(( {{ x }} + 1 ))' }`, "x", 5},
+		{"a parameter expansion's default", `  - command: { run: 'echo ${HOME:-{{ x }}}' }`, "x", 5},
+		{"a comment", `  - command: { run: 'echo hi # {{ x }}' }`, "x", 5},
+		{"a node variable in single quotes", `  - command: { run: "ping -c1 '{{ node.address }}'" }`, "node.address", 5},
+		{"a heredoc body", "  - command:\n      script: |\n        cat <<EOF >/tmp/out\n        hello {{ x }}\n        EOF\n", "x", 8},
+		{"a heredoc body with a quoted delimiter", "  - command:\n      script: |\n        cat <<-'EOF'\n        {{ x }}\n        EOF\n", "x", 8},
+		{"the second line of a script, in double quotes", "  - command:\n      script: |\n        echo ok\n        echo \"{{ x }}\"\n", "x", 8},
+		{"a single-quoted string over two lines", "  - command:\n      script: |\n        echo 'one\n        {{ x }}'\n", "x", 8},
+		{"right after a backslash", `  - command: { run: 'echo \{{ x }}' }`, "x", 5},
+		{"after an ANSI-C string", `  - command: { run: "echo $'a\\'' {{ x }}" }`, "x", 5},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			doc := "name: t\ninputs:\n  x: {}\nsteps:\n" + tc.step + "\n"
+			task, problems := Parse([]byte(doc))
+			if task != nil {
+				t.Errorf("the reference was accepted: %+v", task.Steps[0].Command)
+			}
+			if len(problems) != 1 {
+				t.Fatalf("problems = %+v, want exactly one", problems)
+			}
+			p := problems[0]
+			if p.Line != tc.line || !strings.Contains(p.Message, "{{ "+tc.ref+" }}") {
+				t.Errorf("problem = %+v, want line %d naming {{ %s }}", p, tc.line, tc.ref)
+			}
+			if !strings.Contains(p.Message, quotingMessage) && !strings.Contains(p.Message, "cannot follow") {
+				t.Errorf("problem = %q, want it to say where the reference sits", p.Message)
+			}
+		})
+	}
+}
+
+func TestParseSaysWhyAQuotedReferenceIsRefusedAndWhatToWriteInstead(t *testing.T) {
+	_, problems := Parse([]byte("name: t\ninputs:\n  svc: {}\nsteps:\n  - command: { run: \"systemctl restart '{{ svc }}'\" }\n"))
+	want := `{{ svc }} is inside quotes, a command substitution, a heredoc or a comment: write it unquoted where a word goes — its value is quoted for you. To use it inside a string, assign it first (X={{ svc }}) and write "$X"`
+	if len(problems) != 1 || problems[0].Line != 5 || problems[0].Message != want {
+		t.Errorf("problems = %+v, want one on line 5:\n%s", problems, want)
+	}
+}
+
+func TestParseAcceptsAReferenceWhereTheShellReadsAWord(t *testing.T) {
+	cases := []struct {
+		name string
+		step string
+	}{
+		{"an argument", `  - command: { run: "echo {{ x }}" }`},
+		{"an option's value", `  - command: { run: "curl --opt={{ x }}" }`},
+		{"an assignment", `  - command: { run: "X={{ x }}; echo \"$X\"" }`},
+		{"after a closed double-quoted string", `  - command: { run: 'echo "done:" {{ x }}' }`},
+		{"after a closed single-quoted string", `  - command: { run: "printf '%s\\n' {{ x }}" }`},
+		{"joined to a closed string", `  - command: { run: "echo 'a'{{ x }}\"b\"" }`},
+		{"after a command substitution has closed", `  - command: { run: 'echo "$(date)" $(hostname) {{ x }}' }`},
+		{"in a subshell", `  - command: { run: "(cd /tmp && ls {{ x }})" }`},
+		{"after a heredoc has ended", "  - command:\n      script: |\n        cat <<EOF\n        body with 'quotes\n        EOF\n        echo {{ x }}\n"},
+		{"after a comment line with an apostrophe", "  - command:\n      script: |\n        # don't worry\n        echo {{ x }}\n"},
+		{"a # inside a word is not a comment", `  - command: { run: "echo a#b {{ x }}" }`},
+		{"an escaped quote is not a quote", `  - command: { run: "echo it\\'s {{ x }}" }`},
+		{"several on a line", `  - command: { run: "echo {{ x }} {{ node.name }} {{ node.address }}" }`},
+		{"docker's own templates inside quotes", `  - command: { run: "docker ps --format '{{.Names}}' --filter name={{ x }}" }`},
+		{"a here-string", `  - command: { run: "cat <<< {{ x }}" }`},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			doc := "name: t\ninputs:\n  x: {}\nsteps:\n" + tc.step + "\n"
+			if _, problems := Parse([]byte(doc)); len(problems) != 0 {
+				t.Errorf("problems = %+v", problems)
+			}
+		})
+	}
+}
+
+func TestParseLetsARawInputGoAnywhereInACommand(t *testing.T) {
+	// A raw input is spliced in as written, by design: where it sits is the
+	// author's business.
+	_, problems := Parse([]byte(`name: t
+inputs:
+  cmd: { raw: true }
+steps:
+  - command: { run: "sh -c '{{ cmd }}'" }
+  - command:
+      script: |
+        echo "{{ cmd }}"
+        cat <<EOF
+        {{ cmd }}
+        EOF
+`))
+	if len(problems) != 0 {
+		t.Errorf("problems = %+v", problems)
+	}
+}
+
+func TestParseLeavesQuotedReferencesOutsideCommandsAlone(t *testing.T) {
+	// Only a command's value is shell-quoted; a file's content goes in as
+	// typed, so quotes around a reference there are the content's own.
+	_, problems := Parse([]byte(`name: t
+inputs:
+  x: {}
+steps:
+  - file: { path: /etc/motd, content: "hello '{{ x }}' and \"{{ x }}\"" }
+`))
+	if len(problems) != 0 {
+		t.Errorf("problems = %+v", problems)
+	}
+}
+
+func TestAReferenceParseAcceptsStaysOneWordUnderTheShell(t *testing.T) {
+	// The shell is the judge: every place Parse accepts, filled with a value
+	// built to break out, must print the value back byte for byte and run
+	// nothing. Only printf runs; the marker would land in t.TempDir().
+	sh, err := osexec.LookPath("sh")
+	if err != nil {
+		t.Skipf("no sh to check against: %v", err)
+	}
+	marker := t.TempDir() + "/ran"
+	value := `$(touch ` + marker + `) ` + "`touch " + marker + "`" + ` '"; touch ` + marker + ` #`
+	scripts := []struct{ body, want string }{
+		{`printf '%s\n' {{ x }}`, value},
+		{`X={{ x }}; printf '%s\n' "$X"`, value},
+		{`printf '%s\n' "a"{{ x }}'b'`, "a" + value + "b"},
+		{`(printf '%s\n' {{ x }})`, value},
+		{"cat <<EOF >/dev/null\nit's a body\nEOF\nprintf '%s\\n' {{ x }}", value},
+		{"# don't\nprintf '%s\\n' {{ x }}", value},
+		{`printf '%s\n' "$(printf done)" {{ x }}`, "done\n" + value},
+	}
+	for _, sc := range scripts {
+		doc := "name: t\ninputs:\n  x: {}\nsteps:\n  - command:\n      script: |\n"
+		for _, line := range strings.Split(sc.body, "\n") {
+			doc += "        " + line + "\n"
+		}
+		task, problems := Parse([]byte(doc))
+		if len(problems) != 0 {
+			t.Fatalf("%q: problems = %+v", sc.body, problems)
+		}
+		specs, err := Render(task, map[string]string{"x": value}, NodeVars{})
+		if err != nil {
+			t.Fatal(err)
+		}
+		out, err := osexec.Command(sh, "-c", specs[0].Command.Script).Output()
+		if err != nil {
+			t.Fatalf("%q: %v", sc.body, err)
+		}
+		if got := strings.TrimSuffix(string(out), "\n"); got != sc.want {
+			t.Errorf("%q printed %q, want %q", sc.body, got, sc.want)
+		}
+		if _, err := os.Stat(marker); err == nil {
+			t.Fatalf("%q ran part of the value", sc.body)
+		}
 	}
 }
