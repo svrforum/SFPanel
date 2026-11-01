@@ -452,3 +452,33 @@ func TestWritesNeedTheLeaderAndReadsWorkOnAnyManager(t *testing.T) {
 		t.Fatalf("reading on a node with no Raft: %v, want ErrNotInitialized", err)
 	}
 }
+
+// An install row is read back with everything the screen words it by: its
+// server, the node it became, what it waits on, and its reason's details.
+func TestAnInstallRowKeepsItsReasonDetails(t *testing.T) {
+	m := taskLeader(t)
+	start := time.Date(2026, 11, 2, 9, 30, 0, 0, time.UTC)
+	run := RunRecord{ID: NewRunID(start), Kind: RunKindAgentInstall, TaskID: AgentInstallTaskID, TaskName: "agent install",
+		Nodes: []string{"s1"}, Waves: [][]string{{"s1"}}, Batch: 3, Status: RunFailed, StartedBy: "admin", StartedAt: start,
+		EndedAt: start.Add(time.Minute), CredentialsUntil: start.Add(11 * time.Minute)}
+	if err := m.PutRun(run); err != nil {
+		t.Fatal(err)
+	}
+	row := RunNodeRecord{Status: RunNodeFailed, Reason: "AGENT_INSTALL_PORT_BUSY",
+		ReasonDetails: map[string]string{"port": "3628", "owner": "nginx"},
+		Host:          "web-1.example", IP: "192.0.2.10", Name: "web-1", Group: "web", NodeID: "a9",
+		HostKey: "ED25519 SHA256:abc", Steps: []RunStepRecord{{Status: RunStepFailed, JobID: "install/s1/1"}}}
+	if err := m.PutRunNode(run.ID, "s1", row); err != nil {
+		t.Fatal(err)
+	}
+	got, rows, err := m.GetRun(run.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !reflect.DeepEqual(got, run) {
+		t.Fatalf("run %+v, want %+v", got, run)
+	}
+	if !reflect.DeepEqual(rows["s1"], row) {
+		t.Fatalf("row %+v, want %+v", rows["s1"], row)
+	}
+}

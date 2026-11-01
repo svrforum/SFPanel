@@ -197,9 +197,12 @@ func (r RunRecord) Active() bool {
 // install. An install row's Reason is one of the AGENT_INSTALL_* row codes
 // of internal/api/response, which the screen words.
 type RunNodeRecord struct {
-	Status string          `json:"status"`
-	Reason string          `json:"reason,omitempty"`
-	Steps  []RunStepRecord `json:"steps,omitempty"`
+	Status string `json:"status"`
+	Reason string `json:"reason,omitempty"`
+	// ReasonDetails are an install row's reason's details (the port that is
+	// busy, the OS seen), which the screen words the code with.
+	ReasonDetails map[string]string `json:"reason_details,omitempty"`
+	Steps         []RunStepRecord   `json:"steps,omitempty"`
 
 	// An install row's server: Host as the operator gave it, IP the address
 	// it resolved to, which the agent registers at; Name and Group the node
