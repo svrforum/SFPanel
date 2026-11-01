@@ -6,6 +6,7 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/labstack/echo/v4"
 	"github.com/svrforum/SFPanel/internal/auth"
@@ -79,5 +80,48 @@ func TestAgentSourceCheck(t *testing.T) {
 		if rec.Code != want {
 			t.Fatalf("nil allowed, %s: %d, want %d", addr, rec.Code, want)
 		}
+	}
+}
+
+// Both middlewares that validate a cluster call's signature mark the request
+// as validated, and only then: a handler that takes cluster calls only reads
+// that mark instead of checking the nonce a second time. A browser session
+// JWTMiddleware lets through carries no mark.
+func TestTheSignatureCheckingMiddlewaresMarkWhatTheyValidated(t *testing.T) {
+	t.Cleanup(func() { auth.SetProxySecrets("", nil) })
+	auth.SetProxySecrets("key", []string{"key"})
+	const jwtSecret = "mark-test-jwt-secret"
+	marked := func(c echo.Context) error {
+		if auth.InternalProxyVerified(c.Request()) {
+			return c.String(200, "marked")
+		}
+		return c.String(200, "unmarked")
+	}
+	signed := func() *http.Request {
+		r := httptest.NewRequest(http.MethodPost, "/api/v1/task-jobs", nil)
+		r.Header.Set(auth.InternalProxyHeaderV2, auth.SignProxyRequestV2With("key", http.MethodPost, "/api/v1/task-jobs"))
+		return r
+	}
+	run := func(mw echo.MiddlewareFunc, r *http.Request) string {
+		rec := httptest.NewRecorder()
+		_ = mw(marked)(echo.New().NewContext(r, rec))
+		return rec.Body.String()
+	}
+
+	jwt := JWTMiddleware(func() string { return jwtSecret })
+	if got := run(jwt, signed()); got != "marked" {
+		t.Errorf("JWTMiddleware, a signed call: %q, want marked", got)
+	}
+	if got := run(InternalProxyOnly(), signed()); got != "marked" {
+		t.Errorf("InternalProxyOnly, a signed call: %q, want marked", got)
+	}
+	tok, err := auth.GenerateToken("operator", jwtSecret, time.Minute)
+	if err != nil {
+		t.Fatal(err)
+	}
+	r := httptest.NewRequest(http.MethodPost, "/api/v1/task-jobs", nil)
+	r.Header.Set("Authorization", "Bearer "+tok)
+	if got := run(jwt, r); got != "unmarked" {
+		t.Errorf("JWTMiddleware, a browser session: %q, want unmarked", got)
 	}
 }

@@ -54,6 +54,9 @@ func JWTMiddleware(secret func() string) echo.MiddlewareFunc {
 					username = "admin"
 				}
 				c.Set("username", username)
+				// Handlers that take cluster calls only read this verdict
+				// rather than checking the nonce a second time.
+				c.SetRequest(auth.WithInternalProxy(c.Request()))
 				return next(c)
 			}
 

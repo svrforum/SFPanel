@@ -2,7 +2,8 @@
 // starts one step of a run here as a job, asks after it and reads its output;
 // what kind of step it is decides which Runner does the work.
 //
-// Every route takes signed cluster calls only (auth.IsInternalProxyRequest),
+// Every route takes signed cluster calls only (auth.InternalProxyVerified: the
+// verdict of the middleware that validated the signature),
 // and a manager will not relay one for a browser with ?node=
 // (middleware.ClusterProxyMiddleware): a step started around the engine would
 // skip its gates and its audit. The routes exist on managers and agents alike.
@@ -156,10 +157,12 @@ func (h *Handler) readBootID() string {
 }
 
 // refuseNotCluster answers a request that is not a signed cluster call.
-// Checking for one (auth.IsInternalProxyRequest) is the first thing every
-// handler does: the check records the request's nonce, and a second check of
-// the same request passes only within 50 ms of the first, which the
-// middleware before this one already spent some of.
+// Checking for one is the first thing every handler does, and it reads the
+// verdict of the middleware that validated the signature
+// (auth.InternalProxyVerified) rather than validating it again: the nonce
+// that check recorded passes a second check only within 50 ms of the first,
+// so a node slow to get from the middleware to the handler would refuse its
+// own leader's genuine call.
 func refuseNotCluster(c echo.Context) error {
 	return response.Fail(c, http.StatusForbidden, response.ErrTaskJobClusterOnly,
 		"Task jobs are started by the cluster's task engine only")
@@ -171,7 +174,7 @@ func refuseNotCluster(c echo.Context) error {
 // runner that turns the step away (Refuser), before anything is recorded.
 // The runner goes on after the answer.
 func (h *Handler) StartJob(c echo.Context) error {
-	if !auth.IsInternalProxyRequest(c.Request()) {
+	if !auth.InternalProxyVerified(c.Request()) {
 		return refuseNotCluster(c)
 	}
 	var spec tasks.JobSpec
@@ -284,7 +287,7 @@ func checkSettings(s tasks.JobSpec) string {
 // GetJob answers GET /task-jobs/:id?skip=<bytes>: the job's state and its
 // output from skip on (see readOutput).
 func (h *Handler) GetJob(c echo.Context) error {
-	if !auth.IsInternalProxyRequest(c.Request()) {
+	if !auth.InternalProxyVerified(c.Request()) {
 		return refuseNotCluster(c)
 	}
 	rec, ok, err := h.lookup(c)
@@ -325,7 +328,7 @@ func (h *Handler) lookup(c echo.Context) (rec record, ok bool, err error) {
 // runner's context ends, and the runner says how the job ended — because by
 // default a job runs to its end. 409 TASK_JOB_RUNNING without force.
 func (h *Handler) CancelJob(c echo.Context) error {
-	if !auth.IsInternalProxyRequest(c.Request()) {
+	if !auth.InternalProxyVerified(c.Request()) {
 		return refuseNotCluster(c)
 	}
 	var req struct {
@@ -359,7 +362,7 @@ func (h *Handler) CancelJob(c echo.Context) error {
 // verdict from its kind's runner, in the order sent. A kind this node does
 // not run is refused.
 func (h *Handler) CheckJobs(c echo.Context) error {
-	if !auth.IsInternalProxyRequest(c.Request()) {
+	if !auth.InternalProxyVerified(c.Request()) {
 		return refuseNotCluster(c)
 	}
 	var specs []tasks.JobSpec

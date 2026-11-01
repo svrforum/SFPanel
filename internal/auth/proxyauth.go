@@ -1,6 +1,7 @@
 package auth
 
 import (
+	"context"
 	"crypto/hmac"
 	"crypto/rand"
 	"crypto/sha256"
@@ -88,6 +89,33 @@ func ClusterProxySecret() string {
 	proxySecretsMu.RLock()
 	defer proxySecretsMu.RUnlock()
 	return proxySignSecret
+}
+
+// ctxKey types this package's request-context keys, so no other package's
+// key can collide with one.
+type ctxKey string
+
+// CtxInternalProxy is the request-context key a middleware sets, to true,
+// once it has validated the request's internal-proxy signature
+// (WithInternalProxy). A handler that must take cluster calls only reads it
+// (InternalProxyVerified) instead of validating the signature a second time:
+// the nonce the first check recorded passes again only within
+// sameRequestWindow, so a second check fails a genuine call on a node slow to
+// get from the middleware to the handler.
+const CtxInternalProxy ctxKey = "internal-proxy"
+
+// WithInternalProxy returns r marked as a validated cluster call. Only a
+// middleware that has just seen IsInternalProxyRequest(r) hold may call it;
+// nothing a client sends can set the mark.
+func WithInternalProxy(r *http.Request) *http.Request {
+	return r.WithContext(context.WithValue(r.Context(), CtxInternalProxy, true))
+}
+
+// InternalProxyVerified reports whether a middleware validated r's
+// internal-proxy signature (WithInternalProxy).
+func InternalProxyVerified(r *http.Request) bool {
+	v, _ := r.Context().Value(CtxInternalProxy).(bool)
+	return v
 }
 
 // IsInternalProxyRequest reports whether the request carries a valid internal

@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"github.com/labstack/echo/v4"
+	"github.com/svrforum/SFPanel/internal/api/middleware"
 	"github.com/svrforum/SFPanel/internal/api/response"
 	"github.com/svrforum/SFPanel/internal/auth"
 	"github.com/svrforum/SFPanel/internal/common/exec"
@@ -83,8 +84,13 @@ type testNode struct {
 	e      *echo.Echo
 	runner *fakeRunner
 	clock  *time.Time
-	proc   *proc // the process its real runners run in, when they do
+	proc   *proc         // the process its real runners run in, when they do
+	delay  time.Duration // between the middleware's check and the handler
 }
+
+// testJWTSecret signs the browser sessions the tests send as unsigned calls.
+const testJWTSecret = "task-job-test-jwt-secret"
+
 
 func newTestNode(t *testing.T) *testNode {
 	t.Helper()
@@ -108,7 +114,17 @@ func newTestNodeOn(t *testing.T, db *sql.DB, logDir string) *testNode {
 	n.h.bootID = func() string { return "boot-1" }
 	n.h.runners = map[string]Runner{tasks.StepCommand: n.runner}
 	n.e = echo.New()
-	g := n.e.Group("/api/v1")
+	// The JWT middleware is in front, as in router.go: it is what validates
+	// a cluster call's signature, and the handlers take its word for it.
+	// n.delay, when set, stands for whatever runs between the two.
+	g := n.e.Group("/api/v1", middleware.JWTMiddleware(func() string { return testJWTSecret }), func(next echo.HandlerFunc) echo.HandlerFunc {
+		return func(c echo.Context) error {
+			if n.delay > 0 {
+				time.Sleep(n.delay)
+			}
+			return next(c)
+		}
+	})
 	g.POST("/task-jobs", n.h.StartJob)
 	g.POST("/task-jobs/check", n.h.CheckJobs)
 	g.GET("/task-jobs/:id", n.h.GetJob)
@@ -148,7 +164,8 @@ func (e envelope) code() string {
 	return e.Error.Code
 }
 
-// do sends a request, signed as a cluster call when signed is set.
+// do sends a request, signed as a cluster call when signed is set and with
+// a signed-in browser's token when not.
 func (n *testNode) do(t *testing.T, method, uri string, body any, signed bool) (int, envelope) {
 	t.Helper()
 	var payload string
@@ -163,6 +180,12 @@ func (n *testNode) do(t *testing.T, method, uri string, body any, signed bool) (
 	req.Header.Set("Content-Type", "application/json")
 	if signed {
 		req.Header.Set(auth.InternalProxyHeaderV2, auth.SignProxyRequestV2(method, uri))
+	} else {
+		token, err := auth.GenerateToken("operator", testJWTSecret, time.Hour)
+		if err != nil {
+			t.Fatal(err)
+		}
+		req.Header.Set("Authorization", "Bearer "+token)
 	}
 	rec := httptest.NewRecorder()
 	n.e.ServeHTTP(rec, req)
@@ -234,6 +257,38 @@ func TestTaskJobsTakeOnlyClusterCalls(t *testing.T) {
 	}
 	if len(verdicts) != 2 || verdicts[0].Refused || verdicts[0].Step != 0 || !verdicts[1].Refused || verdicts[1].Code != "SOME_GUARD" || verdicts[1].Step != 1 {
 		t.Fatalf("verdicts %+v, want step 0 allowed and step 1 refused by its runner", verdicts)
+	}
+}
+
+// The handlers take the middleware's word that a call is signed rather than
+// checking the signature again: a second check counts the nonce as a replay
+// once 50 ms have passed since the first, so a node slow to get from the
+// middleware to the handler refused its own leader's genuine call. A browser
+// session the middleware let through is still not a cluster call.
+func TestATaskJobHandlerTrustsTheMiddlewaresCheck(t *testing.T) {
+	n := newTestNode(t)
+	n.delay = 60 * time.Millisecond
+	status, env := n.start(t, spec(runA, 0))
+	if status != http.StatusCreated {
+		t.Fatalf("a signed start that reached the handler 60 ms after the middleware: %d %q, want 201", status, env.code())
+	}
+	n.runner.next(t)
+	if status, env := n.do(t, http.MethodGet, "/api/v1/task-jobs/"+runA+"-0", nil, true); status != http.StatusOK {
+		t.Fatalf("a signed get 60 ms late: %d %q, want 200", status, env.code())
+	}
+
+	n.delay = 0
+	for _, r := range []struct {
+		method, uri string
+		body        any
+	}{
+		{http.MethodPost, "/api/v1/task-jobs", spec(runB, 0)},
+		{http.MethodGet, "/api/v1/task-jobs/" + runA + "-0", nil},
+	} {
+		status, env := n.do(t, r.method, r.uri, r.body, false)
+		if status != http.StatusForbidden || env.code() != response.ErrTaskJobClusterOnly {
+			t.Errorf("a browser session's %s %s: %d %q, want 403 %s", r.method, r.uri, status, env.code(), response.ErrTaskJobClusterOnly)
+		}
 	}
 }
 

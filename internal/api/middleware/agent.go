@@ -26,6 +26,7 @@ func InternalProxyOnly() echo.MiddlewareFunc {
 				username = "admin"
 			}
 			c.Set("username", username)
+			c.SetRequest(auth.WithInternalProxy(c.Request()))
 			return next(c)
 		}
 	}
