@@ -1140,6 +1140,9 @@ func (h *Handler) StepOutput(c echo.Context) error {
 	ctx, cancel := context.WithTimeout(c.Request().Context(), callTimeout)
 	defer cancel()
 	view, err := env.GetJob(ctx, nodeID, rec.Steps[step].JobID, skip)
+	if err == nil {
+		return response.OK(c, view)
+	}
 	var ref *jobRefusal
 	name, isAgent := nodeID, false
 	for _, n := range env.Nodes() {
@@ -1164,9 +1167,7 @@ func (h *Handler) StepOutput(c echo.Context) error {
 			name+" refused the request as unauthenticated", map[string]string{"name": name})
 	case errors.As(err, &ref):
 		return response.FailWith(c, ref.Status, ref.Code, ref.Message, ref.Details)
-	case err != nil:
-		return response.FailWith(c, http.StatusBadGateway, response.ErrClusterNodeUnreachable,
-			name+" did not answer: "+response.SanitizeOutput(err.Error()), map[string]string{"name": name})
 	}
-	return response.OK(c, view)
+	return response.FailWith(c, http.StatusBadGateway, response.ErrClusterNodeUnreachable,
+		name+" did not answer: "+response.SanitizeOutput(err.Error()), map[string]string{"name": name})
 }
