@@ -1269,6 +1269,75 @@
         "jobRunning": "노드에서 단계가 아직 돌고 있습니다. 강제 중지만 취소합니다.",
         "rebootPveHost": "작업은 Proxmox VE 호스트를 재부팅하지 않습니다. 그 위에서 도는 게스트를 패널이 모르기 때문입니다. 이 단계는 건너뜁니다.",
         "rebootUnsupported": "이 노드에는 재부팅을 예약할 systemd가 없습니다."
+      },
+      "list": {
+        "label": "작업 목록",
+        "search": "작업 검색",
+        "builtin": "내장",
+        "mine": "내 작업",
+        "git": "Git",
+        "noMatch": "맞는 작업이 없습니다",
+        "history": "실행 기록",
+        "new": "새 작업",
+        "choose": "작업 고르기",
+        "loadError": "작업 목록을 불러오지 못했습니다"
+      },
+      "active": {
+        "count": "실행 중 {{count}}건"
+      },
+      "empty": {
+        "title": "그룹 작업",
+        "description": "작업을 골라 원하는 노드에서 실행하거나, 실행 기록에서 무엇이 어디서 돌았는지 봅니다."
+      },
+      "pane": {
+        "run": "작업 실행",
+        "notYet": "작업 탭의 이 부분은 아직 만들어지지 않았습니다."
+      },
+      "builtins": {
+        "packageUpdate": {
+          "name": "패키지 업데이트",
+          "description": "패키지 목록을 새로 받고 설치된 패키지를 모두 업그레이드합니다.",
+          "steps": {
+            "0": "목록 갱신과 전체 업그레이드"
+          }
+        },
+        "packageInstall": {
+          "name": "패키지 설치",
+          "description": "패키지 목록을 새로 받고 입력한 패키지를 한 번에 설치합니다. 여러 개는 공백이나 쉼표로 나눕니다.",
+          "inputs": {
+            "packages": "설치할 패키지"
+          },
+          "steps": {
+            "0": "패키지 설치"
+          }
+        },
+        "serviceRestart": {
+          "name": "서비스 재시작",
+          "description": "입력한 서비스를 재시작합니다.",
+          "inputs": {
+            "service": "재시작할 서비스 (예: nginx.service)"
+          },
+          "steps": {
+            "0": "서비스 재시작"
+          }
+        },
+        "command": {
+          "name": "명령 실행",
+          "description": "입력한 명령을 root 권한으로 실행합니다. 입력한 그대로 셸에 전달됩니다.",
+          "inputs": {
+            "command": "실행할 명령"
+          },
+          "steps": {
+            "0": "명령 실행"
+          }
+        },
+        "reboot": {
+          "name": "재부팅 (필요할 때만)",
+          "description": "업데이트 뒤 재부팅이 필요한 서버만 재부팅하고, 다시 연결될 때까지 기다립니다.",
+          "steps": {
+            "0": "필요할 때 재부팅"
+          }
+        }
       }
     }
   },

@@ -207,7 +207,8 @@ jobs:
             tests/android-session.spec.ts \
             tests/cron-run-now.spec.ts \
             tests/install-stream-failure.spec.ts \
-            tests/cluster-lifecycle.spec.ts
+            tests/cluster-lifecycle.spec.ts \
+            tests/cluster-tasks.spec.ts
       - name: Dump panel log on failure
         if: failure()
         run: cat "$E2E_DIR/panel.log" || true

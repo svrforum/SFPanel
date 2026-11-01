@@ -18,7 +18,7 @@ export default function Cluster() {
   return (
     <div className="space-y-6">
       <h1 className="text-[22px] font-bold tracking-tight">{t('cluster.title')}</h1>
-      {/* Four tabs do not fit a phone's width: the row scrolls rather than cutting the last off. */}
+      {/* Five tabs do not fit a phone's width: the row scrolls rather than cutting the last off. */}
       <div ref={row} className="flex items-center gap-1 overflow-x-auto no-scrollbar">
         {CLUSTER_TAB_ITEMS.map((tab) => (
           <NavLink

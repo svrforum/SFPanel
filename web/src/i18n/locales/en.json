@@ -1271,6 +1271,76 @@
         "jobRunning": "The step is still running on the node. Only a forced stop cancels it.",
         "rebootPveHost": "A task does not reboot a Proxmox VE host: the panel does not know the guests running on it. The step is skipped.",
         "rebootUnsupported": "The node has no systemd to schedule a reboot with."
+      },
+      "list": {
+        "label": "Task list",
+        "search": "Search tasks",
+        "builtin": "Built-in",
+        "mine": "My tasks",
+        "git": "Git",
+        "noMatch": "No tasks match",
+        "history": "Run history",
+        "new": "New task",
+        "choose": "Choose a task",
+        "loadError": "Could not load the tasks"
+      },
+      "active": {
+        "count_one": "{{count}} run under way",
+        "count_other": "{{count}} runs under way"
+      },
+      "empty": {
+        "title": "Group tasks",
+        "description": "Choose a task to run it on the nodes you pick, or open the run history to see what ran and where."
+      },
+      "pane": {
+        "run": "Task run",
+        "notYet": "This part of the Tasks tab is not built yet."
+      },
+      "builtins": {
+        "packageUpdate": {
+          "name": "Package update",
+          "description": "Refreshes the package lists and upgrades every installed package.",
+          "steps": {
+            "0": "Refresh lists and upgrade all"
+          }
+        },
+        "packageInstall": {
+          "name": "Package install",
+          "description": "Refreshes the package lists and installs the packages you name in one go. Separate several with spaces or commas.",
+          "inputs": {
+            "packages": "Packages to install"
+          },
+          "steps": {
+            "0": "Install packages"
+          }
+        },
+        "serviceRestart": {
+          "name": "Service restart",
+          "description": "Restarts the service you name.",
+          "inputs": {
+            "service": "Service to restart (e.g. nginx.service)"
+          },
+          "steps": {
+            "0": "Restart the service"
+          }
+        },
+        "command": {
+          "name": "Run a command",
+          "description": "Runs the command you type as root. It goes to the shell exactly as typed.",
+          "inputs": {
+            "command": "Command to run"
+          },
+          "steps": {
+            "0": "Run the command"
+          }
+        },
+        "reboot": {
+          "name": "Reboot (only when required)",
+          "description": "Reboots only the servers that need it after an update, and waits until each is back.",
+          "steps": {
+            "0": "Reboot if required"
+          }
+        }
       }
     }
   },
