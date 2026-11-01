@@ -12,6 +12,8 @@ import { TaskRunSetup } from './components/tasks/TaskRunSetup'
 import { TaskRunView } from './components/tasks/TaskRunView'
 import { TaskRunHistory } from './components/tasks/TaskRunHistory'
 import { TaskGitImportDialog } from './components/tasks/TaskGitImportDialog'
+import { AgentInstallSetup } from './components/tasks/install/AgentInstallSetup'
+import { AGENT_INSTALL_TASK_ID } from './components/tasks/install/installRun'
 import type { ImportFrom } from './components/tasks/taskImport'
 import { builtinText } from './components/tasks/taskBuiltins'
 import { READ_AGAIN_MS, activeRuns, readUntil, type ListHolds, type ListedTask } from './components/tasks/taskList'
@@ -24,7 +26,8 @@ const RUNS_POLL_MS = 10_000
 const sleep = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms))
 
 // The cluster's Tasks tab. Every tasks/* route lands here and the URL picks
-// the right pane: nothing (tasks), a task's run setup (tasks/:taskId), the
+// the right pane: nothing (tasks), a task's run setup (tasks/:taskId) or the
+// agent install's form (tasks/builtin%2Fagent-install), the
 // editor (tasks/new, tasks/:taskId/edit), the history (tasks/runs) or one run
 // (tasks/runs/:runId). Static segments win over :taskId, and a built-in's ID
 // (builtin/command) travels escaped once. /cluster/* is never sent to a
@@ -138,6 +141,9 @@ export default function ClusterTasks() {
         <TaskEditor taskId={isEdit ? taskId : undefined} name={taskId ? nameOf(taskId) : undefined} onSaved={loadTasks} />
       </Suspense>
     )
+  } else if (taskId === AGENT_INSTALL_TASK_ID) {
+    // Not a task: its own form, whatever the list holds.
+    pane = <AgentInstallSetup />
   } else if (taskId) {
     // A list read again that shows the document changed (pulled again from
     // Git, saved, imported) sets the pane up afresh from the new document.

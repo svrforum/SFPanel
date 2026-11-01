@@ -57,6 +57,7 @@ async function mock(page: Page, opts: Opts = {}) {
     else if (path === '/cluster/events') data = { events: [] }
     else if (path === '/cluster/tokens' && req.method() === 'GET') data = { tokens: opts.pending?.() ?? [] }
     else if (path === '/cluster/token') data = tokens[Math.min(minted++, tokens.length - 1)]
+    else if (path === '/cluster/tasks' || path === '/cluster/task-runs') data = []
     await route.fulfill({ json: { success: true, data } })
   })
   await page.routeWebSocket(/\/ws\//, () => {})
@@ -231,4 +232,17 @@ test('revoking a token that is gone keeps the operator signed in', async ({ page
   await expect(page).toHaveURL(/\/cluster\/nodes/)
   await expect(page.getByText('token not found')).toHaveCount(0)
   await expect(page.getByRole('dialog', { name: 'Add an agent' })).toBeVisible()
+})
+
+// A server the leader reaches over SSH needs no command pasted: the agent
+// install logs in and does it.
+test('leads to the agent install over SSH', async ({ page }) => {
+  await mock(page)
+  const dialog = await openDialog(page)
+  const link = dialog.getByRole('link', { name: 'Install over SSH' })
+  await expect(link).toHaveAttribute('href', '/cluster/tasks/builtin%2Fagent-install')
+  await link.click()
+  await expect(page).toHaveURL(/\/cluster\/tasks\/builtin%2Fagent-install$/)
+  await expect(page.getByTestId('task-pane-install')).toBeVisible()
+  await expect(page.getByRole('dialog')).toHaveCount(0)
 })

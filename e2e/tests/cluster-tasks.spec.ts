@@ -42,6 +42,8 @@ const BUILTINS = [
   builtin('service-restart', '서비스 재시작', '입력한 서비스를 재시작합니다.'),
   builtin('command', '명령 실행', '입력한 명령을 root 권한으로 실행합니다. 입력한 그대로 셸에 전달됩니다.'),
   builtin('reboot', '재부팅 (필요할 때만)', '업데이트 뒤 재부팅이 필요한 서버만 재부팅하고, 다시 연결될 때까지 기다립니다.'),
+  // The agent install: listed after the tasks, with no document behind it.
+  builtin('agent-install', '에이전트 설치 (SSH)', 'SSH로 서버에 접속해 SFPanel 에이전트를 설치하고 클러스터에 등록합니다.'),
 ]
 const USER_TASKS = [
   { id: '0a1b2c3d4e5f6071', name: 'Deploy web', description: 'Pulls and restarts the web stack', source: { kind: 'user' }, read_only: false, updated_at: seen, updated_by: 'admin' },
@@ -122,7 +124,7 @@ const fail = (status: number, code: string, message: string, details?: Record<st
 const sse = (...events: unknown[]) => events.map((e) => `data: ${JSON.stringify(e)}\n\n`).join('')
 
 interface Fixture {
-  /** GET /cluster/tasks. Default: the five built-ins, two of the operator's own, one from Git. */
+  /** GET /cluster/tasks. Default: the five built-ins and the agent install, two of the operator's own, one from Git. */
   tasks?: unknown[]
   /** GET /cluster/tasks/:id, by task ID. Default: the listed task, as it stands. */
   taskDetails?: Record<string, unknown>
@@ -264,7 +266,7 @@ test('lists built-in, own and Git tasks apart, in English, and the search narrow
   await mock(page)
   await page.goto('/cluster/tasks')
   await expect(items(page, 'Built-in')).toHaveText([
-    'Package update', 'Package install', 'Service restart', 'Run a command', 'Reboot (only when required)',
+    'Package update', 'Package install', 'Service restart', 'Run a command', 'Reboot (only when required)', 'Agent install (SSH)',
   ])
   await expect(items(page, 'My tasks')).toHaveText(['Deploy web', 'Rotate logs'])
   // Git tasks sit under their repository.
@@ -331,6 +333,7 @@ test('every tasks route has its pane', async ({ page }) => {
     ['/cluster/tasks/runs/r-1', 'task-pane-run'],
     ['/cluster/tasks/0a1b2c3d4e5f6071', 'task-pane-setup'],
     ['/cluster/tasks/0a1b2c3d4e5f6071/edit', 'task-pane-editor'],
+    ['/cluster/tasks/builtin%2Fagent-install', 'task-pane-install'],
   ]) {
     await page.goto(path)
     await expect(page.getByTestId(pane), path).toBeVisible()
@@ -360,7 +363,7 @@ test.describe('Korean', () => {
     await expect(tab(page, '작업')).toHaveAttribute('aria-current', 'page')
     const listKo = page.getByRole('navigation', { name: '작업 목록' })
     await expect(listKo.getByRole('region', { name: '내장', exact: true }).getByRole('link')).toHaveText([
-      '패키지 업데이트', '패키지 설치', '서비스 재시작', '명령 실행', '재부팅 (필요할 때만)',
+      '패키지 업데이트', '패키지 설치', '서비스 재시작', '명령 실행', '재부팅 (필요할 때만)', '에이전트 설치 (SSH)',
     ])
     await expect(listKo.getByRole('region', { name: '내 작업', exact: true })).toBeVisible()
     await expect(page.getByTestId('task-runs-active')).toContainText('실행 중 1건')
@@ -2096,6 +2099,311 @@ test.describe('Git import', () => {
       const box = await dialog.boundingBox()
       expect(box && box.x >= 0 && box.x + box.width <= 412).toBe(true)
       expect(await dialog.evaluate((d) => d.scrollWidth <= d.clientWidth)).toBe(true)
+    })
+  })
+})
+
+// ----------------------------------------------------------- agent install --
+
+// The agent install's own form, opened from the built-in list: servers, one
+// account, how to install, then [Preview] or [Start install]. Its secrets
+// live in the form alone and leave the browser in the start's body.
+test.describe('agent install', () => {
+  const INSTALL_PATH = '/cluster/tasks/builtin%2Fagent-install'
+  const PASSWORD = 'Fixture-Pw-0123'
+  const SUDO = 'Fixture-Sudo-4567'
+  const KEY = '-----BEGIN OPENSSH PRIVATE KEY-----\nFixtureKeyMaterial89ab\n-----END OPENSSH PRIVATE KEY-----\n'
+  const PASSPHRASE = 'Fixture-Phrase-cdef'
+  const pane = (page: Page) => page.getByTestId('task-pane-install')
+  const row = (page: Page, i: number) => page.getByTestId(`install-server-${i}`)
+  const host = (page: Page, n: number) => pane(page).getByRole('textbox', { name: `Server ${n}: IP or host`, exact: true })
+  const started = (over: Record<string, unknown> = {}): Reply => ({ status: 202, body: { success: true, data: { run_id: 'i-1', ...over } } })
+
+  test('opens from the end of the built-in list, across a reload, with nothing to clone or edit', async ({ page }) => {
+    const { requests } = await mock(page)
+    await page.goto('/cluster/tasks')
+    await expect(items(page, 'Built-in').last()).toHaveText('Agent install (SSH)')
+    await section(page, 'Built-in').getByRole('link', { name: 'Agent install (SSH)' }).click()
+    await expect(page).toHaveURL(new RegExp(`${INSTALL_PATH}$`))
+    const chosen = () => section(page, 'Built-in').getByRole('link', { name: 'Agent install (SSH)' })
+    await expect(chosen()).toHaveAttribute('aria-current', 'page')
+    await expect(pane(page).getByRole('heading', { name: 'Agent install (SSH)' })).toBeVisible()
+    await expect(pane(page)).toContainText('installs the SFPanel agent')
+    await expect(page.getByTestId('task-pane-setup')).toHaveCount(0)
+    for (const name of ['Clone', 'Edit', 'Delete']) await expect(pane(page).getByRole('button', { name })).toHaveCount(0)
+    await expect(pane(page).getByRole('link', { name: /Clone|Edit/ })).toHaveCount(0)
+
+    await page.reload()
+    await expect(chosen()).toHaveAttribute('aria-current', 'page')
+    await expect(pane(page).getByRole('button', { name: 'Start install' })).toBeVisible()
+    // It is not a task: no task route is asked about it.
+    expect(requests.filter((r) => r.startsWith('GET /cluster/tasks/builtin'))).toEqual([])
+  })
+
+  test('pasted lines fill the table, and a line left out is named by its number', async ({ page }) => {
+    await mock(page)
+    await page.goto(INSTALL_PATH)
+    await pane(page).getByRole('button', { name: 'Paste several lines' }).click()
+    await pane(page).getByRole('textbox', { name: 'Servers, one a line' }).fill(
+      '192.0.2.21 web-04 web\n# a comment\n192.0.2.22:2222\nnot/a/host\n192.0.2.21\n',
+    )
+    await pane(page).getByRole('button', { name: 'Add to the list' }).click()
+    // The blank row the form starts with is taken by the first server.
+    await expect(pane(page).locator('[data-testid^="install-server-"]')).toHaveCount(2)
+    await expect(host(page, 1)).toHaveValue('192.0.2.21')
+    await expect(pane(page).getByRole('textbox', { name: 'Server 1: name' })).toHaveValue('web-04')
+    await expect(pane(page).getByRole('textbox', { name: 'Server 1: group' })).toHaveValue('web')
+    await expect(host(page, 2)).toHaveValue('192.0.2.22')
+    await expect(pane(page).getByRole('textbox', { name: 'Server 2: SSH port' })).toHaveValue('2222')
+    const skipped = pane(page).getByTestId('install-paste-problems')
+    await expect(skipped).toContainText('Line 4: Enter an IP address or a host name.')
+    await expect(skipped).toContainText('Line 5: This server is already on line 1.')
+
+    // A row is added by hand and taken away.
+    await pane(page).getByRole('button', { name: 'Add server' }).click()
+    await expect(row(page, 2)).toBeVisible()
+    await pane(page).getByRole('button', { name: 'Remove server 3' }).click()
+    await expect(pane(page).locator('[data-testid^="install-server-"]')).toHaveCount(2)
+  })
+
+  test('the login method decides the fields: Tailscale SSH asks for no secret', async ({ page }) => {
+    await mock(page)
+    await page.goto(INSTALL_PATH)
+    const account = pane(page).getByTestId('install-account')
+    await expect(account.getByRole('radio', { name: 'Password' })).toBeChecked()
+    await expect(account.getByLabel('Login password', { exact: true })).toHaveAttribute('type', 'password')
+    await expect(account.getByRole('checkbox', { name: 'The sudo password is the login password' })).toBeChecked()
+    await expect(account.getByLabel('sudo password', { exact: true })).toHaveCount(0)
+    await account.getByRole('checkbox', { name: 'The sudo password is the login password' }).click()
+    await expect(account.getByLabel('sudo password', { exact: true })).toHaveAttribute('type', 'password')
+
+    await account.getByRole('radio', { name: 'Private key' }).check()
+    await expect(account.getByLabel('Login password', { exact: true })).toHaveCount(0)
+    const key = account.getByRole('textbox', { name: 'Private key' })
+    await expect(key).toHaveAttribute('spellcheck', 'false')
+    await expect(key).toHaveAttribute('autocomplete', 'off')
+    await expect(account.getByLabel('Key passphrase', { exact: true })).toHaveAttribute('type', 'password')
+    await expect(account.getByRole('button', { name: 'Read from a file' })).toBeVisible()
+    // A key login cannot hand its password to sudo: sudo's own field.
+    await expect(account.getByRole('checkbox', { name: 'The sudo password is the login password' })).toHaveCount(0)
+    await expect(account.getByLabel('sudo password', { exact: true })).toBeVisible()
+
+    await account.getByRole('radio', { name: 'Tailscale SSH' }).check()
+    await expect(account.getByLabel('Login password', { exact: true })).toHaveCount(0)
+    await expect(account.getByRole('textbox', { name: 'Private key' })).toHaveCount(0)
+    await expect(account.getByLabel('Key passphrase', { exact: true })).toHaveCount(0)
+    await expect(account).toContainText("tailnet's SSH rules")
+
+    // root needs no sudo.
+    await account.getByRole('textbox', { name: 'User' }).fill('root')
+    await expect(account.getByLabel('sudo password', { exact: true })).toHaveCount(0)
+    await expect(account).toContainText('root needs no sudo')
+  })
+
+  test('[Start install] sends the form and opens the run; [Preview] asks the run to stop for a review', async ({ page }) => {
+    const { calls } = await mock(page, { replies: { 'POST /cluster/agent-installs': started() } })
+    await page.goto(INSTALL_PATH)
+    await host(page, 1).fill('192.0.2.21')
+    await pane(page).getByRole('textbox', { name: 'Server 1: name' }).fill('web-04')
+    await pane(page).getByRole('textbox', { name: 'Server 1: group' }).fill('web')
+    await pane(page).getByRole('button', { name: 'Add server' }).click()
+    await host(page, 2).fill('host-b.example.ts.net')
+    await pane(page).getByRole('textbox', { name: 'Server 2: SSH port' }).fill('2222')
+    const account = pane(page).getByTestId('install-account')
+    await account.getByRole('textbox', { name: 'User' }).fill('ubuntu')
+    await account.getByLabel('Login password', { exact: true }).fill(PASSWORD)
+    await pane(page).getByRole('radio', { name: 'Offline' }).check()
+    await pane(page).getByLabel('Servers at once').selectOption('2')
+    await expect(pane(page)).toContainText('never stored')
+    await pane(page).getByRole('button', { name: 'Start install' }).click()
+
+    await expect(page).toHaveURL(/\/cluster\/tasks\/runs\/i-1$/)
+    expect(calls).toEqual([{
+      method: 'POST',
+      path: '/cluster/agent-installs',
+      body: {
+        servers: [{ host: '192.0.2.21', port: 22, name: 'web-04', group: 'web' }, { host: 'host-b.example.ts.net', port: 2222 }],
+        account: { user: 'ubuntu', method: 'password', password: PASSWORD, sudo_same: true },
+        review: false,
+        mode: 'offline',
+        concurrency: 2,
+      },
+    }])
+
+    await page.goto(INSTALL_PATH)
+    await host(page, 1).fill('192.0.2.30')
+    await pane(page).getByTestId('install-account').getByRole('textbox', { name: 'User' }).fill('root')
+    await pane(page).getByTestId('install-account').getByRole('radio', { name: 'Tailscale SSH' }).check()
+    await pane(page).getByRole('button', { name: 'Preview' }).click()
+    await expect(page).toHaveURL(/\/cluster\/tasks\/runs\/i-1$/)
+    expect(calls[1]).toEqual({
+      method: 'POST',
+      path: '/cluster/agent-installs',
+      body: { servers: [{ host: '192.0.2.30', port: 22 }], account: { user: 'root', method: 'tailscale' }, review: true, mode: 'auto', concurrency: 3 },
+    })
+  })
+
+  test('a form with problems is not sent, and says where', async ({ page }) => {
+    const { calls } = await mock(page)
+    await page.goto(INSTALL_PATH)
+    await host(page, 1).fill('not/a/host')
+    await pane(page).getByRole('button', { name: 'Start install' }).click()
+    await expect(row(page, 0)).toContainText('Enter an IP address or a host name.')
+    await expect(pane(page).getByTestId('install-account')).toContainText('Enter the SSH user.')
+    await expect(pane(page).getByTestId('install-account')).toContainText('Enter the login password.')
+    await expect(pane(page).getByRole('alert')).toContainText('Correct the fields marked above.')
+    expect(calls).toEqual([])
+    // Each problem goes as it is put right.
+    await host(page, 1).fill('192.0.2.21')
+    await expect(row(page, 0)).not.toContainText('Enter an IP address')
+    await pane(page).getByTestId('install-account').getByRole('textbox', { name: 'User' }).fill('ubuntu')
+    await pane(page).getByTestId('install-account').getByLabel('Login password', { exact: true }).fill(PASSWORD)
+    await expect(pane(page).getByRole('alert')).toHaveCount(0)
+  })
+
+  test('the secrets are passwords, sent in the body alone: in no address, not kept, gone when the form opens again', async ({ page }) => {
+    const { calls, requests } = await mock(page, { replies: { 'POST /cluster/agent-installs': started() } })
+    await page.goto(INSTALL_PATH)
+    await host(page, 1).fill('192.0.2.21')
+    const account = pane(page).getByTestId('install-account')
+    await account.getByRole('textbox', { name: 'User' }).fill('ubuntu')
+    const password = account.getByLabel('Login password', { exact: true })
+    await expect(password).toHaveAttribute('type', 'password')
+    await expect(password).toHaveAttribute('autocomplete', 'off')
+    await password.fill(PASSWORD)
+    await account.getByRole('button', { name: 'Show the login password' }).click()
+    await expect(password).toHaveAttribute('type', 'text')
+    await account.getByRole('button', { name: 'Hide the login password' }).click()
+    await expect(password).toHaveAttribute('type', 'password')
+    await account.getByRole('checkbox', { name: 'The sudo password is the login password' }).click()
+    await expect(account.getByLabel('sudo password', { exact: true })).toHaveAttribute('type', 'password')
+    await account.getByLabel('sudo password', { exact: true }).fill(SUDO)
+
+    // Left for another task and opened again, inside the page, the form has
+    // forgotten both: nothing outlives the pane.
+    const reopen = async () => {
+      await section(page, 'Built-in').getByRole('link', { name: 'Run a command' }).click()
+      await expect(page.getByTestId('task-pane-setup')).toBeVisible()
+      await section(page, 'Built-in').getByRole('link', { name: 'Agent install (SSH)' }).click()
+      await expect(pane(page)).toBeVisible()
+    }
+    await reopen()
+    await expect(account.getByLabel('Login password', { exact: true })).toHaveValue('')
+    await expect(account.getByRole('checkbox', { name: 'The sudo password is the login password' })).toBeChecked()
+    await account.getByRole('checkbox', { name: 'The sudo password is the login password' }).click()
+    await expect(account.getByLabel('sudo password', { exact: true })).toHaveValue('')
+
+    await host(page, 1).fill('192.0.2.21')
+    await account.getByRole('textbox', { name: 'User' }).fill('ubuntu')
+    await account.getByLabel('Login password', { exact: true }).fill(PASSWORD)
+    await account.getByLabel('sudo password', { exact: true }).fill(SUDO)
+    await pane(page).getByRole('button', { name: 'Preview' }).click()
+    await expect(page).toHaveURL(/\/cluster\/tasks\/runs\/i-1$/)
+
+    // Opened again from the run, the form is empty.
+    await section(page, 'Built-in').getByRole('link', { name: 'Agent install (SSH)' }).click()
+    await expect(account.getByLabel('Login password', { exact: true })).toHaveValue('')
+
+    // A key, read from a file, with its passphrase.
+    await host(page, 1).fill('192.0.2.22')
+    await account.getByRole('textbox', { name: 'User' }).fill('ubuntu')
+    await account.getByRole('radio', { name: 'Private key' }).check()
+    await account.locator('input[type=file]').setInputFiles({ name: 'id_ed25519', mimeType: 'application/octet-stream', buffer: Buffer.from(KEY) })
+    await expect(account.getByRole('textbox', { name: 'Private key' })).toHaveValue(KEY)
+    await expect(account.getByLabel('Key passphrase', { exact: true })).toHaveAttribute('type', 'password')
+    await account.getByLabel('Key passphrase', { exact: true }).fill(PASSPHRASE)
+    await pane(page).getByRole('button', { name: 'Start install' }).click()
+    await expect(page).toHaveURL(/\/cluster\/tasks\/runs\/i-1$/)
+
+    expect(calls.map((c) => (c.body as { account: unknown }).account)).toEqual([
+      { user: 'ubuntu', method: 'password', password: PASSWORD, sudo_password: SUDO },
+      { user: 'ubuntu', method: 'key', key: KEY, passphrase: PASSPHRASE },
+    ])
+    expect(requests.length).toBeGreaterThan(4)
+    for (const secret of [PASSWORD, SUDO, PASSPHRASE, 'FixtureKeyMaterial89ab']) {
+      expect(requests.filter((r) => r.includes(secret) || r.includes(encodeURIComponent(secret)))).toEqual([])
+      const kept = await page.evaluate(() => JSON.stringify({ ...localStorage }) + JSON.stringify({ ...sessionStorage }) + location.href)
+      expect(kept).not.toContain(secret)
+    }
+    await section(page, 'Built-in').getByRole('link', { name: 'Agent install (SSH)' }).click()
+    await account.getByRole('radio', { name: 'Private key' }).check()
+    await expect(account.getByRole('textbox', { name: 'Private key' })).toHaveValue('')
+    await expect(account.getByLabel('Key passphrase', { exact: true })).toHaveValue('')
+  })
+
+  test('a refusal that names a row or a field is shown beside it, and the secrets must be typed again', async ({ page }) => {
+    const { calls } = await mock(page, {
+      replies: {
+        'POST /cluster/agent-installs': [
+          fail(400, 'AGENT_INSTALL_INVALID', 'A server\'s SSH port is 1 to 65535', { field: 'port', row: 's2' }),
+          fail(400, 'AGENT_INSTALL_INVALID', 'The user is missing', { field: 'user' }),
+        ],
+      },
+    })
+    await page.goto(INSTALL_PATH)
+    // Three rows, the middle one left blank: the leader's s2 is the third row.
+    await host(page, 1).fill('192.0.2.21')
+    await pane(page).getByRole('button', { name: 'Add server' }).click()
+    await pane(page).getByRole('button', { name: 'Add server' }).click()
+    await host(page, 3).fill('192.0.2.23')
+    const account = pane(page).getByTestId('install-account')
+    await account.getByRole('textbox', { name: 'User' }).fill('ubuntu')
+    await account.getByLabel('Login password', { exact: true }).fill(PASSWORD)
+    await pane(page).getByRole('button', { name: 'Start install' }).click()
+
+    await expect(row(page, 2)).toContainText('The SSH port is a number from 1 to 65535.')
+    await expect(row(page, 0)).not.toContainText('SSH port is a number')
+    await expect(row(page, 1)).not.toContainText('SSH port is a number')
+    await expect(pane(page).getByRole('alert')).toContainText("correct a server's SSH port")
+    await expect(pane(page).getByRole('alert')).toContainText('enter them again')
+    await expect(page).toHaveURL(new RegExp(`${INSTALL_PATH}$`))
+    // Cleared when the request was sent.
+    await expect(account.getByLabel('Login password', { exact: true })).toHaveValue('')
+
+    await account.getByLabel('Login password', { exact: true }).fill(PASSWORD)
+    await pane(page).getByRole('button', { name: 'Start install' }).click()
+    await expect(account).toContainText('Enter the SSH user.')
+    await expect(row(page, 2)).not.toContainText('SSH port is a number')
+    expect(calls).toHaveLength(2)
+  })
+
+  test.describe('Korean', () => {
+    test.use({ locale: 'ko-KR' })
+
+    test('the form reads in Korean', async ({ page }) => {
+      await page.addInitScript(() => localStorage.setItem('sfpanel_language', 'ko'))
+      await mock(page)
+      await page.goto(INSTALL_PATH)
+      const p = pane(page)
+      await expect(p.getByRole('heading', { name: '에이전트 설치 (SSH)' })).toBeVisible()
+      for (const text of ['설치할 서버', '접속 계정 (모든 서버에 같이 씀)', '비밀번호·키는 이 설치에만 쓰고 저장하지 않습니다']) await expect(p).toContainText(text)
+      await expect(p.getByRole('textbox', { name: '1번째 서버: IP 또는 호스트' })).toBeVisible()
+      await expect(p.getByRole('radio', { name: '비밀번호' })).toBeChecked()
+      await expect(p.getByRole('radio', { name: '개인 키' })).toBeVisible()
+      await expect(p.getByRole('checkbox', { name: 'sudo 비밀번호는 접속 비밀번호와 같음' })).toBeChecked()
+      await expect(p.getByRole('button', { name: '미리 보기' })).toBeVisible()
+      await expect(p.getByRole('button', { name: '설치 시작' })).toBeVisible()
+      await p.getByRole('button', { name: '여러 줄 붙여넣기' }).click()
+      await p.getByRole('textbox', { name: '서버 목록 (한 줄에 하나)' }).fill('192.0.2.21\nnot/a/host')
+      await p.getByRole('button', { name: '목록에 넣기' }).click()
+      await expect(p.getByTestId('install-paste-problems')).toContainText('2번째 줄: IP 주소나 호스트 이름을 넣으세요.')
+    })
+  })
+
+  test.describe('phone', () => {
+    test.use({ viewport: { width: 412, height: 860 }, hasTouch: true })
+
+    test('the form fits the screen, a server a card', async ({ page }) => {
+      await mock(page)
+      await page.goto(INSTALL_PATH)
+      await expect(page.getByRole('button', { name: /Agent install \(SSH\)/ })).toBeVisible()
+      await pane(page).getByRole('button', { name: 'Add server' }).click()
+      for (const el of [host(page, 1), host(page, 2), pane(page).getByRole('button', { name: 'Remove server 2' }), pane(page).getByRole('button', { name: 'Start install' })]) {
+        await el.scrollIntoViewIfNeeded()
+        const box = await el.boundingBox()
+        expect(box && box.x >= 0 && box.x + box.width <= 412).toBe(true)
+      }
+      expect(await pane(page).evaluate((d) => d.scrollWidth <= d.clientWidth)).toBe(true)
     })
   })
 })

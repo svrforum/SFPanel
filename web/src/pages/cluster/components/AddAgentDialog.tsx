@@ -1,6 +1,6 @@
 import { useEffect, useId, useRef, useState, type ReactNode } from 'react'
 import { useTranslation } from 'react-i18next'
-import { useNavigate } from 'react-router-dom'
+import { Link, useNavigate } from 'react-router-dom'
 import { AlertTriangle, CheckCircle2, Loader2 } from 'lucide-react'
 import { api } from '@/lib/api'
 import { detectJoined } from '@/lib/clusterNodes'
@@ -17,6 +17,7 @@ import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } f
 import { NODE_NAME_PATTERN, agentJoinCommands } from '../joinCommands'
 import { ManagerTokenSection } from './ManagerTokenSection'
 import { PendingTokens } from './PendingTokens'
+import { AGENT_INSTALL_TASK_ID } from './tasks/install/installRun'
 
 const message = (err: unknown) => (err instanceof Error ? err.message : String(err))
 
@@ -53,6 +54,14 @@ export function AddAgentDialog({ open, onOpenChange, localId, onJoined }: {
         <DialogHeader>
           <DialogTitle className="text-[15px]">{t('cluster.addAgent.title')}</DialogTitle>
           <DialogDescription className="text-[13px]">{t('cluster.addAgent.intro')}</DialogDescription>
+          {/* A server the leader reaches over SSH needs nothing pasted: the
+              agent install logs in and does it. Leaving the page closes this. */}
+          <p className="text-[13px] text-muted-foreground">
+            {t('cluster.tasks.install.addAgentHint')}{' '}
+            <Link to={`/cluster/tasks/${encodeURIComponent(AGENT_INSTALL_TASK_ID)}`} className="font-medium text-primary underline underline-offset-2">
+              {t('cluster.tasks.install.addAgentLink')}
+            </Link>
+          </p>
         </DialogHeader>
         {/* Inside the content, so it mounts on every opening: a fresh token,
             a fresh baseline and no name left over from the last time. */}
