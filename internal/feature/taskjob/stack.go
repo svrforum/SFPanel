@@ -5,7 +5,7 @@ package taskjob
 // compose module applies (docker.ValidateProjectName) and the safety tiers
 // (composex.Analyze) — forbidden refused always, risky only until the step
 // was confirmed in the preview. Up keeps its own check of the resolved
-// configuration (ComposeManager.Up).
+// configuration (ComposeManager.UpStream).
 //
 // The step runs inside the panel: a restart while it runs leaves the job
 // interrupted (Recover).
@@ -24,7 +24,9 @@ import (
 )
 
 // stackUpTimeout bounds `docker compose up` for one step: pulling images
-// may take a while.
+// may take a while. It goes through compose's streaming path, whose own cap
+// is the same 30 minutes; the plain ComposeManager.Up stops at 5 whatever
+// its caller allows.
 const stackUpTimeout = 30 * time.Minute
 
 // StackRunner is what a stack step needs of the compose module;
@@ -33,7 +35,7 @@ type StackRunner interface {
 	GetProjectYAML(ctx context.Context, name string) (yaml, file string, err error)
 	CreateProject(ctx context.Context, name, yaml string) (*docker.ComposeProject, error)
 	UpdateProject(ctx context.Context, name, yaml string) error
-	Up(ctx context.Context, name string) (string, error)
+	UpStream(ctx context.Context, name string, onLine func(string)) error
 }
 
 // StackStepRunner runs stack steps on the handler's Compose.
@@ -113,10 +115,16 @@ func runStack(ctx context.Context, job *Job) Result {
 		return Result{Status: tasks.JobSucceeded, Changed: wrote, Summary: summary}
 	}
 
+	// Each line goes to the log as compose prints it, and is kept to judge
+	// what up changed and to say why it failed.
+	var output strings.Builder
 	upCtx, cancel := context.WithTimeout(ctx, stackUpTimeout)
-	out, err := compose.Up(upCtx, step.Name)
+	err := compose.UpStream(upCtx, step.Name, func(line string) {
+		appendLog(job, line)
+		output.WriteString(line + "\n")
+	})
 	cancel()
-	appendLog(job, strings.TrimRight(out, "\n"))
+	out := output.String()
 	changed := wrote || upChanged(out)
 	switch {
 	case ctx.Err() != nil:

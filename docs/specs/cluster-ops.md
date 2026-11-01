@@ -1585,8 +1585,8 @@ audit.
 - **Stack** steps create the stack, or update its compose file when it
   differs, behind the compose endpoints' name rule and safety tiers
   (forbidden always refused, risky only when confirmed); with `up` they run
-  `docker compose up -d`, capped at five minutes by the compose module's own
-  limit.
+  `docker compose up -d` for at most 30 minutes (enough to pull images),
+  each line of its output reaching the job's log as compose prints it.
 - **Reboot** steps with `only_if_required` look for `/var/run/reboot-required`
   and, without it, succeed at once as `not required`. Otherwise the reboot is
   scheduled five seconds out (`systemd-run --on-active=5

@@ -167,20 +167,28 @@ func (f *fakeCompose) UpdateProject(_ context.Context, name, yaml string) error 
 	return nil
 }
 
-func (f *fakeCompose) Up(ctx context.Context, name string) (string, error) {
+// UpStream hands up's output to onLine a line at a time, as compose prints
+// it, before it waits on upBlock.
+func (f *fakeCompose) UpStream(ctx context.Context, name string, onLine func(string)) error {
 	f.record("up " + name)
 	f.mu.Lock()
 	f.upCtx = ctx
 	block, out, err := f.upBlock, f.upOutput, f.upErr
 	f.mu.Unlock()
+	for _, line := range strings.Split(strings.TrimRight(out, "\n"), "\n") {
+		if line != "" {
+			onLine(line)
+		}
+	}
 	if block != nil {
 		select {
 		case <-block:
 		case <-ctx.Done():
-			return "canceled", ctx.Err()
+			onLine("canceled")
+			return ctx.Err()
 		}
 	}
-	return out, err
+	return err
 }
 
 // projectExists is docker.ErrProjectExists wrapped as CreateProject wraps it.

@@ -151,3 +151,28 @@ func TestAStackJobCutOffByARestartIsInterrupted(t *testing.T) {
 	}
 	close(k.compose.upBlock)
 }
+
+// Up goes through compose's streaming path, whose bound is the step's 30
+// minutes — the plain Up is cut at 5 whatever its caller allows — and each
+// line it prints reaches the job's log, in order, as it comes: the operator
+// sees a long pull while it runs, not after.
+func TestAStackStepsUpReachesTheLogAsItComes(t *testing.T) {
+	k := newKindNode(t, exec.NewMockCommander())
+	k.compose.upOutput = " Image nginx  Pulling\n Container web-app-1  Created\n Container web-app-1  Started\n"
+	k.compose.upBlock = make(chan struct{})
+	s := stackSpec(0, "web", plainCompose, true, false)
+	startOK(t, k.testNode, s)
+	want := "stack web: compose file created\n Image nginx  Pulling\n Container web-app-1  Created\n Container web-app-1  Started\n"
+	eventually(t, "up's lines in the log while up runs", func() bool { return k.logOf(t, s.ID) == want })
+	if rec := k.record(t, s.ID); rec.status != tasks.JobRunning {
+		t.Errorf("the job is %s before up ended, want running", rec.status)
+	}
+	close(k.compose.upBlock)
+	r := k.ended(t, s.ID)
+	if r.status != tasks.JobSucceeded || !r.changed || r.summary != "compose file written, up" {
+		t.Errorf("job ended %s changed=%v %q, want succeeded, changed, \"compose file written, up\"", r.status, r.changed, r.summary)
+	}
+	if got := k.logOf(t, s.ID); got != want {
+		t.Errorf("the log is %q, want %q (each line once, in order)", got, want)
+	}
+}
