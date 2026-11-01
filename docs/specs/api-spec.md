@@ -6434,6 +6434,170 @@ GitHub 폴더의 작업 파일을 보여 줍니다(리더, 아무것도 쓰지 �
 
 ---
 
+## 에이전트 설치 API (`/api/v1/cluster/agent-installs`)
+
+리더가 SSH로 서버에 접속해 SFPanel 에이전트를 설치하고 클러스터에 등록합니다. 매니저 전용 `/cluster` 그룹에 있으며 에이전트에는 없습니다. 설치의 세션(행의 상태, 인증 정보, 1회용 가입 토큰)은 설치를 시작한 리더의 메모리에만 있으므로 여기의 라우트는 모두 리더가 처리하고, 다른 매니저에서 요청하면 리더로 전달됩니다(본문은 매니저 사이 gRPC를 메모리로만 지나감). 설치의 기록은 그룹 작업의 실행 기록(`kind: "agent-install"`)이라 진행·기록·국면 출력·중지는 실행 라우트를 그대로 씁니다(아래 "실행 라우트로 보는 설치"). 화면은 클러스터 작업 탭의 내장 작업 `builtin/agent-install`이고, CLI는 없습니다. 리더에서 그 서버로 SSH가 닿지 않으면 기존의 에이전트 토큰(`POST /cluster/token`, `kind: agent`)과 가입 명령을 쓰세요.
+
+- **인증 필요**: 예 (모두)
+- 클러스터가 아니면 `400 INVALID_REQUEST`(`Cluster not configured`)
+- 막 뽑힌 리더는 이전 리더의 기록을 모두 적용할 때까지 `503 INTERNAL_ERROR`(`The cluster leader is catching up: retry in a few seconds`). 다른 매니저에서 전달된 요청이 도착하기 전에 리더가 바뀌면 시작은 `503 INTERNAL_ERROR`(`This node is not the cluster leader: retry in a few seconds`), 행에 답하는 라우트는 그 노드에 세션이 없으므로 `404 AGENT_INSTALL_NOT_FOUND`
+- 모든 라우트는 본문이 1 MiB를 넘으면 핸들러 전에 `413`(Echo의 `{"message":"Request Entity Too Large"}`, 응답 봉투가 아님)
+- 시작은 실행을 기록하고 바로 답하므로 전달의 기본 30초 안에 끝납니다. 서버 작업은 요청·브라우저와 떨어져 리더에서 돕니다
+- **`401`로 답하지 않습니다.** 서버가 SSH 로그인을 거부하면 그 행의 이유(`AGENT_INSTALL_AUTH_FAILED`)가 될 뿐 HTTP 응답이 아닙니다 — 브라우저는 `401`을 자기 세션 만료로 읽고 로그아웃합니다
+- **비밀은 저장하지도 돌려주지도 않습니다.** SSH 비밀번호·개인 키·키 암호문·sudo 비밀번호는 시작 요청의 본문에만 실려 오고, 리더는 메모리에 바이트로만 들고 있다가 0으로 덮어 지웁니다. 실행 기록(모든 매니저에 복제됨)·감사 로그·패널 로그·어떤 응답·오류 문장에도 넣지 않고, 대상 서버의 명령 인자에도 넣지 않습니다: sudo 비밀번호는 `sudo -S`의 표준 입력으로, 가입 토큰은 SSH 표준 입력으로 쓴 0600 임시 파일(`install.sh --token-file`)로 넘기고 끝나면 지웁니다. 가입 토큰은 행의 IP에만 묶인 1회용이며(30분) 행이 어떻게 끝나든 회수됩니다. 감사 로그와 요청 로그에는 메서드와 경로만 남습니다
+- **인증 정보는 쓸 일이 없어지면 지웁니다**: 모든 행이 성공하면 끝나자마자, 등록된 행이 실패했으면 [다시 확인]·[되돌리기]를 위해 끝난 뒤 10분(`run.credentials_until`)까지 또는 그 행들을 모두 되돌릴 때까지, 중지하면 바로. 리더가 바뀌면 옛 리더의 메모리와 함께 사라집니다
+- **한 번에 하나**: 설치가 진행 중이면 다른 설치, 그룹 작업 실행의 시작·다시 실행, 수동 리더 이전(`POST /cluster/leader-transfer`)이 `409 AGENT_INSTALL_ACTIVE`이고, 리더는 선호 리더로 옮기지 않고 자리를 지킵니다. 설치는 진행 중인 실행으로 보이므로 클러스터 업데이트·CA 교체·전환·승격은 `409 TASK_RUN_ACTIVE`로 기다립니다
+
+### POST /api/v1/cluster/agent-installs
+설치를 시작합니다(리더). 본문을 검사하고, 시작 판정과 기록은 그룹 작업 실행과 같은 관문 하나 아래에서 이루어집니다. 기록한 뒤 `202`로 답하고 서버는 동시에 `concurrency`대씩 작업합니다. 설치하는 버전은 리더의 버전이고, 모든 매니저가 같은 버전이어야 합니다.
+
+**Request Body:**
+```json
+{
+  "servers": [
+    { "host": "192.0.2.21", "port": 22, "name": "web-1", "group": "web" },
+    { "host": "peer-node.<tailnet>.ts.net" }
+  ],
+  "account": {
+    "user": "ops",
+    "method": "password",
+    "password": "…",
+    "sudo_same": true
+  },
+  "review": false,
+  "mode": "auto",
+  "concurrency": 3
+}
+```
+
+| 필드 | 설명 |
+|------|------|
+| `servers` | 1~50대. 입력 순서대로 행 `s1`, `s2` …가 됨 |
+| `servers[].host` | IP 또는 호스트 이름(Tailscale MagicDNS 이름 포함, 리더가 IPv4를 먼저 골라 풂). 같은 서버를 두 번 넣을 수 없음(IP는 정규형으로, 이름은 대소문자와 끝의 `.`을 무시하고 비교) |
+| `servers[].port` | SSH 포트 1~65535. 생략하면 22 |
+| `servers[].name` | 노드 이름(1~63자, 영문·숫자·`.`·`-`·`_`, 영문·숫자로 시작). 생략하면 서버의 hostname — 노드 이름이 될 수 없으면 그 행이 `AGENT_INSTALL_NAME_INVALID`로 멈춤. 등록 뒤에는 바꿀 수 없음 |
+| `servers[].group` | 연결 확인 뒤 노드의 기존 라벨에 합쳐 붙일 `group` 라벨(영문·숫자·`.`·`_`·`-`, 63자까지) |
+| `account.user` | 모든 서버에 같이 쓰는 SSH 사용자. `root`면 sudo가 필요 없음 |
+| `account.method` | `password` · `key` · `tailscale`(Tailscale SSH: SSH `none` 인증으로 붙고, tailnet 규칙이 `check`면 행이 `awaiting: "check"`로 확인 주소를 보여 주며 10분까지 기다림) |
+| `account.password` | `password` 방식의 접속 비밀번호. 그 방식에만, 필수 |
+| `account.key` | `key` 방식의 개인 키(OpenSSH·PEM). 그 방식에만, 필수 |
+| `account.passphrase` | 개인 키의 암호문. `key` 방식에만, 선택 |
+| `account.sudo_password` | root가 아닌 로그인의 sudo 비밀번호. 없으면 비밀번호 없는 sudo(`sudo -n`)만 됨 |
+| `account.sudo_same` | sudo 비밀번호가 접속 비밀번호와 같음. `password` 방식에만, `sudo_password`와 함께 쓸 수 없음 |
+| `review` | `true`면 모든 서버가 호스트 키 승인과 사전 점검까지만 하고 `awaiting: "review"`에서 멈춤. `POST …/proceed` 한 번으로 통과한 서버만 설치 |
+| `mode` | `auto`(기본: 사전 점검에서 서버가 `https://github.com`에 닿으면 온라인) · `online`(서버가 그 버전의 릴리스 아카이브를 GitHub에서 받아 리더가 서명 확인한 `checksums.txt`로 확인) · `offline`(리더가 서버 CPU의 아카이브를 받아 서명 확인 뒤 SSH로 올림) |
+| `concurrency` | 동시에 작업할 서버 수 1~5. 생략하면 3 |
+
+없는 필드(예: 철자가 틀린 `sudo_pasword`)가 있으면 조용히 버리지 않고 거부합니다.
+
+**Response (202):** `{ "success": true, "data": { "run_id": "20261102-091500-3fa2c1" } }`
+
+진행은 `GET /cluster/task-runs/:id/stream`으로 봅니다. 각 행은 다섯 국면을 지납니다: 0 접속(호스트 키를 잡아 `awaiting: "host_key"`로 멈추고, 승인 전에는 아무 명령도 보내지 않음) → 1 사전 점검(OS·CPU·systemd·root/sudo·포트·시계·리더의 클러스터 포트에 닿는지·입력한 IP·기존 SFPanel·디스크, 그리고 클러스터의 등록 관문. 단독 패널이 있으면 `awaiting: "standalone"`) → 2 설치(`systemd-run` 아래 리더 바이너리에 든 `install.sh`) → 3 등록(묶은 IP로 새 에이전트를 찾음) → 4 연결 확인(리더의 하트비트로 온라인이고 같은 버전, 리더가 클러스터 포트로 중계한 `GET /api/v1/health` 200, 패널 포트의 HTTPS `GET /api/v1/health` 200 — 3초마다 3분까지. 그다음 `group` 라벨). 운영자를 기다리는 질문은 30분 안에 답이 없으면 그 행이 `AGENT_INSTALL_FAILED`(`no_answer`)로 끝납니다. 등록 전에 실패하면 그 행이 서버에 남긴 것(임시 디렉터리, 이번 실행이 설치를 시작했고 원래 SFPanel이 없었으면 SFPanel 자체)을 같은 SSH로 지웁니다.
+
+감사 로그에는 요청 행(`POST /api/v1/cluster/agent-installs`, 본문 없음)과 함께, 리더가 실행 ID를 붙인 시작(`POST /api/v1/cluster/agent-installs/<run_id>#start`, 202)과 끝(`TASK /api/v1/cluster/task-runs/<run_id>#end:<status>`), 되돌리기(`POST /api/v1/cluster/task-runs/<run_id>#revert:<행>`)를 시작한 운영자 이름으로 남깁니다.
+
+**에러 응답:**
+| 코드 | HTTP 상태 | 조건 |
+|------|-----------|------|
+| `AGENT_INSTALL_INVALID` | 400 | 설치 요청이 아님. `details.field`가 무엇이 잘못됐는지를 본문의 이름으로 말함: `body`(JSON이 아니거나 없는 필드), `servers`(0대 또는 50대 초과, `details.max`: `"50"`), `user`, `method`, `password`·`key`·`passphrase`(방식에 필요한 비밀이 없거나 다른 방식의 비밀이 있음 — Tailscale SSH는 비밀을 받지 않음), `sudo_same`, `sudo_password`, `mode`, `concurrency`, 그리고 한 서버의 것이면 `details.row`(`s1` …)와 `host`·`port`·`name`·`group`. 같은 서버를 두 번 넣었으면 `field: host`와 `details.same_as`(먼저 나온 행) |
+| `AGENT_INSTALL_ACTIVE` | 409 | 다른 설치가 진행 중 (`details.run_id`) |
+| `TASK_RUN_ACTIVE` | 409 | 그룹 작업 실행이 진행 중 (`details.run_id`) |
+| `AGENT_INSTALL_MIXED_VERSIONS` | 409 | 매니저들의 버전이 다름: 설치는 리더의 버전으로 고정하므로 클러스터를 먼저 업데이트 (`details.version`: 리더의 버전, `details.managers`: `이름 (버전), …`). 아직 하트비트가 없는 매니저는 셈하지 않음 |
+| `AGENT_INSTALL_UNRELEASED` | 409 | 리더의 버전이 릴리스(`X.Y.Z`)가 아닌데, 환경 변수 `SFPANEL_AGENT_ARCHIVES`가 그 버전의 아카이브와 `checksums.txt`가 든 디렉터리를 가리키지 않음 (`details.version`). 릴리스 빌드는 이 변수를 읽지 않음 |
+| `UPDATE_IN_PROGRESS` · `CLUSTER_CA_ROTATING` · `TASK_CLUSTER_CHANGING` | 409 | `POST /cluster/task-runs`와 같음 |
+
+---
+
+### 행의 질문에 답하기
+리더가 처리합니다(다른 매니저는 전달). `:id`는 실행 ID, `:key`는 행 키(`s1` …). 성공하면 `200 { "success": true, "data": null }`이고, 그 결과는 실행 기록과 스트림으로 봅니다.
+
+| 메서드 | 경로 | 본문 | 설명 |
+|--------|------|------|------|
+| POST | `/api/v1/cluster/agent-installs/:id/servers/:key/host-key` | `{ "fingerprint": "ED25519 SHA256:…", "accept": true }` | 호스트 키 승인. `fingerprint`는 행이 보여 준 `host_key`(또는 그 `SHA256:…` 부분) 그대로. 그 키 하나만 받아 다시 접속하므로 승인과 접속 사이에 키가 바뀌면 그 행이 `AGENT_INSTALL_HOST_KEY_CHANGED`로 실패. `accept: false`면 그 서버만 멈춤(`stopped`, `fingerprint` 불필요) |
+| POST | `/api/v1/cluster/agent-installs/:id/servers/:key/standalone` | `{ "accept": true }` | 단독 패널을 에이전트로 바꾸는 것을 확인 — 로컬 로그인이 사라지고 HTTPS로 바뀜. `false`면 그 서버를 건너뜀(`skipped`) |
+| POST | `/api/v1/cluster/agent-installs/:id/proceed` | 없음 | `review`로 멈춘 모든 서버를 설치로 보냄 |
+| POST | `/api/v1/cluster/agent-installs/:id/servers/:key/recheck` | 없음 | 등록됐지만 연결 확인에 실패한 행의 세 가지 확인을 다시 함. 실행이 다시 `running`이 되어(다른 실행·리더 이전을 막음) 끝나면 다시 끝을 기록. 인증 정보가 필요 없음 |
+| POST | `/api/v1/cluster/agent-installs/:id/servers/:key/revert` | 없음 | 등록됐지만 연결 확인에 실패한 행을 되돌림: 노드를 클러스터에서 제거하고, 원래 SFPanel이 없던 서버면 인증 정보가 남아 있는 동안 SSH로 `install.sh uninstall --purge`와 이번 실행이 만든 빈 `/opt/stacks`를 지움(뒤에서 진행: `reason_details.reverted`가 `removing` → `purged` · `cleanup_failed`). 원래 단독 패널이던 서버는 노드 제거만(`reverted: removed`, `standalone: "1"`) — 그 로컬 계정은 이미 사라졌으므로 손대지 않음. 인증 정보가 이미 지워졌으면 노드만 제거하고 행의 이유가 `AGENT_INSTALL_CREDENTIALS_GONE`(`reverted: removed`)이 되며, 서버의 정리는 운영자 몫 |
+
+**에러 응답:**
+| 코드 | HTTP 상태 | 조건 |
+|------|-----------|------|
+| `AGENT_INSTALL_INVALID` | 400 | 읽을 수 없는 본문이나 없는 필드(`field: body`), `accept`가 없음(`field: accept`), 승인인데 `fingerprint`가 없음(`field: fingerprint`) |
+| `AGENT_INSTALL_NOT_FOUND` | 404 | 이 리더에 그 실행의 세션이 없음(리더가 바뀌었거나, 그 뒤 다른 설치가 시작됨), 또는 그 실행에 그런 행이 없음 |
+| `AGENT_INSTALL_NOT_WAITING` | 409 | 그 행이 그 질문을 하고 있지 않음, `review`로 멈춘 행이 없음, 다시 확인·되돌리기할 행이 아님(등록된 채 실패한 행만, 되돌린 행은 다시 안 됨) |
+| `AGENT_INSTALL_HOST_KEY_CHANGED` | 409 | 승인한 지문이 행이 보여 준 것과 다름. 행은 계속 기다림 (`details.host_key`: 행이 보여 준 것) |
+
+---
+
+### 실행 라우트로 보는 설치
+설치는 실행 기록이므로 `GET /cluster/task-runs`, `GET /cluster/task-runs/:id`, `GET /cluster/task-runs/:id/stream`이 작업 실행과 같이 답합니다(어느 매니저든 복제 상태에서). 실행 기록에는 계정도 비밀도 없습니다.
+
+| 필드 | 설명 |
+|------|------|
+| `run.kind` | `"agent-install"`. 작업 실행에는 없음 |
+| `run.task_id`, `run.task_name` | `builtin/agent-install`, `에이전트 설치 (SSH)`(화면은 i18n으로 이름을 붙임) |
+| `run.inputs` | `{ "mode", "review", "version" }`만 — `version`은 설치하는 버전 |
+| `run.nodes`, `run.waves` | 행 키(`s1` …). 노드 ID가 아님 |
+| `run.batch` | `concurrency` |
+| `run.status` | `running` → `succeeded`(실패한 행이 없음) · `failed`(실패한 행이 있음) · `stopped`(중지). 리더가 바뀌면 새 리더가 진행 중인 설치를 이어받지 않고 `failed`, `reason: "AGENT_INSTALL_LEADER_CHANGED"`로 끝냄(등록 안 된 행과 진행 중이던 행은 그 이유로 실패, 등록된 행은 `node_id`를 지님) |
+| `run.credentials_until` | 인증 정보를 지울 시각. 등록된 행이 실패해 인증 정보를 남겨 둔 동안만 있음 |
+| `nodes.<행>.status` | `pending`, `running`, `succeeded`, `failed`, `skipped`(단독 패널 전환을 거절), `stopped`(호스트 키를 거절했거나 설치를 중지) |
+| `nodes.<행>.host` | 입력 그대로 |
+| `nodes.<행>.ip` | 리더가 푼 주소: 에이전트의 advertise 주소이자 토큰을 묶은 주소 |
+| `nodes.<행>.name`, `group` | 입력 그대로(이름을 비웠으면 없음) |
+| `nodes.<행>.node_id` | 등록된 에이전트의 노드 ID(등록 뒤) |
+| `nodes.<행>.awaiting` | 운영자를 기다리는 질문: `host_key`, `check`, `standalone`, `review` |
+| `nodes.<행>.host_key` | 첫 접속에서 잡은 호스트 키, `"ED25519 SHA256:…"`. 승인 뒤에도 남음 |
+| `nodes.<행>.check_url` | `awaiting: "check"`인 동안 Tailscale SSH의 확인 주소. 화면은 `https:` 주소만 링크하고 호스트를 보여 줌 |
+| `nodes.<행>.reason`, `reason_details` | 실패 이유 코드와 화면이 문장을 만드는 값(아래 "행 이유 코드"). 되돌린 행은 `reason`을 그대로 두고 `reason_details.reverted`를 더함 |
+| `nodes.<행>.steps` | 언제나 다섯 국면(0 접속 · 1 사전 점검 · 2 설치 · 3 등록 · 4 연결 확인). 이름은 보내지 않음. `job_id`: `install/<행>/<국면>` |
+
+`GET /cluster/task-runs/:id`의 최상위 `steps`는 설치에는 없습니다.
+
+- **국면 출력** `GET /cluster/task-runs/:id/nodes/<행>/steps/<국면>/output?skip=`: 리더가 자기 세션의 국면 로그로 답합니다(다른 매니저는 리더로 전달, 막 뽑힌 리더는 `503`). 국면당 1 MiB까지, 로그처럼 걸러짐(`SanitizeLogPiece`). `kind: "agent-install"`이고 `exit_code`·`summary`는 없습니다. 그 실행의 세션이 리더에 없으면(리더가 바뀌었거나 다른 설치가 시작됨) `404 AGENT_INSTALL_LOG_GONE`
+- **중지** `POST /cluster/task-runs/:id/stop`: 진행 중인 행을 멈추고(설치 중이면 `systemctl stop`), 등록 전이면 서버를 정리하고, 토큰을 회수하고, 인증 정보를 바로 지웁니다. 끝난 설치면 남겨 둔 인증 정보만 지웁니다. `force`는 무시합니다. 세션이 없는 진행 중 설치(리더가 바뀜)는 그 자리에서 리더 변경과 같이 끝냅니다
+- **다시 실행** `POST /cluster/task-runs/:id/rerun`: `409 AGENT_INSTALL_NOT_RERUNNABLE` — 인증 정보가 남아 있지 않으므로 설치 창에서 새로 시작합니다
+- 작업 라우트에서 `builtin/agent-install`은 목록과 조회(`GET /cluster/tasks/:id`)에만 나오고, 미리 보기·실행 시작은 `404 TASK_NOT_FOUND`, 수정·삭제는 `409 TASK_READ_ONLY`
+
+---
+
+### 행 이유 코드
+
+행(`nodes.<행>.reason`)이 끝난 이유입니다. HTTP 응답의 코드가 아니며, 화면이 `reason_details`로 문장을 만듭니다.
+
+| 코드 | `reason_details` | 의미 |
+|------|------------------|------|
+| `AGENT_INSTALL_UNREACHABLE` | `host` 또는 `address` | 이름이 주소로 풀리지 않음(`host`), 또는 리더에서 SSH가 닿지 않음(`address`) |
+| `AGENT_INSTALL_AUTH_FAILED` | — | 서버가 SSH 로그인을 거부함 |
+| `AGENT_INSTALL_HOST_KEY_CHANGED` | `host_key` | 승인한 것과 다른 호스트 키를 내놓음(가운데 사람 공격일 수 있음) |
+| `AGENT_INSTALL_NOT_ROOT` | `sudo` | root가 될 수 없음: `none`(sudo 없음), `password`(sudo가 비밀번호를 묻는데 받지 않음), `refused`(sudo가 받은 비밀번호를 거부) |
+| `AGENT_INSTALL_OS` | `os_id`, `os_like` | Ubuntu·Debian이 아님 |
+| `AGENT_INSTALL_ARCH` | `arch` | 릴리스가 없는 CPU(amd64·arm64만) |
+| `AGENT_INSTALL_NO_SYSTEMD` | — | systemd가 없음 |
+| `AGENT_INSTALL_NO_TOOLS` | `missing` | 설치에 필요한 명령이 없음(쉼표로 구분) |
+| `AGENT_INSTALL_DISK` | `free_kb`, `need_kb` | 디스크 공간 부족 |
+| `AGENT_INSTALL_PORT_BUSY` | `port`, `owner` | 3628·3629를 다른 프로그램이 씀(`owner`: 프로세스 이름, 모르면 `?`) |
+| `AGENT_INSTALL_CLOCK` | `skew_seconds` | 시계가 리더와 30초 넘게 다름(매니저가 중계를 거부함) |
+| `AGENT_INSTALL_CANNOT_REACH_MANAGER` | `manager` | 서버가 리더의 클러스터 포트(대상의 망에 맞는 주소)에 닿지 않음 |
+| `AGENT_INSTALL_IP_NOT_LOCAL` | `ip` | 서버가 그 IP를 갖고 있지 않음 |
+| `AGENT_INSTALL_NO_INTERNET` | — | 온라인 설치인데 서버가 GitHub 릴리스에 닿지 않음 |
+| `AGENT_INSTALL_ALREADY_AGENT` | — | 이미 에이전트 |
+| `AGENT_INSTALL_ALREADY_MANAGER` | — | 클러스터 매니저 |
+| `AGENT_INSTALL_MANAGER_FILES` | `files` | 매니저가 두는 파일(CA 키·Raft 상태·가입 토큰)이 남아 있음 |
+| `AGENT_INSTALL_OPERATOR_TLS` | — | 운영자 인증서로 HTTPS를 내는데 `server.tls.ca_file`이 없음 |
+| `AGENT_INSTALL_NEWER_INSTALLED` | `installed`, `version` | 설치할 버전보다 새것(또는 읽을 수 없는 버전)이 있음 — 내리지 않음 |
+| `AGENT_INSTALL_NAME_INVALID` | `name` 또는 `hostname` | 노드 이름이 될 수 없음. 이름을 비웠으면 서버의 hostname — 이름을 넣어 다시 |
+| `AGENT_INSTALL_CLUSTER_NOT_READY` | `gate` | 클러스터가 지금 등록을 받지 않음: `proxy_rotation`(프록시 비밀 교체 직후), `ca_rotation`, `managers`(모든 매니저가 에이전트를 지원하지 않음), `max_agents`, `ca_key`, `other` |
+| `AGENT_INSTALL_IDENTITY_TAKEN` | `name`, `ip`, `row` | 클러스터의 노드나 같은 설치의 다른 행(`row`)이 이미 그 이름·주소를 가짐 |
+| `AGENT_INSTALL_FAILED` | `step`, `exit`, `error`, `timeout_minutes`, `no_answer`, `ip` | 자기 코드가 없는 실패. `step`: `ssh`, `login_check`, `probe`, `checksums`, `archive`, `ca_pin`, `mktemp`, `systemd-run`, `install`(`exit`, 또는 30분이 지나 `timeout_minutes`), `register`(install.sh가 0으로 끝났는데 그 `ip`의 에이전트가 없음), `labels`. 질문에 30분 안에 답이 없으면 `no_answer`: `host_key` · `standalone` · `review`. 행의 국면 출력에 무슨 일이 있었는지 남음 |
+| `AGENT_INSTALL_OFFLINE` | `cause`와 그 값 | 등록됐지만 3분 안에 연결 확인을 통과하지 못함. `cause`: `agent_to_managers`(하트비트가 오지 않음 — 에이전트가 매니저의 `port`에 닿지 않음), `version`(다른 `version`으로 하트비트), `managers_to_agent`(하트비트는 오는데 리더의 호출이 실패 — `failed`: `relay` · `panel` · `relay,panel`, `ports`: 그 노드의 `grpc,api` 포트, 방화벽 확인). [다시 확인]·[되돌리기] |
+| `AGENT_INSTALL_LEADER_CHANGED` | — | 설치 도중 리더가 바뀜: 인증 정보와 토큰이 옛 리더에만 있었음. `node_id`가 있으면 에이전트로 등록됨 — 노드 화면에서 확인 |
+| `AGENT_INSTALL_CREDENTIALS_GONE` | `reverted` | 인증 정보가 지워진 뒤에 되돌림: 노드는 제거했고 서버의 정리는 운영자 몫, 또는 인증 정보가 사라진 뒤 그 행이 접속하려 함 |
+
+어느 행이든 되돌리면 `reason_details.reverted`(`removing` · `purged` · `cleanup_failed` · `removed`)가, 원래 단독 패널이던 서버면 `standalone: "1"`이 더해집니다.
+
+---
+
 ## WireGuard — 피어 관리 API (v0.28.0+)
 
 UI에서 raw 설정을 직접 편집하지 않고 피어를 관리. 설정 파일(`.conf`)이 진실의 원천(reboot 후에도 유지)이고, 인터페이스가 up이면 `wg set`으로 즉시 라이브 반영(best-effort)됩니다. 클라이언트 설정과 QR 코드는 **브라우저에서** 조립/렌더링되며 서버는 클라이언트 private key를 저장하지 않습니다.
@@ -7163,6 +7327,19 @@ WireGuard 키페어 생성 (`wg genkey` + `wg pubkey`).
 | POST | `/api/v1/task-jobs/check` | 내부 | 미리 보기의 단계별 판정 |
 | GET | `/api/v1/task-jobs/:id` | 내부 | 잡 상태와 출력 조각 (`?skip=`) |
 | POST | `/api/v1/task-jobs/:id/cancel` | 내부 | 잡 취소 (`force`일 때만) |
+
+### 에이전트 설치 (6개)
+
+매니저 전용. 모두 리더가 처리한다(팔로워는 전달). 진행·기록·출력·중지는 그룹 작업의 실행 라우트. 상세는 위의 "에이전트 설치 API".
+
+| 메서드 | 경로 | 인증 | 설명 |
+|--------|------|------|------|
+| POST | `/api/v1/cluster/agent-installs` | O | SSH로 에이전트 설치 시작 (202, 리더, 서버 목록과 계정 — 비밀은 이 본문에만) |
+| POST | `/api/v1/cluster/agent-installs/:id/servers/:key/host-key` | O | 호스트 키 지문 승인·거절 (`{fingerprint, accept}`) |
+| POST | `/api/v1/cluster/agent-installs/:id/servers/:key/standalone` | O | 단독 패널의 전환 확인·거절 (`{accept}`) |
+| POST | `/api/v1/cluster/agent-installs/:id/proceed` | O | 검토로 멈춘 서버들의 설치 계속 |
+| POST | `/api/v1/cluster/agent-installs/:id/servers/:key/recheck` | O | 연결 확인 다시 |
+| POST | `/api/v1/cluster/agent-installs/:id/servers/:key/revert` | O | 되돌리기 (노드 제거 + 이번 실행이 설치한 것 정리) |
 
 ### 알림 시스템 (11개)
 
