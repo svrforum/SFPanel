@@ -6,11 +6,17 @@ import type { RunNodeRecord, RunRecord } from '@/types/api'
 import {
   INSTALL_STEP_COUNT,
   cleanupCommand,
+  clockText,
+  credentialsGone,
   credentialsLeft,
   installBanner,
   installReasonText,
+  installRowActions,
   installRowName,
+  installRunReasonText,
   isInstallRun,
+  needsCleanup,
+  reviewRows,
   safeCheckURL,
 } from './installRun'
 
@@ -261,5 +267,126 @@ describe('installReasonText', () => {
     expect(installReasonText({ status: 'running' }, t)).toBeNull()
     expect(installReasonText(undefined, t)).toBeNull()
     expect(installReasonText({ status: 'failed', reason: 'AGENT_INSTALL_SOMETHING_NEW' }, t)).toBe('AGENT_INSTALL_SOMETHING_NEW')
+  })
+})
+
+// ---- The progress view ----
+
+const head = (over: Partial<RunRecord> = {}): RunRecord => ({
+  id: 'i-1', kind: 'agent-install', task_id: 'builtin/agent-install', task_name: '에이전트 설치 (SSH)', rev: '',
+  nodes: ['s1', 's2'], waves: [['s1', 's2']], batch: 2, stop_on_failure: false,
+  status: 'failed', started_by: 'admin', started_at: '2026-11-01T12:00:00Z', ended_at: '2026-11-01T12:05:00Z', ...over,
+})
+const phases = (...states: string[]) => states.map((status) => ({ status })) as RunNodeRecord['steps']
+// A registered server whose connection check failed, not taken back.
+const offline = (over: Partial<RunNodeRecord> = {}): RunNodeRecord => ({
+  status: 'failed', node_id: 'a-10', reason: 'AGENT_INSTALL_OFFLINE', reason_details: { cause: 'agent_to_managers', port: '3629' }, ...over,
+})
+
+describe('clockText', () => {
+  it('is minutes and two-digit seconds', () => {
+    expect(clockText(600)).toBe('10:00')
+    expect(clockText(65)).toBe('1:05')
+    expect(clockText(5)).toBe('0:05')
+    expect(clockText(0)).toBe('0:00')
+  })
+})
+
+describe('credentialsGone', () => {
+  const now = Date.parse('2026-11-01T12:10:00Z')
+  it('follows the deadline while there is one', () => {
+    expect(credentialsGone(head({ credentials_until: '2026-11-01T12:10:01Z' }), now)).toBe(false)
+    expect(credentialsGone(head({ credentials_until: '2026-11-01T12:10:00Z' }), now)).toBe(true)
+  })
+
+  it('is gone for an ended install with no deadline, and not for one under way', () => {
+    expect(credentialsGone(head(), now)).toBe(true)
+    expect(credentialsGone(head({ status: 'stopped' }), now)).toBe(true)
+    for (const status of ['running', 'stopping', 'handing_over'] as const) {
+      expect(credentialsGone(head({ status, ended_at: undefined }), now)).toBe(false)
+    }
+  })
+})
+
+describe('needsCleanup', () => {
+  it('is a registered server left as it failed, once the credentials are gone', () => {
+    expect(needsCleanup(offline(), true)).toBe(true)
+    expect(needsCleanup(offline(), false)).toBe(false)
+    // Not registered: the install cleaned up after itself over SSH.
+    expect(needsCleanup(offline({ node_id: undefined }), true)).toBe(false)
+    expect(needsCleanup({ status: 'succeeded', node_id: 'a-10' }, true)).toBe(false)
+    expect(needsCleanup({ status: 'skipped' }, true)).toBe(false)
+    expect(needsCleanup(undefined, true)).toBe(false)
+  })
+
+  it('follows how far a revert went', () => {
+    const reverted = (d: Record<string, string>) => offline({ reason_details: { cause: 'agent_to_managers', ...d } })
+    expect(needsCleanup(reverted({ reverted: 'cleanup_failed' }), false)).toBe(true)
+    expect(needsCleanup(reverted({ reverted: 'removed' }), true)).toBe(true)
+    // A standalone panel before: its account is gone, and it is left as it is.
+    expect(needsCleanup(reverted({ reverted: 'removed', standalone: '1' }), true)).toBe(false)
+    expect(needsCleanup(reverted({ reverted: 'purged' }), true)).toBe(false)
+    expect(needsCleanup(reverted({ reverted: 'removing' }), true)).toBe(false)
+  })
+
+  it('is a server a leader change left mid-install, not one it never reached', () => {
+    const left = (steps: RunNodeRecord['steps'], over: Partial<RunNodeRecord> = {}): RunNodeRecord =>
+      ({ status: 'failed', reason: 'AGENT_INSTALL_LEADER_CHANGED', steps, ...over })
+    expect(needsCleanup(left(phases('succeeded', 'succeeded', 'unknown')), false)).toBe(true)
+    expect(needsCleanup(left(phases('succeeded', 'running')), false)).toBe(false)
+    expect(needsCleanup(left(phases('pending', 'pending', 'pending')), false)).toBe(false)
+    expect(needsCleanup(left(undefined), false)).toBe(false)
+    // Registered: an agent the node page shows.
+    expect(needsCleanup(left(phases('succeeded', 'succeeded', 'succeeded', 'succeeded', 'unknown'), { node_id: 'a-10' }), true)).toBe(false)
+  })
+})
+
+describe('installRowActions', () => {
+  const none = { recheck: false, revert: false, openNode: false }
+  it('offers Recheck and Revert to a registered server that failed, not yet taken back', () => {
+    expect(installRowActions(head(), offline())).toEqual({ recheck: true, revert: true, openNode: false })
+    // The engine refuses a recheck once the install was stopped; a revert still removes the node.
+    expect(installRowActions(head({ status: 'stopped' }), offline())).toEqual({ recheck: false, revert: true, openNode: false })
+  })
+
+  it('offers nothing to a server that did not register, or was taken back', () => {
+    expect(installRowActions(head(), offline({ node_id: undefined }))).toEqual(none)
+    expect(installRowActions(head(), offline({ reason_details: { reverted: 'purged' } }))).toEqual(none)
+    expect(installRowActions(head(), { status: 'running', node_id: 'a-10' })).toEqual(none)
+    expect(installRowActions(head(), undefined)).toEqual(none)
+  })
+
+  it('offers nothing to undo once the leader that held the install changed', () => {
+    expect(installRowActions(head({ reason: 'AGENT_INSTALL_LEADER_CHANGED' }), offline())).toEqual(none)
+    expect(installRowActions(head(), offline({ reason: 'AGENT_INSTALL_LEADER_CHANGED', reason_details: undefined })))
+      .toEqual({ ...none, openNode: true })
+  })
+
+  it('opens the node of a server that succeeded', () => {
+    expect(installRowActions(head(), { status: 'succeeded', node_id: 'a-1' })).toEqual({ ...none, openNode: true })
+    expect(installRowActions(head(), { status: 'succeeded' })).toEqual(none)
+  })
+})
+
+describe('reviewRows', () => {
+  it('lists the servers waiting for the review, in run order', () => {
+    const nodes = {
+      s1: running({ awaiting: 'review' }),
+      s2: running({ awaiting: 'host_key', host_key: 'ED25519 SHA256:x' }),
+      s3: { status: 'failed', awaiting: 'review' } as RunNodeRecord,
+      s4: running({ awaiting: 'review' }),
+    }
+    expect(reviewRows(head({ nodes: ['s4', 's1', 's2', 's3'] }), nodes)).toEqual(['s4', 's1'])
+  })
+})
+
+describe('installRunReasonText', () => {
+  it('words the run reason a leader change leaves, and shows any other as sent', async () => {
+    const t = await translator('en')
+    expect(installRunReasonText('AGENT_INSTALL_LEADER_CHANGED', t)).toMatch(/^The cluster leader changed during the install/)
+    expect(installRunReasonText('stopped by admin', t)).toBe('stopped by admin')
+    expect(installRunReasonText(undefined, t)).toBeNull()
+    const ko = await translator('ko')
+    expect(installRunReasonText('AGENT_INSTALL_LEADER_CHANGED', ko)).toMatch(/^설치 도중 클러스터 리더가 바뀌어/)
   })
 })

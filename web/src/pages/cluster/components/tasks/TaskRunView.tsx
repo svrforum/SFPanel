@@ -21,6 +21,10 @@ import { useTaskRun } from './useTaskRun'
 import { useMounted } from './useMounted'
 import { TaskRunMatrix, type ChosenCell } from './TaskRunMatrix'
 import { TaskNodeOutput } from './TaskNodeOutput'
+import { INSTALL_STEP_COUNT, installRowName, isInstallRun } from './install/installRun'
+import { InstallRunHead } from './install/InstallRunHead'
+import { InstallBanners } from './install/InstallBanners'
+import { InstallRowActions } from './install/InstallRowActions'
 
 interface TaskRunViewProps {
   runId: string
@@ -35,6 +39,11 @@ interface TaskRunViewProps {
 // that step's output beside it (below, on a phone). A run under way can be
 // stopped, or stopped by force; an ended one can run again on the nodes that
 // did not succeed, or on nodes chosen.
+//
+// An agent install is a run too, of its own kind: its rows are servers, named
+// as entered, through five fixed phases. Its head has no rerun; what it waits
+// on the operator for is asked above the table, and why a server ended, with
+// what can be done about it, is said below.
 export function TaskRunView({ runId, onStatus }: TaskRunViewProps) {
   const { t } = useTranslation()
   const { state, steps, outcome, setHead } = useTaskRun(runId)
@@ -45,22 +54,36 @@ export function TaskRunView({ runId, onStatus }: TaskRunViewProps) {
     if (status) onStatus?.()
   }, [status, onStatus])
   const [names, setNames] = useState<Record<string, string>>({})
+  const [localId, setLocalId] = useState('')
   const [chosen, setChosen] = useState<ChosenCell | null>(null)
 
   // Names from the node list; a node no longer in the cluster shows its ID.
   useEffect(() => {
     let live = true
     api.getClusterNodes().then(
-      (r) => live && setNames(Object.fromEntries(r.nodes.map((n) => [n.id, n.name]))),
+      (r) => {
+        if (!live) return
+        setNames(Object.fromEntries(r.nodes.map((n) => [n.id, n.name])))
+        setLocalId(r.local_id)
+      },
       () => {},
     )
     return () => { live = false }
   }, [])
-  const nodeName = useCallback((id: string) => names[id] ?? id, [names])
 
   const run = state.run
-  const count = runStepCount(steps, state)
-  const matrix = useMemo(() => runMatrix(state, count, nodeName), [state, count, nodeName])
+  const install = run !== null && isInstallRun(run)
+  // An install's rows are servers, not nodes: named as the operator entered them.
+  const nodeName = useCallback(
+    (id: string) => (install ? installRowName(id, state.nodes[id]) : names[id] ?? id),
+    [install, state.nodes, names],
+  )
+  const count = install ? INSTALL_STEP_COUNT : runStepCount(steps, state)
+  const matrix = useMemo(() => {
+    const m = runMatrix(state, count, nodeName)
+    // An install's row reason is a code, worded below the table.
+    return install ? { ...m, rows: m.rows.map((row) => ({ ...row, reason: undefined })) } : m
+  }, [state, count, nodeName, install])
   const headers = useMemo(
     () => (run ? Array.from({ length: count }, (_, i) => stepHeader(t, run.task_id, steps, i)) : []),
     [run, count, steps, t],
@@ -82,8 +105,17 @@ export function TaskRunView({ runId, onStatus }: TaskRunViewProps) {
 
   return (
     <section data-testid="task-pane-run" className="rounded-2xl bg-card p-5 card-shadow space-y-4 min-w-0">
-      <RunHead run={run} state={state} wave={matrix.wave} counts={matrix.counts} />
-      <RunActions run={run} state={state} nodeName={nodeName} onHead={setHead} />
+      {install ? (
+        <>
+          <InstallRunHead run={run} onHead={setHead} />
+          <InstallBanners run={run} state={state} rowName={nodeName} />
+        </>
+      ) : (
+        <>
+          <RunHead run={run} state={state} wave={matrix.wave} counts={matrix.counts} />
+          <RunActions run={run} state={state} nodeName={nodeName} onHead={setHead} />
+        </>
+      )}
       {count === 0 && <p className="text-[13px] text-muted-foreground">{t('cluster.tasks.run.noSteps')}</p>}
       <div className="flex flex-col lg:flex-row gap-4 min-w-0">
         <div className="flex-1 min-w-0">
@@ -93,6 +125,7 @@ export function TaskRunView({ runId, onStatus }: TaskRunViewProps) {
             chosen={chosen}
             onChoose={(node, step) => setChosen({ node, step })}
             onChooseNode={(node) => setChosen({ node, step: focusStep(state.nodes[node]) })}
+            rowsHeader={install ? t('cluster.tasks.install.run.server') : undefined}
           />
         </div>
         {chosen && chosen.step < count && (
@@ -110,6 +143,7 @@ export function TaskRunView({ runId, onStatus }: TaskRunViewProps) {
           </div>
         )}
       </div>
+      {install && <InstallRowActions run={run} state={state} rowName={nodeName} localId={localId} />}
     </section>
   )
 }

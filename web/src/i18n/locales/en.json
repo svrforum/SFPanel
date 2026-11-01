@@ -1861,6 +1861,38 @@
           "previewHint": "Preview connects to every server and runs the pre-flight check, then waits for you before anything is installed.",
           "fixProblems": "Correct the fields marked above.",
           "retype": "The passwords and the key were cleared when the request was sent: enter them again."
+        },
+        "run": {
+          "server": "Server",
+          "size_one": "{{count}} server · {{batch}} at a time",
+          "size_other": "{{count}} servers · {{batch}} at a time",
+          "stopTitle": "Stop this install?",
+          "stopDescription": "Servers not yet started are left as they are, and a server being installed is stopped and cleaned up. The credentials are cleared at once.",
+          "leaderChanged": "The cluster leader changed during the install, and the install ended there: the credentials went with the old leader. Each server below says where it stopped.",
+          "hostKey": "Connecting to {{server}} for the first time. Check that this host key fingerprint is the server's own:",
+          "hostKeyHint": "On the server, ssh-keygen -lf /etc/ssh/ssh_host_ed25519_key.pub prints it (use the key file of the type shown).",
+          "accept": "Yes, continue",
+          "reject": "No, stop",
+          "check": "{{server}} uses Tailscale SSH, which asks you to sign in again before it lets the leader in.",
+          "checkOpen": "Open the check page",
+          "checkHint": "The install goes on once you approve it there, within 10 minutes.",
+          "checkUnsafe": "The server sent a check address that is not an https link, so it is not opened from here:",
+          "checkNone": "Waiting for the server to send its check address…",
+          "standalone": "{{server}} already runs a standalone SFPanel. As an agent it loses its local sign-in and serves HTTPS.",
+          "convert": "Convert it",
+          "skip": "Skip it",
+          "review": "The pre-flight check is done. Ready to install: {{servers}}.",
+          "reviewHint": "A server that did not pass is not installed.",
+          "proceed": "Continue install",
+          "credentialsLeft": "The credentials Recheck and Revert use are cleared in {{left}}.",
+          "credentialsGone": "The credentials are cleared. A server that needs cleaning shows the command to run on it.",
+          "cleanup": "Run this on the server to remove SFPanel from it:",
+          "online": "Agent, online",
+          "recheck": "Recheck",
+          "revert": "Revert",
+          "revertTitle": "Revert {{server}}?",
+          "revertDescription": "{{server}} is removed from the cluster, and SFPanel is removed from the server if it had no SFPanel before. A server that ran a standalone panel before is left as it is.",
+          "revertDescriptionGone": "{{server}} is removed from the cluster. The credentials are cleared, so the server itself is not cleaned: run the cleanup command on it."
         }
       }
     }

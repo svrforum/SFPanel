@@ -2406,4 +2406,291 @@ test.describe('agent install', () => {
       expect(await pane(page).evaluate((d) => d.scrollWidth <= d.clientWidth)).toBe(true)
     })
   })
+
+  // The install's progress: the run view of a run of kind agent-install. Its
+  // rows are servers (s1, s2 …) through five phases; a row waiting on the
+  // operator asks above the table, and what can be done about a server that
+  // failed is said below it.
+  test.describe('progress', () => {
+    const IRUN = 'i-1'
+    const ROWS = `/cluster/agent-installs/${IRUN}`
+    const FINGERPRINT = 'ED25519 SHA256:4mF1xQb7Lw0eTqGZc2yP9sVhK3nRjUa8oXdE5iBk9Pz'
+    const FINGERPRINT2 = 'ECDSA SHA256:Zq0+Xc9yWv8uTs7rQp6oNm5lKj4iHg3fEd2cBa1zYxw'
+    const CLEANUP = 'curl -fsSL https://raw.githubusercontent.com/svrforum/SFPanel/v0.81.0/scripts/install.sh | sudo bash -s -- uninstall --purge'
+    const install = (over: Record<string, unknown> = {}) => ({
+      id: IRUN, kind: 'agent-install', task_id: 'builtin/agent-install', task_name: '에이전트 설치 (SSH)', rev: '',
+      inputs: { mode: 'auto', review: 'false', version: '0.81.0' },
+      nodes: ['s1', 's2'], waves: [['s1', 's2']], batch: 2, stop_on_failure: false,
+      status: 'running', started_by: 'admin', started_at: seen, ...over,
+    })
+    const ended = (over: Record<string, unknown> = {}) => install({ status: 'failed', ended_at: seen, ...over })
+    /** A server's row: its five phases as given (the rest pending), each with the job ID its log is read by. */
+    const srv = (key: string, status: string, phases: string[], over: Record<string, unknown> = {}) =>
+      ({ status, steps: Array.from({ length: 5 }, (_, i) => st(phases[i] ?? 'pending', { job_id: `install/${key}/${i}` })), ...over })
+    const ALL_DONE = ['succeeded', 'succeeded', 'succeeded', 'succeeded', 'succeeded']
+    const CHECK_FAILED = ['succeeded', 'succeeded', 'succeeded', 'succeeded', 'failed']
+    /** The run as read and as streamed; an install has no document, so no step names. */
+    const follow = (run: Record<string, unknown>, rows: Record<string, unknown>, id = IRUN): Fixture => ({
+      runDetails: { [id]: { run, nodes: rows } },
+      streams: { [id]: [sse(snapshot(run, rows), ...(run.status === 'running' ? [] : [{ type: 'end' }]))] },
+    })
+    const wait = (page: Page, key: string) => runPane(page).getByTestId(`install-wait-${key}`)
+    const server = (page: Page, key: string) => runPane(page).getByTestId(`install-row-${key}`)
+    // A registered server whose connection check failed: the agent never reached the managers.
+    const OFFLINE = srv('s2', 'failed', CHECK_FAILED, {
+      host: '192.0.2.22', ip: '192.0.2.22', name: 'web-06', node_id: 'a-10',
+      reason: 'AGENT_INSTALL_OFFLINE', reason_details: { cause: 'agent_to_managers', port: '3629' },
+    })
+    const SUCCEEDED = srv('s1', 'succeeded', ALL_DONE, { host: '192.0.2.21', ip: '192.0.2.21', name: 'web-04', node_id: 'a-1' })
+
+    test('a host key waits for the operator: the whole fingerprint, and the answer carries it as shown', async ({ page }) => {
+      const rows = {
+        s1: srv('s1', 'running', ['running'], { host: '192.0.2.21', name: 'web-04', awaiting: 'host_key', host_key: FINGERPRINT }),
+        s2: srv('s2', 'running', ['running'], { host: '192.0.2.22', awaiting: 'host_key', host_key: FINGERPRINT2 }),
+      }
+      const job = { id: 'install/s1/0', run_id: IRUN, kind: '', changed: false, started_at: seen }
+      const { calls } = await mock(page, {
+        ...follow(install(), rows),
+        outputs: { [`${IRUN}/s1/0`]: [{ ...job, status: 'running', output: 'host key ED25519: waiting for the operator\n', next_skip: 43, done: false }] },
+        replies: {
+          [`POST ${ROWS}/servers/s1/host-key`]: ok(null),
+          [`POST ${ROWS}/servers/s2/host-key`]: fail(409, 'AGENT_INSTALL_NOT_WAITING', 'This server is not waiting for that answer'),
+        },
+      })
+      await page.goto(`/cluster/tasks/runs/${IRUN}`)
+      const p = runPane(page)
+      await expect(p.getByRole('heading', { name: 'Agent install (SSH)' })).toBeVisible()
+      await expect(p.getByTestId('install-run-size')).toHaveText('2 servers · 2 at a time')
+      await expect(p.getByRole('button', { name: 'Stop', exact: true })).toBeVisible()
+      await expect(p.getByRole('button', { name: 'Force stop' })).toHaveCount(0)
+      await expect(matrix(page).getByRole('columnheader')).toHaveText(['Server', 'Connect', 'Pre-flight check', 'Install', 'Register', 'Connection check'])
+      await expect(matrix(page).getByRole('rowheader')).toContainText(['web-04', '192.0.2.22'])
+
+      // The whole fingerprint and its key type, never shortened.
+      const s1 = wait(page, 's1')
+      await expect(s1).toContainText('Connecting to web-04 for the first time')
+      await expect(s1.getByTestId('install-host-key')).toHaveText(FINGERPRINT)
+      await s1.getByRole('button', { name: 'Yes, continue' }).click()
+      await expect.poll(() => posts(calls, `${ROWS}/servers/s1/host-key`).length).toBe(1)
+      expect(posts(calls, `${ROWS}/servers/s1/host-key`)[0].body).toEqual({ fingerprint: FINGERPRINT, accept: true })
+
+      // A refusal reads as a sentence by the row, and nothing is sent again by itself.
+      const s2 = wait(page, 's2')
+      await expect(s2.getByTestId('install-host-key')).toHaveText(FINGERPRINT2)
+      await s2.getByRole('button', { name: 'No, stop' }).click()
+      await expect(s2.getByRole('alert')).toHaveText('This server is no longer waiting for that answer. The screen shows where it is now.')
+      expect(posts(calls, `${ROWS}/servers/s2/host-key`).map((c) => c.body)).toEqual([{ fingerprint: FINGERPRINT2, accept: false }])
+      await page.waitForTimeout(1500)
+      expect(posts(calls, `${ROWS}/servers/s2/host-key`)).toHaveLength(1)
+
+      // A cell opens that phase's log.
+      await cell(page, 's1', 0).click()
+      const output = page.getByTestId('task-node-output')
+      await expect(output.getByRole('heading')).toHaveText('web-04 · Connect')
+      await expect(output.getByTestId('task-node-output-text')).toHaveText('host key ED25519: waiting for the operator\n')
+    })
+
+    test('a Tailscale check links an https address and shows its host; anything else is only text', async ({ page }) => {
+      const rows = {
+        s1: srv('s1', 'running', ['running'], { host: 'web-05', awaiting: 'check', check_url: 'https://login.tailscale.com/a/1a2b3c4d' }),
+        s2: srv('s2', 'running', ['running'], { host: '100.64.0.7', awaiting: 'check', check_url: 'javascript:alert(document.cookie)' }),
+      }
+      await mock(page, follow(install(), rows))
+      await page.goto(`/cluster/tasks/runs/${IRUN}`)
+      const link = wait(page, 's1').getByRole('link')
+      await expect(link).toHaveAttribute('href', 'https://login.tailscale.com/a/1a2b3c4d')
+      await expect(link).toHaveAttribute('target', '_blank')
+      await expect(link).toHaveAttribute('rel', 'noopener noreferrer')
+      await expect(wait(page, 's1')).toContainText('login.tailscale.com')
+      await expect(wait(page, 's2')).toContainText('javascript:alert(document.cookie)')
+      await expect(wait(page, 's2').getByRole('link')).toHaveCount(0)
+      await expect(runPane(page).locator('a[href^="javascript:"]')).toHaveCount(0)
+    })
+
+    test('a standalone panel becomes an agent only when the operator says so; Stop asks first', async ({ page }) => {
+      const rows = {
+        s1: srv('s1', 'running', ['succeeded', 'running'], { host: '192.0.2.21', name: 'web-04', awaiting: 'standalone' }),
+        s2: srv('s2', 'running', ['succeeded', 'running'], { host: '192.0.2.22', awaiting: 'standalone' }),
+      }
+      const { calls } = await mock(page, {
+        ...follow(install(), rows),
+        replies: {
+          [`POST ${ROWS}/servers/s1/standalone`]: ok(null),
+          [`POST ${ROWS}/servers/s2/standalone`]: ok(null),
+          [`POST /cluster/task-runs/${IRUN}/stop`]: ok(install({ status: 'stopping', stopped_by: 'admin' })),
+        },
+      })
+      await page.goto(`/cluster/tasks/runs/${IRUN}`)
+      await expect(wait(page, 's1')).toContainText('web-04 already runs a standalone SFPanel')
+      await expect(wait(page, 's1')).toContainText('local sign-in')
+      await wait(page, 's1').getByRole('button', { name: 'Convert it' }).click()
+      await wait(page, 's2').getByRole('button', { name: 'Skip it' }).click()
+      await expect.poll(() => calls.filter((c) => c.path.endsWith('/standalone')).length).toBe(2)
+      expect(posts(calls, `${ROWS}/servers/s1/standalone`).map((c) => c.body)).toEqual([{ accept: true }])
+      expect(posts(calls, `${ROWS}/servers/s2/standalone`).map((c) => c.body)).toEqual([{ accept: false }])
+
+      const p = runPane(page)
+      const dialog = page.getByRole('dialog')
+      await p.getByRole('button', { name: 'Stop', exact: true }).click()
+      await expect(dialog).toContainText('credentials are cleared at once')
+      await dialog.getByRole('button', { name: 'Cancel' }).click()
+      expect(posts(calls, `/cluster/task-runs/${IRUN}/stop`)).toHaveLength(0)
+      await p.getByRole('button', { name: 'Stop', exact: true }).click()
+      await dialog.getByRole('button', { name: 'Stop', exact: true }).click()
+      await expect.poll(() => posts(calls, `/cluster/task-runs/${IRUN}/stop`).map((c) => c.body)).toEqual([{ force: false }])
+    })
+
+    test('a review waits for one [Continue install]; a server that failed its check says why, with nothing to undo', async ({ page }) => {
+      const run = install({ nodes: ['s1', 's2', 's3'], waves: [['s1', 's2', 's3']], inputs: { mode: 'auto', review: 'true', version: '0.81.0' } })
+      const rows = {
+        s1: srv('s1', 'running', ['succeeded', 'succeeded'], { host: '192.0.2.21', name: 'web-04', awaiting: 'review' }),
+        s2: srv('s2', 'running', ['succeeded', 'succeeded'], { host: '192.0.2.22', awaiting: 'review' }),
+        s3: srv('s3', 'failed', ['succeeded', 'failed', 'skipped', 'skipped', 'skipped'], {
+          host: '192.0.2.23', reason: 'AGENT_INSTALL_ARCH', reason_details: { arch: 'armv7l' },
+        }),
+      }
+      const { calls } = await mock(page, { ...follow(run, rows), replies: { [`POST ${ROWS}/proceed`]: ok(null) } })
+      await page.goto(`/cluster/tasks/runs/${IRUN}`)
+      const review = runPane(page).getByTestId('install-review')
+      await expect(review).toContainText('web-04, 192.0.2.22')
+      await expect(review.getByRole('button')).toHaveCount(1)
+      await expect(wait(page, 's1')).toHaveCount(0)
+      await expect(server(page, 's3')).toContainText('No SFPanel release is built for this CPU (armv7l)')
+      await expect(server(page, 's3').getByRole('button')).toHaveCount(0)
+      await review.getByRole('button', { name: 'Continue install' }).click()
+      await expect.poll(() => posts(calls, `${ROWS}/proceed`).map((c) => c.body)).toEqual([null])
+    })
+
+    test('a registered server that failed its check: [Recheck], and [Revert] after asking', async ({ page }) => {
+      await page.clock.setFixedTime(NOW)
+      const run = ended({ credentials_until: new Date(NOW.getTime() + 600_000).toISOString() })
+      const { calls } = await mock(page, {
+        ...follow(run, { s1: SUCCEEDED, s2: OFFLINE }),
+        replies: {
+          [`POST ${ROWS}/servers/s2/recheck`]: fail(404, 'AGENT_INSTALL_NOT_FOUND', 'No such install'),
+          [`POST ${ROWS}/servers/s2/revert`]: ok(null),
+        },
+      })
+      await page.goto(`/cluster/tasks/runs/${IRUN}`)
+      const s2 = server(page, 's2')
+      await expect(s2).toContainText("its heartbeat never reached the leader: the agent cannot reach the managers' port 3629")
+      await expect(server(page, 's1').getByRole('button', { name: 'Recheck' })).toHaveCount(0)
+      await expect(server(page, 's1').getByRole('button', { name: 'Revert' })).toHaveCount(0)
+
+      await s2.getByRole('button', { name: 'Recheck' }).click()
+      await expect(s2.getByRole('alert')).toHaveText(/^The cluster leader no longer holds this install/)
+      expect(posts(calls, `${ROWS}/servers/s2/recheck`).map((c) => c.body)).toEqual([null])
+
+      const dialog = page.getByRole('dialog')
+      await s2.getByRole('button', { name: 'Revert' }).click()
+      await expect(dialog).toContainText('web-06 is removed from the cluster')
+      await expect(dialog).toContainText('had no SFPanel before')
+      await dialog.getByRole('button', { name: 'Cancel' }).click()
+      expect(posts(calls, `${ROWS}/servers/s2/revert`)).toHaveLength(0)
+      await s2.getByRole('button', { name: 'Revert' }).click()
+      await dialog.getByRole('button', { name: 'Revert' }).click()
+      await expect.poll(() => posts(calls, `${ROWS}/servers/s2/revert`).map((c) => c.body)).toEqual([null])
+      await page.waitForTimeout(1000)
+      expect(posts(calls, `${ROWS}/servers/s2/recheck`)).toHaveLength(1)
+    })
+
+    test('the credentials run down to their end, then a server left to clean shows the command for it', async ({ page }) => {
+      await page.clock.setFixedTime(NOW)
+      const run = ended({ credentials_until: new Date(NOW.getTime() + 65_000).toISOString() })
+      await mock(page, follow(run, { s1: SUCCEEDED, s2: OFFLINE }))
+      await page.goto(`/cluster/tasks/runs/${IRUN}`)
+      const left = runPane(page).getByTestId('install-credentials')
+      await expect(left).toContainText('cleared in 1:05')
+      await expect(runPane(page).getByText(CLEANUP)).toHaveCount(0)
+
+      await page.clock.setFixedTime(new Date(NOW.getTime() + 60_000))
+      await expect(left).toContainText('cleared in 0:05')
+      await page.clock.setFixedTime(new Date(NOW.getTime() + 66_000))
+      await expect(left).toContainText('The credentials are cleared')
+      await expect(server(page, 's2').getByText(CLEANUP)).toBeVisible()
+      await expect(server(page, 's2').getByRole('button', { name: 'Copy' })).toBeVisible()
+      await expect(server(page, 's1').getByText(CLEANUP)).toHaveCount(0)
+    })
+
+    test('a server that succeeded opens its node; the run reason is worded; an install offers no rerun', async ({ page }) => {
+      const run = ended({ reason: 'AGENT_INSTALL_LEADER_CHANGED' })
+      const rows = {
+        s1: SUCCEEDED,
+        s2: srv('s2', 'failed', ['succeeded', 'succeeded', 'unknown'], { host: '192.0.2.22', ip: '192.0.2.22', reason: 'AGENT_INSTALL_LEADER_CHANGED' }),
+      }
+      await mock(page, follow(run, rows))
+      await page.goto(`/cluster/tasks/runs/${IRUN}`)
+      const p = runPane(page)
+      await expect(p.getByTestId('task-run-status')).toHaveText('Failed')
+      await expect(p.getByTestId('install-run-reason')).toContainText('The cluster leader changed during the install')
+      await expect(p).not.toContainText('AGENT_INSTALL_LEADER_CHANGED')
+      for (const name of ['Rerun failed nodes only', 'Choose nodes to rerun', 'Rerun', 'Stop', 'Force stop']) {
+        await expect(p.getByRole('button', { name, exact: true })).toHaveCount(0)
+      }
+      // The leader that held the credentials is gone: the server is cleaned by hand.
+      await expect(server(page, 's2').getByText(CLEANUP)).toBeVisible()
+      await expect(server(page, 's2').getByRole('button', { name: 'Revert' })).toHaveCount(0)
+
+      await server(page, 's1').getByRole('button', { name: 'Open node' }).click()
+      await expect(page).toHaveURL(/\/dashboard$/)
+      expect(await page.evaluate(() => localStorage.getItem('sfpanel_current_node'))).toBe('a-1')
+    })
+
+    test.describe('Korean', () => {
+      test.use({ locale: 'ko-KR' })
+
+      test('the progress reads in Korean', async ({ page }) => {
+        await page.addInitScript(() => localStorage.setItem('sfpanel_language', 'ko'))
+        await page.clock.setFixedTime(NOW)
+        const waiting = { s1: srv('s1', 'running', ['running'], { host: '192.0.2.21', name: 'web-04', awaiting: 'host_key', host_key: FINGERPRINT }), s2: srv('s2', 'pending', []) }
+        const failed = ended({ id: 'i-2', credentials_until: new Date(NOW.getTime() + 65_000).toISOString() })
+        await mock(page, { runDetails: { ...follow(install(), waiting).runDetails, ...follow(failed, { s1: SUCCEEDED, s2: OFFLINE }, 'i-2').runDetails },
+          streams: { ...follow(install(), waiting).streams, ...follow(failed, { s1: SUCCEEDED, s2: OFFLINE }, 'i-2').streams } })
+        await page.goto(`/cluster/tasks/runs/${IRUN}`)
+        const p = runPane(page)
+        await expect(p.getByRole('heading', { name: '에이전트 설치 (SSH)' })).toBeVisible()
+        await expect(p.getByTestId('install-run-size')).toHaveText('2대 · 한 번에 2대')
+        await expect(matrix(page).getByRole('columnheader')).toHaveText(['서버', '접속', '사전 점검', '설치', '등록', '연결 확인'])
+        await expect(wait(page, 's1')).toContainText('web-04에 처음 접속합니다')
+        await expect(wait(page, 's1').getByRole('button', { name: '맞음, 계속' })).toBeVisible()
+        await expect(wait(page, 's1').getByRole('button', { name: '아니요, 중단' })).toBeVisible()
+        await expect(p.getByRole('button', { name: '중지', exact: true })).toBeVisible()
+
+        await page.goto('/cluster/tasks/runs/i-2')
+        await expect(p.getByTestId('install-credentials')).toContainText('1:05 뒤 지웁니다')
+        await expect(server(page, 's2').getByRole('button', { name: '다시 확인' })).toBeVisible()
+        await expect(server(page, 's2').getByRole('button', { name: '되돌리기' })).toBeVisible()
+        await expect(server(page, 's1').getByRole('button', { name: '노드 열기' })).toBeVisible()
+        await expect(server(page, 's2')).toContainText('3629')
+      })
+    })
+
+    test.describe('phone', () => {
+      test.use({ viewport: { width: 412, height: 860 }, hasTouch: true })
+
+      test('the questions, the servers and their buttons fit the screen', async ({ page }) => {
+        const rows = {
+          s1: srv('s1', 'running', ['running'], { host: '192.0.2.21', name: 'web-04', awaiting: 'host_key', host_key: FINGERPRINT }),
+          s2: OFFLINE,
+        }
+        await mock(page, follow(install(), rows))
+        await page.goto(`/cluster/tasks/runs/${IRUN}`)
+        await expect(page.getByTestId('task-run-node-card')).toHaveCount(2)
+        // A row's reason is worded once, below the cards: never its code.
+        await expect(server(page, 's2')).toContainText("the agent cannot reach the managers' port 3629")
+        await expect(runPane(page)).not.toContainText('AGENT_INSTALL_')
+        for (const el of [
+          wait(page, 's1').getByTestId('install-host-key'),
+          wait(page, 's1').getByRole('button', { name: 'Yes, continue' }),
+          wait(page, 's1').getByRole('button', { name: 'No, stop' }),
+          server(page, 's2').getByRole('button', { name: 'Revert' }),
+        ]) {
+          await el.scrollIntoViewIfNeeded()
+          const box = await el.boundingBox()
+          expect(box && box.x >= 0 && box.x + box.width <= 412).toBe(true)
+        }
+        expect(await runPane(page).evaluate((d) => d.scrollWidth <= d.clientWidth)).toBe(true)
+      })
+    })
+  })
 })

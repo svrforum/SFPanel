@@ -1852,6 +1852,37 @@
           "previewHint": "미리 보기는 모든 서버에 접속해 사전 점검까지만 하고, 설치 전에 기다립니다.",
           "fixProblems": "위에 표시한 칸을 고치세요.",
           "retype": "요청을 보낼 때 비밀번호·키를 지웠습니다. 다시 넣으세요."
+        },
+        "run": {
+          "server": "서버",
+          "size": "{{count}}대 · 한 번에 {{batch}}대",
+          "stopTitle": "이 설치를 중지할까요?",
+          "stopDescription": "시작하지 않은 서버는 그대로 두고, 설치 중인 서버는 멈춘 뒤 정리합니다. 인증 정보는 바로 지웁니다.",
+          "leaderChanged": "설치 도중 클러스터 리더가 바뀌어 설치가 그 자리에서 끝났습니다. 인증 정보는 옛 리더와 함께 사라졌습니다. 서버마다 어디서 멈췄는지 아래에 나옵니다.",
+          "hostKey": "{{server}}에 처음 접속합니다. 호스트 키 지문이 서버의 것과 같은지 확인하세요:",
+          "hostKeyHint": "서버에서 ssh-keygen -lf /etc/ssh/ssh_host_ed25519_key.pub로 볼 수 있습니다(보이는 종류의 키 파일을 쓰세요).",
+          "accept": "맞음, 계속",
+          "reject": "아니요, 중단",
+          "check": "{{server}}의 Tailscale SSH가 리더를 들이기 전에 다시 로그인하라고 합니다.",
+          "checkOpen": "확인 페이지 열기",
+          "checkHint": "그곳에서 10분 안에 승인하면 설치가 이어집니다.",
+          "checkUnsafe": "서버가 보낸 확인 주소가 https 링크가 아니라 여기서 열지 않습니다:",
+          "checkNone": "서버가 확인 주소를 보내기를 기다리는 중…",
+          "standalone": "{{server}}에 이미 단독 SFPanel이 있습니다. 에이전트로 바꾸면 로컬 로그인이 사라지고 HTTPS로 바뀝니다.",
+          "convert": "바꾸기 진행",
+          "skip": "건너뛰기",
+          "review": "사전 점검을 마쳤습니다. 설치할 서버: {{servers}}.",
+          "reviewHint": "점검을 통과하지 못한 서버는 설치하지 않습니다.",
+          "proceed": "설치 계속",
+          "credentialsLeft": "다시 확인·되돌리기에 쓰는 인증 정보는 {{left}} 뒤 지웁니다.",
+          "credentialsGone": "인증 정보를 지웠습니다. 정리가 필요한 서버에는 그 서버에서 실행할 명령이 나옵니다.",
+          "cleanup": "서버에서 이 명령을 실행해 SFPanel을 지우세요:",
+          "online": "에이전트 · 온라인",
+          "recheck": "다시 확인",
+          "revert": "되돌리기",
+          "revertTitle": "{{server}}을(를) 되돌릴까요?",
+          "revertDescription": "{{server}}을(를) 클러스터에서 제거하고, 원래 SFPanel이 없던 서버면 SFPanel도 지웁니다. 원래 단독 패널이던 서버는 그대로 둡니다.",
+          "revertDescriptionGone": "{{server}}을(를) 클러스터에서 제거합니다. 인증 정보를 지워서 서버는 정리하지 않으니 정리 명령을 직접 실행하세요."
         }
       }
     }

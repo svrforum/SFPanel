@@ -1,5 +1,5 @@
 import type { TFunction } from 'i18next'
-import type { RunNodeRecord, RunRecord } from '@/types/api'
+import type { RunNodeRecord, RunRecord, RunStatus } from '@/types/api'
 import { CODE_DEFAULTS, CODE_DETAIL_FORMATS, CODE_MESSAGES } from '@/lib/codeMessages'
 
 // An agent install seen through its run record: rows are servers (s1, s2 …),
@@ -99,6 +99,98 @@ export function credentialsLeft(until: string | undefined, now: number): number 
 export function cleanupCommand(version: string): string {
   const ref = /^\d+\.\d+\.\d+$/.test(version) ? `v${version}` : 'main'
   return `curl -fsSL https://raw.githubusercontent.com/svrforum/SFPanel/${ref}/scripts/install.sh | sudo bash -s -- uninstall --purge`
+}
+
+/** Seconds as m:ss, for the credentials' countdown. */
+export function clockText(seconds: number): string {
+  const s = Math.max(0, Math.floor(seconds))
+  return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`
+}
+
+// The run statuses under which an install still moves (tasks_store.go).
+const UNDER_WAY: ReadonlySet<RunStatus> = new Set<RunStatus>(['running', 'stopping', 'handing_over'])
+
+/**
+ * Whether the leader has dropped the install's credentials: its deadline
+ * passed, or the install ended keeping none (a success, a stop, a failure
+ * no recheck or revert could use, or a leader change). The leader clears
+ * the deadline when it drops them, so an ended install with no deadline has
+ * none left.
+ */
+export function credentialsGone(run: RunRecord, now: number): boolean {
+  const left = credentialsLeft(run.credentials_until, now)
+  if (left !== null) return left === 0
+  return !UNDER_WAY.has(run.status)
+}
+
+const LEADER_CHANGED = 'AGENT_INSTALL_LEADER_CHANGED'
+// The install phase: from its start, install.sh may have left SFPanel on the server.
+const INSTALL_PHASE = 2
+
+/**
+ * Whether a server needs the cleanup command run on it by hand, because
+ * nothing else will clean it: a registered server that failed and was not
+ * taken back, once the credentials are gone; a revert that removed the node
+ * but could not clean the server (one that ran a standalone panel before is
+ * left as it is: its local account went when it became an agent); or a
+ * server a leader change left after its install had started. A server that
+ * failed before it registered was cleaned over SSH by the install itself.
+ */
+export function needsCleanup(record: RunNodeRecord | undefined, gone: boolean): boolean {
+  if (!record || record.status !== 'failed') return false
+  const d = record.reason_details ?? {}
+  switch (d.reverted) {
+    case 'cleanup_failed':
+      return true
+    case 'removed':
+      return d.standalone !== '1'
+    case 'removing':
+    case 'purged':
+      return false
+  }
+  if (record.reason === LEADER_CHANGED) {
+    const install = record.steps?.[INSTALL_PHASE]?.status
+    return !record.node_id && install !== undefined && install !== 'pending' && install !== 'skipped'
+  }
+  return Boolean(record.node_id) && gone
+}
+
+export interface InstallRowActions {
+  recheck: boolean
+  revert: boolean
+  openNode: boolean
+}
+
+/**
+ * What can be done about a server: Recheck and Revert for one that
+ * registered and failed, not yet taken back, while the leader that ran the
+ * install still holds it (a leader change ends that; a stopped install
+ * takes no recheck, a revert still removes the node); Open node for one
+ * that became an agent. An install never runs again.
+ */
+export function installRowActions(run: RunRecord, record: RunNodeRecord | undefined): InstallRowActions {
+  const none = { recheck: false, revert: false, openNode: false }
+  if (!record) return none
+  if (record.status === 'succeeded') return { ...none, openNode: Boolean(record.node_id) }
+  if (record.status !== 'failed' || !record.node_id) return none
+  if (record.reason === LEADER_CHANGED) return { ...none, openNode: true }
+  if (run.reason === LEADER_CHANGED || record.reason_details?.reverted) return none
+  return { recheck: run.status !== 'stopped', revert: true, openNode: false }
+}
+
+/** The servers waiting for the review's [Continue install], in run order. */
+export function reviewRows(run: RunRecord, nodes: Record<string, RunNodeRecord>): string[] {
+  return run.nodes.filter((key) => installBanner(nodes[key])?.kind === 'review')
+}
+
+/**
+ * The install's own reason, in the operator's language: a leader change
+ * ends it with a code; anything else shows as sent.
+ */
+export function installRunReasonText(reason: string | undefined, t: TFunction): string | null {
+  if (!reason) return null
+  if (reason === LEADER_CHANGED) return t('cluster.tasks.install.run.leaderChanged')
+  return reason
 }
 
 // ---- Why a row ended ----

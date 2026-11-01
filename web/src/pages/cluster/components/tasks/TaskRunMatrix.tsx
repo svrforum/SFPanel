@@ -19,6 +19,8 @@ interface TaskRunMatrixProps {
   onChoose: (node: string, step: number) => void
   /** A node's name chosen: the page picks its step. */
   onChooseNode: (node: string) => void
+  /** The first column's header: "Node" unless the rows are something else (an install's servers). */
+  rowsHeader?: string
 }
 
 const isChosen = (chosen: ChosenCell | null, node: string, step: number) => chosen?.node === node && chosen.step === step
@@ -26,7 +28,7 @@ const isChosen = (chosen: ChosenCell | null, node: string, step: number) => chos
 // The run as a node × step table on a desktop, its first column held in place
 // while a long run scrolls sideways; on a phone, a card per node with its
 // steps listed. Every cell is a button that opens that step's output.
-export function TaskRunMatrix({ rows, steps, chosen, onChoose, onChooseNode }: TaskRunMatrixProps) {
+export function TaskRunMatrix({ rows, steps, chosen, onChoose, onChooseNode, rowsHeader }: TaskRunMatrixProps) {
   const { t } = useTranslation()
   const label = (row: RunRow, i: number) =>
     t('cluster.tasks.run.cellLabel', { node: row.name, step: steps[i], state: cellText(row.cells[i], t) })
@@ -38,7 +40,7 @@ export function TaskRunMatrix({ rows, steps, chosen, onChoose, onChooseNode }: T
           <thead>
             <tr>
               <th scope="col" className="sticky top-0 left-0 z-20 bg-card px-3 py-2 text-left font-semibold border-b border-r border-border">
-                {t('cluster.tasks.run.node')}
+                {rowsHeader ?? t('cluster.tasks.run.node')}
               </th>
               {steps.map((name, i) => (
                 <th
