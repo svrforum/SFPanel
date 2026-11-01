@@ -851,3 +851,46 @@ func TestALeftInstallNamesTheAgentItsInstallRegistered(t *testing.T) {
 		t.Errorf("row s2 = %+v, want no node: it never reached its install", rec)
 	}
 }
+
+// An install's credentials stay in the memory of the leader that ran it. A
+// leader that finds an ended install of no session of its own with
+// credentials_until set clears it: no recheck or revert can use credentials
+// that are not here. One a session of its own ended is left to that session.
+func TestALeftInstallsCredentialsTimeIsCleared(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		owns bool
+	}{{"no session of this leader ran it", false}, {"a session of this leader ran it", true}} {
+		t.Run(tc.name, func(t *testing.T) {
+			e := newFakeEnv(t, "m2", manager("m1", "mgr-1"), manager("m2", "mgr-2"))
+			installRun(t, e.store, testRunID, cluster.RunFailed, installRows(), installKeys...)
+			until := e.Now().Add(10 * time.Minute)
+			head := e.store.head(testRunID)
+			head.CredentialsUntil, head.EndedAt = until, e.Now()
+			if err := e.store.PutRun(head); err != nil {
+				t.Fatal(err)
+			}
+			fi := &fakeInstalls{owns: map[string]bool{testRunID: tc.owns}}
+			h := &Handler{runners: map[string]context.CancelFunc{}, newEnv: func() runEnv { return e }}
+			h.SetInstallRuns(fi)
+			h.superviseOnce(context.Background(), e)
+
+			got := e.store.head(testRunID)
+			want := time.Time{}
+			if tc.owns {
+				want = until
+			}
+			if !got.CredentialsUntil.Equal(want) {
+				t.Fatalf("credentials_until = %v, want %v", got.CredentialsUntil, want)
+			}
+			if got.Status != cluster.RunFailed || got.Reason != "" || !got.EndedAt.Equal(head.EndedAt) {
+				t.Fatalf("run = %s (%q) ended %v, want the rest of its end as it was", got.Status, got.Reason, got.EndedAt)
+			}
+			for k, want := range installRows() {
+				if rec := e.store.node(testRunID, k); !reflect.DeepEqual(rec, want) {
+					t.Errorf("row %s = %+v, want it untouched", k, rec)
+				}
+			}
+		})
+	}
+}

@@ -686,7 +686,9 @@ history and Stop serve it as they serve a task run.
   - none, for passwordless sudo. The installer then runs `sudo -n`.
 
   The password reaches sudo on its standard input (`sudo -S`), never on a
-  command line. A root login uses no sudo.
+  command line. A root login uses no sudo. sudo runs in the C locale
+  (`env LC_ALL=C sudo …`), so its refusal of a password is recognised on a
+  server set to any language.
 - **Every manager runs the leader's version.** The install pins the leader's
   version; mixed managers are refused (`409 AGENT_INSTALL_MIXED_VERSIONS`).
   Update the cluster first.
@@ -906,7 +908,9 @@ node's page.
     has been reverted.
   - A Stop wipes them at once.
   - They never leave the leader that started the install, so after a
-    leader change nothing can use them.
+    leader change nothing can use them. The new leader clears
+    `credentials_until` on such a run once it has ended, so the record does
+    not claim them; a recheck or a revert then needs a new install.
 - **Cleanup by hand.** A Revert once the credentials are gone removes the
   node only. The screen then shows the command to clean the server, as it
   does after `cleanup_failed`, or after a leader change that cut short an
@@ -925,8 +929,10 @@ node's page.
   has to come from a manager (§ Removing an agent).
 - **Join token.** Each row gets its own token: one-time, agent-only, valid
   for 30 minutes and bound to the row's IP. It travels as a file, never as
-  an argument (`--token-file`). However the row ends, the token is revoked
-  and its directory is deleted.
+  an argument (`--token-file`). The token is revoked when the row ends; after
+  a leader restart it expires within 30 minutes. It is revoked from the token
+  store of the leader that made it, even if that leader has lost its role
+  since. Its directory is deleted when the row ends.
 
 **One install at a time, and the leader**
 
@@ -945,6 +951,11 @@ node's page.
     A row whose install had begun and that names no node is given the
     agent at its IP, if there is one;
   - the other rows are cut off, and may need the cleanup command above.
+- An install's end that cannot be written to the record (a Raft write that
+  times out, say) is written again, after 1 second and then twice as long
+  each time up to 30 seconds, until it is written. If the leader loses its
+  role first, the next leader ends the run as above. A Stop on the ended
+  install writes it at once.
 - A Stop (`POST …/task-runs/<id>/stop`) halts every row and revokes its
   token. A row whose agent registered keeps its node (above); one with no
   agent has its install unit stopped and its server cleaned. The

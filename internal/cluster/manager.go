@@ -672,7 +672,8 @@ func (m *Manager) CreateBoundJoinToken(ttl time.Duration, kind NodeKind, nodeID,
 // AgentInstallTokenTTL is how long the token an agent install hands one
 // server lives: the server spends it minutes after it gets it, once the
 // install script has put SFPanel in place, and the install revokes it when
-// the server's row ends either way.
+// the server's row ends; after a restart of the leader that made it, it
+// expires within the TTL.
 const AgentInstallTokenTTL = 30 * time.Minute
 
 // CreateAgentTokenFor mints an agent token as CreateJoinToken does that

@@ -179,7 +179,8 @@ type RunRecord struct {
 	// CredentialsUntil is when an install's session drops the credentials
 	// it keeps after the install ended with a failed row, for a recheck or a
 	// revert; zero when it keeps none. The credentials never leave that
-	// leader's memory.
+	// leader's memory: another leader that finds an ended install of no
+	// session of its own clears it.
 	CredentialsUntil time.Time `json:"credentials_until,omitzero"`
 }
 

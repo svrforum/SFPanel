@@ -23,7 +23,8 @@ var superviseInterval = 5 * time.Second
 // returns when ctx ends or the cluster manager stops, once its runners have
 // returned. One supervisor runs per Handler. An agent install is no task:
 // it is left to its session, or ended when this node has none for it
-// (endLeftInstall).
+// (endLeftInstall); one that has ended with credentials kept for a session
+// this node does not have has their time cleared (clearLeftCredentials).
 func (h *Handler) supervise(ctx context.Context) {
 	env := h.newEnv()
 	if env == nil {
@@ -75,6 +76,12 @@ func (h *Handler) superviseOnce(ctx context.Context, env runEnv) {
 		return
 	}
 	for _, run := range runs {
+		if !run.Active() && run.Kind == cluster.RunKindAgentInstall && !run.CredentialsUntil.IsZero() {
+			if err := h.clearLeftCredentials(env, run.ID); err != nil {
+				logger().Warn("clearing the credentials time of an agent install left by a leader change", "run", run.ID, "error", err)
+			}
+			continue
+		}
 		if !run.Active() || h.hasRunner(run.ID) {
 			continue
 		}
@@ -177,6 +184,34 @@ func (h *Handler) endLeftInstall(env runEnv, id string) error {
 		logger().Warn("pruning task runs", "error", err)
 	}
 	h.auditEnd(env.LocalID(), head)
+	return nil
+}
+
+// clearLeftCredentials clears the credentials time of install id, ended
+// with credentials kept for a recheck or a revert, when no session on this
+// node holds it: the credentials stay in the memory of the leader that ran
+// the install, so after a leader change nothing here can use them, and the
+// record must not say they last. It is read and written under headMu, as
+// endLeftInstall's is; one a session on this node now holds is left to it.
+func (h *Handler) clearLeftCredentials(env runEnv, id string) error {
+	st := env.Store()
+	headMu.Lock()
+	defer headMu.Unlock()
+	head, _, err := st.GetRun(id)
+	if err != nil {
+		return err
+	}
+	if head.Active() || head.CredentialsUntil.IsZero() {
+		return nil
+	}
+	if ir := h.installRuns(); ir != nil && ir.Owns(id) {
+		return nil
+	}
+	head.CredentialsUntil = time.Time{}
+	if err := st.PutRun(head); err != nil {
+		return err
+	}
+	logger().Info("agent install's credentials time cleared: its session is on another leader", "run", id)
 	return nil
 }
 
