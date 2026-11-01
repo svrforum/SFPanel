@@ -1580,8 +1580,11 @@ audit.
   confirmed.
 - **File** steps write behind the file manager's write guard (so
   `/etc/sfpanel`, `/root/.ssh` and `/etc/sudoers.d` are refused), at most
-  10 MiB, by an atomic rename and without a `.bak`. A file that already holds
-  the content, mode and owner is left alone and reads `unchanged`.
+  10 MiB, by an atomic rename and without a `.bak`. The guard follows every
+  symlink on the way, a linked parent of a file not created yet included,
+  and the step checks its path again once it has made its directories. A
+  file that already holds the content, mode and owner is left alone and
+  reads `unchanged`.
 - **Stack** steps create the stack, or update its compose file when it
   differs, behind the compose endpoints' name rule and safety tiers
   (forbidden always refused, risky only when confirmed); with `up` they run
