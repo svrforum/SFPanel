@@ -2552,7 +2552,7 @@ test.describe('agent install', () => {
       const { calls } = await mock(page, { ...follow(run, rows), replies: { [`POST ${ROWS}/proceed`]: ok(null) } })
       await page.goto(`/cluster/tasks/runs/${IRUN}`)
       const review = runPane(page).getByTestId('install-review')
-      await expect(review).toContainText('web-04, 192.0.2.22')
+      await expect(review).toContainText('Ready to install: web-04, 192.0.2.22.')
       await expect(review.getByRole('button')).toHaveCount(1)
       await expect(wait(page, 's1')).toHaveCount(0)
       await expect(server(page, 's3')).toContainText('No SFPanel release is built for this CPU (armv7l)')
