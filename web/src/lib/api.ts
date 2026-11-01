@@ -76,6 +76,19 @@ import type {
   AIDirs,
   AIProfile,
   AIProfiles,
+  TaskView,
+  TaskModel,
+  TaskValidation,
+  TaskRunRequest,
+  TaskPlan,
+  RunRecord,
+  TaskRunDetail,
+  TaskRunStreamEvent,
+  TaskJobView,
+  TaskImportSource,
+  TaskImportRequest,
+  TaskImportPreview,
+  TaskImportResult,
 } from '@/types/api'
 import { CODE_DEFAULTS, CODE_MESSAGES } from './codeMessages'
 import type { ApiWarning } from './warnings'
@@ -2699,6 +2712,109 @@ class ApiClient {
         pump().catch(reject)
       }).catch(reject)
     })
+  }
+
+  // ---- Group tasks ----
+  // Every manager answers these from its own replicated state and passes the
+  // writes and previews on to the leader, so they go to the manager this
+  // browser is attached to: request() sends no ?node= with /cluster/ paths.
+  // A path carries a task ID escaped once (builtin/command is
+  // builtin%2Fcommand); a body carries it as it is.
+
+  listTasks() {
+    return this.request<TaskView[]>('/cluster/tasks')
+  }
+
+  getTask(id: string) {
+    return this.request<TaskView>(`/cluster/tasks/${encodeURIComponent(id)}`)
+  }
+
+  // 200 with the problems: a save refused with TASK_INVALID carries them in
+  // data, which an error from request() does not keep.
+  validateTask(yaml: string) {
+    return this.request<TaskValidation>('/cluster/tasks/validate', { method: 'POST', body: JSON.stringify({ yaml }) })
+  }
+
+  // The model written back as a document, for the editor's YAML view.
+  formatTask(task: TaskModel) {
+    return this.request<{ yaml: string }>('/cluster/tasks/format', { method: 'POST', body: JSON.stringify({ task }) })
+  }
+
+  createTask(yaml: string) {
+    return this.request<TaskView>('/cluster/tasks', { method: 'POST', body: JSON.stringify({ yaml }) })
+  }
+
+  updateTask(id: string, yaml: string) {
+    return this.request<TaskView>(`/cluster/tasks/${encodeURIComponent(id)}`, { method: 'PUT', body: JSON.stringify({ yaml }) })
+  }
+
+  deleteTask(id: string) {
+    return this.request<{ id: string }>(`/cluster/tasks/${encodeURIComponent(id)}`, { method: 'DELETE' })
+  }
+
+  // The preview asks every node for its verdicts, 16 at a time and up to
+  // 10 s each, which outlasts the default 30 s on a large cluster.
+  planTaskRun(req: TaskRunRequest) {
+    return this.request<TaskPlan>('/cluster/task-runs/plan', { method: 'POST', body: JSON.stringify(req), timeout: LONG_OP_TIMEOUT })
+  }
+
+  // 202 once the run is recorded. A 502 or 504 from a follower's forward
+  // does not mean nothing was recorded: read the runs before starting again.
+  startTaskRun(req: TaskRunRequest) {
+    return this.request<{ run_id: string }>('/cluster/task-runs', { method: 'POST', body: JSON.stringify(req) })
+  }
+
+  // Heads only, newest first.
+  listTaskRuns() {
+    return this.request<RunRecord[]>('/cluster/task-runs')
+  }
+
+  getTaskRun(id: string) {
+    return this.request<TaskRunDetail>(`/cluster/task-runs/${encodeURIComponent(id)}`)
+  }
+
+  // Answers the head; stopping an ended run answers it unchanged.
+  stopTaskRun(id: string, force: boolean) {
+    return this.request<RunRecord>(`/cluster/task-runs/${encodeURIComponent(id)}/stop`, { method: 'POST', body: JSON.stringify({ force }) })
+  }
+
+  // Every node that did not succeed, or the nodes named. 202 with the new run.
+  rerunTaskRun(id: string, which: { onlyFailed: true } | { nodes: string[] }) {
+    const path = `/cluster/task-runs/${encodeURIComponent(id)}/rerun`
+    if ('onlyFailed' in which) return this.request<{ run_id: string }>(`${path}?only=failed`, { method: 'POST' })
+    return this.request<{ run_id: string }>(path, { method: 'POST', body: JSON.stringify({ nodes: which.nodes }) })
+  }
+
+  // skip is the next_skip of the previous answer (0 at first), never a count
+  // of the text received.
+  getTaskStepOutput(runId: string, nodeId: string, step: number, skip: number) {
+    return this.request<TaskJobView>(
+      `/cluster/task-runs/${encodeURIComponent(runId)}/nodes/${encodeURIComponent(nodeId)}/steps/${step}/output?skip=${skip}`,
+    )
+  }
+
+  // Both Git routes run on the leader and wait on GitHub.
+  previewTaskImport(req: TaskImportSource) {
+    return this.request<TaskImportPreview>('/cluster/tasks/import/preview', { method: 'POST', body: JSON.stringify(req), timeout: LONG_OP_TIMEOUT })
+  }
+
+  importTasks(req: TaskImportRequest) {
+    return this.request<TaskImportResult>('/cluster/tasks/import', { method: 'POST', body: JSON.stringify(req), timeout: LONG_OP_TIMEOUT })
+  }
+
+  // The run's progress, from the manager this browser is attached to: built on
+  // apiBase like clusterUpdateStream, never with withNode(), since any manager
+  // answers it and a relay would cut it at five minutes. A refusal before the
+  // stream (404 TASK_RUN_NOT_FOUND) rejects with its code. It resolves when
+  // the stream closes, after an end event or without one (a panel shutting
+  // down): the caller tells the two apart and opens it again.
+  async taskRunStream(id: string, onEvent: (e: TaskRunStreamEvent) => void, signal?: AbortSignal): Promise<void> {
+    const res = await fetch(`${this.apiBase}/cluster/task-runs/${encodeURIComponent(id)}/stream`, {
+      headers: this.streamHeaders(),
+      signal,
+    })
+    if (!res.ok) throw await errorFromResponse(res)
+    await this.readSSEStream<TaskRunStreamEvent>(res, onEvent)
   }
 
   // Build a WebSocket URL using a short-lived single-use ticket instead of

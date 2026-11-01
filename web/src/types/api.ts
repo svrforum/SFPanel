@@ -1245,6 +1245,314 @@ export interface ClusterInitResponse {
   restart: boolean
 }
 
+// ---- Group tasks (/cluster/tasks, /cluster/task-runs; internal/feature/tasks) ----
+// Field names as the server sends them. Durations in a task's model are Go
+// time.Duration: integer nanoseconds (10m = 600_000_000_000).
+
+// Where a task came from. Built-ins are in every manager's binary; a Git task
+// carries the repository, branch, file path and the commit it was taken at.
+export interface TaskSource {
+  kind: 'builtin' | 'user' | 'git'
+  repo?: string
+  branch?: string
+  path?: string
+  sha?: string
+}
+
+// A value asked for when the task runs, referenced in steps as {{ name }}.
+export interface TaskInput {
+  name: string
+  label?: string
+  default?: string
+  required?: boolean
+  // Goes into commands as typed, not shell-quoted.
+  raw?: boolean
+}
+
+// The union of the nodes a run takes: a group label, a kind, or node IDs.
+export interface TaskTargets {
+  groups?: string[]
+  kinds?: ('manager' | 'agent')[]
+  nodes?: string[]
+}
+
+export type TaskStepKind = 'packages' | 'service' | 'command' | 'file' | 'stack' | 'reboot'
+
+// upgrade: all in the document is upgrade_all: true here.
+export interface TaskPackagesStep {
+  update?: boolean
+  upgrade_all?: boolean
+  upgrade?: string[]
+  install?: string[]
+  remove?: string[]
+}
+
+export type TaskServiceAction = 'start' | 'stop' | 'restart' | 'enable' | 'disable'
+
+export interface TaskServiceStep {
+  name: string
+  action: TaskServiceAction
+}
+
+// Exactly one of run and script. timeout in nanoseconds; 0 reads as unset
+// (the default, 10m) to the server's format.
+export interface TaskCommandStep {
+  run?: string
+  script?: string
+  timeout: number
+}
+
+export interface TaskFileStep {
+  path: string
+  content: string
+  mode?: string
+  owner?: string
+}
+
+export interface TaskStackStep {
+  name: string
+  compose: string
+  up?: boolean
+}
+
+// wait in nanoseconds; only_if_required is always sent, a boolean cannot be
+// left unset.
+export interface TaskRebootStep {
+  only_if_required: boolean
+  wait: number
+}
+
+interface TaskStepCommon {
+  name?: string
+  continue_on_error?: boolean
+}
+
+// A step: its kind names the one settings object it carries.
+export type TaskStep = TaskStepCommon & (
+  | { kind: 'packages'; packages: TaskPackagesStep }
+  | { kind: 'service'; service: TaskServiceStep }
+  | { kind: 'command'; command: TaskCommandStep }
+  | { kind: 'file'; file: TaskFileStep }
+  | { kind: 'stack'; stack: TaskStackStep }
+  | { kind: 'reboot'; reboot: TaskRebootStep }
+)
+
+// A parsed task (tasks.Task): what validate returns and format takes.
+export interface TaskModel {
+  name: string
+  description?: string
+  inputs?: TaskInput[]
+  targets: TaskTargets
+  batch: number
+  stop_on_failure: boolean
+  steps: TaskStep[]
+}
+
+// A task as GET /cluster/tasks lists it; GET /cluster/tasks/:id adds the
+// document and, when it parses, its model.
+export interface TaskView {
+  id: string
+  name: string
+  description?: string
+  source: TaskSource
+  read_only: boolean
+  updated_at?: string
+  updated_by?: string
+  yaml?: string
+  task?: TaskModel
+}
+
+// Line counts from 1; 0 is the document as a whole.
+export interface TaskProblem {
+  line: number
+  message: string
+}
+
+// POST /cluster/tasks/validate: problems is always a list; task is null
+// unless the document is valid.
+export interface TaskValidation {
+  valid: boolean
+  problems: TaskProblem[]
+  task: TaskModel | null
+}
+
+// The body of a preview and of a start. targets, when given, replaces the
+// task's own whole. confirmed and plan_id matter to a start only.
+export interface TaskRunRequest {
+  task_id: string
+  inputs?: Record<string, string>
+  targets?: TaskTargets
+  batch?: number
+  stop_on_failure?: boolean
+  confirmed?: number[]
+  plan_id?: string
+}
+
+// A node's verdict on one step (0-based). {step} alone means fine.
+export interface CheckVerdict {
+  step: number
+  refused?: boolean
+  code?: string
+  reason?: string
+  needs_confirm?: boolean
+}
+
+export type PlanLeftReason = 'unknown' | 'offline' | 'outdated' | 'unreachable' | 'busy'
+
+// kind is '' for an unknown node ID. Nodes in a wave carry verdicts or a
+// check_error; nodes left out carry a reason (and run_id when busy).
+export interface PlanNode {
+  id: string
+  name: string
+  kind: 'manager' | 'agent' | ''
+  leader?: boolean
+  reason?: PlanLeftReason
+  run_id?: string
+  verdicts?: CheckVerdict[]
+  check_error?: string
+}
+
+// waves is null, not [], when no node remains.
+export interface TaskPlan {
+  waves: PlanNode[][] | null
+  left?: PlanNode[]
+  plan_id: string
+  managers_not_ready?: string[]
+}
+
+export type RunStatus = 'running' | 'stopping' | 'handing_over' | 'succeeded' | 'failed' | 'stopped'
+export type RunNodeStatus = 'pending' | 'running' | 'succeeded' | 'failed' | 'skipped' | 'unknown' | 'stopped'
+export type RunStepStatus = 'pending' | 'starting' | 'running' | 'succeeded' | 'failed' | 'skipped' | 'unknown' | 'cancelled'
+
+// changed is left out when false.
+export interface RunStepRecord {
+  status: RunStepStatus
+  job_id?: string
+  summary?: string
+  changed?: boolean
+  started_at?: string
+  ended_at?: string
+}
+
+// A node not started yet is {status: 'pending'} with no steps.
+export interface RunNodeRecord {
+  status: RunNodeStatus
+  reason?: string
+  steps?: RunStepRecord[]
+}
+
+// A run's head. nodes are its node IDs in run order (the records are in
+// TaskRunDetail.nodes).
+export interface RunRecord {
+  id: string
+  task_id: string
+  task_name: string
+  rev: string
+  inputs?: Record<string, string>
+  nodes: string[]
+  waves: string[][]
+  confirmed?: number[]
+  batch: number
+  stop_on_failure: boolean
+  status: RunStatus
+  reason?: string
+  force?: boolean
+  stopped_by?: string
+  started_by: string
+  started_at: string
+  ended_at?: string
+  rerun_of?: string
+  start_at?: Record<string, number>
+}
+
+// A step of the document the run ran; a step with no name has its kind only.
+export interface RunStepName {
+  name?: string
+  kind: TaskStepKind
+}
+
+// GET /cluster/task-runs/:id. steps is left out when the run's revision
+// cannot be read.
+export interface TaskRunDetail {
+  run: RunRecord
+  nodes: Record<string, RunNodeRecord>
+  steps?: RunStepName[]
+}
+
+// One event of GET /cluster/task-runs/:id/stream: a snapshot first (again on
+// every reconnect), then changed node records and heads, then end.
+export type TaskRunStreamEvent =
+  | { type: 'snapshot'; run: RunRecord; nodes: Record<string, RunNodeRecord> }
+  | { type: 'node'; node_id: string; record: RunNodeRecord }
+  | { type: 'run'; run: RunRecord }
+  | { type: 'end' }
+
+export type TaskJobStatus = 'running' | 'rebooting' | 'succeeded' | 'failed' | 'interrupted' | 'cancelled'
+
+// One step's job on its node, with its output from ?skip=. next_skip is an
+// offset into the node's raw log: send it back as given, never count it from
+// output.
+export interface TaskJobView {
+  id: string
+  run_id: string
+  kind: string
+  status: TaskJobStatus
+  changed: boolean
+  exit_code?: number
+  summary?: string
+  output?: string
+  next_skip: number
+  done: boolean
+  started_at: string
+  ended_at?: string
+  holder?: { job_id: string; run_id: string; task: string }
+}
+
+// The GitHub folder (or one file) a task import reads. An empty branch is
+// main. The token is sent to GitHub only, never stored.
+export interface TaskImportSource {
+  url: string
+  branch: string
+  path: string
+  token?: string
+}
+
+// files are paths from the preview, all read at its commit.
+export interface TaskImportRequest extends TaskImportSource {
+  commit: string
+  files: string[]
+}
+
+export type TaskImportFileState = 'new' | 'changed' | 'unchanged' | 'too_large'
+
+export interface TaskImportFile {
+  path: string
+  name: string
+  sha: string
+  size: number
+  state: TaskImportFileState
+  task_id?: string
+  task_name?: string
+}
+
+// POST /cluster/tasks/import/preview. removed are tasks taken from this
+// folder whose file is gone at the commit; the import does not delete them.
+export interface TaskImportPreview {
+  repo: string
+  branch: string
+  path: string
+  commit: string
+  files: TaskImportFile[]
+  removed: { task_id: string; task_name: string; path: string }[]
+}
+
+// POST /cluster/tasks/import. Each failed entry carries details.path.
+export interface TaskImportResult {
+  commit: string
+  imported: TaskView[]
+  failed: ApiWarning[]
+}
+
 // Docker observability — container metrics, events, alert rule kinds
 export interface ContainerMetricPoint {
   ts: number // unix millis

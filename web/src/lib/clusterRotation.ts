@@ -6,10 +6,10 @@ import type { CARotation } from '@/types/api'
 
 /**
  * Refusals that say why nothing started: the leader's gate names the nodes it
- * waits for, and a CA rotation waits for a running update. The screen shows
- * them under one title with the reason.
+ * waits for, and a CA rotation waits for a running update or a group task run
+ * under way. The screen shows them under one title with the reason.
  */
-export const ROTATION_REFUSED_CODES = ['CLUSTER_ROTATION_REFUSED', 'UPDATE_IN_PROGRESS']
+export const ROTATION_REFUSED_CODES = ['CLUSTER_ROTATION_REFUSED', 'UPDATE_IN_PROGRESS', 'TASK_RUN_ACTIVE']
 
 export interface RotationFailure {
   refused: boolean

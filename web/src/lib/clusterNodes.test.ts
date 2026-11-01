@@ -253,6 +253,15 @@ describe('roleChangeFailure', () => {
       .toEqual({ kind: 'refused', message: 'not an agent' })
   })
 
+  // A group task run under way refuses both: the node would change role
+  // under the run's steps.
+  it('a group task run under way is a refusal of either change', () => {
+    expect(roleChangeFailure(err(409, 'TASK_RUN_ACTIVE', 'Group task run r1 is under way.'), 'CLUSTER_CONVERT_REFUSED'))
+      .toEqual({ kind: 'refused', message: 'Group task run r1 is under way.' })
+    expect(roleChangeFailure(err(409, 'TASK_RUN_ACTIVE', 'Group task run r1 is under way.'), 'CLUSTER_PROMOTE_REFUSED').kind)
+      .toBe('refused')
+  })
+
   it('a node that did not answer is not a refusal: the change may be under way', () => {
     expect(roleChangeFailure(err(502, 'INTERNAL_ERROR', 'EOF'), 'CLUSTER_CONVERT_REFUSED').kind).toBe('noAnswer')
     // The same code from anything else is an ordinary failure.

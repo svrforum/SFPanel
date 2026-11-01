@@ -14,6 +14,13 @@ describe('rotationFailure', () => {
     expect(rotationFailure(refusal(409, 'UPDATE_IN_PROGRESS', 'An update is already running.')).refused).toBe(true)
   })
 
+  // A group task run under way refuses a CA rotation: its steps would run on
+  // nodes being re-keyed. The run is the reason, so it reads as a refusal.
+  it('reads a group task run under way as a refusal with its reason', () => {
+    expect(rotationFailure(refusal(409, 'TASK_RUN_ACTIVE', 'Group task run r1 is under way.')))
+      .toEqual({ refused: true, message: 'Group task run r1 is under way.' })
+  })
+
   it('does not call any other failure a refusal', () => {
     // A leader that could not be confirmed did not refuse: nothing was asked.
     expect(rotationFailure(refusal(503, 'INTERNAL_ERROR', 'no leader'))).toEqual({ refused: false, message: 'no leader' })

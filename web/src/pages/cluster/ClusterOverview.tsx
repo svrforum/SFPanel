@@ -219,6 +219,9 @@ export default function ClusterOverview() {
       const e = err as ApiError
       // Only this conflict means a run is under way; another says its own.
       if (e.status === 409 && e.code === 'UPDATE_IN_PROGRESS') toast.error(t('cluster.overview.updateAlreadyRunning'))
+      // A group task run under way: the leader refused before the stream, so
+      // nothing started. The message names the run (CODE_MESSAGES).
+      else if (e.status === 409 && e.code === 'TASK_RUN_ACTIVE') toast.error(e.message)
       else if (viaFollower && received > 0) toast.info(t('cluster.overview.updateContinuesOnLeader'))
       else toast.error(message(err))
     } finally {

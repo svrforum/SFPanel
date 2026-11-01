@@ -38,7 +38,16 @@
       "operationComplete": "Operation completed",
       "waitingForOutput": "Waiting for output...",
       "pleaseWait": "Please wait..."
-    }
+    },
+    "git": {
+      "authFailed": "GitHub refused the token, or the repository needs a token with access to it.",
+      "repoNotFound": "Repository not found. If it is private, add a token.",
+      "pathNotFound": "Nothing at that path on that branch.",
+      "cloneFailed": "Could not read from GitHub.",
+      "rateLimited": "GitHub's request allowance is used up. Try again after {{reset_at}}, or add a token.",
+      "rateLimitReset": "it resets, within the hour"
+    },
+    "fileTooLarge": "The file is too large."
   },
   "layout": {
     "brand": "SFPanel",
@@ -899,7 +908,8 @@
       "overview": "Overview",
       "nodes": "Nodes",
       "stacks": "Docker",
-      "security": "Security"
+      "security": "Security",
+      "tasks": "Tasks"
     },
     "notEnabled": {
       "title": "Cluster not enabled",
@@ -1235,6 +1245,33 @@
       "leaveUnacknowledged": "No leader took this node out of the cluster. On the leader, run: sudo sfpanel cluster remove {{node_id}}",
       "agentsNotReached": "These agents were not told and need sudo sfpanel agent reset --yes on their own server: {{agents}}",
       "managerBackups": "This node's scheduled backups were taken while it was a manager and hold the cluster's secrets until they are rotated."
+    },
+    "tasks": {
+      "errors": {
+        "leaderBusy": "The cluster leader is changing or catching up. Try again in a few seconds.",
+        "tooLarge": "The request is too large: the panel takes at most 1 MiB.",
+        "invalid": "The task document has problems.",
+        "taskTooLarge": "This is over the limit of {{max_kib}} KiB.",
+        "nameTaken": "Another task, stored or built in, already has this name.",
+        "notFound": "No such task. It may have been deleted.",
+        "readOnly": "This task is read-only: a built-in task cannot be changed or deleted, and a task imported from Git changes when it is fetched again.",
+        "runNotFound": "No such run. It may have been cleared from the history.",
+        "managersNotReady": "Every manager must run a version that knows group tasks. Waiting for: {{managers}}",
+        "inputMissing": "Input {{input}} needs a value: it is required and has no default.",
+        "noTargets": "No node is left for this run to take.",
+        "tooManyTargets": "A run takes at most {{max}} nodes.",
+        "targetBusy": "A node this run needs is held by another run under way. Try again once that run has finished.",
+        "planChanged": "The task, its inputs or its targets changed since the preview. Preview again.",
+        "rebootBusy": "Run {{run_id}} reboots a manager and is under way: one run at a time may reboot managers.",
+        "clusterChanging": "A manager is being converted to an agent, or an agent promoted to a manager. Start the run once that is done.",
+        "runActive": "Group task run {{run_id}} is under way. Try again once it has finished.",
+        "jobNotFound": "The node has no record of this step: it never ran there, or the node has cleared it.",
+        "jobClusterOnly": "A task's steps are sent to nodes by the cluster leader, not from a browser.",
+        "nodeBusy": "The node is running a step of another run.",
+        "jobRunning": "The step is still running on the node. Only a forced stop cancels it.",
+        "rebootPveHost": "A task does not reboot a Proxmox VE host: the panel does not know the guests running on it. The step is skipped.",
+        "rebootUnsupported": "The node has no systemd to schedule a reboot with."
+      }
     }
   },
   "settings": {

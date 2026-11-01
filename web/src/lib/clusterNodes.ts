@@ -241,7 +241,8 @@ export function roleChangePhase(change: Pick<RoleChange, 'nodeId' | 'target' | '
 
 export interface RoleChangeFailure {
   /**
-   * refused: the server's message is the reason. noAnswer: the leader could
+   * refused: the server's message is the reason; a group task run under way
+   * (TASK_RUN_ACTIVE) refuses either change too. noAnswer: the leader could
    * not hear the node's answer — a converting node may have left before it
    * was heard — so the change may be under way. other: anything else.
    */
@@ -252,7 +253,7 @@ export interface RoleChangeFailure {
 export function roleChangeFailure(err: unknown, refusedCode: string): RoleChangeFailure {
   const { status, code } = (err ?? {}) as { status?: number; code?: string }
   const message = err instanceof Error ? err.message : String(err)
-  if (code === refusedCode) return { kind: 'refused', message }
+  if (code === refusedCode || code === 'TASK_RUN_ACTIVE') return { kind: 'refused', message }
   if (status === 502 && code === 'INTERNAL_ERROR') return { kind: 'noAnswer', message }
   return { kind: 'other', message }
 }

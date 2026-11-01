@@ -45,10 +45,53 @@ export const CODE_MESSAGES: Record<string, string> = {
   RESTORE_AGENT_BACKUP_ON_MANAGER: 'settings.restoreErrors.agentBackupOnManager',
   // CLUSTER_CONVERT_REFUSED, CLUSTER_PROMOTE_REFUSED and CLUSTER_ROTATION_REFUSED
   // carry their reason in the server's message, so they stay unworded here.
+
+  // Group tasks: the task and run API on a manager. A value the screen has to
+  // put in itself — TASK_TARGET_BUSY's node_id is an ID, not a name, and
+  // TASK_CLUSTER_CHANGING's what is an English token — is left out of the
+  // sentence; TASK_INVALID's line, on a start or a preview, stays in
+  // serverMessage.
+  TASK_INVALID: 'cluster.tasks.errors.invalid',
+  TASK_TOO_LARGE: 'cluster.tasks.errors.taskTooLarge',
+  TASK_NAME_TAKEN: 'cluster.tasks.errors.nameTaken',
+  TASK_NOT_FOUND: 'cluster.tasks.errors.notFound',
+  TASK_READ_ONLY: 'cluster.tasks.errors.readOnly',
+  TASK_RUN_NOT_FOUND: 'cluster.tasks.errors.runNotFound',
+  TASK_MANAGERS_NOT_READY: 'cluster.tasks.errors.managersNotReady',
+  TASK_INPUT_MISSING: 'cluster.tasks.errors.inputMissing',
+  TASK_NO_TARGETS: 'cluster.tasks.errors.noTargets',
+  TASK_TOO_MANY_TARGETS: 'cluster.tasks.errors.tooManyTargets',
+  TASK_TARGET_BUSY: 'cluster.tasks.errors.targetBusy',
+  TASK_PLAN_CHANGED: 'cluster.tasks.errors.planChanged',
+  TASK_REBOOT_BUSY: 'cluster.tasks.errors.rebootBusy',
+  TASK_CLUSTER_CHANGING: 'cluster.tasks.errors.clusterChanging',
+  // Also how a cluster update, a CA rotation, a conversion or a promotion is
+  // refused while a run is under way.
+  TASK_RUN_ACTIVE: 'cluster.tasks.errors.runActive',
+  TASK_JOB_NOT_FOUND: 'cluster.tasks.errors.jobNotFound',
+  // A node's half of a run. These reach the page as a preview verdict's code
+  // or the "CODE: …" start of a step summary, with no details, so they name
+  // no value.
+  TASK_JOB_CLUSTER_ONLY: 'cluster.tasks.errors.jobClusterOnly',
+  TASK_NODE_BUSY: 'cluster.tasks.errors.nodeBusy',
+  TASK_JOB_RUNNING: 'cluster.tasks.errors.jobRunning',
+  TASK_REBOOT_PVE_HOST: 'cluster.tasks.errors.rebootPveHost',
+  TASK_REBOOT_UNSUPPORTED: 'cluster.tasks.errors.rebootUnsupported',
+
+  // GitHub, for the task import and the compose import alike.
+  GIT_AUTH_FAILED: 'common.git.authFailed',
+  GIT_REPO_NOT_FOUND: 'common.git.repoNotFound',
+  GIT_PATH_NOT_FOUND: 'common.git.pathNotFound',
+  GIT_CLONE_FAILED: 'common.git.cloneFailed',
+  GIT_RATE_LIMITED: 'common.git.rateLimited',
+  // A file the files page, or GitHub, will not hand over whole.
+  FILE_TOO_LARGE: 'common.fileTooLarge',
 }
 
 // What a placeholder reads, as an i18n key, when the details carry no value
 // for it: a node a server named by neither name nor ID is "that node".
 export const CODE_DEFAULTS: Record<string, Record<string, string>> = {
   CLUSTER_NODE_UNREACHABLE: { name: 'cluster.errors.thatNode' },
+  // GitHub names when the allowance resets only when it said so.
+  GIT_RATE_LIMITED: { reset_at: 'common.git.rateLimitReset' },
 }
