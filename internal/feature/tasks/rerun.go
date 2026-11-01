@@ -9,7 +9,8 @@ import (
 
 // rerunFrom is a new run of src over the nodes of only that src ran, in
 // src's order and waves: the same document (src.Rev, not the task as it is
-// now), the same inputs and confirmed steps. Each node starts at its first
+// now), the same inputs and confirmed steps. RerunRun then orders the nodes
+// anew over the cluster as it is now; the waves here are src's. Each node starts at its first
 // step that did not succeed in src — a failed, unknown, skipped or never
 // started one runs again. A node whose every step succeeded starts at 0:
 // the operator chose to run it again. The map is the start step by node,

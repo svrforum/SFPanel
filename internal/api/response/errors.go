@@ -573,6 +573,11 @@ const (
 	// ErrTaskTargetBusy is returned (HTTP 409) when a node a run would take
 	// is held by another run under way. Details: node_id, run_id.
 	ErrTaskTargetBusy = "TASK_TARGET_BUSY"
+	// ErrTaskRebootBusy is returned (HTTP 409) when a run that reboots a
+	// manager is asked for while another run under way does too: each judges
+	// the managers' quorum from the managers online, so two at once could
+	// both reboot one. Details: run_id of the other run.
+	ErrTaskRebootBusy = "TASK_REBOOT_BUSY"
 	// ErrTaskClusterChanging is returned (HTTP 409) when a run is asked for
 	// while a manager is being converted to an agent or an agent promoted to
 	// a manager. Details: what (conversion | promotion).

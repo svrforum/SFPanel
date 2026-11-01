@@ -1032,3 +1032,123 @@ func TestWritesWaitForTheLeaderToCatchUp(t *testing.T) {
 		})
 	}
 }
+
+// rebootDoc reboots its targets, whatever /var/run/reboot-required says.
+const rebootDoc = "name: reboot them\nsteps:\n  - reboot: { only_if_required: false }\n"
+
+// Two runs rebooting managers at once would each judge the quorum from the
+// managers online, and both see it kept: one run at a time reboots managers.
+func TestOneRunAtATimeRebootsManagers(t *testing.T) {
+	start := func(f *apiFixture, task string, nodes ...string) answer {
+		return f.do("POST", "/api/v1/cluster/task-runs", map[string]any{"task_id": task, "targets": map[string]any{"nodes": nodes}})
+	}
+	setup := func(t *testing.T) *apiFixture {
+		f := newAPI(t)
+		f.env.nodes = append(f.env.nodes, manager("m3", "m3"))
+		f.store("reboot", rebootDoc)
+		f.store("t1", "name: uptime\nsteps:\n  - command: { run: uptime }\n")
+		return f
+	}
+	runID := func(t *testing.T, a answer) string {
+		t.Helper()
+		if a.Status != http.StatusAccepted {
+			t.Fatalf("first run = %d %+v, want 202", a.Status, a.Error)
+		}
+		var d struct {
+			RunID string `json:"run_id"`
+		}
+		a.data(t, &d)
+		return d.RunID
+	}
+
+	t.Run("two runs rebooting different managers: the second waits", func(t *testing.T) {
+		f := setup(t)
+		first := runID(t, start(f, "reboot", "m2"))
+		wantRefusal(t, "the second run", start(f, "reboot", "m3"), 409, response.ErrTaskRebootBusy, map[string]string{"run_id": first})
+		if runs, _ := f.env.store.ListRuns(); len(runs) != 1 {
+			t.Errorf("runs = %+v, want the first alone", runs)
+		}
+	})
+	t.Run("a rerun rebooting a manager waits too", func(t *testing.T) {
+		f := setup(t)
+		rev, _ := f.env.store.PutTaskRevision(rebootDoc)
+		_ = f.env.store.PutRun(cluster.RunRecord{ID: srcRun, TaskID: "reboot", Rev: rev, Nodes: []string{"m3"}, Waves: [][]string{{"m3"}}, Batch: 1, Status: cluster.RunFailed})
+		first := runID(t, start(f, "reboot", "m2"))
+		a := f.do("POST", "/api/v1/cluster/task-runs/"+srcRun+"/rerun?only=failed", nil)
+		wantRefusal(t, "the rerun", a, 409, response.ErrTaskRebootBusy, map[string]string{"run_id": first})
+	})
+	for _, tc := range []struct {
+		name          string
+		first, second []string
+		firstTask     string
+	}{
+		{"an agents' reboot beside a manager's", []string{"m2"}, []string{"a1"}, "reboot"},
+		{"a manager's reboot beside an agents'", []string{"a1"}, []string{"m2"}, "reboot"},
+		{"a manager's reboot beside a run on a manager that reboots nothing", []string{"m3"}, []string{"m2"}, "t1"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			f := setup(t)
+			runID(t, start(f, tc.firstTask, tc.first...))
+			if a := start(f, "reboot", tc.second...); a.Status != http.StatusAccepted {
+				t.Errorf("second run = %d %+v, want 202", a.Status, a.Error)
+			}
+		})
+	}
+}
+
+// A rerun is ordered over the cluster as it is now, not in the waves of the
+// run it reruns: the leader may have moved, and a node may have changed kind.
+func TestARerunIsPlannedAnew(t *testing.T) {
+	rerun := func(t *testing.T, f *apiFixture, nodes ...string) cluster.RunRecord {
+		t.Helper()
+		a := f.do("POST", "/api/v1/cluster/task-runs/"+srcRun+"/rerun", map[string]any{"nodes": nodes})
+		if a.Status != http.StatusAccepted {
+			t.Fatalf("rerun = %d %+v, want 202", a.Status, a.Error)
+		}
+		var d struct {
+			RunID string `json:"run_id"`
+		}
+		a.data(t, &d)
+		return f.env.store.head(d.RunID)
+	}
+	t.Run("the leadership moved: the new leader goes last", func(t *testing.T) {
+		f := newAPI(t)
+		// m2 led the run: it went last. m1 leads now.
+		f.runOf(srcRun, cluster.RunFailed, nil, "a1", "m1", "m2")
+		f.env.store.setHead(srcRun, func(h *cluster.RunRecord) { h.Waves = [][]string{{"a1"}, {"m1"}, {"m2"}} })
+		h := rerun(t, f, "a1", "m1", "m2")
+		if got := fmt.Sprint(h.Waves); got != "[[a1] [m2] [m1]]" {
+			t.Errorf("waves = %s, want [[a1] [m2] [m1]]: the leader last", got)
+		}
+		if !slices.Equal(h.Nodes, []string{"a1", "m2", "m1"}) {
+			t.Errorf("nodes = %v, want them in the new order", h.Nodes)
+		}
+	})
+	t.Run("an agent promoted since: a wave of its own", func(t *testing.T) {
+		f := newAPI(t)
+		f.runOf(srcRun, cluster.RunFailed, nil, "a1", "a2")
+		f.env.store.setHead(srcRun, func(h *cluster.RunRecord) { h.Batch = 2 })
+		for i, n := range f.env.nodes {
+			if n.ID == "a2" {
+				f.env.nodes[i] = manager("a2", "a2")
+			}
+		}
+		h := rerun(t, f, "a1", "a2")
+		if got := fmt.Sprint(h.Waves); got != "[[a1] [a2]]" {
+			t.Errorf("waves = %s, want [[a1] [a2]]: a manager alone", got)
+		}
+		if h.Batch != 2 || fmt.Sprint(h.StartAt) != "map[a1:0 a2:0]" || h.Inputs["who"] != "world" || h.Rev != f.env.store.head(srcRun).Rev {
+			t.Errorf("rerun = %+v, want the source's batch, revision and inputs, each node from step 0", h)
+		}
+	})
+	t.Run("every node offline: no targets", func(t *testing.T) {
+		f := newAPI(t)
+		f.runOf(srcRun, cluster.RunFailed, nil, "a1")
+		f.env.health["a1"] = cluster.StatusOffline
+		a := f.do("POST", "/api/v1/cluster/task-runs/"+srcRun+"/rerun?only=failed", nil)
+		wantRefusal(t, "the rerun", a, 400, response.ErrTaskNoTargets, nil)
+		if runs, _ := f.env.store.ListRuns(); len(runs) != 1 {
+			t.Errorf("runs = %+v, want the source alone", runs)
+		}
+	})
+}

@@ -751,6 +751,12 @@ func (h *Handler) claim(env runEnv, run *cluster.RunRecord, doc string) error {
 				return busyNode(id, other)
 			}
 		}
+		if other, err := rebootBusy(env, doc, run.Nodes); err != nil {
+			return err
+		} else if other != "" {
+			return refusal(http.StatusConflict, response.ErrTaskRebootBusy,
+				"Run "+other+" reboots a manager and is under way: one run at a time reboots managers", map[string]string{"run_id": other})
+		}
 		rev, err := st.PutTaskRevision(doc)
 		if err != nil {
 			return storeError(err)
@@ -759,6 +765,56 @@ func (h *Handler) claim(env runEnv, run *cluster.RunRecord, doc string) error {
 		run.ID, run.Rev, run.StartedAt = cluster.NewRunID(now), rev, now
 		return st.PutRun(*run)
 	})
+}
+
+// rebootBusy names the run under way that, like a run of doc over nodes,
+// reboots a manager, or "" when the run reboots no manager or no other does.
+// Each run judges the managers' quorum from the managers online, so two runs
+// rebooting managers at once could each see it kept and reboot one apiece;
+// one at a time keeps a manager rebooting visible to the quorum check. A run
+// that reboots agents only is not held back. Nodes are judged by their kind
+// now.
+func rebootBusy(env runEnv, doc string, nodes []string) (string, error) {
+	managers := map[string]bool{}
+	for _, n := range env.Nodes() {
+		if n.IsManager() {
+			managers[n.ID] = true
+		}
+	}
+	if !rebootsManager(doc, nodes, managers) {
+		return "", nil
+	}
+	st := env.Tasks()
+	runs, err := st.ListRuns()
+	if err != nil {
+		return "", err
+	}
+	for _, r := range runs {
+		if !r.Active() {
+			continue
+		}
+		other, err := st.TaskRevision(r.Rev)
+		if errors.Is(err, cluster.ErrTaskRevisionNotFound) {
+			continue // the run cannot read its own document, and ends at once
+		}
+		if err != nil {
+			return "", err
+		}
+		if rebootsManager(other, r.Nodes, managers) {
+			return r.ID, nil
+		}
+	}
+	return "", nil
+}
+
+// rebootsManager reports whether doc has a reboot step and nodes include a
+// manager.
+func rebootsManager(doc string, nodes []string, managers map[string]bool) bool {
+	t, _ := tasks.Parse([]byte(doc))
+	if t == nil || !slices.ContainsFunc(t.Steps, func(s tasks.Step) bool { return s.Kind == tasks.StepReboot }) {
+		return false
+	}
+	return slices.ContainsFunc(nodes, func(id string) bool { return managers[id] })
 }
 
 // withPending is a run's node records with every node of the run that has
@@ -861,11 +917,13 @@ func (h *Handler) StopRun(c echo.Context) error {
 }
 
 // RerunRun answers POST /cluster/task-runs/:id/rerun (leader): a new run of
-// the run's own document and inputs over the nodes chosen — with
-// ?only=failed every node that did not succeed, else the body's
+// the run's own document, inputs and confirmations over the nodes chosen —
+// with ?only=failed every node that did not succeed, else the body's
 // {"nodes": [...]} that the run ran — each from its first step that did not
-// succeed. The run must have ended; the new one is judged and recorded as
-// any run is (claim). 202 {run_id}.
+// succeed. The run must have ended. The nodes are ordered anew over the
+// cluster as it is now (orderRun), as the leader may have moved and a node
+// changed kind since, and the ones a new run would leave out are left out;
+// the new run is judged and recorded as any run is (claim). 202 {run_id}.
 func (h *Handler) RerunRun(c echo.Context) error {
 	env, err := h.apiEnv(c)
 	if env == nil {
@@ -902,12 +960,28 @@ func (h *Handler) RerunRun(c echo.Context) error {
 	default:
 		return response.Fail(c, http.StatusBadRequest, response.ErrInvalidRequest, "only takes failed")
 	}
-	run, _ := rerunFrom(src, nodes, only)
+	run, startAt := rerunFrom(src, nodes, only)
 	if len(run.Nodes) == 0 {
 		return response.Fail(c, http.StatusBadRequest, response.ErrTaskNoTargets, "None of the nodes chosen is one the run ran, or every one succeeded")
 	}
 	if err := managersNotReady(st); err != nil {
 		return fail(c, err)
+	}
+	plan, _, err := orderRun(env, tasks.Targets{Nodes: run.Nodes}, run.Batch)
+	if err != nil {
+		return fail(c, planError(err))
+	}
+	if len(plan.Waves) == 0 {
+		for _, n := range plan.Left {
+			if n.Reason == LeftBusy {
+				return fail(c, busyNode(n.ID, n.RunID))
+			}
+		}
+		return response.Fail(c, http.StatusBadRequest, response.ErrTaskNoTargets, "The run would take no node: every node chosen is offline, outdated, out of reach or gone")
+	}
+	run.Nodes, run.Waves, run.StartAt = plan.NodeIDs(), plan.WaveIDs(), map[string]int{}
+	for _, id := range run.Nodes {
+		run.StartAt[id] = startAt[id]
 	}
 	doc, err := st.TaskRevision(src.Rev)
 	if err != nil {
