@@ -333,6 +333,11 @@ type fakeServer struct {
 	// dropAfterInstall breaks the connection that started install.sh: its
 	// next commands cannot be run. A new connection works.
 	dropAfterInstall bool
+	// stallReads holds every read of a file (cat) until its ctx ends, then
+	// leaves the connection spent, as sshexec.Client.Run does when the server
+	// stops answering; stalled counts the reads held.
+	stallReads bool
+	stalled    int
 	// registerOnStop registers the agent as the install unit is stopped:
 	// a join admitted before the stop that lands after it.
 	registerOnStop bool
@@ -684,11 +689,23 @@ type fakeTarget struct {
 	closed bool
 	// broken is a connection that dropped: nothing more runs over it.
 	broken bool
+	// spent is a connection a Run closed for its ctx (stallReads).
+	spent bool
 }
 
+func (t *fakeTarget) Spent() bool { return t.spent }
+
 func (t *fakeTarget) Run(ctx context.Context, cmd string, stdin []byte) ([]byte, []byte, int, error) {
-	if t.closed {
+	if t.closed || t.spent {
 		return nil, nil, -1, errors.New("closed")
+	}
+	if t.s.stallReads && strings.HasPrefix(cmd, "cat ") {
+		t.s.mu.Lock()
+		t.s.stalled++
+		t.s.mu.Unlock()
+		<-ctx.Done()
+		t.spent = true
+		return nil, nil, -1, fmt.Errorf("sshexec: %w; the connection is closed", ctx.Err())
 	}
 	if t.broken {
 		return nil, nil, -1, errors.New("sshexec: open a session: EOF")

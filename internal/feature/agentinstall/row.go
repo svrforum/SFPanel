@@ -176,11 +176,13 @@ func stepStatus(err error) string {
 // so no join can come after it. A row whose install started and that ended
 // short of a registration is then looked for in the cluster (unwind): an
 // agent at its IP is its own and stays, and only a row with none is cleaned.
-// In every case it removes the row's directory and closes its connection.
+// In every case it removes the row's directory and closes its connection;
+// a connection that is gone by then is dialled again for that (renew).
 func (r *row) end(err error) {
 	ctx, cancel := context.WithTimeout(context.Background(), r.s.e.t.cleanup)
 	defer cancel()
 	r.revokeToken()
+	r.renew(ctx)
 	r.s.mu.Lock()
 	registered := r.rec.NodeID != ""
 	r.s.mu.Unlock()
@@ -702,6 +704,23 @@ func (r *row) follow(ctx context.Context) error {
 			return fail(response.ErrAgentInstallFailed, "install.sh did not end in time", "step", "install",
 				"timeout_minutes", strconv.Itoa(int(t.installLimit/time.Minute)))
 		}
+	}
+}
+
+// renew dials the server again for the clean-up at the row's end when its
+// connection is gone: spent, closed by a Run whose ctx ended while it opened
+// a session on a server that stopped answering (sshexec.Client.Spent), or
+// closed for a command that could not be run. There is something to clean
+// only once the row's directory exists.
+func (r *row) renew(ctx context.Context) {
+	if sp, ok := r.tgt.(interface{ Spent() bool }); ok && sp.Spent() {
+		r.closeTarget()
+	}
+	if r.tgt != nil || r.tmp == "" {
+		return
+	}
+	if err := r.reconnect(ctx, r.logs[phaseInstall]); err != nil {
+		r.logs[phaseInstall].printf("dialling the server again for the clean-up failed: %v", err)
 	}
 }
 

@@ -8,6 +8,7 @@ import (
 	"encoding/pem"
 	"errors"
 	"os/exec"
+	"runtime"
 	"strings"
 	"sync"
 	"testing"
@@ -310,5 +311,53 @@ func TestWipeZeroesTheSecrets(t *testing.T) {
 				t.Fatalf("%s byte %d = %d after Wipe, want 0", name, i, c)
 			}
 		}
+	}
+}
+
+// A server that completes the login and then never answers a channel open:
+// Run gives up when its ctx ends, with ctx's error, and closes the
+// connection rather than wait for TCP to give up, leaving no goroutine of
+// its own behind.
+func TestRunHeedsCtxWhileOpeningASession(t *testing.T) {
+	s := startTestServer(t, serverOpts{password: "pw", silentChannels: true})
+	before := runtime.NumGoroutine()
+	c, err := Dial(testCtx(t), s.addr, Auth{User: "ops", Method: "password", Password: []byte("pw")}, s.hostKey(), nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 200*time.Millisecond)
+	defer cancel()
+	type result struct {
+		exit int
+		err  error
+	}
+	done := make(chan result, 1)
+	start := time.Now()
+	go func() {
+		_, _, exit, err := c.Run(ctx, "true", nil)
+		done <- result{exit, err}
+	}()
+	select {
+	case r := <-done:
+		if !errors.Is(r.err, context.DeadlineExceeded) || r.exit != -1 {
+			t.Fatalf("Run = exit %d, %v; want -1 and ctx's error", r.exit, r.err)
+		}
+		if d := time.Since(start); d > time.Second {
+			t.Fatalf("Run returned after %v, want about 200ms", d)
+		}
+	case <-time.After(3 * time.Second):
+		_ = c.Close()
+		t.Fatalf("Run with a ctx of 200ms has not returned after %v", time.Since(start))
+	}
+	// The connection is closed: another command fails at once.
+	if _, _, _, err := c.Run(testCtx(t), "true", nil); err == nil {
+		t.Fatal("a command ran over the connection Run gave up on")
+	}
+	deadline := time.Now().Add(2 * time.Second)
+	for runtime.NumGoroutine() > before {
+		if time.Now().After(deadline) {
+			t.Fatalf("%d goroutines, %d before the Dial: some were left behind", runtime.NumGoroutine(), before)
+		}
+		time.Sleep(10 * time.Millisecond)
 	}
 }

@@ -13,7 +13,9 @@ import (
 // engine does there, which tests replace without SSH.
 type Target interface {
 	// Run runs cmd with stdin as its standard input; a command that ran and
-	// exited non-zero is not an error (sshexec.Client.Run).
+	// exited non-zero is not an error (sshexec.Client.Run). A Target that
+	// can be spent by a Run, as sshexec.Client is, says so with a Spent()
+	// bool method, and the row dials again for its clean-up.
 	Run(ctx context.Context, cmd string, stdin []byte) (stdout, stderr []byte, exit int, err error)
 	// Upload writes data to path as the login, its bytes on stdin only.
 	Upload(ctx context.Context, path string, mode os.FileMode, data []byte) error

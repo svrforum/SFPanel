@@ -14,6 +14,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
 	"net"
 	"net/url"
 	"os"
@@ -98,6 +99,15 @@ func hostKeyOf(key ssh.PublicKey) HostKey {
 // Client is a logged-in SSH connection.
 type Client struct {
 	conn *ssh.Client
+	// spent is set once a Run closed the connection for its ctx.
+	spent atomic.Bool
+}
+
+// Spent reports whether a Run closed the connection because its ctx ended
+// while it opened a session or started its command: nothing more runs over
+// it, and a caller that has more to do dials again.
+func (c *Client) Spent() bool {
+	return c.spent.Load()
 }
 
 // Close ends the connection.
@@ -340,22 +350,31 @@ func handshake(ctx context.Context, conn net.Conn, addr string, cfg *ssh.ClientC
 // nil) and returns its output and exit status. A command that ran and exited
 // non-zero is not an error; err is for a command that could not be run or
 // whose end was not seen (exit is then -1). Ending ctx kills the command.
+//
+// Opening the session and starting the command wait for the server's
+// answers, which a server that stopped answering without a reset never
+// sends, and which TCP would take about 15 minutes to give up on. Ending ctx
+// during those waits closes the connection, which ends them: Run returns
+// ctx's error at once, leaves no goroutine behind, and the client is spent
+// (Spent): nothing more runs over it.
 func (c *Client) Run(ctx context.Context, cmd string, stdin []byte) (stdout, stderr []byte, exit int, err error) {
-	sess, err := c.conn.NewSession()
+	var out, errOut bytes.Buffer
+	stop := context.AfterFunc(ctx, func() {
+		c.spent.Store(true)
+		_ = c.conn.Close()
+	})
+	sess, err := c.start(cmd, stdin, &out, &errOut)
+	if !stop() {
+		if sess != nil {
+			_ = sess.Close()
+		}
+		return nil, nil, -1, fmt.Errorf("sshexec: %w; the connection is closed", ctx.Err())
+	}
 	if err != nil {
-		return nil, nil, -1, fmt.Errorf("sshexec: open a session: %w", err)
+		return nil, nil, -1, err
 	}
 	defer sess.Close()
 
-	var out, errOut bytes.Buffer
-	sess.Stdout = &out
-	sess.Stderr = &errOut
-	if stdin != nil {
-		sess.Stdin = bytes.NewReader(stdin)
-	}
-	if err := sess.Start(cmd); err != nil {
-		return nil, nil, -1, fmt.Errorf("sshexec: start a command: %w", err)
-	}
 	done := make(chan error, 1)
 	go func() { done <- sess.Wait() }()
 
@@ -376,6 +395,24 @@ func (c *Client) Run(ctx context.Context, cmd string, stdin []byte) (stdout, std
 		return out.Bytes(), errOut.Bytes(), -1, fmt.Errorf("sshexec: run a command: %w", err)
 	}
 	return out.Bytes(), errOut.Bytes(), 0, nil
+}
+
+// start opens a session and starts cmd in it, its output going to stdout
+// and stderr.
+func (c *Client) start(cmd string, stdin []byte, stdout, stderr io.Writer) (*ssh.Session, error) {
+	sess, err := c.conn.NewSession()
+	if err != nil {
+		return nil, fmt.Errorf("sshexec: open a session: %w", err)
+	}
+	sess.Stdout, sess.Stderr = stdout, stderr
+	if stdin != nil {
+		sess.Stdin = bytes.NewReader(stdin)
+	}
+	if err := sess.Start(cmd); err != nil {
+		_ = sess.Close()
+		return nil, fmt.Errorf("sshexec: start a command: %w", err)
+	}
+	return sess, nil
 }
 
 // Upload writes data to path on the server through the shell and sets its

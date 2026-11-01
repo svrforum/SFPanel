@@ -153,3 +153,40 @@ func TestTheEndingHeadWriteIsWrittenAgain(t *testing.T) {
 		}
 	})
 }
+
+// A Stop that ends a read the server never answers leaves the row's
+// connection spent (sshexec.Client.Run closes it). The clean-up dials the
+// server again, against the approved key, and stops and purges the install
+// over the new connection.
+func TestAStopDuringAStalledReadCleansOverANewConnection(t *testing.T) {
+	env := newFakeEnv()
+	s := passingServer(t, env, 1)
+	s.installHang, s.stallReads = true, true
+	d := newFakeDialer(s)
+	e := newTestEngine(env, d)
+	id, err := e.Start(context.Background(), request(s))
+	if err != nil {
+		t.Fatal(err)
+	}
+	approveAll(t, e, env, id, "s1")
+	waitFor(t, "a read of the install's progress to stall", func() bool {
+		s.mu.Lock()
+		defer s.mu.Unlock()
+		return s.stalled > 0
+	})
+	if err := e.Stop(id, "admin"); err != nil {
+		t.Fatal(err)
+	}
+	env.waitEnded(t, id)
+	if r := env.row(id, "s1"); r.Status != cluster.RunNodeStopped || r.NodeID != "" {
+		t.Fatalf("s1 = %s %q, want stopped with no node", r.Status, r.NodeID)
+	}
+	if dials, open, _ := d.counts(); dials != 2 || open != 0 {
+		t.Fatalf("%d logins, %d open; want a second login for the clean-up, closed", dials, open)
+	}
+	for _, c := range []string{"systemctl stop 'sfpanel-agent-install-", "uninstall --purge", "rm -rf "} {
+		if !s.rootRan(c) {
+			t.Errorf("the clean-up ran no %q: commands %q", c, s.commands())
+		}
+	}
+}

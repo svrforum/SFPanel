@@ -40,6 +40,9 @@ type serverOpts struct {
 	// handle answers an exec; nil answers every command with exit 0 and no
 	// output.
 	handle func(cmd string, stdin []byte) (stdout, stderr []byte, exit uint32)
+	// silentChannels never answers a channel open, neither accepting nor
+	// rejecting it: a server that stopped answering without a reset.
+	silentChannels bool
 }
 
 // testServer is an in-process SSH server on 127.0.0.1 that records every
@@ -148,6 +151,9 @@ func (s *testServer) serve(conn net.Conn, cfg *ssh.ServerConfig, opts serverOpts
 	defer sc.Close()
 	go ssh.DiscardRequests(reqs)
 	for nc := range chans {
+		if opts.silentChannels {
+			continue
+		}
 		if nc.ChannelType() != "session" {
 			_ = nc.Reject(ssh.UnknownChannelType, "only sessions")
 			continue
