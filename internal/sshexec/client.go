@@ -27,6 +27,25 @@ import (
 	"golang.org/x/crypto/ssh"
 )
 
+// maxOutput is how much of each of a command's streams Run keeps.
+const maxOutput = 4 << 20
+
+// boundedBuffer keeps the first maxOutput bytes written to it and takes the
+// rest without keeping it, so the writer never blocks on it.
+type boundedBuffer struct {
+	buf bytes.Buffer
+}
+
+func (b *boundedBuffer) Write(p []byte) (int, error) {
+	if room := maxOutput - b.buf.Len(); room > 0 {
+		b.buf.Write(p[:min(len(p), room)])
+	}
+	return len(p), nil
+}
+
+// Bytes is what was kept.
+func (b *boundedBuffer) Bytes() []byte { return b.buf.Bytes() }
+
 // connectTimeout bounds the TCP connect only. Authentication may wait much
 // longer: Tailscale SSH in check mode holds the login until the operator
 // approves it in a browser, so Dial lets that wait run as long as its ctx.
@@ -351,6 +370,11 @@ func handshake(ctx context.Context, conn net.Conn, addr string, cfg *ssh.ClientC
 // non-zero is not an error; err is for a command that could not be run or
 // whose end was not seen (exit is then -1). Ending ctx kills the command.
 //
+// Of each of stdout and stderr only the first 4 MiB (maxOutput) is kept: a
+// command that writes more is read to its end and the rest dropped, so it
+// never blocks and a server cannot grow the caller's memory without end. A
+// caller that needs more reads it in pieces.
+//
 // Opening the session and starting the command wait for the server's
 // answers, which a server that stopped answering without a reset never
 // sends, and which TCP would take about 15 minutes to give up on. Ending ctx
@@ -358,7 +382,7 @@ func handshake(ctx context.Context, conn net.Conn, addr string, cfg *ssh.ClientC
 // ctx's error at once, leaves no goroutine behind, and the client is spent
 // (Spent): nothing more runs over it.
 func (c *Client) Run(ctx context.Context, cmd string, stdin []byte) (stdout, stderr []byte, exit int, err error) {
-	var out, errOut bytes.Buffer
+	var out, errOut boundedBuffer
 	stop := context.AfterFunc(ctx, func() {
 		c.spent.Store(true)
 		_ = c.conn.Close()

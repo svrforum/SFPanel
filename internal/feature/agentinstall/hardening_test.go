@@ -1,8 +1,10 @@
 package agentinstall
 
 import (
+	"bytes"
 	"context"
 	"errors"
+	"slices"
 	"strings"
 	"sync"
 	"testing"
@@ -188,5 +190,44 @@ func TestAStopDuringAStalledReadCleansOverANewConnection(t *testing.T) {
 		if !s.rootRan(c) {
 			t.Errorf("the clean-up ran no %q: commands %q", c, s.commands())
 		}
+	}
+}
+
+// install.log is the target's to write: each poll reads at most 1 MiB of
+// it, from where the last read ended, so a log of any size is read in
+// pieces with its offset right.
+func TestTheInstallLogIsReadInPieces(t *testing.T) {
+	env := newFakeEnv()
+	s := passingServer(t, env, 1)
+	s.installLog = bytes.Repeat([]byte("installing\n"), (5<<20)/2/11)
+	e := newTestEngine(env, newFakeDialer(s))
+	// Sanitizing a MiB of log is slow under the race detector.
+	e.t.installLimit = time.Minute
+	id, err := e.Start(context.Background(), request(s))
+	if err != nil {
+		t.Fatal(err)
+	}
+	approveAll(t, e, env, id, "s1")
+	for deadline := time.Now().Add(time.Minute); env.head(id).Active(); time.Sleep(time.Millisecond) {
+		if time.Now().After(deadline) {
+			t.Fatal("waited a minute for the run to end")
+		}
+	}
+	if h := env.head(id); h.Status != cluster.RunSucceeded {
+		t.Fatalf("run = %s", h.Status)
+	}
+	for _, c := range s.commands() {
+		if strings.HasPrefix(c, "tail -c +") && !strings.HasSuffix(c, " | head -c 1048576") {
+			t.Fatalf("the log was read by %q, want at most 1 MiB a read", c)
+		}
+	}
+	s.mu.Lock()
+	tails := slices.Clone(s.tails)
+	s.mu.Unlock()
+	// Its exit status is there at the first poll; the log is read to its
+	// end all the same, one piece a poll.
+	want := []int{1, 1 + 1<<20, 1 + 2<<20}
+	if !slices.Equal(tails, want) {
+		t.Fatalf("the log (%d bytes) was read from %v, want from %v", len(s.installLog), tails, want)
 	}
 }

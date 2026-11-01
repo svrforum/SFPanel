@@ -361,3 +361,21 @@ func TestRunHeedsCtxWhileOpeningASession(t *testing.T) {
 		time.Sleep(10 * time.Millisecond)
 	}
 }
+
+// A command that writes without end cannot grow the caller's memory without
+// end: Run keeps the first maxOutput bytes of each stream and reads the rest
+// to the command's end, so the command never blocks on a full channel.
+func TestRunKeepsABoundedOutput(t *testing.T) {
+	big, bigErr := bytes.Repeat([]byte("o"), 64<<20), bytes.Repeat([]byte("e"), 8<<20)
+	s := startTestServer(t, serverOpts{password: "pw", handle: func(string, []byte) ([]byte, []byte, uint32) {
+		return big, bigErr, 3
+	}})
+	c := dialTest(t, s, Auth{User: "ops", Method: "password", Password: []byte("pw")}, nil)
+	stdout, stderr, exit, err := c.Run(testCtx(t), "cat /dev/zero", nil)
+	if err != nil || exit != 3 {
+		t.Fatalf("Run = exit %d, %v; want the command's end, exit 3", exit, err)
+	}
+	if len(stdout) != maxOutput || len(stderr) != maxOutput {
+		t.Fatalf("Run kept %d bytes of stdout and %d of stderr, want %d of each", len(stdout), len(stderr), maxOutput)
+	}
+}

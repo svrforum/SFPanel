@@ -529,6 +529,11 @@ const (
 func (l *phaseLog) write(p []byte) {
 	l.mu.Lock()
 	defer l.mu.Unlock()
+	if l.cut {
+		// Nothing more is kept: a log the target writes without end is not
+		// sanitized poll after poll for nothing.
+		return
+	}
 	l.partial = append(l.partial, p...)
 	if i := bytes.LastIndexByte(l.partial, '\n'); i >= 0 {
 		l.add(response.SanitizeLogPiece(string(l.partial[:i+1])))

@@ -775,7 +775,9 @@ version's archive, a 0600 file holding the join token, and the script go
 into a `mktemp -d` directory under `/tmp`. The install then runs as root
 under `systemd-run --unit=sfpanel-agent-install-<run>-<row>`, so it survives
 a dropped SSH connection. The leader reads the log and exit code every 2
-seconds, for 30 minutes at most. When a read cannot run because the
+seconds, for 30 minutes at most, and at most 1 MiB of the log a read, so a
+log of any size is read in pieces (the screen keeps 1 MiB of each phase's
+output). When a read cannot run because the
 connection broke, the leader logs in again at the next read, accepting the
 approved host key only, and follows the install from there.
 

@@ -338,6 +338,11 @@ type fakeServer struct {
 	// stops answering; stalled counts the reads held.
 	stallReads bool
 	stalled    int
+	// installLog, when set, is what install.sh writes to its log; tails are
+	// the offsets the log was read from, each read up to the head -c count
+	// its command line asks for.
+	installLog []byte
+	tails      []int
 	// registerOnStop registers the agent as the install unit is stopped:
 	// a join admitted before the stop that lands after it.
 	registerOnStop bool
@@ -533,6 +538,9 @@ func (s *fakeServer) run(ctx context.Context, cmd string, stdin []byte) ([]byte,
 		}
 		if !s.installHang {
 			s.files[s.dir+"/install.log"] = []byte("\x1b[0;32m[INFO]\x1b[0m installing\n")
+			if s.installLog != nil {
+				s.files[s.dir+"/install.log"] = s.installLog
+			}
 			s.files[s.dir+"/exit"] = []byte(strconv.Itoa(s.installExit) + "\n")
 			if s.installExit == 0 && !s.noRegister && !s.registerAnyway {
 				s.env.register(s.ip, s.facts.Hostname, s.labels)
@@ -542,13 +550,19 @@ func (s *fakeServer) run(ctx context.Context, cmd string, stdin []byte) ([]byte,
 	case strings.HasPrefix(inner, "cat "):
 		return s.files[unquote(strings.TrimPrefix(inner, "cat "))], nil, 0, nil
 	case strings.HasPrefix(inner, "tail -c +"):
-		off, path, _ := strings.Cut(strings.TrimPrefix(inner, "tail -c +"), " ")
+		off, rest, _ := strings.Cut(strings.TrimPrefix(inner, "tail -c +"), " ")
+		path, head, piped := strings.Cut(rest, " | head -c ")
 		n, _ := strconv.Atoi(off)
+		s.tails = append(s.tails, n)
 		b := s.files[unquote(path)]
 		if n-1 > len(b) {
 			return nil, nil, 0, nil
 		}
-		return b[n-1:], nil, 0, nil
+		b = b[n-1:]
+		if limit, err := strconv.Atoi(head); piped && err == nil && len(b) > limit {
+			b = b[:limit]
+		}
+		return b, nil, 0, nil
 	case inner == "systemctl is-active --quiet sfpanel":
 		if s.facts.SFPanelActive && !s.panelStopped {
 			return nil, nil, 0, nil

@@ -640,12 +640,15 @@ func (r *row) mktemp(ctx context.Context) error {
 }
 
 // follow reads the install's log and exit status every poll, until it
-// ends or installLimit passes. install.sh registers the agent inside its
-// join and has steps after it, so an install.sh that fails or runs out of
-// time after an agent registered at the row's IP still goes on to the
-// registration and the connection check. A command that cannot be run is a
-// broken connection: it is closed, and dialled again at the next poll
-// against the approved key, for as long as installLimit allows.
+// ends or installLimit passes. The log is the target's to write, so a poll
+// reads at most logPiece of it, from where the last read ended; once the
+// install has ended, the polls go on until the log is read to its end.
+// install.sh registers the agent inside its join and has steps after it, so
+// an install.sh that fails or runs out of time after an agent registered at
+// the row's IP still goes on to the registration and the connection check.
+// A command that cannot be run is a broken connection: it is closed, and
+// dialled again at the next poll against the approved key, for as long as
+// installLimit allows.
 func (r *row) follow(ctx context.Context) error {
 	t, log := r.s.e.t, r.logs[phaseInstall]
 	deadline := time.Now().Add(t.installLimit)
@@ -657,15 +660,15 @@ func (r *row) follow(ctx context.Context) error {
 			return ctx.Err()
 		case <-time.After(t.poll):
 		}
-		var status []byte
+		var status, out []byte
 		err := r.reconnect(ctx, log)
 		if err == nil {
 			// The exit status first: once it is written, the log is complete.
 			status, _, _, err = r.tgt.Run(ctx, "cat "+sshexec.ShellQuote(r.tmp+"/exit"), nil)
 		}
 		if err == nil {
-			var out []byte
-			out, _, _, err = r.tgt.Run(ctx, "tail -c +"+strconv.FormatInt(off+1, 10)+" "+sshexec.ShellQuote(r.tmp+"/install.log"), nil)
+			out, _, _, err = r.tgt.Run(ctx, "tail -c +"+strconv.FormatInt(off+1, 10)+" "+sshexec.ShellQuote(r.tmp+"/install.log")+
+				" | head -c "+strconv.Itoa(logPiece), nil)
 			off += int64(len(out))
 			log.write(out)
 		}
@@ -683,6 +686,8 @@ func (r *row) follow(ctx context.Context) error {
 				warned = true
 			}
 			r.closeTarget()
+		case len(out) >= logPiece:
+			// More of the log is there: the next poll reads it.
 		default:
 			if n, done := exitStatus(status); done {
 				r.installExited = true
@@ -723,6 +728,9 @@ func (r *row) renew(ctx context.Context) {
 		r.logs[phaseInstall].printf("dialling the server again for the clean-up failed: %v", err)
 	}
 }
+
+// logPiece is the most of install.log one poll reads.
+const logPiece = 1 << 20
 
 // reconnect dials the server again when the row's connection was closed for
 // a command that could not be run.
