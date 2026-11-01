@@ -135,6 +135,13 @@ describe('package names', () => {
     expect(joinNames(['{{ packages }}', 'htop'])).toBe('{{ packages }} htop')
   })
 
+  it('keeps a name that holds a reference whole: the node judges it once expanded', () => {
+    expect(splitNames('nginx-{{ suffix }} curl')).toEqual(['nginx-{{ suffix }}', 'curl'])
+    expect(splitNames('{{ packages }}')).toEqual(['{{ packages }}'])
+    expect(splitNames('{{ a }}-{{ b }},htop')).toEqual(['{{ a }}-{{ b }}', 'htop'])
+    expect(splitNames('a,b c\nd')).toEqual(['a', 'b', 'c', 'd'])
+  })
+
   it('moves the names to the action chosen', () => {
     expect(packagesAction({ update: true })).toBe('none')
     expect(packagesAction({ upgrade_all: true })).toBe('upgradeAll')

@@ -218,7 +218,9 @@ export function cloneModel(model: TaskModel, copy: (name: string) => string, tex
 // ------------------------------------------------------------- packages --
 
 // A reference stays one item: {{ packages }} expands to several on the node.
-const NAME_ITEM = /\{\{.*?\}\}|[^\s,]+/g
+// A run of references and other characters is one name (nginx-{{ suffix }}),
+// judged on the node once expanded.
+const NAME_ITEM = /(?:\{\{.*?\}\}|[^\s,])+/g
 
 /** Package names typed in one field: spaces, commas or lines between them. */
 export function splitNames(text: string): string[] {
