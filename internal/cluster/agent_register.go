@@ -117,6 +117,54 @@ func (m *Manager) nodesNotReady(state ClusterState, capability string, agents bo
 
 var errAgentAddress = errors.New("register agent: api and grpc addresses must be ip:port on the same host")
 
+// ReadyForAgentRegistration reports whether a new agent called name could
+// register at ip now (leader only), by the registration's own gates: those
+// that read the cluster rather than the request. The proxy secret must have
+// settled, no CA rotation may be under way, every other manager must be ready
+// for agents, there must be room for another agent, the name must be one an
+// agent may have, no node may have the name or an address on the IP, and the
+// leader must hold a CA key to sign with. HandleRegisterAgent asks it, so a
+// caller that asks first — an install, before it touches the server — is
+// refused at the registration for nothing it could have learnt here. What
+// only the request has (the token, the addresses' form, the panel CA, the
+// certificate request) the registration checks itself.
+func (m *Manager) ReadyForAgentRegistration(name string, ip net.IP) error {
+	if m.raft == nil || !m.raft.IsLeader() {
+		return ErrNotLeader
+	}
+	if ip == nil {
+		return errors.New("an agent registers at an IP address, and none was given")
+	}
+	// An agent holds ca.crt, from which the old proxy secret is derived.
+	if !m.ProxyRotationSettled(time.Now()) {
+		return ErrProxyRotationPending
+	}
+	// An agent registered now would hold a certificate from one CA and a pin
+	// of the other, and count in no step.
+	if m.CARotationActive() {
+		return ErrCARotationInProgress
+	}
+	state := m.raft.GetFSM().GetState()
+	if waiting := m.managersNotReadyForAgents(state); len(waiting) > 0 {
+		return fmt.Errorf("%w; waiting for %s", ErrManagersNotReadyForAgents, strings.Join(waiting, ", "))
+	}
+	if countKind(state, KindAgent) >= m.agentCap() {
+		return ErrMaxAgentsReached
+	}
+	if err := ValidNodeName(name); err != nil {
+		return err
+	}
+	if identityTaken(state, name, ip) {
+		return ErrNodeIdentityTaken
+	}
+	// Neither on disk nor replicated: ensureCAKey, which the registration
+	// calls before it signs, would have nothing to restore.
+	if !m.tls.HasCAKey() && state.Config[configKeyCAKey] == "" {
+		return ErrCAKeyUnavailable
+	}
+	return nil
+}
+
 // HandleRegisterAgent registers an agent (leader only): it signs the agent's
 // certificate request, makes the agent's internal-proxy key, and records the
 // agent, the key and the agent's panel CA in replicated state. The agent never
@@ -147,26 +195,6 @@ func (m *Manager) HandleRegisterAgent(in RegisterAgentInput) (*RegisterAgentResu
 	if err := m.raft.Barrier(2 * time.Second); err != nil {
 		return nil, fmt.Errorf("leader barrier failed: %w", err)
 	}
-	// An agent holds ca.crt, from which the old proxy secret is derived.
-	if !m.ProxyRotationSettled(time.Now()) {
-		return nil, ErrProxyRotationPending
-	}
-	// An agent registered now would hold a certificate from one CA and a pin
-	// of the other, and count in no step.
-	if m.CARotationActive() {
-		return nil, ErrCARotationInProgress
-	}
-
-	state := m.raft.GetFSM().GetState()
-	if waiting := m.managersNotReadyForAgents(state); len(waiting) > 0 {
-		return nil, fmt.Errorf("%w; waiting for %s", ErrManagersNotReadyForAgents, strings.Join(waiting, ", "))
-	}
-	if countKind(state, KindAgent) >= m.agentCap() {
-		return nil, ErrMaxAgentsReached
-	}
-	if err := ValidNodeName(in.NodeName); err != nil {
-		return nil, err
-	}
 	ip, err := agentIP(in.APIAddress, in.GRPCAddress)
 	if err != nil {
 		return nil, err
@@ -177,6 +205,7 @@ func (m *Manager) HandleRegisterAgent(in RegisterAgentInput) (*RegisterAgentResu
 	if (jt.NodeID == "" && in.NodeID != "") || !jt.admits(in.NodeID, in.APIAddress, in.GRPCAddress) {
 		return nil, ErrTokenBinding
 	}
+	state := m.raft.GetFSM().GetState()
 	id, name := uuid.New().String(), in.NodeName
 	var intent *ConversionIntent
 	if in.NodeID != "" {
@@ -190,8 +219,10 @@ func (m *Manager) HandleRegisterAgent(in RegisterAgentInput) (*RegisterAgentResu
 			name = intent.Name
 		}
 	}
-	if identityTaken(state, name, ip) {
-		return nil, ErrNodeIdentityTaken
+	// The cluster's gates, under the name the agent is recorded by: one list,
+	// which an install asks before it touches a server.
+	if err := m.ReadyForAgentRegistration(name, ip); err != nil {
+		return nil, err
 	}
 	// The managers' streaming relays reach an agent's panel over HTTPS only
 	// (PanelEndpointChecked): an agent registered without its panel CA would

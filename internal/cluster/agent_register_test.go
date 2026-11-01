@@ -9,8 +9,12 @@ import (
 	"crypto/rand"
 	"crypto/x509"
 	"crypto/x509/pkix"
+	"encoding/json"
 	"errors"
+	"fmt"
 	"net"
+	"os"
+	"path/filepath"
 	"strings"
 	"sync"
 	"testing"
@@ -367,5 +371,120 @@ func TestConcurrentRegistrationsTakeAnIdentityOnce(t *testing.T) {
 	}
 	if agents := countKind(mgr.raft.GetFSM().GetState(), KindAgent); registered != 1 || agents != 1 {
 		t.Fatalf("%d registrations succeeded and %d agents are recorded under one name and address", registered, agents)
+	}
+}
+
+// An installer asks ReadyForAgentRegistration before it touches a server, and
+// the registration asks the same function: each gate refuses both with the
+// same error, so a server that passed is refused at its registration for
+// nothing the installer could have known first.
+func TestRegistrationReadinessIsTheRegistrationsOwnGates(t *testing.T) {
+	if err := (&Manager{}).ReadyForAgentRegistration("agent-host", net.ParseIP("192.0.2.10")); !errors.Is(err, ErrNotLeader) {
+		t.Fatalf("off the leader: %v", err)
+	}
+	mgr, _, _, _ := realLeader(t)
+	settleRotation(t, mgr)
+	fsm := mgr.raft.GetFSM()
+	leaderName := fsm.GetNode(mgr.LocalNodeID()).Name
+	removeAfter := func(t *testing.T, n Node) {
+		addTestNode(t, fsm, n)
+		t.Cleanup(func() { applyCmd(t, fsm, Command{Type: CmdRemoveNode, Key: n.ID}) })
+	}
+	for i, tc := range []struct {
+		name   string
+		block  func(t *testing.T)
+		node   string // the name asked for; "" is one of the row's own
+		ip     string // the IP asked for; "" is one of the row's own
+		want   error
+		reason string
+	}{
+		{name: "the proxy secret still switching", block: func(t *testing.T) {
+			if err := mgr.SetConfig(configKeyProxyRotatedAt, time.Now().UTC().Format(time.RFC3339)); err != nil {
+				t.Fatal(err)
+			}
+			t.Cleanup(func() {
+				if err := mgr.SetConfig(configKeyProxyRotatedAt, time.Now().Add(-time.Hour).UTC().Format(time.RFC3339)); err != nil {
+					t.Error(err)
+				}
+			})
+		}, want: ErrProxyRotationPending},
+		{name: "a CA rotation under way", block: func(t *testing.T) {
+			rec, _ := json.Marshal(CARotation{Seq: 1, Phase: CAPhaseTrust})
+			if err := mgr.SetConfig(configKeyCARotation, string(rec)); err != nil {
+				t.Fatal(err)
+			}
+			t.Cleanup(func() { applyCmd(t, fsm, Command{Type: CmdDeleteConfig, Key: configKeyCARotation}) })
+		}, want: ErrCARotationInProgress},
+		{name: "another manager not ready for agents", block: func(t *testing.T) {
+			removeAfter(t, Node{ID: "m2", Name: "m2", Kind: KindManager, Role: RoleNonVoter, GRPCAddress: "192.0.2.20:3629"})
+		}, want: ErrManagersNotReadyForAgents, reason: "m2 (not heard from)"},
+		{name: "no room for another agent", block: func(t *testing.T) {
+			removeAfter(t, Node{ID: "a1", Name: "a1", Kind: KindAgent, GRPCAddress: "192.0.2.40:3629"})
+			mgr.config.MaxAgents = 1
+			t.Cleanup(func() { mgr.config.MaxAgents = 0 })
+		}, want: ErrMaxAgentsReached},
+		{name: "a name a node may not have", node: "agent host", reason: `the node name "agent host" is not one`},
+		{name: "a name another node has", node: leaderName, want: ErrNodeIdentityTaken},
+		{name: "an address another node has", ip: "127.0.0.1", want: ErrNodeIdentityTaken},
+		{name: "a leader without the CA key", block: func(t *testing.T) {
+			key, err := mgr.tls.LoadCAKey()
+			if err != nil {
+				t.Fatal(err)
+			}
+			replicated, _ := fsm.GetConfigValue(configKeyCAKey)
+			if err := os.Remove(filepath.Join(mgr.config.CertDir, "ca.key")); err != nil {
+				t.Fatal(err)
+			}
+			applyCmd(t, fsm, Command{Type: CmdDeleteConfig, Key: configKeyCAKey})
+			t.Cleanup(func() {
+				_ = mgr.tls.SaveCAKey(key)
+				applyCmd(t, fsm, Command{Type: CmdSetConfig, Key: configKeyCAKey, Value: mustJSON(replicated)})
+			})
+		}, want: ErrCAKeyUnavailable},
+	} {
+		// Each row's own name and IP: a row whose gate let its agent in
+		// leaves no identity taken for the rows after it.
+		name, ip := fmt.Sprintf("agent-%d", i), fmt.Sprintf("192.0.2.%d", 10+i)
+		t.Run(tc.name, func(t *testing.T) {
+			if tc.node != "" {
+				name = tc.node
+			}
+			if tc.ip != "" {
+				ip = tc.ip
+			}
+			// Minted before the gate closes: the cap closes minting too.
+			tok, err := mgr.CreateJoinToken(time.Hour, KindAgent)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if tc.block != nil {
+				tc.block(t)
+			}
+			ready := mgr.ReadyForAgentRegistration(name, net.ParseIP(ip))
+			in := registerInput(t, tok.Token)
+			in.NodeName, in.APIAddress, in.GRPCAddress = name, net.JoinHostPort(ip, "3628"), net.JoinHostPort(ip, "3629")
+			_, registered := mgr.HandleRegisterAgent(in)
+			for what, err := range map[string]error{"ReadyForAgentRegistration": ready, "HandleRegisterAgent": registered} {
+				if err == nil || (tc.want != nil && !errors.Is(err, tc.want)) || !strings.Contains(err.Error(), tc.reason) {
+					t.Fatalf("%s: got %v, want %v %q", what, err, tc.want, tc.reason)
+				}
+			}
+			if ready.Error() != registered.Error() {
+				t.Fatalf("two refusals for one gate: %q and %q", ready, registered)
+			}
+			if _, err := mgr.tokens.Peek(tok.Token); err != nil {
+				t.Fatalf("the refusal spent the token: %v", err)
+			}
+		})
+	}
+	// With every gate open again, both let the agent in.
+	if err := mgr.ReadyForAgentRegistration("agent-ready", net.ParseIP("192.0.2.99")); err != nil {
+		t.Fatalf("ready: %v", err)
+	}
+	tok, _ := mgr.CreateJoinToken(time.Hour, KindAgent)
+	in := registerInput(t, tok.Token)
+	in.NodeName, in.APIAddress, in.GRPCAddress = "agent-ready", "192.0.2.99:3628", "192.0.2.99:3629"
+	if _, err := mgr.HandleRegisterAgent(in); err != nil {
+		t.Fatalf("registered: %v", err)
 	}
 }
