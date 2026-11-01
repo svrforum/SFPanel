@@ -9,6 +9,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"maps"
 	"net/http"
 	"net/url"
 	"slices"
@@ -566,6 +567,49 @@ type runRequest struct {
 	Confirmed []int `json:"confirmed"`
 }
 
+// Input values are copied into the run record, which every manager keeps:
+// each is capped, and all of a run's values together.
+const (
+	maxInputBytes  = 16 << 10
+	maxInputsBytes = 64 << 10
+)
+
+// runInputs are the values given for t's own inputs: the run record is
+// replicated to every manager, and a key the task never reads has no place
+// in it.
+func runInputs(t *tasks.Task, given map[string]string) map[string]string {
+	var inputs map[string]string
+	for _, in := range t.Inputs {
+		if v, ok := given[in.Name]; ok {
+			if inputs == nil {
+				inputs = map[string]string{}
+			}
+			inputs[in.Name] = v
+		}
+	}
+	return inputs
+}
+
+// checkInputSizes refuses a value over maxInputBytes, naming its input, and
+// values over maxInputsBytes together, as input "*": 400 TASK_TOO_LARGE.
+func checkInputSizes(inputs map[string]string) error {
+	names := slices.Sorted(maps.Keys(inputs))
+	total := 0
+	for _, name := range names {
+		v := inputs[name]
+		if len(v) > maxInputBytes {
+			return refusal(http.StatusBadRequest, response.ErrTaskTooLarge,
+				fmt.Sprintf("Input %s is over %d KiB", name, maxInputBytes>>10), map[string]string{"input": name})
+		}
+		total += len(v)
+	}
+	if total > maxInputsBytes {
+		return refusal(http.StatusBadRequest, response.ErrTaskTooLarge,
+			fmt.Sprintf("The inputs are over %d KiB together", maxInputsBytes>>10), map[string]string{"input": "*"})
+	}
+	return nil
+}
+
 // runTarget is what a run request asks for, read and checked.
 type runTarget struct {
 	doc     taskDoc
@@ -574,7 +618,8 @@ type runTarget struct {
 	batch   int
 }
 
-// readRunRequest binds a run request and loads its task.
+// readRunRequest binds a run request and loads its task, its input values
+// capped (checkInputSizes).
 func readRunRequest(c echo.Context, st taskStore) (runRequest, runTarget, error) {
 	var req runRequest
 	if err := c.Bind(&req); err != nil {
@@ -591,6 +636,9 @@ func readRunRequest(c echo.Context, st taskStore) (runRequest, runTarget, error)
 			msg += fmt.Sprintf(": line %d: %s", problems[0].Line, problems[0].Message)
 		}
 		return req, runTarget{}, refusal(http.StatusBadRequest, response.ErrTaskInvalid, msg, nil)
+	}
+	if err := checkInputSizes(runInputs(t, req.Inputs)); err != nil {
+		return req, runTarget{}, err
 	}
 	rt := runTarget{doc: d, task: t, targets: t.Targets, batch: runBatch(t, req.Batch)}
 	if req.Targets != nil {
@@ -693,17 +741,7 @@ func (h *Handler) StartRun(c echo.Context) error {
 		return response.Fail(c, http.StatusBadRequest, response.ErrTaskNoTargets, "The run would take no node")
 	}
 
-	// Only the task's own inputs are kept: the run record is replicated to
-	// every manager, and a key the task never reads has no place in it.
-	var inputs map[string]string
-	for _, in := range rt.task.Inputs {
-		if v, ok := req.Inputs[in.Name]; ok {
-			if inputs == nil {
-				inputs = map[string]string{}
-			}
-			inputs[in.Name] = v
-		}
-	}
+	inputs := runInputs(rt.task, req.Inputs)
 	stopOnFailure := rt.task.StopOnFailure
 	if req.StopOnFailure != nil {
 		stopOnFailure = *req.StopOnFailure

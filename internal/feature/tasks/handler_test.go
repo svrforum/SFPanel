@@ -1152,3 +1152,40 @@ func TestARerunIsPlannedAnew(t *testing.T) {
 		}
 	})
 }
+
+// Inputs are copied into the run record every manager keeps: each value is
+// capped, and all of a run's values together.
+func TestInputsAreCapped(t *testing.T) {
+	const fiveInputs = `name: five inputs
+inputs:
+  a: {}
+  b: {}
+  c: {}
+  d: {}
+  e: {}
+targets: { kinds: [agent] }
+steps:
+  - command: { run: "echo {{ a }} {{ b }} {{ c }} {{ d }} {{ e }}" }
+`
+	big := strings.Repeat("x", 16<<10)
+	for _, path := range []string{"/api/v1/cluster/task-runs/plan", "/api/v1/cluster/task-runs"} {
+		t.Run(path, func(t *testing.T) {
+			f := newAPI(t)
+			f.store("t1", fiveInputs)
+			a := f.do("POST", path, map[string]any{"task_id": "t1", "inputs": map[string]string{"a": "small", "b": big + "y"}})
+			wantRefusal(t, "one value over 16 KiB", a, 400, response.ErrTaskTooLarge, map[string]string{"input": "b"})
+
+			all := map[string]string{"a": big, "b": big, "c": big, "d": big, "e": "y"}
+			a = f.do("POST", path, map[string]any{"task_id": "t1", "inputs": all})
+			wantRefusal(t, "the values over 64 KiB together", a, 400, response.ErrTaskTooLarge, map[string]string{"input": "*"})
+
+			if runs, _ := f.env.store.ListRuns(); len(runs) != 0 {
+				t.Errorf("runs = %+v, want none", runs)
+			}
+			all["e"] = ""
+			if a := f.do("POST", path, map[string]any{"task_id": "t1", "inputs": all}); !a.Success {
+				t.Errorf("values of 64 KiB together = %d %+v, want them taken", a.Status, a.Error)
+			}
+		})
+	}
+}
