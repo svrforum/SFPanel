@@ -58,10 +58,39 @@ func TestNextTargetsTriesATailscaleAgentsNetworkFirst(t *testing.T) {
 	if got := nextTargets(st, "100.64.0.30"); !slices.Equal(got, want) {
 		t.Fatalf("targets %v, want %v", got, want)
 	}
-	// An agent on the LAN keeps to the order it always had.
-	want = []string{"192.0.2.10:3629", "100.64.0.10:3629", "192.0.2.12:3629"}
+	// An agent on the LAN keeps to the order it always had, every manager's
+	// LAN address, and tries the leader's Tailscale one after them.
+	want = []string{"192.0.2.10:3629", "192.0.2.12:3629", "100.64.0.10:3629"}
 	if got := nextTargets(st, "192.0.2.30"); !slices.Equal(got, want) {
 		t.Fatalf("targets of a LAN agent %v, want %v", got, want)
+	}
+}
+
+// When the leader goes away, as it does on every restart, its address on the
+// agent's own network fails first. Every manager the agent has an address
+// for on that network comes next: a follower there names the leader within
+// one attempt, where the leader's address on another network, which the
+// agent may not route to, costs a dial timeout and an Interval before any
+// other manager is tried. An address a manager was last reached at counts as
+// the agent's own network.
+func TestNextTargetsTriesEveryManagerOnTheAgentsNetworkBeforeAnyOther(t *testing.T) {
+	m2 := config.ManagerRef{ID: "m2", GRPCAddress: "192.0.2.11:3629", Addresses: []string{"192.0.2.11", "100.64.0.11"}}
+	m3 := config.ManagerRef{ID: "m3", GRPCAddress: "192.0.2.12:3629", Addresses: []string{"192.0.2.12"}}
+	st := AgentState{Leader: "192.0.2.10:3629", Managers: []config.ManagerRef{m2, m3, m1Ref()}}
+	for _, tc := range []struct {
+		own     string
+		reached map[string]string
+		want    []string
+	}{
+		{"192.0.2.30", nil, []string{"192.0.2.10:3629", "192.0.2.11:3629", "192.0.2.12:3629", "100.64.0.10:3629", "100.64.0.11:3629"}},
+		{"100.64.0.30", nil, []string{"100.64.0.10:3629", "100.64.0.11:3629", "192.0.2.10:3629", "192.0.2.11:3629", "192.0.2.12:3629"}},
+		// m2 was last reached on the LAN by an agent on the tailnet.
+		{"100.64.0.30", map[string]string{"m2": "192.0.2.11:3629"}, []string{"100.64.0.10:3629", "192.0.2.11:3629", "100.64.0.11:3629", "192.0.2.10:3629", "192.0.2.12:3629"}},
+	} {
+		st.Reached = tc.reached
+		if got := nextTargets(st, tc.own); !slices.Equal(got, tc.want) {
+			t.Errorf("agent at %s, reached %v: targets %v, want %v", tc.own, tc.reached, got, tc.want)
+		}
 	}
 }
 

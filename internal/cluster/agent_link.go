@@ -254,26 +254,37 @@ func (l *AgentLink) update(change func(*AgentState) bool) error {
 }
 
 // nextTargets is where to send heartbeats, in order: the leader the agent
-// last heard of, then each manager in list order — each at all its
-// addresses, in the order targetsFor gives for an agent at own.
+// last heard of, then each manager in list order, each at its addresses in
+// the order targetsFor gives for an agent at own. Every manager's addresses
+// on own's network, and the one it was last reached at, come before any
+// other manager's on another network: when the leader goes away, as it does
+// on a restart, a follower on the agent's network names the next leader
+// within one attempt, where the leader's address on a network the agent may
+// not route to would cost a dial timeout and an Interval first.
 func nextTargets(state AgentState, own string) []string {
-	var out []string
-	add := func(addrs ...string) {
+	var near, far []string
+	ts := isTailscaleAddr(own)
+	add := func(id string, addrs ...string) {
 		for _, a := range addrs {
-			if a != "" && !slices.Contains(out, a) {
-				out = append(out, a)
+			switch {
+			case a == "" || slices.Contains(near, a) || slices.Contains(far, a):
+			case isTailscaleAddr(a) == ts || state.Reached[id] == a:
+				near = append(near, a)
+			default:
+				far = append(far, a)
 			}
 		}
 	}
 	if i := slices.IndexFunc(state.Managers, func(m config.ManagerRef) bool { return m.GRPCAddress == state.Leader }); i >= 0 {
-		add(state.targetsFor(state.Managers[i], own)...)
-	} else {
-		add(state.Leader)
+		add(state.Managers[i].ID, state.targetsFor(state.Managers[i], own)...)
+	} else if state.Leader != "" {
+		// The address a redirect chose for the leader, whatever its network.
+		near = append(near, state.Leader)
 	}
 	for _, m := range state.Managers {
-		add(state.targetsFor(m, own)...)
+		add(m.ID, state.targetsFor(m, own)...)
 	}
-	return out
+	return append(near, far...)
 }
 
 // isTailscaleAddr reports whether a, an IP with or without a port, is in
