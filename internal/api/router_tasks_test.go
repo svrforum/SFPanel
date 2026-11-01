@@ -28,6 +28,7 @@ func TestTaskRoutesLimitTheirBody(t *testing.T) {
 	for _, route := range []struct{ method, path string }{
 		{http.MethodPost, "/api/v1/cluster/tasks"},
 		{http.MethodPost, "/api/v1/cluster/tasks/validate"},
+		{http.MethodPost, "/api/v1/cluster/tasks/format"},
 		{http.MethodPut, "/api/v1/cluster/tasks/t1"},
 		{http.MethodPost, "/api/v1/cluster/task-runs/plan"},
 		{http.MethodPost, "/api/v1/cluster/task-runs"},

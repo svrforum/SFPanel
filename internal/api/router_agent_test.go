@@ -126,6 +126,7 @@ var expectedManagerOnlyRoutes = func() []string {
 		"GET /api/v1/cluster/tasks",
 		"POST /api/v1/cluster/tasks",
 		"POST /api/v1/cluster/tasks/validate",
+		"POST /api/v1/cluster/tasks/format",
 		"GET /api/v1/cluster/tasks/:id",
 		"PUT /api/v1/cluster/tasks/:id",
 		"DELETE /api/v1/cluster/tasks/:id",

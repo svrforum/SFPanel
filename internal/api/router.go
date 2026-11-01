@@ -444,13 +444,16 @@ func NewRouter(database *sql.DB, auditWriter *sfdb.AsyncWriter, alertManager *fe
 		clusterGroup.GET("/rotation", clusterHandler.GetRotation)
 		// Group tasks: definitions, and runs the leader carries out over the
 		// nodes. Writes and the plan go to the leader; reads, the stream and a
-		// step's output answer from this manager's replicated state. A body is
+		// step's output answer from this manager's replicated state, and
+		// validate and format, which turn a document into its model and back,
+		// answer here with no state at all. A body is
 		// capped at 1 MiB: a document is at most 64 KiB, a run's inputs as
 		// much together, and both are kept in every manager's state.
 		taskBody := echoMw.BodyLimit("1MiB")
 		clusterGroup.GET("/tasks", tasksHandler.ListTasks)
 		clusterGroup.POST("/tasks", tasksHandler.CreateTask, taskBody)
 		clusterGroup.POST("/tasks/validate", tasksHandler.ValidateTask, taskBody)
+		clusterGroup.POST("/tasks/format", tasksHandler.FormatTask, taskBody)
 		clusterGroup.GET("/tasks/:id", tasksHandler.GetTask)
 		clusterGroup.PUT("/tasks/:id", tasksHandler.UpdateTask, taskBody)
 		clusterGroup.DELETE("/tasks/:id", tasksHandler.DeleteTask)

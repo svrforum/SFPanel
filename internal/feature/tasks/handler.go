@@ -469,6 +469,36 @@ func (h *Handler) ValidateTask(c echo.Context) error {
 	return response.OK(c, map[string]any{"valid": t != nil, "problems": problems, "task": t})
 }
 
+// formatBody is the body of a format: a task as the editor holds it, the
+// model validate answers with.
+type formatBody struct {
+	Task *tasks.Task `json:"task"`
+}
+
+// FormatTask answers POST /cluster/tasks/format {task}: the document the task
+// is, for the editor's YAML view (validate goes the other way). It writes
+// nothing and reads no cluster state, so any manager answers it. A model that
+// is not a valid task still gets its document; saving it is what refuses.
+func (h *Handler) FormatTask(c echo.Context) error {
+	var body formatBody
+	if err := c.Bind(&body); err != nil {
+		return response.Fail(c, http.StatusBadRequest, response.ErrInvalidRequest, "Invalid request body")
+	}
+	if body.Task == nil {
+		return response.Fail(c, http.StatusBadRequest, response.ErrInvalidRequest, "task is required")
+	}
+	doc, err := tasks.Format(body.Task)
+	if err != nil {
+		logger().Error("task format", "error", err)
+		return response.Fail(c, http.StatusInternalServerError, response.ErrInternalError, "The task could not be written as YAML")
+	}
+	if len(doc) > tasks.MaxDocumentBytes {
+		return response.FailWith(c, http.StatusBadRequest, response.ErrTaskTooLarge,
+			cluster.ErrTaskTooLarge.Error(), map[string]string{"max_kib": strconv.Itoa(tasks.MaxDocumentBytes >> 10)})
+	}
+	return response.OK(c, map[string]string{"yaml": string(doc)})
+}
+
 // CreateTask answers POST /cluster/tasks {yaml} (leader): the task stored
 // under a new ID, named by its document.
 func (h *Handler) CreateTask(c echo.Context) error {

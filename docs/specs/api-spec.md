@@ -5830,13 +5830,13 @@ CA 교체를 멈추고 현재 CA를 지킵니다. `trust`에서는 `drop`으로(
 
 ## 그룹 작업 API (`/api/v1/cluster/tasks`, `/api/v1/cluster/task-runs`)
 
-같은 단계(패키지·서비스·명령·파일·스택·재부팅)를 여러 노드에 차례로 돌리는 작업의 정의와 실행입니다. 매니저 전용 `/cluster` 그룹에 있으며 에이전트에는 없습니다. 쓰기(정의의 생성·수정·삭제, 실행 시작·중지·다시 실행)와 미리 보기는 리더가 처리하고 다른 매니저에서 요청하면 리더로 전달됩니다. 목록·조회·검증·진행 스트림·단계 출력은 요청을 받은 매니저가 자기 복제 상태에서 답합니다. 실행은 요청·브라우저와 떨어져 리더에서 돌고, 리더가 바뀌면 새 리더가 이어받습니다. 순서, 실패와 중지, 정족수·Proxmox, 다른 클러스터 작업과의 관문, 저장과 보관은 `docs/specs/cluster-ops.md`의 "Group tasks"를 보세요. 화면은 클러스터의 작업 탭이고, CLI는 없습니다.
+같은 단계(패키지·서비스·명령·파일·스택·재부팅)를 여러 노드에 차례로 돌리는 작업의 정의와 실행입니다. 매니저 전용 `/cluster` 그룹에 있으며 에이전트에는 없습니다. 쓰기(정의의 생성·수정·삭제, 실행 시작·중지·다시 실행)와 미리 보기는 리더가 처리하고 다른 매니저에서 요청하면 리더로 전달됩니다. 목록·조회·검증·YAML 변환·진행 스트림·단계 출력은 요청을 받은 매니저가 자기 복제 상태에서 답합니다. 실행은 요청·브라우저와 떨어져 리더에서 돌고, 리더가 바뀌면 새 리더가 이어받습니다. 순서, 실패와 중지, 정족수·Proxmox, 다른 클러스터 작업과의 관문, 저장과 보관은 `docs/specs/cluster-ops.md`의 "Group tasks"를 보세요. 화면은 클러스터의 작업 탭이고, CLI는 없습니다.
 
 - **인증 필요**: 예 (모두)
-- 클러스터가 아니면 `400 INVALID_REQUEST`(`Cluster not configured`) — `POST /cluster/tasks/validate`만 예외
+- 클러스터가 아니면 `400 INVALID_REQUEST`(`Cluster not configured`) — `POST /cluster/tasks/validate`와 `POST /cluster/tasks/format`만 예외
 - 다른 매니저에서 전달된 쓰기가 도착하기 전에 리더가 바뀌면 `503 INTERNAL_ERROR`(`This node is not the cluster leader: retry in a few seconds`), 복제 상태를 읽거나 쓰지 못하면 `500 INTERNAL_ERROR`
 - 막 뽑힌 리더는 이전 리더가 커밋한 기록을 모두 적용할 때까지(첫 배리어) 쓰기와 미리 보기(정의의 생성·수정·삭제, 미리 보기, 시작, 중지, 다시 실행)에 `503 INTERNAL_ERROR`(`The cluster leader is catching up: retry in a few seconds`)로 답하고 아무것도 쓰지 않습니다 — 덜 따라잡은 상태로 판단하면 끝난 실행을 다시 `stopping`으로 덮거나 노드를 잡은 실행을 못 볼 수 있습니다. 보통 몇 초 안에 풀립니다
-- 본문을 받는 라우트(`POST /tasks`, `POST /tasks/validate`, `PUT /tasks/:id`, `POST /task-runs/plan`, `POST /task-runs`, `POST /task-runs/:id/stop`, `POST /task-runs/:id/rerun`)는 본문이 1 MiB를 넘으면 핸들러 전에 `413`(Echo의 `{"message":"Request Entity Too Large"}`, 응답 봉투가 아님)
+- 본문을 받는 라우트(`POST /tasks`, `POST /tasks/validate`, `POST /tasks/format`, `PUT /tasks/:id`, `POST /task-runs/plan`, `POST /task-runs`, `POST /task-runs/:id/stop`, `POST /task-runs/:id/rerun`)는 본문이 1 MiB를 넘으면 핸들러 전에 `413`(Echo의 `{"message":"Request Entity Too Large"}`, 응답 봉투가 아님)
 - `?node=<매니저 ID>`를 붙이면 다른 요청처럼 그 매니저로 중계되지만(미리 보기는 5분, 스트림은 HTTP 릴레이 5분) 필요 없습니다: 어느 매니저든 같은 기록을 답합니다. `?node=`가 에이전트면 `409 CLUSTER_ROUTE_NOT_ON_AGENT`
 
 ### 작업 문서
@@ -5942,6 +5942,32 @@ steps:
 |------|-----------|------|
 | `INVALID_REQUEST` | 400 | 읽을 수 없는 본문 |
 | `TASK_TOO_LARGE` | 400 | 문서가 64 KiB 초과 (`details.max_kib`: `"64"`) |
+
+---
+
+### POST /api/v1/cluster/tasks/format
+작업 모델을 문서로 씁니다 — `validate`의 반대 방향입니다. 화면의 편집기는 단계 카드 보기에서 `validate`가 돌려준 `task`를 고치고, YAML 보기로 바꿀 때 이 라우트로 문서를 받습니다(웹에는 YAML 라이브러리가 없음). 아무것도 쓰지 않으므로 받은 매니저가 답하고(리더로 전달하지 않음), 클러스터가 아니어도 답합니다.
+
+**Request Body:** `{ "task": { … } }` — `validate`가 돌려주는 `task`와 같은 모양(기간은 나노초 숫자)
+
+**Response (200):**
+```json
+{
+  "success": true,
+  "data": { "yaml": "name: greet\ninputs:\n  who: {required: true}\nsteps:\n  - command:\n      run: echo {{ who }}\n" }
+}
+```
+
+- `Parse`가 채우는 기본값과 같은 값은 쓰지 않습니다: `batch: 1`, `stop_on_failure: true`, 명령의 `timeout: 10m`, 재부팅의 `wait: 10m`·`only_if_required: true`. 기간이 `0`이거나 `batch`가 `0`이면 정하지 않은 것으로 보고 역시 쓰지 않습니다
+- `upgrade_all`은 `upgrade: all`로, 입력값은 모델의 순서대로 맵으로, 여러 줄 문자열은 블록(`|`)으로, 기간은 `10m`·`1h30m`처럼 씁니다. 키 순서는 `name`, `description`, `inputs`, `targets`, `batch`, `stop_on_failure`, `steps`이고 단계는 `name`, `continue_on_error`, 종류 순입니다
+- 유효한 작업이면 그 문서를 다시 검사한 결과가 같은 작업입니다. 유효하지 않은 모델(본문 없는 단계, 모르는 종류)도 문서로 쓰며, 문제는 그 문서를 `validate`하거나 저장할 때 나옵니다
+- 주석과 원래 서식은 모델에 없으므로 돌아오지 않습니다
+
+**에러 응답:**
+| 코드 | HTTP 상태 | 조건 |
+|------|-----------|------|
+| `INVALID_REQUEST` | 400 | 읽을 수 없는 본문, 또는 `task`가 없음 |
+| `TASK_TOO_LARGE` | 400 | 쓴 문서가 64 KiB 초과 (`details.max_kib`: `"64"`) |
 
 ---
 
@@ -7005,6 +7031,7 @@ WireGuard 키페어 생성 (`wg genkey` + `wg pubkey`).
 | GET | `/api/v1/cluster/tasks` | O | 작업 목록 (내장 작업 먼저, 읽기 전용 표시) |
 | POST | `/api/v1/cluster/tasks` | O | 작업 저장 (리더, `{yaml}`) |
 | POST | `/api/v1/cluster/tasks/validate` | O | 작업 문서 검사 — 줄 번호가 붙은 문제 목록 |
+| POST | `/api/v1/cluster/tasks/format` | O | 작업 모델 → YAML 문서 (편집기의 카드 ↔ YAML 전환, 아무것도 쓰지 않음) |
 | GET | `/api/v1/cluster/tasks/:id` | O | 작업 하나 (문서와 파싱 결과) |
 | PUT | `/api/v1/cluster/tasks/:id` | O | 작업 수정 (리더, 내장·Git 작업은 409) |
 | DELETE | `/api/v1/cluster/tasks/:id` | O | 작업 삭제 (리더, 내장 작업은 409) |

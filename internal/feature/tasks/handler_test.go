@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"reflect"
 	"slices"
 	"strings"
 	"sync"
@@ -75,6 +76,7 @@ func registerRoutes(g *echo.Group, h *Handler) {
 	g.GET("/tasks", h.ListTasks)
 	g.POST("/tasks", h.CreateTask)
 	g.POST("/tasks/validate", h.ValidateTask)
+	g.POST("/tasks/format", h.FormatTask)
 	g.GET("/tasks/:id", h.GetTask)
 	g.PUT("/tasks/:id", h.UpdateTask)
 	g.DELETE("/tasks/:id", h.DeleteTask)
@@ -1506,5 +1508,73 @@ steps:
 		}
 		a.Status = c.Response().Status
 		wantRefusal(t, "the store's refusal", a, 400, response.ErrTaskTooLarge, map[string]string{"max_kib": "64"})
+	})
+}
+
+func TestTheFormatRoute(t *testing.T) {
+	const path = "/api/v1/cluster/tasks/format"
+	model, problems := tasks.Parse([]byte(greetDoc))
+	if problems != nil {
+		t.Fatal(problems)
+	}
+	// The model as the editor holds it: the JSON validate answers with.
+	var validated struct {
+		Task json.RawMessage `json:"task"`
+	}
+	newAPI(t).do("POST", "/api/v1/cluster/tasks/validate", map[string]string{"yaml": greetDoc}).data(t, &validated)
+	task := validated.Task
+
+	t.Run("the task's document", func(t *testing.T) {
+		f := newAPI(t)
+		a := f.do("POST", path, map[string]any{"task": task})
+		if a.Status != http.StatusOK {
+			t.Fatalf("answer %d %q, want 200", a.Status, a.code())
+		}
+		var out struct {
+			YAML string `json:"yaml"`
+		}
+		a.data(t, &out)
+		got, problems := tasks.Parse([]byte(out.YAML))
+		if problems != nil || !reflect.DeepEqual(got, model) {
+			t.Errorf("yaml %q parses as %+v (%+v), want %+v", out.YAML, got, problems, model)
+		}
+	})
+
+	t.Run("a follower answers it itself", func(t *testing.T) {
+		f := newAPI(t)
+		f.env.notLeader = true
+		a := f.do("POST", path, map[string]any{"task": task})
+		if a.Status != http.StatusOK || len(f.forwarded) != 0 {
+			t.Errorf("answer %d, forwarded %v; a format writes nothing and is answered here", a.Status, f.forwarded)
+		}
+	})
+
+	t.Run("a broken body", func(t *testing.T) {
+		f := newAPI(t)
+		for what, body := range map[string]string{
+			"not JSON":       `{"task": `,
+			"no task":        `{}`,
+			"a task of null": `{"task": null}`,
+			"not a task":     `{"task": "name: x"}`,
+			"a wrong field":  `{"task": {"steps": "many"}}`,
+		} {
+			r := httptest.NewRequest("POST", path, strings.NewReader(body))
+			r.Header.Set(echo.HeaderContentType, echo.MIMEApplicationJSON)
+			w := httptest.NewRecorder()
+			f.e.ServeHTTP(w, r)
+			a := answer{Status: w.Code}
+			if err := json.Unmarshal(w.Body.Bytes(), &a); err != nil {
+				t.Fatalf("%s: answer %q is not the envelope: %v", what, w.Body.String(), err)
+			}
+			wantRefusal(t, what, a, http.StatusBadRequest, response.ErrInvalidRequest, nil)
+		}
+	})
+
+	t.Run("a document over 64 KiB", func(t *testing.T) {
+		f := newAPI(t)
+		big := *model
+		big.Description = strings.Repeat("x", tasks.MaxDocumentBytes)
+		a := f.do("POST", path, map[string]any{"task": big})
+		wantRefusal(t, "a task whose document is over 64 KiB", a, http.StatusBadRequest, response.ErrTaskTooLarge, map[string]string{"max_kib": "64"})
 	})
 }
