@@ -1388,3 +1388,64 @@ func TestStepOutputDoesNotPassANodes401ToTheBrowser(t *testing.T) {
 		}
 	})
 }
+
+// A run's steps are named from the document it ran, kept by its revision:
+// the task may since have been changed or deleted. A step with no name has
+// its kind alone. A run whose revision is gone answers without steps.
+func TestARunAnswersItsStepNamesFromItsRevision(t *testing.T) {
+	const namedDoc = `name: named
+targets: { kinds: [agent] }
+steps:
+  - name: say hello
+    command: { run: "echo hello" }
+  - packages: { update: true }
+`
+	type runAnswer struct {
+		Run   cluster.RunRecord   `json:"run"`
+		Steps []map[string]string `json:"steps"`
+	}
+	get := func(t *testing.T, f *apiFixture, id string) (runAnswer, map[string]json.RawMessage) {
+		t.Helper()
+		a := f.do("GET", "/api/v1/cluster/task-runs/"+id, nil)
+		if a.Status != 200 {
+			t.Fatalf("GET run = %d %+v", a.Status, a.Error)
+		}
+		var out runAnswer
+		var raw map[string]json.RawMessage
+		a.data(t, &out)
+		a.data(t, &raw)
+		return out, raw
+	}
+
+	t.Run("the task changed, then deleted", func(t *testing.T) {
+		f := newAPI(t)
+		f.store("t1", namedDoc)
+		rev, _ := f.env.store.PutTaskRevision(namedDoc)
+		if err := f.env.store.PutRun(cluster.RunRecord{ID: srcRun, TaskID: "t1", TaskName: "named", Rev: rev,
+			Nodes: []string{"a1"}, Waves: [][]string{{"a1"}}, Batch: 1, Status: cluster.RunSucceeded, StartedBy: "operator"}); err != nil {
+			t.Fatal(err)
+		}
+		if a := f.do("PUT", "/api/v1/cluster/tasks/t1", map[string]string{"yaml": greetDoc}); !a.Success {
+			t.Fatalf("change = %d %+v", a.Status, a.Error)
+		}
+		if a := f.do("DELETE", "/api/v1/cluster/tasks/t1", nil); !a.Success {
+			t.Fatalf("delete = %d %+v", a.Status, a.Error)
+		}
+		got, _ := get(t, f, srcRun)
+		want := []map[string]string{{"name": "say hello", "kind": tasks.StepCommand}, {"kind": tasks.StepPackages}}
+		if fmt.Sprint(got.Steps) != fmt.Sprint(want) {
+			t.Errorf("steps = %v, want %v: the document the run ran", got.Steps, want)
+		}
+	})
+	t.Run("the revision is gone", func(t *testing.T) {
+		f := newAPI(t)
+		if err := f.env.store.PutRun(cluster.RunRecord{ID: srcRun, TaskID: "t1", TaskName: "named", Rev: strings.Repeat("0", 64),
+			Nodes: []string{"a1"}, Waves: [][]string{{"a1"}}, Batch: 1, Status: cluster.RunSucceeded, StartedBy: "operator"}); err != nil {
+			t.Fatal(err)
+		}
+		got, raw := get(t, f, srcRun)
+		if steps, ok := raw["steps"]; ok || got.Run.ID != srcRun {
+			t.Errorf("answer = run %q, steps %s, want the run without steps", got.Run.ID, steps)
+		}
+	})
+}

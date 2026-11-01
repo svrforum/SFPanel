@@ -932,9 +932,37 @@ func runNotFound(err error) error {
 	return err
 }
 
+// runStep is a step of the document a run ran, as a client labels it.
+type runStep struct {
+	Name string `json:"name,omitempty"`
+	Kind string `json:"kind"`
+}
+
+// runSteps are the steps of the document the run ran, read from its
+// revision: the task may since have changed or gone. Nil when the revision
+// cannot be read or does not parse.
+func runSteps(st taskStore, run cluster.RunRecord) []runStep {
+	doc, err := st.TaskRevision(run.Rev)
+	if err != nil {
+		logger().Debug("run's revision not read", "run", run.ID, "rev", run.Rev, "error", err)
+		return nil
+	}
+	t, problems := tasks.Parse([]byte(doc))
+	if t == nil {
+		logger().Debug("run's revision does not parse", "run", run.ID, "rev", run.Rev, "problems", len(problems))
+		return nil
+	}
+	steps := make([]runStep, 0, len(t.Steps))
+	for _, s := range t.Steps {
+		steps = append(steps, runStep{Name: s.Name, Kind: s.Kind})
+	}
+	return steps
+}
+
 // GetRun answers GET /cluster/task-runs/:id: the run's head and its nodes'
 // records, from this manager's own replicated state; a node not yet started
-// is pending.
+// is pending. steps names the steps of the document the run ran, and is
+// left out when that revision is gone.
 func (h *Handler) GetRun(c echo.Context) error {
 	env, err := h.apiEnv(c)
 	if env == nil {
@@ -944,7 +972,11 @@ func (h *Handler) GetRun(c echo.Context) error {
 	if err != nil {
 		return fail(c, runNotFound(err))
 	}
-	return response.OK(c, map[string]any{"run": run, "nodes": withPending(run, nodes)})
+	out := map[string]any{"run": run, "nodes": withPending(run, nodes)}
+	if steps := runSteps(env.Tasks(), run); steps != nil {
+		out["steps"] = steps
+	}
+	return response.OK(c, out)
 }
 
 // StopRun answers POST /cluster/task-runs/:id/stop {force} (leader): a run
