@@ -137,6 +137,67 @@ describe('task routes', () => {
   })
 })
 
+describe('agent install routes', () => {
+  // The secrets of an install travel in the start's body and nowhere else:
+  // not the path, not a query, not a header. Every route is the leader's, and
+  // the browser's manager forwards it there, so none carries ?node=.
+  const SECRETS = ['login-pw-7f3c', 'KEY-BODY-91ab', 'passphrase-5d2e', 'sudo-pw-c044']
+  const req = {
+    servers: [{ host: '192.0.2.21', port: 22, name: 'web-1', group: 'web' }, { host: '2001:db8::1', port: 2222 }],
+    account: { user: 'ops', method: 'key' as const, key: SECRETS[1], passphrase: SECRETS[2], sudo_password: SECRETS[3] },
+    review: true,
+    mode: 'offline' as const,
+    concurrency: 2,
+  }
+
+  it("sends each to the browser's manager, where and how the server takes it", async () => {
+    const { api, calls } = await freshApi()
+    const run = '20261102-091500-3fa2c1'
+    await api.startAgentInstall(req)
+    await api.answerHostKey(run, 's1', 'ED25519 SHA256:AbC+/123=', true)
+    await api.answerHostKey(run, 's2', 'ED25519 SHA256:xyz', false)
+    await api.confirmStandalone(run, 's1', true)
+    await api.confirmStandalone(run, 's1', false)
+    await api.proceedAgentInstall(run)
+    await api.recheckAgentInstall(run, 's2')
+    await api.revertAgentInstall(run, 's2')
+    const seen = calls.map((c) => [c.init?.method ?? 'GET', c.url, c.init?.body ?? null])
+    expect(seen).toEqual([
+      ['POST', '/api/v1/cluster/agent-installs', JSON.stringify(req)],
+      ['POST', `/api/v1/cluster/agent-installs/${run}/servers/s1/host-key`, '{"fingerprint":"ED25519 SHA256:AbC+/123=","accept":true}'],
+      ['POST', `/api/v1/cluster/agent-installs/${run}/servers/s2/host-key`, '{"fingerprint":"ED25519 SHA256:xyz","accept":false}'],
+      ['POST', `/api/v1/cluster/agent-installs/${run}/servers/s1/standalone`, '{"accept":true}'],
+      ['POST', `/api/v1/cluster/agent-installs/${run}/servers/s1/standalone`, '{"accept":false}'],
+      ['POST', `/api/v1/cluster/agent-installs/${run}/proceed`, null],
+      ['POST', `/api/v1/cluster/agent-installs/${run}/servers/s2/recheck`, null],
+      ['POST', `/api/v1/cluster/agent-installs/${run}/servers/s2/revert`, null],
+    ])
+  })
+
+  it('escapes a run ID and a row key once in the path', async () => {
+    const { api, calls } = await freshApi()
+    await api.answerHostKey('r/1', 's 1', 'SHA256:x', true)
+    await api.revertAgentInstall('r?1', 's#1')
+    expect(calls.map((c) => c.url)).toEqual([
+      '/api/v1/cluster/agent-installs/r%2F1/servers/s%201/host-key',
+      '/api/v1/cluster/agent-installs/r%3F1/servers/s%231/revert',
+    ])
+  })
+
+  it('carries the secrets in the body alone', async () => {
+    const { api, calls } = await freshApi()
+    await api.startAgentInstall({ ...req, account: { user: 'ops', method: 'password', password: SECRETS[0], sudo_same: true } })
+    await api.startAgentInstall(req)
+    const bodies = calls.map((c) => String(c.init?.body))
+    expect(bodies[0]).toContain(SECRETS[0])
+    for (const s of SECRETS.slice(1)) expect(bodies[1]).toContain(s)
+    for (const { url, init } of calls) {
+      const outside = [url, decodeURIComponent(url), JSON.stringify(init?.headers ?? {})].join('\n')
+      for (const s of SECRETS) expect(outside, s).not.toContain(s)
+    }
+  })
+})
+
 describe('slow task calls', () => {
   // A fetch that answers only when it is aborted, as a preview asking 200
   // nodes keeps the browser waiting.
@@ -250,6 +311,21 @@ describe('task and Git refusals', () => {
     ['GIT_RATE_LIMITED', { reset_at: '2026-11-01T10:00:00Z', limit: '60', retry_after: '120' }],
     ['GIT_RATE_LIMITED', { retry_after: '120' }],
     ['GIT_RATE_LIMITED', undefined],
+    ['AGENT_INSTALL_INVALID', { field: 'port', row: 's2' }],
+    ['AGENT_INSTALL_INVALID', { field: 'host', row: 's3', same_as: 's1' }],
+    ['AGENT_INSTALL_INVALID', { field: 'servers', max: '50' }],
+    ['AGENT_INSTALL_INVALID', { field: 'sudo_password' }],
+    ['AGENT_INSTALL_INVALID', { field: 'body' }],
+    ['AGENT_INSTALL_INVALID', undefined],
+    ['AGENT_INSTALL_ACTIVE', { run_id: '20261102-091500-3fa2c1' }],
+    ['AGENT_INSTALL_ACTIVE', undefined],
+    ['AGENT_INSTALL_HOST_KEY_CHANGED', { host_key: 'ED25519 SHA256:AbC' }],
+    ['AGENT_INSTALL_NOT_WAITING', undefined],
+    ['AGENT_INSTALL_UNRELEASED', { version: '0.81.0-dev' }],
+    ['AGENT_INSTALL_MIXED_VERSIONS', { version: '0.81.0', managers: 'manager-2 (0.80.0)' }],
+    ['AGENT_INSTALL_NOT_FOUND', undefined],
+    ['AGENT_INSTALL_NOT_RERUNNABLE', undefined],
+    ['AGENT_INSTALL_LOG_GONE', undefined],
   ]
 
   it.each(['en', 'ko'])('words every one in %s, with nothing left unfilled', async (lng) => {
@@ -282,6 +358,10 @@ describe('task and Git refusals', () => {
     // The files page's message gives the file's size and the limit; a worded
     // sentence would drop both.
     expect(word('FILE_TOO_LARGE')).toBe('x')
+    // An install refusal names what to correct and what to update to.
+    expect(word('AGENT_INSTALL_INVALID', { field: 'port', row: 's2' })).toContain('SSH port')
+    expect(word('AGENT_INSTALL_MIXED_VERSIONS', { version: '0.81.0', managers: 'manager-2 (0.80.0)' })).toContain('manager-2 (0.80.0)')
+    expect(word('AGENT_INSTALL_UNRELEASED', { version: '0.81.0-dev' })).toContain('0.81.0-dev')
   })
 })
 

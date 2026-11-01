@@ -82,6 +82,48 @@ export const CODE_MESSAGES: Record<string, string> = {
   TASK_REBOOT_PVE_HOST: 'cluster.tasks.errors.rebootPveHost',
   TASK_REBOOT_UNSUPPORTED: 'cluster.tasks.errors.rebootUnsupported',
 
+  // Agent install over SSH: the refusals of /cluster/agent-installs and of the
+  // run routes for an install. AGENT_INSTALL_ACTIVE also refuses a task run
+  // and a leadership transfer while an install is under way.
+  AGENT_INSTALL_INVALID: 'cluster.tasks.install.errors.invalid',
+  AGENT_INSTALL_ACTIVE: 'cluster.tasks.install.errors.active',
+  AGENT_INSTALL_HOST_KEY_CHANGED: 'cluster.tasks.install.errors.hostKeyChanged',
+  AGENT_INSTALL_NOT_WAITING: 'cluster.tasks.install.errors.notWaiting',
+  AGENT_INSTALL_UNRELEASED: 'cluster.tasks.install.errors.unreleased',
+  AGENT_INSTALL_MIXED_VERSIONS: 'cluster.tasks.install.errors.mixedVersions',
+  AGENT_INSTALL_NOT_FOUND: 'cluster.tasks.install.errors.notFound',
+  AGENT_INSTALL_NOT_RERUNNABLE: 'cluster.tasks.install.errors.notRerunnable',
+  AGENT_INSTALL_LOG_GONE: 'cluster.tasks.install.errors.logGone',
+  // An install row's reason, worded with its reason_details by
+  // installReasonText (pages/cluster/components/tasks/install/installRun.ts),
+  // which picks a closer sentence where the details call for one. Each says
+  // what to do. AGENT_INSTALL_HOST_KEY_CHANGED above is a row reason too.
+  AGENT_INSTALL_UNREACHABLE: 'cluster.tasks.install.reason.unreachable',
+  AGENT_INSTALL_AUTH_FAILED: 'cluster.tasks.install.reason.authFailed',
+  AGENT_INSTALL_NOT_ROOT: 'cluster.tasks.install.reason.notRoot',
+  AGENT_INSTALL_OS: 'cluster.tasks.install.reason.os',
+  AGENT_INSTALL_ARCH: 'cluster.tasks.install.reason.arch',
+  AGENT_INSTALL_NO_SYSTEMD: 'cluster.tasks.install.reason.noSystemd',
+  AGENT_INSTALL_NO_TOOLS: 'cluster.tasks.install.reason.noTools',
+  AGENT_INSTALL_DISK: 'cluster.tasks.install.reason.disk',
+  AGENT_INSTALL_PORT_BUSY: 'cluster.tasks.install.reason.portBusy',
+  AGENT_INSTALL_CLOCK: 'cluster.tasks.install.reason.clock',
+  AGENT_INSTALL_CANNOT_REACH_MANAGER: 'cluster.tasks.install.reason.cannotReachManager',
+  AGENT_INSTALL_IP_NOT_LOCAL: 'cluster.tasks.install.reason.ipNotLocal',
+  AGENT_INSTALL_NO_INTERNET: 'cluster.tasks.install.reason.noInternet',
+  AGENT_INSTALL_ALREADY_AGENT: 'cluster.tasks.install.reason.alreadyAgent',
+  AGENT_INSTALL_ALREADY_MANAGER: 'cluster.tasks.install.reason.alreadyManager',
+  AGENT_INSTALL_MANAGER_FILES: 'cluster.tasks.install.reason.managerFiles',
+  AGENT_INSTALL_OPERATOR_TLS: 'cluster.tasks.install.reason.operatorTls',
+  AGENT_INSTALL_NEWER_INSTALLED: 'cluster.tasks.install.reason.newerInstalled',
+  AGENT_INSTALL_NAME_INVALID: 'cluster.tasks.install.reason.nameInvalid',
+  AGENT_INSTALL_CLUSTER_NOT_READY: 'cluster.tasks.install.reason.clusterNotReady',
+  AGENT_INSTALL_IDENTITY_TAKEN: 'cluster.tasks.install.reason.identityTaken',
+  AGENT_INSTALL_FAILED: 'cluster.tasks.install.reason.failed',
+  AGENT_INSTALL_OFFLINE: 'cluster.tasks.install.reason.offline',
+  AGENT_INSTALL_LEADER_CHANGED: 'cluster.tasks.install.reason.leaderChanged',
+  AGENT_INSTALL_CREDENTIALS_GONE: 'cluster.tasks.install.reason.credentialsGone',
+
   // GitHub, for the task import and the compose import alike.
   GIT_AUTH_FAILED: 'common.git.authFailed',
   GIT_REPO_NOT_FOUND: 'common.git.repoNotFound',
@@ -98,6 +140,27 @@ export const CODE_DEFAULTS: Record<string, Record<string, string>> = {
   GIT_RATE_LIMITED: { reset_at: 'common.git.rateLimitReset' },
   // GitHub's own words for a failure it gave no code to.
   GIT_CLONE_FAILED: { cause: 'common.git.causeUnknown' },
+  // An install request's field the screen has no words for (body, accept…).
+  AGENT_INSTALL_INVALID: { field: 'cluster.tasks.install.field.form' },
+  AGENT_INSTALL_HOST_KEY_CHANGED: { host_key: 'cluster.tasks.install.detail.otherKey' },
+  // Row reasons whose detail the server may send empty, or not at all: a
+  // server with no os-release, a port owner it could not name ('?'), an
+  // SFPanel version it could not read.
+  AGENT_INSTALL_UNREACHABLE: { address: 'cluster.tasks.install.detail.theServer' },
+  AGENT_INSTALL_NOT_ROOT: { sudo: 'cluster.tasks.install.detail.sudo.unknown' },
+  AGENT_INSTALL_OS: { os_id: 'cluster.tasks.install.detail.otherOs' },
+  AGENT_INSTALL_ARCH: { arch: 'cluster.tasks.install.detail.unknownCpu' },
+  AGENT_INSTALL_PORT_BUSY: { port: 'cluster.tasks.install.detail.agentPort', owner: 'cluster.tasks.install.detail.otherProgram' },
+  AGENT_INSTALL_CANNOT_REACH_MANAGER: { manager: 'cluster.tasks.install.detail.theLeader' },
+  AGENT_INSTALL_NEWER_INSTALLED: { installed: 'cluster.tasks.install.detail.unreadableVersion' },
+  AGENT_INSTALL_NAME_INVALID: { hostname: 'cluster.tasks.install.detail.emptyHostname' },
+  AGENT_INSTALL_CLUSTER_NOT_READY: { gate: 'cluster.tasks.install.detail.gate.other' },
+  AGENT_INSTALL_FAILED: { step: 'cluster.tasks.install.detail.step.unknown', no_answer: 'cluster.tasks.install.detail.noAnswer.unknown' },
+  AGENT_INSTALL_OFFLINE: {
+    port: 'cluster.tasks.install.detail.clusterPort',
+    ports: 'cluster.tasks.install.detail.agentPorts',
+    failed: 'cluster.tasks.install.detail.failed.unknown',
+  },
 }
 
 // A detail the server sends in a form the operator should not read as sent,
@@ -112,6 +175,21 @@ export const CODE_DETAIL_FORMATS: Record<string, Record<string, (value: string, 
   // as the preview words it. "; " between them: a worded version line holds
   // a comma.
   TASK_MANAGERS_NOT_READY: { managers: (v, t) => v.split(', ').map((line) => notReadyText(line, t)).join('; ') },
+  // The request's own name for what is wrong, as the form names it.
+  AGENT_INSTALL_INVALID: { field: installFieldText },
+  // The install row reasons' tokens, as sentences or words. A token this
+  // screen does not know takes the CODE_DEFAULTS wording.
+  AGENT_INSTALL_NOT_ROOT: { sudo: sudoText },
+  AGENT_INSTALL_NO_TOOLS: { missing: listText },
+  AGENT_INSTALL_MANAGER_FILES: { files: listText },
+  AGENT_INSTALL_DISK: { free_kb: kibText, need_kb: kibText },
+  AGENT_INSTALL_PORT_BUSY: { owner: (v) => (v === '?' ? null : v) },
+  // Behind or ahead: the operator fixes either the same way.
+  AGENT_INSTALL_CLOCK: { skew_seconds: (v) => (/^-?\d+$/.test(v) ? String(Math.abs(Number(v))) : null) },
+  AGENT_INSTALL_CLUSTER_NOT_READY: { gate: gateText },
+  AGENT_INSTALL_IDENTITY_TAKEN: { row: rowText },
+  AGENT_INSTALL_FAILED: { step: stepText, no_answer: noAnswerText },
+  AGENT_INSTALL_OFFLINE: { ports: listText, failed: failedCallsText },
 }
 
 const pad2 = (n: number) => String(n).padStart(2, '0')
@@ -122,4 +200,100 @@ export function localClockTime(value: string): string | null {
   const d = new Date(value)
   if (Number.isNaN(d.getTime())) return null
   return `${pad2(d.getHours())}:${pad2(d.getMinutes())}`
+}
+
+// The words of the agent install's detail tokens. Every key is written out
+// whole, so locales.test checks it in both languages.
+
+function installFieldText(v: string, t: TFunction): string | null {
+  switch (v) {
+    case 'servers': return t('cluster.tasks.install.field.servers')
+    case 'host': return t('cluster.tasks.install.field.host')
+    case 'port': return t('cluster.tasks.install.field.port')
+    case 'name': return t('cluster.tasks.install.field.name')
+    case 'group': return t('cluster.tasks.install.field.group')
+    case 'user': return t('cluster.tasks.install.field.user')
+    case 'method': return t('cluster.tasks.install.field.method')
+    case 'password': return t('cluster.tasks.install.field.password')
+    case 'key': return t('cluster.tasks.install.field.key')
+    case 'passphrase': return t('cluster.tasks.install.field.passphrase')
+    case 'sudo_same':
+    case 'sudo_password': return t('cluster.tasks.install.field.sudoPassword')
+    case 'mode': return t('cluster.tasks.install.field.mode')
+    case 'concurrency': return t('cluster.tasks.install.field.concurrency')
+    default: return null
+  }
+}
+
+function sudoText(v: string, t: TFunction): string | null {
+  switch (v) {
+    case 'none': return t('cluster.tasks.install.detail.sudo.none')
+    case 'password': return t('cluster.tasks.install.detail.sudo.password')
+    case 'refused': return t('cluster.tasks.install.detail.sudo.refused')
+    default: return null
+  }
+}
+
+function gateText(v: string, t: TFunction): string | null {
+  switch (v) {
+    case 'proxy_rotation': return t('cluster.tasks.install.detail.gate.proxyRotation')
+    case 'ca_rotation': return t('cluster.tasks.install.detail.gate.caRotation')
+    case 'managers': return t('cluster.tasks.install.detail.gate.managers')
+    case 'max_agents': return t('cluster.tasks.install.detail.gate.maxAgents')
+    case 'ca_key': return t('cluster.tasks.install.detail.gate.caKey')
+    default: return null
+  }
+}
+
+function stepText(v: string, t: TFunction): string | null {
+  switch (v) {
+    case 'ssh': return t('cluster.tasks.install.detail.step.ssh')
+    case 'login_check': return t('cluster.tasks.install.detail.step.loginCheck')
+    case 'probe': return t('cluster.tasks.install.detail.step.probe')
+    case 'checksums': return t('cluster.tasks.install.detail.step.checksums')
+    case 'archive': return t('cluster.tasks.install.detail.step.archive')
+    case 'ca_pin': return t('cluster.tasks.install.detail.step.caPin')
+    case 'mktemp': return t('cluster.tasks.install.detail.step.mktemp')
+    case 'systemd-run': return t('cluster.tasks.install.detail.step.systemdRun')
+    case 'install': return t('cluster.tasks.install.detail.step.install')
+    case 'register': return t('cluster.tasks.install.detail.step.register')
+    case 'labels': return t('cluster.tasks.install.detail.step.labels')
+    default: return null
+  }
+}
+
+function noAnswerText(v: string, t: TFunction): string | null {
+  switch (v) {
+    case 'host_key': return t('cluster.tasks.install.detail.noAnswer.hostKey')
+    case 'standalone': return t('cluster.tasks.install.detail.noAnswer.standalone')
+    case 'review': return t('cluster.tasks.install.detail.noAnswer.review')
+    default: return null
+  }
+}
+
+function failedCallsText(v: string, t: TFunction): string | null {
+  switch (v) {
+    case 'relay': return t('cluster.tasks.install.detail.failed.relay')
+    case 'panel': return t('cluster.tasks.install.detail.failed.panel')
+    case 'relay,panel': return t('cluster.tasks.install.detail.failed.both')
+    default: return null
+  }
+}
+
+// s2 → server 2: the row in the order the servers were given.
+function rowText(v: string, t: TFunction): string | null {
+  const m = /^s(\d+)$/.exec(v)
+  return m ? t('cluster.tasks.install.detail.row', { n: m[1] }) : null
+}
+
+// bash,curl → bash, curl.
+function listText(v: string): string | null {
+  const items = v.split(',').map((s) => s.trim()).filter(Boolean)
+  return items.length ? items.join(', ') : null
+}
+
+// 20480 → 20 MiB. A size under 1 MiB still reads as 1 MiB, never 0.
+function kibText(v: string): string | null {
+  if (!/^\d+$/.test(v)) return null
+  return `${Math.max(1, Math.round(Number(v) / 1024))} MiB`
 }

@@ -1438,16 +1438,40 @@ export interface RunStepRecord {
 }
 
 // A node not started yet is {status: 'pending'} with no steps.
+//
+// In an agent install a record is a server's row (s1, s2 … in the order
+// given), not a node's, and carries the server: host as given, ip the address
+// the leader resolved it to and the agent registers at, name and group as
+// asked, node_id once registered. awaiting is the question it waits on the
+// operator for: host_key (approve the fingerprint in host_key), check (open
+// check_url, Tailscale SSH's sign-in), standalone (turn the panel on it into
+// an agent) or review. reason_details fill the reason's sentence.
 export interface RunNodeRecord {
   status: RunNodeStatus
   reason?: string
+  reason_details?: Record<string, string>
   steps?: RunStepRecord[]
+  host?: string
+  ip?: string
+  name?: string
+  group?: string
+  node_id?: string
+  awaiting?: InstallAwaiting
+  host_key?: string
+  check_url?: string
 }
 
+export type InstallAwaiting = 'host_key' | 'check' | 'standalone' | 'review'
+
 // A run's head. nodes are its node IDs in run order (the records are in
-// TaskRunDetail.nodes).
+// TaskRunDetail.nodes). An agent install is a run of kind agent-install
+// (task_id builtin/agent-install) whose nodes are row keys; credentials_until
+// is when the leader drops its credentials, set only while a registered
+// server that failed may still be rechecked or reverted.
 export interface RunRecord {
   id: string
+  kind?: 'agent-install'
+  credentials_until?: string
   task_id: string
   task_name: string
   rev: string
@@ -1554,6 +1578,45 @@ export interface TaskImportResult {
   commit: string
   imported: TaskView[]
   failed: ApiWarning[]
+}
+
+// ---- Agent install over SSH (/cluster/agent-installs; internal/feature/agentinstall) ----
+
+export type AgentInstallMethod = 'password' | 'key' | 'tailscale'
+export type AgentInstallMode = 'auto' | 'online' | 'offline'
+
+// One server of an install. A missing port is 22; a missing name is the
+// server's hostname; group is merged into the node's labels once it is online.
+export interface AgentInstallServer {
+  host: string
+  port?: number
+  name?: string
+  group?: string
+}
+
+// The one login every server of an install takes. Each method carries its own
+// secret and no other's: password the password, key the private key (and its
+// passphrase), tailscale none. sudo_same (the login password is sudo's too)
+// is for a password login only, and never with sudo_password. These are sent
+// in the start's body and nowhere else: the leader holds them in memory only.
+export interface AgentInstallAccount {
+  user: string
+  method: AgentInstallMethod
+  password?: string
+  key?: string
+  passphrase?: string
+  sudo_password?: string
+  sudo_same?: boolean
+}
+
+// POST /cluster/agent-installs. review stops every server after its pre-flight
+// check until POST …/proceed. concurrency is 1 to 5 (3 when left out).
+export interface AgentInstallRequest {
+  servers: AgentInstallServer[]
+  account: AgentInstallAccount
+  review?: boolean
+  mode?: AgentInstallMode
+  concurrency?: number
 }
 
 // Docker observability — container metrics, events, alert rule kinds

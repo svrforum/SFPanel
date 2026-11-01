@@ -11,6 +11,9 @@ const KEYS: Record<string, string> = {
   'builtin/service-restart': 'serviceRestart',
   'builtin/command': 'command',
   'builtin/reboot': 'reboot',
+  // No YAML behind it: the server lists it and the screen opens the install
+  // form for it. Its steps are the five phases every server goes through.
+  'builtin/agent-install': 'agentInstall',
 }
 
 const TEXT: Record<string, (t: TFunction) => string> = {
@@ -36,6 +39,14 @@ const TEXT: Record<string, (t: TFunction) => string> = {
   'reboot.name': (t) => t('cluster.tasks.builtins.reboot.name'),
   'reboot.description': (t) => t('cluster.tasks.builtins.reboot.description'),
   'reboot.steps.0': (t) => t('cluster.tasks.builtins.reboot.steps.0'),
+
+  'agentInstall.name': (t) => t('cluster.tasks.builtins.agentInstall.name'),
+  'agentInstall.description': (t) => t('cluster.tasks.builtins.agentInstall.description'),
+  'agentInstall.steps.0': (t) => t('cluster.tasks.builtins.agentInstall.steps.0'),
+  'agentInstall.steps.1': (t) => t('cluster.tasks.builtins.agentInstall.steps.1'),
+  'agentInstall.steps.2': (t) => t('cluster.tasks.builtins.agentInstall.steps.2'),
+  'agentInstall.steps.3': (t) => t('cluster.tasks.builtins.agentInstall.steps.3'),
+  'agentInstall.steps.4': (t) => t('cluster.tasks.builtins.agentInstall.steps.4'),
 }
 
 /** The i18n name of a built-in task (builtin/package-update → packageUpdate), or null for any other ID. */

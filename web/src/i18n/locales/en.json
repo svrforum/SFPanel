@@ -1362,6 +1362,17 @@
           "steps": {
             "0": "Reboot if required"
           }
+        },
+        "agentInstall": {
+          "name": "Agent install (SSH)",
+          "description": "The cluster leader logs in to servers over SSH, installs the SFPanel agent on them and adds them to the cluster.",
+          "steps": {
+            "0": "Connect",
+            "1": "Pre-flight check",
+            "2": "Install",
+            "3": "Register",
+            "4": "Connection check"
+          }
         }
       },
       "setup": {
@@ -1631,6 +1642,164 @@
         "failed_one": "{{count}} file not imported",
         "failed_other": "{{count}} files not imported",
         "line": "line {{line}}"
+      },
+      "install": {
+        "errors": {
+          "invalid": "The install was not started: correct {{field}} and start it again.",
+          "active": "An agent install is under way. Try again once it has finished.",
+          "hostKeyChanged": "The server's host key is not the approved one (the server now shows {{host_key}}). Another machine may be answering at this address: check the key on the server itself before you install it again.",
+          "notWaiting": "This server is no longer waiting for that answer. The screen shows where it is now.",
+          "unreleased": "This panel runs {{version}}, which is not a release, and an agent installs only from a release. Update the cluster to a release first.",
+          "mixedVersions": "The managers run different versions ({{managers}}), and an agent installs at the leader's {{version}}. Update the cluster so every manager runs one version, then install.",
+          "notFound": "The cluster leader no longer holds this install: the leader changed, or another install started. Its record stays; start a new install if a server still needs one.",
+          "notRerunnable": "An agent install cannot run again: its credentials are gone. Start a new install from its form.",
+          "logGone": "This phase's log lived on the leader that ran the install, and is gone: the leader changed, or another install started."
+        },
+        "field": {
+          "servers": "the server list (1 to 50 servers)",
+          "host": "a server's address",
+          "port": "a server's SSH port",
+          "name": "a server's node name",
+          "group": "a server's group",
+          "user": "the SSH user",
+          "method": "the login method",
+          "password": "the login password",
+          "key": "the private key",
+          "passphrase": "the key passphrase",
+          "sudoPassword": "the sudo password",
+          "mode": "the install mode",
+          "concurrency": "how many servers to install at once",
+          "form": "the form"
+        },
+        "reason": {
+          "unreachable": "The leader cannot open SSH to {{address}}. Check that the server is on, the SSH port is right and no firewall keeps the leader out, then install again.",
+          "unreachableHost": "The leader cannot resolve {{host}} to an address. Check the name, or enter the server's IP.",
+          "authFailed": "The server refused the SSH login. Check the user and the password or key, then install again.",
+          "authCheckTimeout": "The Tailscale SSH check was not approved in time. Install again, and approve the check in your browser within 10 minutes.",
+          "notRoot": "This login cannot become root. {{sudo}}",
+          "os": "SFPanel installs on Ubuntu and Debian only, and this server runs {{os_id}}. Choose an Ubuntu or Debian server.",
+          "arch": "No SFPanel release is built for this CPU ({{arch}}): only amd64 and arm64 are. Choose another server.",
+          "noSystemd": "The server does not run systemd, which the agent runs under. Choose a server with systemd.",
+          "noTools": "The server lacks commands the install needs: {{missing}}. Install them, then install again.",
+          "disk": "The server is short of disk space: {{free_kb}} free, {{need_kb}} needed. Free some space, then install again.",
+          "portBusy": "Port {{port}} is taken by {{owner}}, and the agent needs ports 3628 and 3629. Stop that program or move it to another port, then install again.",
+          "clock": "The server's clock is {{skew_seconds}} seconds off the leader's, and the managers refuse an agent more than 30 seconds off. Turn on time sync (timedatectl set-ntp true), then install again.",
+          "cannotReachManager": "The server cannot connect to the leader's cluster port at {{manager}}. Open that port from the server to the leader, then install again.",
+          "ipNotLocal": "The server does not hold the address {{ip}}, which the agent would register at. Enter an address of the server's own.",
+          "noInternet": "The server cannot download SFPanel from GitHub. Install in offline mode, where the leader uploads it.",
+          "alreadyAgent": "This server is already an agent. If it belongs to another cluster, remove it there first.",
+          "alreadyManager": "This server is a cluster manager, which cannot be installed as an agent. Take it out of its cluster first.",
+          "managerFiles": "The server still holds files a cluster manager keeps ({{files}}). Remove them, then install again.",
+          "operatorTls": "The panel on this server serves its own certificate without server.tls.ca_file, so the managers could not verify it. Set ca_file in its config.yaml, then install again.",
+          "newerInstalled": "The server already has SFPanel {{installed}}, and this install ({{version}}) would downgrade it, which an install never does. Update the cluster first, or remove SFPanel from the server.",
+          "nameInvalid": "{{name}} cannot be a node name: 1 to 63 letters, digits, dots, hyphens or underscores, starting with a letter or digit. Enter another name, then install again.",
+          "nameInvalidHostname": "The server's hostname {{hostname}} cannot be a node name. Enter a name for the server, then install again.",
+          "clusterNotReady": "The cluster is not taking new agents right now. {{gate}}",
+          "identityTaken": "A node of the cluster already has the name {{name}} or the address {{ip}}. Choose another name, or remove the old node first.",
+          "identityTakenIp": "Another server of this install ({{row}}) has the same address {{ip}}. Enter each server once.",
+          "identityTakenName": "Another server of this install ({{row}}) has the same name {{name}}. Give each server its own name.",
+          "failed": "The install failed. The phases' logs show what happened: fix the cause, then install again.",
+          "failedStep": "{{step}} failed. Its phase's log shows why: fix the cause, then install again.",
+          "failedExit": "{{step}} failed with exit code {{exit}}. Its phase's log shows why: fix the cause, then install again.",
+          "failedTimeout": "install.sh did not finish within {{timeout_minutes}} minutes and was stopped. The Install phase's log shows how far it got: fix the cause, then install again.",
+          "failedRegister": "install.sh finished, but no agent registered at {{ip}}. The Install phase's log shows why: fix the cause, then install again.",
+          "failedLabels": "The agent is online, but its group label could not be set. Set the label on the node page.",
+          "failedNoAnswer": "No answer came within 30 minutes ({{no_answer}}), so this server stopped there. Install it again when you can answer.",
+          "failedError": "The install failed: {{error}}. Fix the cause, then install again.",
+          "offline": "The agent registered but did not come online within 3 minutes. Check that its service runs on the server (systemctl status sfpanel).",
+          "offlineAgentToManagers": "The agent registered, but its heartbeat never reached the leader: the agent cannot reach the managers' port {{port}}. Open that port from this server to the managers.",
+          "offlineVersion": "The agent's heartbeat reports version {{version}}, not the one installed. Wait for it to restart, then check it again.",
+          "offlineManagersToAgent": "The agent's heartbeat arrives, but the leader cannot reach it ({{failed}}). Open ports {{ports}} on this server to the managers: check its firewall.",
+          "leaderChanged": "The cluster leader changed during the install, and the credentials went with the old leader. Part of the install may be left on the server: remove it with the cleanup command, then install again.",
+          "leaderChangedRegistered": "The cluster leader changed after this server registered as an agent. Check it on the node page.",
+          "credentialsGone": "The credentials were gone before this server's turn came. Install it again.",
+          "credentialsGoneReverted": "The node was removed, but the credentials were already gone, so the server was not cleaned up: run the cleanup command on it."
+        },
+        "reverted": {
+          "removing": "Reverting: the node was removed, and the server is being cleaned up.",
+          "purged": "Reverted: the node was removed, and SFPanel was removed from the server.",
+          "cleanupFailed": "The node was removed, but cleaning up the server failed: run the cleanup command on it.",
+          "removed": "The node was removed. Clean the server up with the cleanup command.",
+          "removedStandalone": "The node was removed. The server ran a standalone panel before, whose local account is already gone, so it was left as it is: set it up again by hand."
+        },
+        "detail": {
+          "theServer": "the server",
+          "theLeader": "the leader",
+          "otherOs": "another system",
+          "unknownCpu": "unknown",
+          "otherProgram": "another program",
+          "agentPort": "3628 or 3629",
+          "agentPorts": "3628 and 3629",
+          "clusterPort": "3629",
+          "unreadableVersion": "of a version that cannot be read",
+          "otherKey": "another key",
+          "emptyHostname": "(empty)",
+          "row": "server {{n}}",
+          "sudo": {
+            "none": "The server has no sudo: log in as root, or install sudo for this user.",
+            "password": "sudo asks this user for a password: enter the sudo password, or allow sudo without one, then install again.",
+            "refused": "sudo refused the sudo password: check it, then install again.",
+            "unknown": "Log in as root, or as a user that can use sudo."
+          },
+          "gate": {
+            "proxyRotation": "The proxy secret was rotated a moment ago: install again in 5 minutes.",
+            "caRotation": "A CA rotation is under way: install again once it has finished.",
+            "managers": "Every manager must be online and run a version that takes agents: wait for them, or update the cluster, then install again.",
+            "maxAgents": "The cluster has as many agents as it takes: remove one first.",
+            "caKey": "The leader does not hold the cluster CA key that signs agents: try again in a moment, or after moving the leadership.",
+            "other": "Try again in a few minutes."
+          },
+          "step": {
+            "ssh": "The SSH session",
+            "loginCheck": "The login check",
+            "probe": "The pre-flight check",
+            "checksums": "Fetching the release's checksums",
+            "archive": "Fetching the release archive",
+            "caPin": "Reading the cluster CA",
+            "mktemp": "Making a temporary directory",
+            "systemdRun": "Starting install.sh",
+            "install": "install.sh",
+            "register": "Registering",
+            "labels": "Setting the group label",
+            "unknown": "A step"
+          },
+          "noAnswer": {
+            "hostKey": "the host key",
+            "standalone": "the standalone panel question",
+            "review": "the review",
+            "unknown": "a question"
+          },
+          "failed": {
+            "relay": "the relay over the cluster port",
+            "panel": "the panel port's HTTPS check",
+            "both": "the relay over the cluster port and the panel port's HTTPS check",
+            "unknown": "the leader's calls"
+          }
+        },
+        "problem": {
+          "servers": "Add at least one server.",
+          "serversMax": "One install takes at most {{max}} servers.",
+          "host": "Enter an IP address or a host name.",
+          "hostTwice": "This server is already on row {{other}}.",
+          "port": "The SSH port is a number from 1 to 65535.",
+          "name": "A node name is 1 to 63 letters, digits, dots, hyphens or underscores, starting with a letter or digit.",
+          "group": "A group is up to 63 letters, digits, dots, hyphens or underscores.",
+          "user": "Enter the SSH user.",
+          "method": "Choose a login method.",
+          "password": "Enter the login password.",
+          "key": "Paste the private key, or read it from a file.",
+          "passphrase": "Only a private key takes a passphrase.",
+          "sudoSame": "Only a password login can share its password with sudo.",
+          "sudoPassword": "sudo takes the login password or one of its own, not both.",
+          "mode": "Choose auto, online or offline.",
+          "concurrency": "Install 1 to 5 servers at once.",
+          "extra": "Write host[:port] [name] [group], separated by spaces.",
+          "other": "The panel refused the request: reload the page and try again."
+        },
+        "line": {
+          "problem": "Line {{line}}: {{problem}}",
+          "hostTwice": "This server is already on line {{other}}."
+        }
       }
     }
   },

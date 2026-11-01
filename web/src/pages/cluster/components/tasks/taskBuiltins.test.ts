@@ -25,21 +25,24 @@ const FIELDS: Record<string, string[]> = {
   'builtin/service-restart': ['name', 'description', 'inputs.service', 'steps.0'],
   'builtin/command': ['name', 'description', 'inputs.command', 'steps.0'],
   'builtin/reboot': ['name', 'description', 'steps.0'],
+  // No YAML: the server lists it, and the screen names its five phases.
+  'builtin/agent-install': ['name', 'description', 'steps.0', 'steps.1', 'steps.2', 'steps.3', 'steps.4'],
 }
 
 describe('builtinKey', () => {
-  it('names each of the five built-ins', () => {
+  it('names each of the six built-ins', () => {
     expect(builtinKey('builtin/package-update')).toBe('packageUpdate')
     expect(builtinKey('builtin/package-install')).toBe('packageInstall')
     expect(builtinKey('builtin/service-restart')).toBe('serviceRestart')
     expect(builtinKey('builtin/command')).toBe('command')
     expect(builtinKey('builtin/reboot')).toBe('reboot')
+    expect(builtinKey('builtin/agent-install')).toBe('agentInstall')
   })
 
   it('is null for anything else', () => {
     // A stored task's ID, a built-in this screen does not know yet (an older
     // or newer manager), an ID escaped once more, and look-alikes.
-    for (const id of ['0a1b2c3d4e5f6071', 'builtin/agent-install', 'builtin%2Fcommand', 'command', 'builtin/command/x', 'Builtin/command', '']) {
+    for (const id of ['0a1b2c3d4e5f6071', 'builtin/backup', 'builtin%2Fagent-install', 'builtin%2Fcommand', 'command', 'builtin/command/x', 'Builtin/command', '']) {
       expect(builtinKey(id), id).toBeNull()
     }
   })
@@ -54,7 +57,8 @@ describe('builtinText', () => {
 
   it('keeps the fallback for a stored task, an unknown built-in or a field the built-in lacks', () => {
     expect(builtinText(keyT, '0a1b2c3d4e5f6071', 'name', 'Deploy web')).toBe('Deploy web')
-    expect(builtinText(keyT, 'builtin/agent-install', 'name', '에이전트 설치')).toBe('에이전트 설치')
+    expect(builtinText(keyT, 'builtin/backup', 'name', '백업')).toBe('백업')
+    expect(builtinText(keyT, 'builtin/agent-install', 'steps.5', '여섯 번째')).toBe('여섯 번째')
     expect(builtinText(keyT, 'builtin/package-update', 'inputs.packages', 'packages')).toBe('packages')
     expect(builtinText(keyT, 'builtin/command', 'steps.1', '두 번째')).toBe('두 번째')
   })
@@ -71,6 +75,13 @@ describe('builtinText', () => {
         if (lang === 'en') expect(text, `${id} ${field}`).not.toMatch(/[가-힣]/)
       }
     }
+  })
+
+  it('names the five phases of an agent install', () => {
+    const steps = (tree: unknown) => [0, 1, 2, 3, 4].map((i) => builtinText(lookup(tree), 'builtin/agent-install', `steps.${i}`, ''))
+    expect(steps(ko)).toEqual(['접속', '사전 점검', '설치', '등록', '연결 확인'])
+    expect(steps(en)).toEqual(['Connect', 'Pre-flight check', 'Install', 'Register', 'Connection check'])
+    expect(builtinText(keyT, 'builtin/agent-install', 'name', 'x')).toBe('cluster.tasks.builtins.agentInstall.name')
   })
 
   it('says in the service input which name it takes', () => {

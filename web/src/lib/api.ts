@@ -89,6 +89,7 @@ import type {
   TaskImportRequest,
   TaskImportPreview,
   TaskImportResult,
+  AgentInstallRequest,
 } from '@/types/api'
 import type { TFunction } from 'i18next'
 import { CODE_DEFAULTS, CODE_DETAIL_FORMATS, CODE_MESSAGES } from './codeMessages'
@@ -2817,6 +2818,47 @@ class ApiClient {
 
   importTasks(req: TaskImportRequest) {
     return this.request<TaskImportResult>('/cluster/tasks/import', { method: 'POST', body: JSON.stringify(req), timeout: LONG_OP_TIMEOUT })
+  }
+
+  // ---- Agent install over SSH ----
+  // Every route is the leader's: the browser's manager forwards it there
+  // (request() sends no ?node= with /cluster/ paths). The SSH secrets ride in
+  // the start's body alone, never in a path or a query, and the client keeps
+  // no copy. An SSH login the server refused is a row's reason, never a 401,
+  // which would sign the operator out.
+
+  // 202 once the run is recorded; its progress is the task run's stream.
+  startAgentInstall(req: AgentInstallRequest) {
+    return this.request<{ run_id: string }>('/cluster/agent-installs', { method: 'POST', body: JSON.stringify(req) })
+  }
+
+  // fingerprint is the row's host_key as shown. Refusing it stops that server.
+  answerHostKey(runId: string, key: string, fingerprint: string, accept: boolean) {
+    return this.request<null>(`${this.installRow(runId, key)}/host-key`, { method: 'POST', body: JSON.stringify({ fingerprint, accept }) })
+  }
+
+  // accept turns the standalone panel on the server into an agent; refusing
+  // skips that server.
+  confirmStandalone(runId: string, key: string, accept: boolean) {
+    return this.request<null>(`${this.installRow(runId, key)}/standalone`, { method: 'POST', body: JSON.stringify({ accept }) })
+  }
+
+  // Every server held for review goes on to install.
+  proceedAgentInstall(runId: string) {
+    return this.request<null>(`/cluster/agent-installs/${encodeURIComponent(runId)}/proceed`, { method: 'POST' })
+  }
+
+  // Both for a server that registered and then failed its connection check.
+  recheckAgentInstall(runId: string, key: string) {
+    return this.request<null>(`${this.installRow(runId, key)}/recheck`, { method: 'POST' })
+  }
+
+  revertAgentInstall(runId: string, key: string) {
+    return this.request<null>(`${this.installRow(runId, key)}/revert`, { method: 'POST' })
+  }
+
+  private installRow(runId: string, key: string) {
+    return `/cluster/agent-installs/${encodeURIComponent(runId)}/servers/${encodeURIComponent(key)}`
   }
 
   // The run's progress, from the manager this browser is attached to: built on
