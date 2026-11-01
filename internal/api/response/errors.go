@@ -557,6 +557,29 @@ const (
 	// it lives in the memory of the leader that ran the install, and goes
 	// with it.
 	ErrAgentInstallLogGone = "AGENT_INSTALL_LOG_GONE"
+	// ErrAgentInstallHostKeyChanged is returned (HTTP 409) when a server's
+	// host key is approved with a fingerprint other than the one the row
+	// shows. It is also the reason of a row whose server presented another
+	// key at the login than the one approved. Details: host_key, the one the
+	// row shows.
+	ErrAgentInstallHostKeyChanged = "AGENT_INSTALL_HOST_KEY_CHANGED"
+	// ErrAgentInstallNotWaiting is returned (HTTP 409) for an answer to a
+	// question a row is not asking (a host key, a standalone panel, the
+	// review), or a recheck or revert of a row that has no registered agent
+	// failing its checks.
+	ErrAgentInstallNotWaiting = "AGENT_INSTALL_NOT_WAITING"
+	// ErrAgentInstallUnreleased is returned (HTTP 409) when an install is
+	// asked of a leader whose version is no release, without
+	// SFPANEL_AGENT_ARCHIVES naming a directory of its archives and
+	// checksums.txt. Details: version.
+	ErrAgentInstallUnreleased = "AGENT_INSTALL_UNRELEASED"
+	// ErrAgentInstallMixedVersions is returned (HTTP 409) when an install is
+	// asked while the managers run different versions: the agent installs
+	// at the leader's. Details: version, managers (name (version), …).
+	ErrAgentInstallMixedVersions = "AGENT_INSTALL_MIXED_VERSIONS"
+	// ErrAgentInstallNotFound is returned (HTTP 404) for an install run, or
+	// a server of one, that no session on this leader holds.
+	ErrAgentInstallNotFound = "AGENT_INSTALL_NOT_FOUND"
 )
 
 // Group task error codes: the task and task-run API on a manager.
@@ -623,7 +646,8 @@ const (
 	ErrAgentInstallNoSystemd = "AGENT_INSTALL_NO_SYSTEMD"
 	// ErrAgentInstallNotRoot is a login that cannot become root: not root,
 	// and no sudo, or sudo that asks for a password none was given for.
-	// Details: sudo (none | password).
+	// Details: sudo (none | password | refused, sudo turning the password
+	// given down).
 	ErrAgentInstallNotRoot = "AGENT_INSTALL_NOT_ROOT"
 	// ErrAgentInstallPortBusy is a panel or cluster port another program
 	// listens on. Details: port, owner (a process name, or ? when unknown).
@@ -682,6 +706,14 @@ const (
 	// before it was reverted: the node was removed, and what was installed on
 	// the server is the operator's to clean up.
 	ErrAgentInstallCredentialsGone = "AGENT_INSTALL_CREDENTIALS_GONE"
+	// ErrAgentInstallClusterNotReady is a server the cluster would not let
+	// register now. Details: gate (proxy_rotation | ca_rotation | managers |
+	// max_agents | ca_key | other).
+	ErrAgentInstallClusterNotReady = "AGENT_INSTALL_CLUSTER_NOT_READY"
+	// ErrAgentInstallIdentityTaken is a node name or address a node of the
+	// cluster has already, or another server of the same install. Details:
+	// name and/or ip, and row, the other server's, when it is one.
+	ErrAgentInstallIdentityTaken = "AGENT_INSTALL_IDENTITY_TAKEN"
 )
 
 // File manager error codes
