@@ -349,7 +349,7 @@ func TestEndToEndOverSSH(t *testing.T) {
 // facts however the probe reaches it, rather than run either.
 func TestTheE2ETargetRunsNothingOutsideItsDirectory(t *testing.T) {
 	st := startSSHTarget(t, "pw", passingFacts())
-	for _, cmd := range []string{"ls /etc/hostname", "rmdir /opt/stacks", "cat /home/x", "ls /var/lib", "ls /usr/local/bin", "ls /root"} {
+	for _, cmd := range []string{"ls /etc/hostname", "rmdir /opt/stacks", "ls /home/", "ls /var/lib", "ls /usr/local/bin", "ls /root"} {
 		if _, stderr, exit := st.exec(cmd, nil); exit != 126 || !strings.Contains(string(stderr), "refused by the e2e target") {
 			t.Errorf("%q: exit %d %q, want refused unrun", cmd, exit, stderr)
 		}
