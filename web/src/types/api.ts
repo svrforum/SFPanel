@@ -1459,6 +1459,8 @@ export interface RunNodeRecord {
   awaiting?: InstallAwaiting
   host_key?: string
   check_url?: string
+  /** An install row's server had SFPanel before: its program or its data. */
+  sfpanel_before?: boolean
 }
 
 export type InstallAwaiting = 'host_key' | 'check' | 'standalone' | 'review'

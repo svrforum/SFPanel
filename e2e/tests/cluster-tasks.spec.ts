@@ -2331,12 +2331,14 @@ test.describe('agent install', () => {
     await expect(account.getByLabel('Key passphrase', { exact: true })).toHaveValue('')
   })
 
-  test('a refusal that names a row or a field is shown beside it, and the secrets must be typed again', async ({ page }) => {
+  test('a refusal that names a row or a field is shown beside it, and the secrets stay for the next start', async ({ page }) => {
     const { calls } = await mock(page, {
       replies: {
         'POST /cluster/agent-installs': [
           fail(400, 'AGENT_INSTALL_INVALID', 'A server\'s SSH port is 1 to 65535', { field: 'port', row: 's2' }),
           fail(400, 'AGENT_INSTALL_INVALID', 'The user is missing', { field: 'user' }),
+          fail(409, 'TASK_RUN_ACTIVE', 'Run r-9 is under way', { run_id: 'r-9' }),
+          started(),
         ],
       },
     })
@@ -2348,23 +2350,45 @@ test.describe('agent install', () => {
     await host(page, 3).fill('192.0.2.23')
     const account = pane(page).getByTestId('install-account')
     await account.getByRole('textbox', { name: 'User' }).fill('ubuntu')
-    await account.getByLabel('Login password', { exact: true }).fill(PASSWORD)
+    const password = account.getByLabel('Login password', { exact: true })
+    await password.fill(PASSWORD)
+    await account.getByRole('checkbox', { name: 'The sudo password is the login password' }).click()
+    const sudo = account.getByLabel('sudo password', { exact: true })
+    await sudo.fill(SUDO)
     await pane(page).getByRole('button', { name: 'Start install' }).click()
 
     await expect(row(page, 2)).toContainText('The SSH port is a number from 1 to 65535.')
     await expect(row(page, 0)).not.toContainText('SSH port is a number')
     await expect(row(page, 1)).not.toContainText('SSH port is a number')
     await expect(pane(page).getByRole('alert')).toContainText("correct a server's SSH port")
-    await expect(pane(page).getByRole('alert')).toContainText('enter them again')
     await expect(page).toHaveURL(new RegExp(`${INSTALL_PATH}$`))
-    // Cleared when the request was sent.
-    await expect(account.getByLabel('Login password', { exact: true })).toHaveValue('')
+    // Refused: the secrets are still in the form.
+    await expect(password).toHaveValue(PASSWORD)
+    await expect(sudo).toHaveValue(SUDO)
 
-    await account.getByLabel('Login password', { exact: true }).fill(PASSWORD)
+    // Started again as it stands, nothing typed twice.
     await pane(page).getByRole('button', { name: 'Start install' }).click()
     await expect(account).toContainText('Enter the SSH user.')
     await expect(row(page, 2)).not.toContainText('SSH port is a number')
-    expect(calls).toHaveLength(2)
+    await expect(password).toHaveValue(PASSWORD)
+
+    // A conflict keeps them too.
+    await pane(page).getByRole('button', { name: 'Start install' }).click()
+    await expect.poll(() => calls.length).toBe(3)
+    await expect(pane(page).getByRole('alert')).toBeVisible()
+    await expect(password).toHaveValue(PASSWORD)
+    await expect(sudo).toHaveValue(SUDO)
+
+    // Taken: the run opens, and the form opened again holds no secret.
+    await pane(page).getByRole('button', { name: 'Start install' }).click()
+    await expect(page).toHaveURL(/\/cluster\/tasks\/runs\/i-1$/)
+    expect(calls.map((c) => (c.body as { account: unknown }).account)).toEqual(
+      Array(4).fill({ user: 'ubuntu', method: 'password', password: PASSWORD, sudo_password: SUDO }),
+    )
+    await section(page, 'Built-in').getByRole('link', { name: 'Agent install (SSH)' }).click()
+    await expect(password).toHaveValue('')
+    await account.getByRole('checkbox', { name: 'The sudo password is the login password' }).click()
+    await expect(sudo).toHaveValue('')
   })
 
   test.describe('Korean', () => {
@@ -2521,8 +2545,9 @@ test.describe('agent install', () => {
         },
       })
       await page.goto(`/cluster/tasks/runs/${IRUN}`)
-      await expect(wait(page, 's1')).toContainText('web-04 already runs a standalone SFPanel')
-      await expect(wait(page, 's1')).toContainText('local sign-in')
+      // Worded for a panel that runs and for the data an earlier one left alike.
+      await expect(wait(page, 's1')).toContainText('web-04 already has SFPanel: a standalone panel that runs, or the data an earlier SFPanel left.')
+      await expect(wait(page, 's1')).toContainText('their local accounts go')
       await wait(page, 's1').getByRole('button', { name: 'Convert it' }).click()
       await wait(page, 's2').getByRole('button', { name: 'Skip it' }).click()
       await expect.poll(() => calls.filter((c) => c.path.endsWith('/standalone')).length).toBe(2)
@@ -2532,6 +2557,8 @@ test.describe('agent install', () => {
       const p = runPane(page)
       const dialog = page.getByRole('dialog')
       await p.getByRole('button', { name: 'Stop', exact: true }).click()
+      await expect(dialog).toContainText('A server not yet registered is stopped and cleaned up')
+      await expect(dialog).toContainText('one already registered as an agent stays in the cluster until you revert it')
       await expect(dialog).toContainText('credentials are cleared at once')
       await dialog.getByRole('button', { name: 'Cancel' }).click()
       expect(posts(calls, `/cluster/task-runs/${IRUN}/stop`)).toHaveLength(0)
@@ -2540,21 +2567,31 @@ test.describe('agent install', () => {
       await expect.poll(() => posts(calls, `/cluster/task-runs/${IRUN}/stop`).map((c) => c.body)).toEqual([{ force: false }])
     })
 
-    test('a review waits for one [Continue install]; a server that failed its check says why, with nothing to undo', async ({ page }) => {
+    test('a review opens once every server is ready; a server that failed its check says why, with nothing to undo', async ({ page }) => {
       const run = install({ nodes: ['s1', 's2', 's3'], waves: [['s1', 's2', 's3']], inputs: { mode: 'auto', review: 'true', version: '0.81.0' } })
-      const rows = {
-        s1: srv('s1', 'running', ['succeeded', 'succeeded'], { host: '192.0.2.21', name: 'web-04', awaiting: 'review' }),
-        s2: srv('s2', 'running', ['succeeded', 'succeeded'], { host: '192.0.2.22', awaiting: 'review' }),
-        s3: srv('s3', 'failed', ['succeeded', 'failed', 'skipped', 'skipped', 'skipped'], {
-          host: '192.0.2.23', reason: 'AGENT_INSTALL_ARCH', reason_details: { arch: 'armv7l' },
-        }),
-      }
-      const { calls } = await mock(page, { ...follow(run, rows), replies: { [`POST ${ROWS}/proceed`]: ok(null) } })
+      const s1 = srv('s1', 'running', ['succeeded', 'succeeded'], { host: '192.0.2.21', name: 'web-04', awaiting: 'review' })
+      const s3 = srv('s3', 'failed', ['succeeded', 'failed', 'skipped', 'skipped', 'skipped'], {
+        host: '192.0.2.23', reason: 'AGENT_INSTALL_ARCH', reason_details: { arch: 'armv7l' },
+      })
+      // s2 still waits for its host key, then reaches the review: the stream
+      // closes and opens again a second later with the next snapshot.
+      const asking = { s1, s2: srv('s2', 'running', ['running'], { host: '192.0.2.22', awaiting: 'host_key', host_key: FINGERPRINT2 }), s3 }
+      const ready = { s1, s2: srv('s2', 'running', ['succeeded', 'succeeded'], { host: '192.0.2.22', awaiting: 'review' }), s3 }
+      const { calls } = await mock(page, {
+        runDetails: { [IRUN]: { run, nodes: asking } },
+        streams: { [IRUN]: [sse(snapshot(run, asking)), sse(snapshot(run, asking)), sse(snapshot(run, ready))] },
+        replies: { [`POST ${ROWS}/proceed`]: ok(null) },
+      })
       await page.goto(`/cluster/tasks/runs/${IRUN}`)
       const review = runPane(page).getByTestId('install-review')
+      await expect(review).toHaveText('Passed the pre-flight check: 1 of 3 servers. The review opens once every server is ready.')
+      await expect(review.getByRole('button')).toHaveCount(0)
+      await expect(wait(page, 's2').getByTestId('install-host-key')).toHaveText(FINGERPRINT2)
+
       await expect(review).toContainText('Ready to install: web-04, 192.0.2.22.')
       await expect(review.getByRole('button')).toHaveCount(1)
       await expect(wait(page, 's1')).toHaveCount(0)
+      await expect(wait(page, 's2')).toHaveCount(0)
       await expect(server(page, 's3')).toContainText('No SFPanel release is built for this CPU (armv7l)')
       await expect(server(page, 's3').getByRole('button')).toHaveCount(0)
       await review.getByRole('button', { name: 'Continue install' }).click()
@@ -2577,8 +2614,11 @@ test.describe('agent install', () => {
       await expect(server(page, 's1').getByRole('button', { name: 'Recheck' })).toHaveCount(0)
       await expect(server(page, 's1').getByRole('button', { name: 'Revert' })).toHaveCount(0)
 
+      // The leader no longer holds the session: what to do by hand.
       await s2.getByRole('button', { name: 'Recheck' }).click()
-      await expect(s2.getByRole('alert')).toHaveText(/^The cluster leader no longer holds this install/)
+      await expect(s2.getByRole('alert')).toHaveText(
+        'The session that ran this install is gone: the cluster leader changed, or another install started. Nothing here can undo it: remove the node on its page, and clean the server by hand.',
+      )
       expect(posts(calls, `${ROWS}/servers/s2/recheck`).map((c) => c.body)).toEqual([null])
 
       const dialog = page.getByRole('dialog')
@@ -2627,13 +2667,122 @@ test.describe('agent install', () => {
       for (const name of ['Rerun failed nodes only', 'Choose nodes to rerun', 'Rerun', 'Stop', 'Force stop']) {
         await expect(p.getByRole('button', { name, exact: true })).toHaveCount(0)
       }
-      // The leader that held the credentials is gone: the server is cleaned by hand.
+      // The leader that held the credentials is gone: an agent that registered
+      // after it is removed on the node list, and the server is cleaned by hand.
+      await expect(server(page, 's2')).toContainText('If the node list has an agent at 192.0.2.22, remove it there')
       await expect(server(page, 's2').getByText(CLEANUP)).toBeVisible()
       await expect(server(page, 's2').getByRole('button', { name: 'Revert' })).toHaveCount(0)
 
       await server(page, 's1').getByRole('button', { name: 'Open node' }).click()
       await expect(page).toHaveURL(/\/dashboard$/)
       expect(await page.evaluate(() => localStorage.getItem('sfpanel_current_node'))).toBe('a-1')
+    })
+
+    test('a server stopped after it registered: [Revert] alone, then the cleanup command; an agent without its group opens its node', async ({ page }) => {
+      const STOPPED = ['succeeded', 'succeeded', 'succeeded', 'succeeded', 'cancelled']
+      const run = ended({ status: 'stopped', stopped_by: 'admin' })
+      const labelled = srv('s1', 'succeeded', ALL_DONE, {
+        host: '192.0.2.21', ip: '192.0.2.21', name: 'web-04', group: 'web', node_id: 'a-1',
+        reason: 'AGENT_INSTALL_LABEL_FAILED', reason_details: { group: 'web' },
+      })
+      const stopped = (over: Record<string, unknown> = {}) => srv('s2', 'stopped', STOPPED, {
+        host: '192.0.2.22', ip: '192.0.2.22', name: 'web-06', node_id: 'a-10',
+        reason: 'AGENT_INSTALL_STOPPED', reason_details: { registered: '1' }, ...over,
+      })
+      const reverted = stopped({ reason: 'AGENT_INSTALL_CREDENTIALS_GONE', reason_details: { registered: '1', reverted: 'removed' } })
+      const { calls } = await mock(page, {
+        runDetails: { ...follow(run, { s1: labelled, s2: stopped() }).runDetails, ...follow(ended({ id: 'i-2', status: 'stopped' }), { s1: labelled, s2: reverted }, 'i-2').runDetails },
+        streams: { ...follow(run, { s1: labelled, s2: stopped() }).streams, ...follow(ended({ id: 'i-2', status: 'stopped' }), { s1: labelled, s2: reverted }, 'i-2').streams },
+        replies: { [`POST ${ROWS}/servers/s2/revert`]: fail(404, 'AGENT_INSTALL_NOT_FOUND', 'No such install') },
+      })
+      await page.goto(`/cluster/tasks/runs/${IRUN}`)
+      const s2 = server(page, 's2')
+      await expect(s2).toContainText('The install was stopped after this server registered as an agent. It stays in the cluster until you revert it.')
+      await expect(s2.getByRole('button', { name: 'Recheck' })).toHaveCount(0)
+      await expect(s2.getByText(CLEANUP)).toHaveCount(0)
+
+      // Revert asks first, and a session the leader no longer holds says what to do by hand.
+      const dialog = page.getByRole('dialog')
+      await s2.getByRole('button', { name: 'Revert' }).click()
+      await expect(dialog).toContainText('web-06 is removed from the cluster')
+      await dialog.getByRole('button', { name: 'Revert' }).click()
+      await expect.poll(() => posts(calls, `${ROWS}/servers/s2/revert`).map((c) => c.body)).toEqual([null])
+      await expect(s2.getByRole('alert')).toContainText('The session that ran this install is gone')
+      await expect(s2.getByRole('alert')).toContainText('remove the node on its page, and clean the server by hand')
+
+      // Online without its group: the node page, where the group is set; nothing to undo or clean.
+      const s1 = server(page, 's1')
+      await expect(s1).toContainText('The agent is online, but the group web could not be set on it. Set the group on its node page.')
+      await expect(s1.getByRole('button', { name: 'Open node' })).toBeVisible()
+      for (const name of ['Recheck', 'Revert']) await expect(s1.getByRole('button', { name })).toHaveCount(0)
+      await expect(s1.getByText(CLEANUP)).toHaveCount(0)
+
+      // Reverted: the node is gone, and the server is cleaned by hand.
+      await page.goto('/cluster/tasks/runs/i-2')
+      await expect(s2).toContainText('run the cleanup command on it')
+      await expect(s2.getByText(CLEANUP)).toBeVisible()
+      await expect(s2.getByRole('button', { name: 'Revert' })).toHaveCount(0)
+    })
+
+    test('a server that had SFPanel before is never given the cleanup command', async ({ page }) => {
+      const run = ended({ nodes: ['s1', 's2', 's3'], waves: [['s1', 's2', 's3']] })
+      const rows = {
+        // Registered, failed its check, the credentials gone: the cleanup command a server without SFPanel gets.
+        s1: srv('s1', 'failed', CHECK_FAILED, {
+          host: '192.0.2.21', ip: '192.0.2.21', name: 'web-04', node_id: 'a-1', sfpanel_before: true,
+          reason: 'AGENT_INSTALL_OFFLINE', reason_details: { cause: 'agent_to_managers', port: '3629' },
+        }),
+        // install.sh failed, and the panel it stopped could not be started again.
+        s2: srv('s2', 'failed', ['succeeded', 'succeeded', 'failed', 'skipped', 'skipped'], {
+          host: '192.0.2.22', ip: '192.0.2.22', sfpanel_before: true,
+          reason: 'AGENT_INSTALL_FAILED', reason_details: { step: 'install', exit: '1', panel: 'restart_failed' },
+        }),
+        s3: srv('s3', 'failed', ['succeeded', 'succeeded', 'failed', 'skipped', 'skipped'], {
+          host: '192.0.2.23', ip: '192.0.2.23', sfpanel_before: true,
+          reason: 'AGENT_INSTALL_FAILED', reason_details: { step: 'install', exit: '1', panel: 'restarted' },
+        }),
+      }
+      const left = ended({ id: 'i-2', reason: 'AGENT_INSTALL_LEADER_CHANGED', nodes: ['s1'], waves: [['s1']] })
+      const leftRows = {
+        s1: srv('s1', 'failed', ['succeeded', 'succeeded', 'unknown'], { host: '192.0.2.24', ip: '192.0.2.24', sfpanel_before: true, reason: 'AGENT_INSTALL_LEADER_CHANGED' }),
+      }
+      await mock(page, {
+        runDetails: { ...follow(run, rows).runDetails, ...follow(left, leftRows, 'i-2').runDetails },
+        streams: { ...follow(run, rows).streams, ...follow(left, leftRows, 'i-2').streams },
+      })
+      await page.goto(`/cluster/tasks/runs/${IRUN}`)
+      const p = runPane(page)
+      await expect(server(page, 's1')).toContainText('SFPanel was on this server before the install, so nothing was removed from it.')
+      await expect(p.getByText(CLEANUP)).toHaveCount(0)
+      await expect(p.getByText('uninstall --purge')).toHaveCount(0)
+      // Its revert removes the node alone.
+      const dialog = page.getByRole('dialog')
+      await server(page, 's1').getByRole('button', { name: 'Revert' }).click()
+      await expect(dialog).toContainText('SFPanel was on the server before the install, so nothing is removed from the server.')
+      await expect(dialog).not.toContainText('cleanup command')
+      await dialog.getByRole('button', { name: 'Cancel' }).click()
+
+      await expect(server(page, 's2')).toContainText('nothing was removed from it')
+      await expect(server(page, 's2')).toContainText('If its panel is stopped, start it with this command:')
+      await expect(server(page, 's2').getByText('sudo systemctl start sfpanel', { exact: true })).toBeVisible()
+      await expect(server(page, 's3')).toContainText('Its panel, which the install had stopped, was started again.')
+      await expect(server(page, 's3').getByText('sudo systemctl start sfpanel', { exact: true })).toHaveCount(0)
+
+      // A leader change during its install: no cleanup command, and its panel may be stopped.
+      await page.goto('/cluster/tasks/runs/i-2')
+      await expect(server(page, 's1')).toContainText('If the node list has an agent at 192.0.2.24, remove it there.')
+      await expect(server(page, 's1')).toContainText('nothing was removed from it')
+      await expect(server(page, 's1').getByText('sudo systemctl start sfpanel', { exact: true })).toBeVisible()
+      await expect(p.getByText('uninstall --purge')).toHaveCount(0)
+    })
+
+    test("a revert's cleanup that asks for a Tailscale check shows the check on the failed server", async ({ page }) => {
+      const run = ended({ credentials_until: new Date(Date.now() + 600_000).toISOString() })
+      const removing = { ...OFFLINE, reason_details: { cause: 'agent_to_managers', port: '3629', reverted: 'removing' }, awaiting: 'check', check_url: 'https://login.tailscale.com/a/5e6f7a8b' }
+      await mock(page, follow(run, { s1: SUCCEEDED, s2: removing }))
+      await page.goto(`/cluster/tasks/runs/${IRUN}`)
+      await expect(wait(page, 's2')).toContainText('web-06 uses Tailscale SSH')
+      await expect(wait(page, 's2').getByRole('link')).toHaveAttribute('href', 'https://login.tailscale.com/a/5e6f7a8b')
     })
 
     test.describe('Korean', () => {

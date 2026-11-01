@@ -54,8 +54,10 @@ const withoutSecrets = (f: InstallForm): InstallForm => ({ ...f, password: '', k
 // It is not a task: no task route, run form or task inputs, which a run
 // records and every manager keeps. The passwords, the key and its passphrase
 // live in this component's state alone and leave the browser in the start's
-// body alone: never in an address, a storage or a draft. They are cleared
-// as the request is sent, and go with the state when the pane is left.
+// body alone: never in an address, a storage or a draft. A start the leader
+// refuses, or one that never reached it, keeps them, so the operator puts the
+// cause right and starts again without typing them twice. A start the leader
+// took clears them, and they go with the state when the pane is left.
 export function AgentInstallSetup() {
   const { t } = useTranslation()
   const navigate = useNavigate()
@@ -67,8 +69,8 @@ export function AgentInstallSetup() {
   const [attempted, setAttempted] = useState(false)
   // The leader's 400 AGENT_INSTALL_INVALID, on the row or field it names.
   const [refused, setRefused] = useState<FormProblem | null>(null)
-  // The start's refusal; retype when it took secrets with it.
-  const [error, setError] = useState<{ text: string; retype: boolean } | null>(null)
+  // The start's refusal.
+  const [error, setError] = useState<string | null>(null)
   const [busy, setBusy] = useState(false)
 
   const [pasting, setPasting] = useState(false)
@@ -120,19 +122,18 @@ export function AgentInstallSetup() {
     if (formProblems(form).length > 0) return
     const sent = form
     const request = buildInstallRequest(sent, review)
-    const a = request.account
-    const hadSecret = !!(a.password || a.key || a.passphrase || a.sudo_password)
-    // The secrets leave with the request: the form forgets them now.
-    setForm(withoutSecrets)
     setBusy(true)
     try {
       const { run_id } = await api.startAgentInstall(request)
-      if (mounted.current) navigate(`/cluster/tasks/runs/${encodeURIComponent(run_id)}`)
+      if (!mounted.current) return
+      // The leader holds them now: the form forgets them.
+      setForm(withoutSecrets)
+      navigate(`/cluster/tasks/runs/${encodeURIComponent(run_id)}`)
     } catch (err) {
       if (!mounted.current) return
-      // Rows are read against the form as it was sent.
+      // Rows are read against the form as it was sent. The secrets stay.
       setRefused(problemFromError(err, sent))
-      setError({ text: taskErrorMessage(err, t), retype: hadSecret })
+      setError(taskErrorMessage(err, t))
     } finally {
       if (mounted.current) setBusy(false)
     }
@@ -463,9 +464,8 @@ export function AgentInstallSetup() {
 
       {(error || ownProblems.length > 0) && (
         <div role="alert" data-testid="install-error" className="rounded-xl bg-destructive/10 px-3 py-2 text-[13px] text-destructive space-y-1">
-          {error && <p className="break-words">{error.text}</p>}
+          {error && <p className="break-words">{error}</p>}
           {unplaced && <p className="break-words">{unplaced}</p>}
-          {error?.retype && <p className="text-[12px]">{t('cluster.tasks.install.setup.retype')}</p>}
           {!error && <p className="break-words">{t('cluster.tasks.install.setup.fixProblems')}</p>}
         </div>
       )}

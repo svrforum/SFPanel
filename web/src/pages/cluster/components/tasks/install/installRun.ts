@@ -1,6 +1,8 @@
 import type { TFunction } from 'i18next'
 import type { RunNodeRecord, RunRecord, RunStatus } from '@/types/api'
+import type { ApiError } from '@/lib/api'
 import { CODE_DEFAULTS, CODE_DETAIL_FORMATS, CODE_MESSAGES } from '@/lib/codeMessages'
+import { taskErrorMessage } from '@/lib/taskErrors'
 
 // An agent install seen through its run record: rows are servers (s1, s2 …),
 // and every row goes through the same five phases, which the screen names
@@ -58,15 +60,17 @@ export type InstallBanner =
 /**
  * The question a row is waiting on, or null when it waits on nothing: a row
  * that is not running, a host key wait with no key to approve, or a question
- * this screen does not know (a newer leader's).
+ * this screen does not know (a newer leader's). A Tailscale check is asked
+ * whatever the row's status: a revert's cleanup dials a failed server again,
+ * and its tailnet may ask for a check there.
  */
 export function installBanner(record: RunNodeRecord | undefined): InstallBanner | null {
-  if (!record || record.status !== 'running') return null
+  if (!record) return null
+  if (record.awaiting === 'check') return { kind: 'check', link: safeCheckURL(record.check_url) }
+  if (record.status !== 'running') return null
   switch (record.awaiting) {
     case 'host_key':
       return record.host_key ? { kind: 'host_key', hostKey: record.host_key } : null
-    case 'check':
-      return { kind: 'check', link: safeCheckURL(record.check_url) }
     case 'standalone':
       return { kind: 'standalone' }
     case 'review':
@@ -124,20 +128,30 @@ export function credentialsGone(run: RunRecord, now: number): boolean {
 }
 
 const LEADER_CHANGED = 'AGENT_INSTALL_LEADER_CHANGED'
+const NOT_FOUND = 'AGENT_INSTALL_NOT_FOUND'
 // The install phase: from its start, install.sh may have left SFPanel on the server.
 const INSTALL_PHASE = 2
+
+/** Whether a row's install phase began (the supervisor's installBegan). */
+function installBegan(record: RunNodeRecord): boolean {
+  const install = record.steps?.[INSTALL_PHASE]?.status
+  return install !== undefined && install !== 'pending' && install !== 'skipped'
+}
 
 /**
  * Whether a server needs the cleanup command run on it by hand, because
  * nothing else will clean it: a registered server that failed and was not
  * taken back, once the credentials are gone; a revert that removed the node
- * but could not clean the server (one that ran a standalone panel before is
- * left as it is: its local account went when it became an agent); or a
- * server a leader change left after its install had started. A server that
- * failed before it registered was cleaned over SSH by the install itself.
+ * but could not clean the server; or a server a leader change left after its
+ * install had started. A server that failed before it registered was cleaned
+ * over SSH by the install itself. A registered server that was stopped stays
+ * in the cluster until it is reverted, and needs the command once it was.
+ * Never a server that had SFPanel before the install (sfpanel_before): the
+ * command purges SFPanel and its data, which were the operator's.
  */
 export function needsCleanup(record: RunNodeRecord | undefined, gone: boolean): boolean {
-  if (!record || record.status !== 'failed') return false
+  if (!record || record.sfpanel_before) return false
+  if (record.status !== 'failed' && record.status !== 'stopped') return false
   const d = record.reason_details ?? {}
   switch (d.reverted) {
     case 'cleanup_failed':
@@ -148,11 +162,37 @@ export function needsCleanup(record: RunNodeRecord | undefined, gone: boolean): 
     case 'purged':
       return false
   }
-  if (record.reason === LEADER_CHANGED) {
-    const install = record.steps?.[INSTALL_PHASE]?.status
-    return !record.node_id && install !== undefined && install !== 'pending' && install !== 'skipped'
-  }
+  if (record.status === 'stopped') return false
+  if (record.reason === LEADER_CHANGED) return !record.node_id && installBegan(record)
   return Boolean(record.node_id) && gone
+}
+
+/** The command that starts a server's own panel again. */
+export const PANEL_START_COMMAND = 'sudo systemctl start sfpanel'
+
+export interface KeptPanelNote {
+  text: string
+  /** Whether to ask for its panel to be started with PANEL_START_COMMAND. */
+  start: boolean
+}
+
+/**
+ * What a server that had SFPanel before the install (sfpanel_before) is told
+ * once its row failed or was stopped: nothing was removed from it, whether
+ * its panel, stopped by install.sh, was started again (reason_details.panel),
+ * and to start it with PANEL_START_COMMAND if it may be stopped: the start
+ * failed, or a leader change cut the install off after it began on a server
+ * that did not register. null for any other row, and for one whose revert
+ * already said it was left as it is (standalone).
+ */
+export function keptPanelNote(record: RunNodeRecord | undefined, t: TFunction): KeptPanelNote | null {
+  if (!record?.sfpanel_before || (record.status !== 'failed' && record.status !== 'stopped')) return null
+  const d = record.reason_details ?? {}
+  if (d.standalone === '1') return null
+  const kept = t('cluster.tasks.install.run.kept')
+  const text = d.panel === 'restarted' ? `${kept} ${t('cluster.tasks.install.run.panelRestarted')}` : kept
+  const cut = record.reason === LEADER_CHANGED && !record.node_id && installBegan(record)
+  return { text, start: d.panel === 'restart_failed' || cut }
 }
 
 export interface InstallRowActions {
@@ -165,22 +205,70 @@ export interface InstallRowActions {
  * What can be done about a server: Recheck and Revert for one that
  * registered and failed, not yet taken back, while the leader that ran the
  * install still holds it (a leader change ends that; a stopped install
- * takes no recheck, a revert still removes the node); Open node for one
- * that became an agent. An install never runs again.
+ * takes no recheck, a revert still removes the node); Revert alone for one
+ * stopped after it registered (the stop ended the session's context and
+ * dropped the credentials, so the revert removes the node); Open node for
+ * one that became an agent, its group label missing or not. An install
+ * never runs again.
  */
 export function installRowActions(run: RunRecord, record: RunNodeRecord | undefined): InstallRowActions {
   const none = { recheck: false, revert: false, openNode: false }
   if (!record) return none
   if (record.status === 'succeeded') return { ...none, openNode: Boolean(record.node_id) }
-  if (record.status !== 'failed' || !record.node_id) return none
+  if ((record.status !== 'failed' && record.status !== 'stopped') || !record.node_id) return none
   if (record.reason === LEADER_CHANGED) return { ...none, openNode: true }
   if (run.reason === LEADER_CHANGED || record.reason_details?.reverted) return none
+  if (record.status === 'stopped') return { ...none, revert: true }
   return { recheck: run.status !== 'stopped', revert: true, openNode: false }
 }
 
-/** The servers waiting for the review's [Continue install], in run order. */
-export function reviewRows(run: RunRecord, nodes: Record<string, RunNodeRecord>): string[] {
-  return run.nodes.filter((key) => installBanner(nodes[key])?.kind === 'review')
+export interface InstallReview {
+  /** The servers waiting for the review, in run order. */
+  waiting: string[]
+  /** Whether [Continue install] is offered. */
+  open: boolean
+  /** How many servers passed their pre-flight check and wait, of how many. */
+  passed: number
+  total: number
+}
+
+/**
+ * Where an install's review stands. [Continue install] is offered once every
+ * server waits for the review or has ended, and one waits: the leader goes
+ * on with the servers waiting when it is answered, so an answer given while
+ * another server is still connecting, checking or asking would leave that
+ * one to wait again. Until then, an install that asked for a review says how
+ * many servers passed. null when there is nothing to say: an install that
+ * asked for none, one past its review (every server went on or ended), or
+ * one that ended.
+ */
+export function installReview(run: RunRecord, nodes: Record<string, RunNodeRecord>): InstallReview | null {
+  const waiting = run.nodes.filter((key) => installBanner(nodes[key])?.kind === 'review')
+  // Still on its way to the review: connecting, in its pre-flight check, or
+  // asking about its host key, a check or its standalone panel.
+  const before = run.nodes.filter((key) => {
+    const record = nodes[key]
+    if (!record) return true
+    if (record.status !== 'pending' && record.status !== 'running') return false
+    return !waiting.includes(key) && !installBegan(record)
+  })
+  const asked = run.inputs?.review === 'true' && UNDER_WAY.has(run.status)
+  if (waiting.length === 0 && (!asked || before.length === 0)) return null
+  return { waiting, open: waiting.length > 0 && before.length === 0, passed: waiting.length, total: run.nodes.length }
+}
+
+/**
+ * A Recheck or Revert refused, in the operator's language. 404
+ * AGENT_INSTALL_NOT_FOUND means the leader no longer holds the session that
+ * ran the install (the leader changed, or another install started): nothing
+ * here can undo it, so the sentence says what to do by hand. A server that
+ * had SFPanel before is not to be cleaned.
+ */
+export function rowActionErrorText(err: unknown, record: RunNodeRecord | undefined, t: TFunction): string {
+  if ((err as ApiError | undefined)?.code === NOT_FOUND) {
+    return record?.sfpanel_before ? t('cluster.tasks.install.run.sessionGoneKept') : t('cluster.tasks.install.run.sessionGone')
+  }
+  return taskErrorMessage(err, t)
 }
 
 /**
@@ -203,6 +291,15 @@ type Words = (t: TFunction, params: Details) => string
 // code's sentence (CODE_MESSAGES). Every key is written out whole, so
 // locales.test checks it in both languages.
 const VARIANTS: Record<string, (d: Details, record: RunNodeRecord) => Words | null> = {
+  // A changed key names the key the server presents now and the approved
+  // one; a server with no key of the approved type presented none. An answer
+  // the leader refused carries host_key alone, in the code's own sentence.
+  AGENT_INSTALL_HOST_KEY_CHANGED: (d) => {
+    if (!d.approved) return null
+    return d.host_key
+      ? (t, p) => t('cluster.tasks.install.reason.hostKeyChanged', p)
+      : (t, p) => t('cluster.tasks.install.reason.hostKeyChangedType', p)
+  },
   AGENT_INSTALL_UNREACHABLE: (d) => (d.host ? (t, p) => t('cluster.tasks.install.reason.unreachableHost', p) : null),
   AGENT_INSTALL_AUTH_FAILED: (d) => (d.check === 'timeout' ? (t) => t('cluster.tasks.install.reason.authCheckTimeout') : null),
   AGENT_INSTALL_NAME_INVALID: (d) => ('hostname' in d || !d.name ? (t, p) => t('cluster.tasks.install.reason.nameInvalidHostname', p) : null),
@@ -228,8 +325,21 @@ const VARIANTS: Record<string, (d: Details, record: RunNodeRecord) => Words | nu
       default: return null
     }
   },
-  // Registered before the leader changed: an agent, which the node page shows.
-  AGENT_INSTALL_LEADER_CHANGED: (_d, record) => (record.node_id ? (t) => t('cluster.tasks.install.reason.leaderChangedRegistered') : null),
+  // How far the server got decides what is left on it: registered, an agent
+  // the node page shows; before its install phase, nothing; after, maybe an
+  // agent that registered once the old leader was gone, at the row's address,
+  // and SFPanel to clean off unless the server had it before.
+  AGENT_INSTALL_LEADER_CHANGED: (_d, record) => {
+    if (record.node_id) return (t) => t('cluster.tasks.install.reason.leaderChangedRegistered')
+    if (!installBegan(record)) return (t) => t('cluster.tasks.install.reason.leaderChangedNotStarted')
+    const address = record.ip || record.host
+    return (t, p) => {
+      const ip = address || t('cluster.tasks.install.detail.theServer')
+      return record.sfpanel_before
+        ? t('cluster.tasks.install.reason.leaderChangedKept', { ...p, ip })
+        : t('cluster.tasks.install.reason.leaderChanged', { ...p, ip })
+    }
+  },
   AGENT_INSTALL_CREDENTIALS_GONE: (d) => (d.reverted ? (t) => t('cluster.tasks.install.reason.credentialsGoneReverted') : null),
 }
 

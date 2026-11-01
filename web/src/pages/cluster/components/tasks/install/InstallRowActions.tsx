@@ -4,7 +4,6 @@ import { useTranslation } from 'react-i18next'
 import { Clock, RotateCcw, Undo2 } from 'lucide-react'
 import { api } from '@/lib/api'
 import { openNode } from '@/lib/nodeSelection'
-import { taskErrorMessage } from '@/lib/taskErrors'
 import { Button } from '@/components/ui/button'
 import { CopyBlock } from '@/components/CopyBlock'
 import { StatusPill } from '@/components/StatusPill'
@@ -15,7 +14,8 @@ import type { RunState } from '../taskRunProgress'
 import { nodeStatusText, nodeStatusTone } from '../taskRunView'
 import { useMounted } from '../useMounted'
 import {
-  cleanupCommand, clockText, credentialsGone, credentialsLeft, installReasonText, installRowActions, needsCleanup,
+  PANEL_START_COMMAND, cleanupCommand, clockText, credentialsGone, credentialsLeft, installReasonText, installRowActions,
+  keptPanelNote, needsCleanup, rowActionErrorText, type KeptPanelNote,
 } from './installRun'
 
 interface InstallRowActionsProps {
@@ -29,9 +29,11 @@ interface InstallRowActionsProps {
 
 // Below the table: how long the leader keeps the credentials a recheck or
 // a revert needs, then, server by server, why it ended and what can be done
-// about it — Recheck and Revert for one that registered and failed, the
-// command to clean one up by hand once nothing else will, Open node for one
-// that became an agent.
+// about it — Recheck and Revert for one that registered and failed, Revert
+// for one stopped after it registered, the command to clean one up by hand
+// once nothing else will, Open node for one that became an agent. A server
+// that had SFPanel before is never given that command: it is told nothing
+// was removed, and how to start its panel if it may be stopped.
 export function InstallRowActions({ run, state, rowName, localId }: InstallRowActionsProps) {
   const { t } = useTranslation()
   const now = useNow(1000)
@@ -44,7 +46,8 @@ export function InstallRowActions({ run, state, rowName, localId }: InstallRowAc
     const reason = installReasonText(record, t)
     const can = installRowActions(run, record)
     const cleanup = needsCleanup(record, gone)
-    return reason || cleanup || can.recheck || can.revert || can.openNode ? [{ key, record, reason, can, cleanup }] : []
+    const kept = keptPanelNote(record, t)
+    return reason || cleanup || kept || can.recheck || can.revert || can.openNode ? [{ key, record, reason, can, cleanup, kept }] : []
   })
   const anyCleanup = entries.some((e) => e.cleanup)
   if (entries.length === 0 && left === null) return null
@@ -63,7 +66,7 @@ export function InstallRowActions({ run, state, rowName, localId }: InstallRowAc
       )}
       {entries.length > 0 && (
         <ul className="space-y-2">
-          {entries.map(({ key, record, reason, can, cleanup }) => (
+          {entries.map(({ key, record, reason, can, cleanup, kept }) => (
             <RowEntry
               key={key}
               runId={run.id}
@@ -74,6 +77,7 @@ export function InstallRowActions({ run, state, rowName, localId }: InstallRowAc
               can={can}
               gone={gone}
               cleanup={cleanup ? cleanupCommand(version) : null}
+              kept={kept}
               localId={localId}
             />
           ))}
@@ -92,12 +96,13 @@ interface RowEntryProps {
   can: ReturnType<typeof installRowActions>
   gone: boolean
   cleanup: string | null
+  kept: KeptPanelNote | null
   localId: string
 }
 
 // A server's line: a refusal of Recheck or Revert reads as a sentence here,
 // and nothing is sent again by itself.
-function RowEntry({ runId, rowKey, name, record, reason, can, gone, cleanup, localId }: RowEntryProps) {
+function RowEntry({ runId, rowKey, name, record, reason, can, gone, cleanup, kept, localId }: RowEntryProps) {
   const { t } = useTranslation()
   const confirm = useConfirm()
   const navigate = useNavigate()
@@ -113,7 +118,7 @@ function RowEntry({ runId, rowKey, name, record, reason, can, gone, cleanup, loc
     try {
       await call()
     } catch (err) {
-      if (mounted.current) setError(taskErrorMessage(err, t))
+      if (mounted.current) setError(rowActionErrorText(err, record, t))
     } finally {
       if (mounted.current) setBusy(false)
     }
@@ -122,9 +127,11 @@ function RowEntry({ runId, rowKey, name, record, reason, can, gone, cleanup, loc
   const revert = async () => {
     const yes = await confirm({
       title: t('cluster.tasks.install.run.revertTitle', { server: name }),
-      description: gone
-        ? t('cluster.tasks.install.run.revertDescriptionGone', { server: name })
-        : t('cluster.tasks.install.run.revertDescription', { server: name }),
+      description: record?.sfpanel_before
+        ? t('cluster.tasks.install.run.revertDescriptionKept', { server: name })
+        : gone
+          ? t('cluster.tasks.install.run.revertDescriptionGone', { server: name })
+          : t('cluster.tasks.install.run.revertDescription', { server: name }),
       confirmLabel: t('cluster.tasks.install.run.revert'),
       danger: true,
     })
@@ -140,7 +147,12 @@ function RowEntry({ runId, rowKey, name, record, reason, can, gone, cleanup, loc
           <span className="text-[12px] text-muted-foreground">{t('cluster.tasks.install.run.online')}</span>
         )}
       </div>
-      {reason && <p className="text-[13px] text-muted-foreground break-words">{reason}</p>}
+      {/* On a server that succeeded, a reason is a warning: its group label is missing. */}
+      {reason && (
+        <p className={status === 'succeeded' ? 'text-[13px] text-warning break-words' : 'text-[13px] text-muted-foreground break-words'}>
+          {reason}
+        </p>
+      )}
       {(can.recheck || can.revert || can.openNode) && (
         <div className="flex flex-wrap gap-2">
           {can.recheck && (
@@ -167,6 +179,17 @@ function RowEntry({ runId, rowKey, name, record, reason, can, gone, cleanup, loc
         <div className="space-y-1.5">
           <p className="text-[12px] text-muted-foreground">{t('cluster.tasks.install.run.cleanup')}</p>
           <CopyBlock text={cleanup} />
+        </div>
+      )}
+      {kept && (
+        <div data-testid="install-kept" className="space-y-1.5">
+          <p className="text-[12px] text-muted-foreground break-words">{kept.text}</p>
+          {kept.start && (
+            <>
+              <p className="text-[12px] text-muted-foreground">{t('cluster.tasks.install.run.panelStart')}</p>
+              <CopyBlock text={PANEL_START_COMMAND} />
+            </>
+          )}
         </div>
       )}
     </li>

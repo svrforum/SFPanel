@@ -7,7 +7,7 @@ import type { RunRecord } from '@/types/api'
 import { api } from '@/lib/api'
 import type { RunState } from '../taskRunProgress'
 import { useMounted } from '../useMounted'
-import { installBanner, reviewRows, type CheckLink } from './installRun'
+import { installBanner, installReview, type CheckLink, type InstallReview } from './installRun'
 
 interface InstallBannersProps {
   run: RunRecord
@@ -18,16 +18,17 @@ interface InstallBannersProps {
 
 // What the install waits on the operator for, above the table: a server's
 // host key to compare, its Tailscale SSH check to approve, its standalone
-// panel to convert or skip, each by that server; and, in a review, one
-// [Continue install] for every server that passed its pre-flight check. A
-// question goes once the row stops waiting on it.
+// panel to convert or skip, each by that server; and, in a review, how many
+// servers passed their pre-flight check until every server is ready, then
+// one [Continue install] for those that passed. A question goes once the row
+// stops waiting on it.
 export function InstallBanners({ run, state, rowName }: InstallBannersProps) {
-  const review = reviewRows(run, state.nodes)
+  const review = installReview(run, state.nodes)
   const asks = run.nodes.flatMap((key) => {
     const banner = installBanner(state.nodes[key])
     return banner && banner.kind !== 'review' ? [{ key, banner }] : []
   })
-  if (asks.length === 0 && review.length === 0) return null
+  if (asks.length === 0 && !review) return null
 
   return (
     <div className="space-y-2">
@@ -44,7 +45,9 @@ export function InstallBanners({ run, state, rowName }: InstallBannersProps) {
             return <StandaloneQuestion key={id} runId={run.id} rowKey={key} name={name} />
         }
       })}
-      {review.length > 0 && <ReviewQuestion key={review.join(',')} runId={run.id} names={review.map(rowName)} />}
+      {review && (review.open
+        ? <ReviewQuestion key={review.waiting.join(',')} runId={run.id} names={review.waiting.map(rowName)} />
+        : <ReviewProgress review={review} />)}
     </div>
   )
 }
@@ -180,6 +183,16 @@ function StandaloneQuestion({ runId, rowKey, name }: RowQuestionProps) {
           {t('cluster.tasks.install.run.skip')}
         </Button>
       </div>
+    </Banner>
+  )
+}
+
+// Before the review opens: how many servers passed, of how many.
+function ReviewProgress({ review }: { review: InstallReview }) {
+  const { t } = useTranslation()
+  return (
+    <Banner testId="install-review" icon={<ListChecks className="h-4 w-4" />} tone="primary">
+      <p className="break-words">{t('cluster.tasks.install.run.reviewProgress', { passed: review.passed, total: review.total })}</p>
     </Banner>
   )
 }

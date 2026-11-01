@@ -1676,6 +1676,8 @@
           "unreachableHost": "The leader cannot resolve {{host}} to an address. Check the name, or enter the server's IP.",
           "authFailed": "The server refused the SSH login. Check the user and the password or key, then install again.",
           "authCheckTimeout": "The Tailscale SSH check was not approved in time. Install again, and approve the check in your browser within 10 minutes.",
+          "hostKeyChanged": "The server now presents the host key {{host_key}}, not the approved {{approved}}. Another machine may be answering at this address: check the key on the server itself before you install it again.",
+          "hostKeyChangedType": "The server no longer presents a host key of the approved type (approved: {{approved}}). Another machine may be answering at this address: check the key on the server itself before you install it again.",
           "notRoot": "This login cannot become root. {{sudo}}",
           "os": "SFPanel installs on Ubuntu and Debian only, and this server runs {{os_id}}. Choose an Ubuntu or Debian server.",
           "arch": "No SFPanel release is built for this CPU ({{arch}}): only amd64 and arm64 are. Choose another server.",
@@ -1690,7 +1692,7 @@
           "alreadyAgent": "This server is already an agent. If it belongs to another cluster, remove it there first.",
           "alreadyManager": "This server is a cluster manager, which cannot be installed as an agent. Take it out of its cluster first.",
           "managerFiles": "The server still holds files a cluster manager keeps ({{files}}). Remove them, then install again.",
-          "operatorTls": "The panel on this server serves its own certificate without server.tls.ca_file, so the managers could not verify it. Set ca_file in its config.yaml, then install again.",
+          "operatorTls": "The panel on this server serves its own certificate, and such a panel is not converted. Remove server.tls.cert_file, key_file and ca_file from its config.yaml so the panel manages its certificate, then install again, or join the server by hand.",
           "newerInstalled": "The server already has SFPanel {{installed}}, and this install ({{version}}) would downgrade it, which an install never does. Update the cluster first, or remove SFPanel from the server.",
           "nameInvalid": "{{name}} cannot be a node name: 1 to 63 letters, digits, dots, hyphens or underscores, starting with a letter or digit. Enter another name, then install again.",
           "nameInvalidHostname": "The server's hostname {{hostname}} cannot be a node name. Enter a name for the server, then install again.",
@@ -1704,23 +1706,27 @@
           "failedTimeout": "install.sh did not finish within {{timeout_minutes}} minutes and was stopped. The Install phase's log shows how far it got: fix the cause, then install again.",
           "failedRegister": "install.sh finished, but no agent registered at {{ip}}. The Install phase's log shows why: fix the cause, then install again.",
           "failedLabels": "The agent is online, but its group label could not be set. Set the label on the node page.",
+          "labelFailed": "The agent is online, but the group {{group}} could not be set on it. Set the group on its node page.",
           "failedNoAnswer": "No answer came within 30 minutes ({{no_answer}}), so this server stopped there. Install it again when you can answer.",
           "failedError": "The install failed: {{error}}. Fix the cause, then install again.",
           "offline": "The agent registered but did not come online within 3 minutes. Check that its service runs on the server (systemctl status sfpanel).",
           "offlineAgentToManagers": "The agent registered, but its heartbeat never reached the leader: the agent cannot reach the managers' port {{port}}. Open that port from this server to the managers.",
           "offlineVersion": "The agent's heartbeat reports version {{version}}, not the one installed. Wait for it to restart, then check it again.",
           "offlineManagersToAgent": "The agent's heartbeat arrives, but the leader cannot reach it ({{failed}}). Open ports {{ports}} on this server to the managers: check its firewall.",
-          "leaderChanged": "The cluster leader changed during the install, and the credentials went with the old leader. Part of the install may be left on the server: remove it with the cleanup command, then install again.",
+          "leaderChanged": "The cluster leader changed during this server's install, and the credentials went with the old leader. If the node list has an agent at {{ip}}, remove it there; then clean the server with the cleanup command below, and install again.",
+          "leaderChangedNotStarted": "The cluster leader changed before this server's install began, and the credentials went with the old leader. Nothing was installed on this server: start a new install for it.",
+          "leaderChangedKept": "The cluster leader changed during this server's install, and the credentials went with the old leader. If the node list has an agent at {{ip}}, remove it there.",
           "leaderChangedRegistered": "The cluster leader changed after this server registered as an agent. Check it on the node page.",
           "credentialsGone": "The credentials were gone before this server's turn came. Install it again.",
-          "credentialsGoneReverted": "The node was removed, but the credentials were already gone, so the server was not cleaned up: run the cleanup command on it."
+          "credentialsGoneReverted": "The node was removed, but the credentials were already gone, so the server was not cleaned up: run the cleanup command on it.",
+          "stopped": "The install was stopped after this server registered as an agent. It stays in the cluster until you revert it."
         },
         "reverted": {
           "removing": "Reverting: the node was removed, and the server is being cleaned up.",
           "purged": "Reverted: the node was removed, and SFPanel was removed from the server.",
           "cleanupFailed": "The node was removed, but cleaning up the server failed: run the cleanup command on it.",
           "removed": "The node was removed. Clean the server up with the cleanup command.",
-          "removedStandalone": "The node was removed. The server ran a standalone panel before, whose local account is already gone, so it was left as it is: set it up again by hand."
+          "removedStandalone": "The node was removed. The server had SFPanel before (a standalone panel, or the data an earlier one left), so it was left as it is; its local accounts are already gone: set it up again by hand."
         },
         "detail": {
           "theServer": "the server",
@@ -1859,15 +1865,14 @@
           "preview": "Preview",
           "start": "Start install",
           "previewHint": "Preview connects to every server and runs the pre-flight check, then waits for you before anything is installed.",
-          "fixProblems": "Correct the fields marked above.",
-          "retype": "The passwords and the key were cleared when the request was sent: enter them again."
+          "fixProblems": "Correct the fields marked above."
         },
         "run": {
           "server": "Server",
           "size_one": "{{count}} server · {{batch}} at a time",
           "size_other": "{{count}} servers · {{batch}} at a time",
           "stopTitle": "Stop this install?",
-          "stopDescription": "Servers not yet started are left as they are, and a server being installed is stopped and cleaned up. The credentials are cleared at once.",
+          "stopDescription": "Servers not yet started are left as they are. A server not yet registered is stopped and cleaned up; one already registered as an agent stays in the cluster until you revert it. The credentials are cleared at once.",
           "leaderChanged": "The cluster leader changed during the install, and the install ended there: the credentials went with the old leader. Each server below says where it stopped.",
           "hostKey": "Connecting to {{server}} for the first time. Check that this host key fingerprint is the server's own:",
           "hostKeyHint": "On the server, ssh-keygen -lf /etc/ssh/ssh_host_ed25519_key.pub prints it (use the key file of the type shown).",
@@ -1878,21 +1883,28 @@
           "checkHint": "The install goes on once you approve it there, within 10 minutes.",
           "checkUnsafe": "The server sent a check address that is not an https link, so it is not opened from here:",
           "checkNone": "Waiting for the server to send its check address…",
-          "standalone": "{{server}} already runs a standalone SFPanel. As an agent it loses its local sign-in and serves HTTPS.",
+          "standalone": "{{server}} already has SFPanel: a standalone panel that runs, or the data an earlier SFPanel left. The agent takes either over and serves HTTPS, and their local accounts go.",
           "convert": "Convert it",
           "skip": "Skip it",
           "review": "The pre-flight check is done. Ready to install: {{servers}}.",
           "reviewHint": "A server that did not pass is not installed.",
+          "reviewProgress": "Passed the pre-flight check: {{passed}} of {{total}} servers. The review opens once every server is ready.",
           "proceed": "Continue install",
           "credentialsLeft": "The credentials Recheck and Revert use are cleared in {{left}}.",
           "credentialsGone": "The credentials are cleared. A server that needs cleaning shows the command to run on it.",
           "cleanup": "Run this on the server to remove SFPanel from it:",
+          "kept": "SFPanel was on this server before the install, so nothing was removed from it.",
+          "panelRestarted": "Its panel, which the install had stopped, was started again.",
+          "panelStart": "If its panel is stopped, start it with this command:",
           "online": "Agent, online",
           "recheck": "Recheck",
           "revert": "Revert",
           "revertTitle": "Revert {{server}}?",
           "revertDescription": "{{server}} is removed from the cluster, and SFPanel is removed from the server if it had no SFPanel before. A server that ran a standalone panel before is left as it is.",
-          "revertDescriptionGone": "{{server}} is removed from the cluster. The credentials are cleared, so the server itself is not cleaned: run the cleanup command on it."
+          "revertDescriptionGone": "{{server}} is removed from the cluster. The credentials are cleared, so the server itself is not cleaned: run the cleanup command on it.",
+          "revertDescriptionKept": "{{server}} is removed from the cluster. SFPanel was on the server before the install, so nothing is removed from the server.",
+          "sessionGone": "The session that ran this install is gone: the cluster leader changed, or another install started. Nothing here can undo it: remove the node on its page, and clean the server by hand.",
+          "sessionGoneKept": "The session that ran this install is gone: the cluster leader changed, or another install started. Nothing here can undo it: remove the node on its page. SFPanel was on the server before, so leave the server as it is."
         }
       }
     }

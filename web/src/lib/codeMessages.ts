@@ -123,6 +123,11 @@ export const CODE_MESSAGES: Record<string, string> = {
   AGENT_INSTALL_OFFLINE: 'cluster.tasks.install.reason.offline',
   AGENT_INSTALL_LEADER_CHANGED: 'cluster.tasks.install.reason.leaderChanged',
   AGENT_INSTALL_CREDENTIALS_GONE: 'cluster.tasks.install.reason.credentialsGone',
+  // A registered server that was stopped: it stays in the cluster until it
+  // is reverted.
+  AGENT_INSTALL_STOPPED: 'cluster.tasks.install.reason.stopped',
+  // On a succeeded row: the agent is online, without its group label.
+  AGENT_INSTALL_LABEL_FAILED: 'cluster.tasks.install.reason.labelFailed',
 
   // GitHub, for the task import and the compose import alike.
   GIT_AUTH_FAILED: 'common.git.authFailed',
