@@ -28,3 +28,10 @@ linters:
       - path: _test\.go
         linters:
           - errcheck
+      # The release archive helpers return the self-update's operator-facing
+      # messages as their errors ("Checksum verification failed", "Signature
+      # required: …"), which RunUpdate sends as is and its tests assert.
+      - path: internal/release/archive\.go
+        text: ST1005
+        linters:
+          - staticcheck

@@ -4,10 +4,7 @@ import (
 	"archive/tar"
 	"bytes"
 	"compress/gzip"
-	"context"
-	"crypto/sha256"
 	"database/sql"
-	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -138,11 +135,6 @@ func restartUnderWay(err error) bool {
 // to fail and assert the update aborts rather than swapping the binary
 // without a rollback copy on disk.
 var osExecutable = os.Executable
-
-// maxUpdateArchiveBytes caps the downloaded archive at 200 MiB. Keeping the
-// limit on the wire (LimitReader) and on disk (size check) prevents a
-// compromised release host from filling the disk during the verify step.
-const maxUpdateArchiveBytes int64 = 200 * 1024 * 1024
 
 // maxBinaryEntryBytes caps the decompressed size of the sfpanel binary
 // inside the update tarball. A malicious archive can compress 1000:1
@@ -496,160 +488,37 @@ func (h *Handler) RunUpdate(c echo.Context) error {
 
 	// Download
 	arch := runtime.GOARCH
-	archiveName := fmt.Sprintf("sfpanel_%s_linux_%s.tar.gz", latest, arch)
-	url := release.FindAssetURL(ghRelease.Assets, archiveName)
-	if url == "" {
-		sendEvent("error", fmt.Sprintf("Release asset not found: %s", archiveName))
-		return nil
-	}
-	checksumsURL := release.FindAssetURL(ghRelease.Assets, "checksums.txt")
-	if checksumsURL == "" {
-		sendEvent("error", "Release checksums.txt not found; refusing unsigned update")
-		return nil
-	}
+	archiveName := release.ArchiveName(latest, arch)
 	sendEvent("downloading", fmt.Sprintf("Downloading v%s (%s)...", latest, arch))
 
+	// The archive's GET opens first, checksums.txt is verified against its
+	// signature (see release.VerifiedChecksums for the bundle-first rule and
+	// the gate that refuses an unsigned release at or after the cutoff), and
+	// only then is the archive's body read and checked against the hash in
+	// it. Every GET is bound to the request context.
 	dlClient := &http.Client{Timeout: 5 * time.Minute}
-	dlReq, dlReqErr := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
-	if dlReqErr != nil {
-		sendEvent("error", fmt.Sprintf("Download request build failed: %v", dlReqErr))
-		return nil
-	}
-	dlResp, err := dlClient.Do(dlReq)
+	archiveBody, err := release.OpenArchive(ctx, dlClient, ghRelease.Assets, archiveName)
 	if err != nil {
-		sendEvent("error", fmt.Sprintf("Download failed: %v", err))
+		sendEvent("error", err.Error())
 		return nil
 	}
-	defer dlResp.Body.Close()
-	if dlResp.StatusCode != 200 {
-		sendEvent("error", fmt.Sprintf("Download failed (HTTP %d)", dlResp.StatusCode))
-		return nil
-	}
-
-	sendEvent("verifying", "Downloading checksums...")
-	checksumReq, checksumReqErr := http.NewRequestWithContext(ctx, http.MethodGet, checksumsURL, nil)
-	if checksumReqErr != nil {
-		sendEvent("error", fmt.Sprintf("Checksum request build failed: %v", checksumReqErr))
-		return nil
-	}
-	checksumResp, err := dlClient.Do(checksumReq)
-	if err != nil {
-		sendEvent("error", fmt.Sprintf("Checksum download failed: %v", err))
-		return nil
-	}
-	defer checksumResp.Body.Close()
-	if checksumResp.StatusCode != 200 {
-		sendEvent("error", fmt.Sprintf("Checksum download failed (HTTP %d)", checksumResp.StatusCode))
-		return nil
-	}
-
-	checksumBody, err := io.ReadAll(checksumResp.Body)
-	if err != nil {
-		sendEvent("error", fmt.Sprintf("Checksum read failed: %v", err))
-		return nil
-	}
-
-	// Cosign keyless signature verification of checksums.txt before we trust
-	// any hash inside it. The cert pins the upload to release.yml on the
-	// canonical repo for a tagged version — so if the GitHub releases page
-	// is compromised but the workflow isn't, this catches it.
-	//
-	// Releases at or after release.SignatureRequiredSince MUST carry both
-	// signature assets — missing them aborts the update to prevent a
-	// supply-chain downgrade where an attacker who controls the GitHub
-	// Release simply deletes the .sig/.pem to fall through to SHA-only
-	// (which is no defence at all when they can also rewrite checksums.txt).
-	// Pre-cutoff targets fall back to SHA-256 only so the one-time upgrade
-	// path from old unsigned releases still works.
-	//
-	// Bundle-first: v0.56+ releases also publish checksums.txt.sigstore.json
-	// (cosign v3 Sigstore bundle). When the bundle asset exists it is the only
-	// accepted proof — a bad bundle hard-fails with NO fallback to .sig/.pem,
-	// so corruption can't be "retried" through a second path. When absent
-	// (all releases ≤ v0.55.0) the legacy path below applies unchanged,
-	// including the SignatureRequiredForUpdate downgrade gate — stripping the
-	// bundle asset therefore never weakens verification.
-	bundleURL := release.FindAssetURL(ghRelease.Assets, "checksums.txt.sigstore.json")
-	if bundleURL != "" {
-		sendEvent("verifying", "Verifying release signature (Sigstore bundle)...")
-		bundleBytes, bundleErr := fetchBytes(ctx, dlClient, bundleURL)
-		if bundleErr != nil {
-			sendEvent("error", fmt.Sprintf("Signature bundle download failed: %v", bundleErr))
-			return nil
-		}
-		if vErr := release.VerifyCosignBundle(checksumBody, bundleBytes, release.SFPanelReleaseIdentity()); vErr != nil {
-			sendEvent("error", fmt.Sprintf("Signature verification failed: %v", vErr))
-			return nil
-		}
-	} else if sigURL, certURL := release.FindAssetURL(ghRelease.Assets, "checksums.txt.sig"), release.FindAssetURL(ghRelease.Assets, "checksums.txt.pem"); sigURL == "" || certURL == "" {
-		// Gate on current AND target: a node already running a signed release
-		// (>= cutoff) must never drop to unsigned SHA-only, even if the target
-		// claims a pre-cutoff version — otherwise a rewritten Release advertising
-		// "0.12.99" would bypass cosign on a current node.
-		if release.SignatureRequiredForUpdate(h.Version, latest) {
-			sendEvent("error", fmt.Sprintf(
-				"Signature required: release %s is missing checksums.txt.sig or checksums.txt.pem (refusing update to prevent supply-chain downgrade)", latest))
-			return nil
-		}
-		sendEvent("verifying", "Release predates Sigstore signing; falling back to SHA-256 only")
-	} else {
-		sendEvent("verifying", "Verifying release signature (Sigstore keyless)...")
-		sigBytes, sigErr := fetchBytes(ctx, dlClient, sigURL)
-		if sigErr != nil {
-			sendEvent("error", fmt.Sprintf("Signature download failed: %v", sigErr))
-			return nil
-		}
-		certBytes, certErr := fetchBytes(ctx, dlClient, certURL)
-		if certErr != nil {
-			sendEvent("error", fmt.Sprintf("Cert download failed: %v", certErr))
-			return nil
-		}
-		if vErr := release.VerifyCosignBlob(checksumBody, sigBytes, certBytes, release.SFPanelReleaseIdentity()); vErr != nil {
-			sendEvent("error", fmt.Sprintf("Signature verification failed: %v", vErr))
-			return nil
-		}
-	}
-
-	expectedSHA256, err := release.ParseExpectedSHA256(checksumBody, archiveName)
+	defer archiveBody.Close()
+	checksumBody, err := release.VerifiedChecksums(ctx, dlClient, ghRelease.Assets, h.Version, latest,
+		func(msg string) { sendEvent("verifying", msg) })
 	if err != nil {
 		sendEvent("error", err.Error())
 		return nil
 	}
 
-	// Stream the archive to a temp file rather than buffering 200 MiB in RAM.
-	// Small (256–512 MB) cluster nodes were OOM-killed mid-update with the old
-	// io.ReadAll path. Hash is computed in the same pass via TeeReader.
 	tmpDir, err := os.MkdirTemp("", "sfpanel-update-*")
 	if err != nil {
 		sendEvent("error", fmt.Sprintf("Cannot create temp dir: %v", err))
 		return nil
 	}
 	defer os.RemoveAll(tmpDir)
-	archivePath := filepath.Join(tmpDir, archiveName)
-	archiveFile, err := os.Create(archivePath)
+	archivePath, err := release.SaveArchive(archiveBody, archiveName, checksumBody, tmpDir)
 	if err != nil {
-		sendEvent("error", fmt.Sprintf("Cannot open archive temp: %v", err))
-		return nil
-	}
-	hasher := sha256.New()
-	written, err := io.Copy(io.MultiWriter(archiveFile, hasher),
-		io.LimitReader(dlResp.Body, maxUpdateArchiveBytes+1))
-	closeErr := archiveFile.Close()
-	if err != nil {
-		sendEvent("error", fmt.Sprintf("Download read failed: %v", err))
-		return nil
-	}
-	if closeErr != nil {
-		sendEvent("error", fmt.Sprintf("Archive flush failed: %v", closeErr))
-		return nil
-	}
-	if written > maxUpdateArchiveBytes {
-		sendEvent("error", fmt.Sprintf("Archive exceeds %d bytes, refusing to install", maxUpdateArchiveBytes))
-		return nil
-	}
-	actualSHA256 := hex.EncodeToString(hasher.Sum(nil))
-	if actualSHA256 != expectedSHA256 {
-		sendEvent("error", "Checksum verification failed")
+		sendEvent("error", err.Error())
 		return nil
 	}
 
@@ -1003,26 +872,6 @@ func computeUpdateQuorum(onlineVoters, totalVoters int) (refuse bool, survivors,
 	survivors = max(onlineVoters-1, 0)
 	quorum = totalVoters/2 + 1
 	return survivors < quorum, survivors, quorum
-}
-
-// fetchBytes is a small helper that GETs a URL and reads the body into memory.
-// Used for the small (<10 KB) signature + cert assets — the archive itself
-// goes through io.Copy to a temp file, see the main update path. The ctx is
-// the request context so a cancelled update aborts these GETs too.
-func fetchBytes(ctx context.Context, client *http.Client, url string) ([]byte, error) {
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
-	if err != nil {
-		return nil, err
-	}
-	resp, err := client.Do(req)
-	if err != nil {
-		return nil, err
-	}
-	defer resp.Body.Close()
-	if resp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("HTTP %d", resp.StatusCode)
-	}
-	return io.ReadAll(io.LimitReader(resp.Body, 64*1024))
 }
 
 // CreateBackup creates a tar.gz archive of DB + config and sends it as download.
