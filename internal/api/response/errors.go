@@ -573,6 +573,10 @@ const (
 	// ErrTaskTargetBusy is returned (HTTP 409) when a node a run would take
 	// is held by another run under way. Details: node_id, run_id.
 	ErrTaskTargetBusy = "TASK_TARGET_BUSY"
+	// ErrTaskPlanChanged is returned (HTTP 409) when a run is started with
+	// confirmed steps and the task, its inputs or its targets are not the
+	// ones its preview showed (plan_id): preview again.
+	ErrTaskPlanChanged = "TASK_PLAN_CHANGED"
 	// ErrTaskRebootBusy is returned (HTTP 409) when a run that reboots a
 	// manager is asked for while another run under way does too: each judges
 	// the managers' quorum from the managers online, so two at once could

@@ -7,6 +7,9 @@ package featuretasks
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"maps"
@@ -563,8 +566,10 @@ type runRequest struct {
 	Targets       *tasks.Targets    `json:"targets"`
 	Batch         int               `json:"batch"`
 	StopOnFailure *bool             `json:"stop_on_failure"`
-	// Confirmed are the steps (0-based) the operator confirmed.
-	Confirmed []int `json:"confirmed"`
+	// Confirmed are the steps (0-based) the operator confirmed, in the
+	// preview PlanID names: required with any confirmation.
+	Confirmed []int  `json:"confirmed"`
+	PlanID    string `json:"plan_id"`
 }
 
 // Input values are copied into the run record, which every manager keeps:
@@ -616,6 +621,23 @@ type runTarget struct {
 	task    *tasks.Task
 	targets tasks.Targets
 	batch   int
+}
+
+// planID names what a preview showed, so a start's confirmations apply to
+// that and nothing else: hex sha256 over the document's revision, the task's
+// own inputs as given and the targets as given or the task's own (both as
+// JSON, whose map keys are sorted).
+func planID(doc string, inputs map[string]string, targets tasks.Targets) string {
+	rev := sha256.Sum256([]byte(doc))
+	in, _ := json.Marshal(inputs)
+	tg, _ := json.Marshal(targets)
+	h := sha256.New()
+	h.Write([]byte(hex.EncodeToString(rev[:])))
+	h.Write([]byte{0})
+	h.Write(in)
+	h.Write([]byte{0})
+	h.Write(tg)
+	return hex.EncodeToString(h.Sum(nil))
 }
 
 // readRunRequest binds a run request and loads its task, its input values
@@ -675,7 +697,8 @@ func managersNotReady(st taskStore) error {
 
 // PlanRun answers POST /cluster/task-runs/plan (leader), the preview: the
 // waves, the targets left out with why, each node's verdicts on the steps,
-// and the managers a start would wait for. It records nothing.
+// the managers a start would wait for, and the plan_id a start confirming
+// steps sends back. It records nothing.
 func (h *Handler) PlanRun(c echo.Context) error {
 	env, err := h.apiEnv(c)
 	if env == nil {
@@ -692,13 +715,16 @@ func (h *Handler) PlanRun(c echo.Context) error {
 	if err != nil {
 		return fail(c, planError(err))
 	}
+	plan.PlanID = planID(rt.doc.YAML, runInputs(rt.task, req.Inputs), rt.targets)
 	plan.ManagersNotReady = env.Tasks().TasksReady()
 	return response.OK(c, plan)
 }
 
 // StartRun answers POST /cluster/task-runs (leader): the run is judged and
 // recorded in one StartGate claim, then started; 202 {run_id}. Every
-// manager must keep task runs (TasksReady). The plan asks no node for its
+// manager must keep task runs (TasksReady). Confirmed steps need the
+// preview's plan_id, and one that no longer matches is 409
+// TASK_PLAN_CHANGED. The plan asks no node for its
 // verdicts, so the request stays well inside the thirty seconds a
 // follower's forward of it gets; the preview asked them.
 func (h *Handler) StartRun(c echo.Context) error {
@@ -716,6 +742,17 @@ func (h *Handler) StartRun(c echo.Context) error {
 	}
 	if err := managersNotReady(st); err != nil {
 		return fail(c, err)
+	}
+	// A confirmation is a yes to what the preview showed: the same document,
+	// inputs and targets, or it could unlock a step the operator never saw.
+	if len(req.Confirmed) > 0 {
+		switch req.PlanID {
+		case "":
+			return response.Fail(c, http.StatusBadRequest, response.ErrInvalidRequest, "confirmed steps need the preview's plan_id")
+		case planID(rt.doc.YAML, runInputs(rt.task, req.Inputs), rt.targets):
+		default:
+			return response.Fail(c, http.StatusConflict, response.ErrTaskPlanChanged, "the task, its inputs or its targets changed since the preview: preview again")
+		}
 	}
 	confirmed := slices.Clone(req.Confirmed)
 	slices.Sort(confirmed)

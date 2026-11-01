@@ -62,6 +62,9 @@ type Plan struct {
 	// other manager alone; then the leader alone.
 	Waves [][]PlanNode `json:"waves"`
 	Left  []PlanNode   `json:"left,omitempty"`
+	// PlanID names what the preview showed: the document, the inputs and
+	// the targets (planID). A start that confirms steps sends it back.
+	PlanID string `json:"plan_id"`
 	// ManagersNotReady are the managers a start would wait for, each with
 	// why (TasksReady): a start is refused until there are none.
 	ManagersNotReady []string `json:"managers_not_ready,omitempty"`

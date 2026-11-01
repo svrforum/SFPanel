@@ -274,10 +274,8 @@ func TestTheTaskRoutesAnswerWithTheirStatusAndCode(t *testing.T) {
 			f.runOf(otherRun, cluster.RunRunning, nil, "a1")
 		}, method: "POST", path: "/api/v1/cluster/task-runs", body: start(func(b map[string]any) { b["targets"] = map[string]any{"nodes": []string{"a1"}} }),
 			status: 409, code: response.ErrTaskTargetBusy, details: map[string]string{"node_id": "a1", "run_id": otherRun}},
-		{name: "a run with a step number the task does not have", setup: func(f *apiFixture) { f.store("t1", greetDoc) }, method: "POST", path: "/api/v1/cluster/task-runs",
-			body: start(func(b map[string]any) { b["confirmed"] = []int{2} }), status: 400, code: response.ErrInvalidRequest},
 		{name: "a run", setup: func(f *apiFixture) { f.store("t1", greetDoc) }, method: "POST", path: "/api/v1/cluster/task-runs",
-			body: start(func(b map[string]any) { b["confirmed"] = []int{1}; b["batch"] = 2 }), status: 202,
+			body: start(func(b map[string]any) { b["batch"] = 2 }), status: 202,
 			check: func(t *testing.T, f *apiFixture, a answer) {
 				var d struct {
 					RunID string `json:"run_id"`
@@ -290,7 +288,7 @@ func TestTheTaskRoutesAnswerWithTheirStatusAndCode(t *testing.T) {
 				doc, _ := f.env.store.TaskRevision(head.Rev)
 				if head.Status != cluster.RunRunning || head.TaskID != "t1" || head.TaskName != "greet" || doc != greetDoc ||
 					head.StartedBy != "operator" || head.Inputs["who"] != "world" || head.Batch != 2 || !head.StopOnFailure ||
-					!slices.Equal(head.Confirmed, []int{1}) || fmt.Sprint(head.Waves) != "[[a1 a2] [a3]]" || !head.StartedAt.Equal(f.env.now) {
+					len(head.Confirmed) != 0 || fmt.Sprint(head.Waves) != "[[a1 a2] [a3]]" || !head.StartedAt.Equal(f.env.now) {
 					t.Errorf("head = %+v (doc %q)", head, doc)
 				}
 				if len(nodes) != 0 {
@@ -1213,4 +1211,109 @@ func TestThePreviewNamesTheManagersNotReady(t *testing.T) {
 	if _, raw := plan(); strings.Contains(raw, "managers_not_ready") {
 		t.Errorf("plan = %s, want managers_not_ready left out with every manager ready", raw)
 	}
+}
+
+// A confirmation is the operator's yes to what the preview showed: a step of
+// that document, filled in with those inputs, on those targets. The preview
+// names what it showed (plan_id), and a start with confirmations must name
+// the same, or a confirmation could unlock a step the operator never saw.
+func TestConfirmationsAreTiedToThePreview(t *testing.T) {
+	const doc = `name: greet
+inputs:
+  who: { required: true }
+targets: { kinds: [agent] }
+steps:
+  - command: { run: "echo {{ who }}" }
+  - service: { name: "{{ who }}", action: restart }
+`
+	preview := func(t *testing.T, f *apiFixture, body map[string]any) string {
+		t.Helper()
+		a := f.do("POST", "/api/v1/cluster/task-runs/plan", body)
+		var p struct {
+			PlanID string `json:"plan_id"`
+		}
+		a.data(t, &p)
+		if a.Status != 200 || len(p.PlanID) != 64 {
+			t.Fatalf("plan = %d %+v, plan_id %q; want 200 with a sha256", a.Status, a.Error, p.PlanID)
+		}
+		return p.PlanID
+	}
+	body := func(change ...func(b map[string]any)) map[string]any {
+		b := map[string]any{"task_id": "t1", "inputs": map[string]string{"who": "nginx"}}
+		for _, c := range change {
+			c(b)
+		}
+		return b
+	}
+	confirm := func(id string) func(b map[string]any) {
+		return func(b map[string]any) { b["plan_id"], b["confirmed"] = id, []int{1} }
+	}
+
+	t.Run("the task changed since the preview", func(t *testing.T) {
+		f := newAPI(t)
+		f.store("t1", doc)
+		id := preview(t, f, body())
+		changed := strings.Replace(doc, "action: restart", "action: stop", 1)
+		if a := f.do("PUT", "/api/v1/cluster/tasks/t1", map[string]string{"yaml": changed}); a.Status != 200 {
+			t.Fatalf("PUT = %d %+v", a.Status, a.Error)
+		}
+		a := f.do("POST", "/api/v1/cluster/task-runs", body(confirm(id)))
+		wantRefusal(t, "a start after an edit", a, 409, response.ErrTaskPlanChanged, nil)
+	})
+	t.Run("other inputs than the preview's", func(t *testing.T) {
+		f := newAPI(t)
+		f.store("t1", doc)
+		id := preview(t, f, body())
+		a := f.do("POST", "/api/v1/cluster/task-runs", body(confirm(id), func(b map[string]any) { b["inputs"] = map[string]string{"who": "pve-cluster"} }))
+		wantRefusal(t, "a start with other inputs", a, 409, response.ErrTaskPlanChanged, nil)
+	})
+	t.Run("other targets than the preview's", func(t *testing.T) {
+		f := newAPI(t)
+		f.store("t1", doc)
+		id := preview(t, f, body())
+		a := f.do("POST", "/api/v1/cluster/task-runs", body(confirm(id), func(b map[string]any) { b["targets"] = map[string]any{"nodes": []string{"a1"}} }))
+		wantRefusal(t, "a start with other targets", a, 409, response.ErrTaskPlanChanged, nil)
+	})
+	t.Run("confirmations without the preview's plan_id", func(t *testing.T) {
+		f := newAPI(t)
+		f.store("t1", doc)
+		a := f.do("POST", "/api/v1/cluster/task-runs", body(func(b map[string]any) { b["confirmed"] = []int{1} }))
+		wantRefusal(t, "a start with no plan_id", a, 400, response.ErrInvalidRequest, nil)
+		if a.Error != nil && a.Error.Message != "confirmed steps need the preview's plan_id" {
+			t.Errorf("message = %q, want the plan_id one", a.Error.Message)
+		}
+	})
+	t.Run("a step number the task does not have", func(t *testing.T) {
+		f := newAPI(t)
+		f.store("t1", doc)
+		id := preview(t, f, body())
+		a := f.do("POST", "/api/v1/cluster/task-runs", body(func(b map[string]any) { b["plan_id"], b["confirmed"] = id, []int{2} }))
+		wantRefusal(t, "a start confirming step 2", a, 400, response.ErrInvalidRequest, nil)
+		if a.Error != nil && a.Error.Message != "The task has no step 2 to confirm" {
+			t.Errorf("message = %q, want the step's", a.Error.Message)
+		}
+	})
+	t.Run("nothing changed: the run starts with its confirmations", func(t *testing.T) {
+		f := newAPI(t)
+		f.store("t1", doc)
+		id := preview(t, f, body())
+		a := f.do("POST", "/api/v1/cluster/task-runs", body(confirm(id)))
+		if a.Status != http.StatusAccepted {
+			t.Fatalf("start = %d %+v, want 202", a.Status, a.Error)
+		}
+		var d struct {
+			RunID string `json:"run_id"`
+		}
+		a.data(t, &d)
+		if h := f.env.store.head(d.RunID); !slices.Equal(h.Confirmed, []int{1}) {
+			t.Errorf("confirmed = %v, want [1]", h.Confirmed)
+		}
+	})
+	t.Run("no confirmations: no plan_id needed", func(t *testing.T) {
+		f := newAPI(t)
+		f.store("t1", doc)
+		if a := f.do("POST", "/api/v1/cluster/task-runs", body()); a.Status != http.StatusAccepted {
+			t.Errorf("start = %d %+v, want 202", a.Status, a.Error)
+		}
+	})
 }
