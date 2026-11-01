@@ -838,6 +838,7 @@ data: {"type":"end"}
 - 실행이 끝나 있으면 `snapshot` 바로 뒤에 `end`가 온다. 기록이 정리되어 사라져도 `end`로 끝난다. 없는 실행은 스트림을 열기 전에 `404 TASK_RUN_NOT_FOUND`(JSON).
 - 리더로 전달하지 않으므로 리더가 바뀌어도 끊기지 않는다. 받은 매니저가 재시작해 끊기면 다른 매니저(또는 같은 매니저)에서 다시 열어 `snapshot`부터 받는다. 패널이 종료될 때는 이 스트림을 끊는다(`isStreamingEndpoint`).
 - 노드의 출력은 스트림에 없다. 단계마다 `GET /cluster/task-runs/:id/nodes/:node/steps/:n/output?skip=`으로 노드에서 가져온다.
+- **에이전트 설치도 이 스트림을 쓴다.** SSH 설치(`POST /cluster/agent-installs`)는 실행 기록(`run.kind: "agent-install"`)으로 남으므로 따로 스트림이 없다. `nodes`의 키는 노드 ID가 아니라 행 키(`s1`, `s2` …)이고, 행 기록에는 다섯 국면의 `steps`와 `host`·`ip`·`node_id`·`awaiting`(`host_key`·`check`·`standalone`·`review`)·`host_key`·`check_url`·`reason`·`reason_details`가 실린다(머리에는 `credentials_until`). 인증 정보는 어디에도 없다. 운영자의 답(호스트 키·단독 패널·설치 계속·다시 확인·되돌리기)은 REST(`/cluster/agent-installs/:id/…`)로 보내고 그 결과가 이 스트림의 `node`·`run`으로 온다. 국면 출력은 같은 출력 라우트(`…/nodes/<행>/steps/<국면>/output`)를 리더가 자기 메모리의 세션에서 답한다(세션이 없으면 `404 AGENT_INSTALL_LOG_GONE`).
 
 ### 클러스터 프록시
 

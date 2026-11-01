@@ -568,6 +568,23 @@ curl -fsSL https://raw.githubusercontent.com/svrforum/SFPanel/main/scripts/insta
 
 - `--ca` pins the cluster CA: the server verifies the leader before the
   token travels. Pointed at a follower, the join follows it to the leader.
+- `--token-file PATH` in the token's place, for both commands: the token is
+  read from that file (at most 4 KiB, surrounding whitespace dropped), so it
+  appears on no command line. A token given both ways is refused, as is an
+  empty or unreadable file; the error names the path, never the content.
+- `install.sh` alone also takes `--version V`, `--checksums FILE` and
+  `--archive FILE`, and only with `--agent`. They are what the SSH install
+  below passes, and they work by hand too:
+  - `--version V` pins the release to install, ahead of `SFPANEL_VERSION`
+    (which `sudo` drops), and asks GitHub for no latest version.
+  - `--checksums FILE` is a `checksums.txt` whose signature the caller has
+    verified. The archive is checked against it instead of the one published
+    beside it, and cosign is not run, `SFPANEL_REQUIRE_COSIGN` included.
+  - `--archive FILE` installs that release archive instead of downloading
+    one, so the server needs no internet and no `curl`. It needs both
+    `--checksums` and `--version`. A hash that does not match stops the
+    install (`Checksum verification failed`) before the running panel is
+    touched.
 - `--advertise IP` is the address the managers reach the agent at; without
   it, `cluster.advertise_address`, or one detected from the route to the
   manager. It must be an address of this server — the agent's certificate
@@ -638,6 +655,257 @@ to 60 seconds for that address to come up — a Tailscale or WireGuard
 interface, or a DHCP lease, can arrive after sfpanel starts. Past that the
 boot fails (`the advertise address … is not on this server after 1m0s`) and
 systemd starts it again.
+
+### Installing an agent over SSH
+
+The leader can log in to the servers over SSH and run the join itself. In
+the panel this is Cluster › Tasks › "Agent install (SSH)"
+(`/cluster/tasks/builtin%2Fagent-install`); the Add agent dialog links to it.
+The API is `POST /api/v1/cluster/agent-installs`, described in `api-spec.md`
+("에이전트 설치 API"). There is no CLI. One install takes 1 to 50 servers and
+works on 1 to 5 of them at a time (3 by default). Each server becomes one row
+of a group-task run record (`kind: "agent-install"`), so the run's stream,
+history and Stop serve it as they serve a task run.
+
+**What it needs**
+
+- **The leader must reach each server over SSH**, on the port given (22 by
+  default). The leader opens every connection, whichever manager the browser
+  is attached to. A server the leader cannot reach fails
+  `AGENT_INSTALL_UNREACHABLE`. For such a server, use the commands in
+  § Joining on the server itself.
+- **The server must reach the leader's cluster port** (3629). The pre-flight
+  checks this from the server.
+- **The managers must reach the agent's 3629 and 3628** (§ Ports). Nothing
+  checks this before the install; the connection check after registration
+  finds out.
+- **One account for every server: root, or a user who can sudo.** The sudo
+  password can be:
+  - the login password (the form's default for a password login);
+  - a password of its own;
+  - none, for passwordless sudo. The installer then runs `sudo -n`.
+
+  The password reaches sudo on its standard input (`sudo -S`), never on a
+  command line. A root login uses no sudo.
+- **Every manager runs the leader's version.** The install pins the leader's
+  version; mixed managers are refused (`409 AGENT_INSTALL_MIXED_VERSIONS`).
+  Update the cluster first.
+- **The leader must reach GitHub.** In every mode the leader downloads the
+  version's `checksums.txt` and verifies its signature, as the self-update
+  does, before the server installs against it (`--checksums`). The one
+  exception is a build that is not a release (below).
+
+**How the leader logs in**
+
+There are three methods. One is chosen for every server.
+
+- **Password.** It also answers keyboard-interactive prompts.
+- **Private key**, with its passphrase if it has one.
+- **Tailscale SSH.** The leader logs in with SSH `none` authentication: no
+  password and no key. The tailnet's SSH rules decide whether the user may
+  log in, so the leader has to reach the server over the tailnet.
+  - When a rule is in `check` mode, the server holds the login and sends an
+    approval address to open in a browser. The row then waits with
+    `awaiting: "check"` and shows that address for up to 10 minutes.
+  - The screen links the address only when it is `https:`, and shows its
+    host beside the link.
+  - A non-root user still needs sudo, as above.
+
+**Addresses**
+
+A host is an IP or a name the leader resolves (a Tailscale MagicDNS name
+works); a name resolves to its first IPv4 address, or to its first address
+when it has no IPv4 one. That address has three
+roles:
+
+- it is the agent's advertise address, and the server must hold it
+  (`AGENT_INSTALL_IP_NOT_LOCAL`);
+- it is the address the one-time join token is bound to;
+- it decides where the agent joins. A server in 100.64.0.0/10 joins at the
+  leader's Tailscale address; any other server joins at one of the leader's
+  addresses outside that range (§ Managers on more than one network). The
+  port is the leader's `cluster.grpc_port`.
+
+**Host keys**
+
+The first connection to each server only reads its host key, then closes.
+The row waits with `awaiting: "host_key"` and shows the key as
+`ED25519 SHA256:…`.
+
+- Nothing runs on the server, and no login is tried, until an operator
+  approves that fingerprint.
+- Compare it with what `ssh-keygen -lf /etc/ssh/ssh_host_ed25519_key.pub`
+  prints on the server. For another key type, use that type's key file.
+- The approval carries the fingerprint the operator was shown. From then on
+  the leader accepts that key and no other. A key that changes between the
+  approval and the login fails the row (`AGENT_INSTALL_HOST_KEY_CHANGED`)
+  before anything is sent.
+- Declining stops that server only.
+- A fingerprint is remembered for that install only.
+
+Any question the operator leaves unanswered for 30 minutes ends its row
+`AGENT_INSTALL_FAILED`. That covers the host key, a standalone panel and a
+review; the Tailscale check has its own limit of 10 minutes.
+
+**Online and offline**
+
+- `auto` (the default) installs online when the pre-flight finds that the
+  server can download the version's release from GitHub, and offline
+  otherwise.
+- **Online:** the server downloads the archive for its CPU and checks it
+  against the leader's verified `checksums.txt`.
+- **Offline:** the leader downloads the archive, checks its hash against the
+  verified `checksums.txt`, and uploads it over SSH (`--archive`). The server
+  needs no internet; the leader still needs GitHub.
+- **A build that is not a release** (a version other than `X.Y.Z`) cannot be
+  verified this way.
+  - Such an install is refused (`409 AGENT_INSTALL_UNRELEASED`) unless the
+    leader's environment sets `SFPANEL_AGENT_ARCHIVES` to a directory that
+    holds `checksums.txt` and `sfpanel_<version>_linux_<arch>.tar.gz`.
+  - Those files are used as they are, without a signature check, and always
+    uploaded.
+  - It exists for test rigs. A release build never reads the variable.
+
+The install script is the `install.sh` built into the leader's own binary,
+uploaded with the rest; the server downloads none from `main`. The
+version's archive, a 0600 file holding the join token, and the script go
+into a `mktemp -d` directory under `/tmp`. The install then runs as root
+under `systemd-run --unit=sfpanel-agent-install-<run>-<row>`, so it survives
+a dropped SSH connection. The leader reads the log and exit code every 2
+seconds, for 30 minutes at most.
+
+**Pre-flight**
+
+Each server is checked after login and before anything is installed. The
+first problem found stops that server alone, with a reason the screen words.
+The reasons are listed in `api-spec.md` under "행 이유 코드".
+
+- **The server:** Ubuntu or Debian; amd64 or arm64; systemd; the tools the
+  install needs; root, or sudo that works with the password given.
+- **SFPanel already on the server:** an agent or a cluster manager is
+  refused, and so are a cluster manager's files left behind and an operator
+  certificate without `server.tls.ca_file`. An SFPanel newer than the
+  version being installed is refused too: the install never downgrades.
+- **The row:** a valid node name (the server's hostname when none is given),
+  and the IP given held by the server.
+- **The server, continued:**
+  - the panel and cluster ports free (3628 and 3629, or the ones its config
+    names);
+  - a clock within 30 seconds of the leader's;
+  - a TCP connection to the leader's join address;
+  - in `online` mode, `curl` and access to GitHub;
+  - at least 256 MiB free under `/tmp`, `/usr/local/bin` and `/var/lib`.
+- **The cluster:** the registration gates of § Joining are checked here, so
+  a server they would refuse has nothing installed. They are:
+  - every manager online and knowing agents;
+  - five minutes passed since the proxy-secret switch;
+  - no CA rotation under way;
+  - an agent slot free;
+  - the CA key present;
+  - a name and an address no node holds, nor another server of the same
+    install.
+
+A server that already runs a **standalone panel** waits with
+`awaiting: "standalone"` until an operator confirms the conversion: its
+local login goes away and its panel switches to HTTPS. Declining skips that
+server.
+
+With **Preview** (`review: true`), every server stops after its host key
+and its pre-flight, waiting with `awaiting: "review"`. One **Continue
+install** sends on the servers that passed.
+
+**Checks after the install**
+
+The leader finds the new agent by the bound IP. It then waits up to 3
+minutes, checking every 3 seconds, for all three of these:
+
+- the leader's heartbeat shows the agent online at the installed version;
+- `GET /api/v1/health`, relayed over the cluster port, answers 200;
+- `GET /api/v1/health` on the agent's panel answers 200 over HTTPS.
+
+The `group` label given is then merged into the node's labels.
+
+**Failure, recheck and revert**
+
+- **Before registration:** the leader cleans the server over the same SSH
+  connection.
+  - It stops the install unit if it is still running.
+  - If the server had no SFPanel before and this run had begun installing,
+    it runs `install.sh uninstall --purge` and removes the empty
+    `/opt/stacks` the run created.
+  - It always removes the temporary directory.
+
+  A server that ran a standalone panel before is not purged.
+- **After registration, offline after 3 minutes:** the row fails
+  `AGENT_INSTALL_OFFLINE` with a guess at the cause:
+  - no heartbeat: the agent cannot reach the leader's 3629;
+  - a heartbeat but no relay or no panel: the managers cannot reach the
+    agent's 3629 or 3628, so check the firewall;
+  - a heartbeat at another version.
+
+  Two actions follow:
+  - **Recheck** runs the three checks again. It needs no credentials.
+  - **Revert** removes the node from the cluster.
+    - On a server with no SFPanel before, it also purges SFPanel and the
+      empty `/opt/stacks` over SSH, in the background. The row shows
+      `removing`, then `purged` or `cleanup_failed`.
+    - A server that ran a standalone panel before keeps its SFPanel.
+      Reverting cannot give it back its standalone panel, because the
+      install already removed the local account. So that server loses only
+      its node record.
+
+  Revert never leaves a panel without an administrator.
+- **Credentials.** The SSH password, private key, passphrase and sudo
+  password are never stored anywhere: not on disk, in Raft, in a run
+  record, a log, an audit row or a response. They live only in the leader's
+  memory, as bytes that are zeroed when they go.
+  - They go as soon as an install succeeds.
+  - When a registered server fails, they stay for 10 minutes after the
+    install ends, so Revert can still purge it. `credentials_until` in the
+    run record holds that deadline. They go sooner once every such server
+    has been reverted.
+  - A Stop wipes them at once.
+  - They never leave the leader that started the install, so after a
+    leader change nothing can use them.
+- **Cleanup by hand.** A Revert once the credentials are gone removes the
+  node only. The screen then shows the command to clean the server, as it
+  does after `cleanup_failed`, or after a leader change that cut short an
+  install already under way. To clean such a server by hand, run on it:
+
+  ```bash
+  curl -fsSL https://raw.githubusercontent.com/svrforum/SFPanel/v<version>/scripts/install.sh | sudo bash -s -- uninstall --purge
+  ```
+
+  `<version>` is the installed version (the run's `inputs.version`); a build
+  that is not a release uses `main` in place of `v<version>`. `--purge`
+  removes the configuration, the data and the logs as well. On a
+  server that ran a standalone panel before the install, that includes the
+  former panel's data. Make sure the node is no longer in the cluster
+  first: a removal has to come from a manager (§ Removing an agent).
+- **Join token.** Each row gets its own token: one-time, agent-only, valid
+  for 30 minutes and bound to the row's IP. It travels as a file, never as
+  an argument (`--token-file`). However the row ends, the token is revoked
+  and its directory is deleted.
+
+**One install at a time, and the leader**
+
+- While an install runs, the following are refused with
+  `409 AGENT_INSTALL_ACTIVE`:
+  - a second install;
+  - a group-task run, or a rerun;
+  - a manual leader transfer.
+- While an install runs, the leader does not move to the preferred leader.
+- An install counts as a run under way: a cluster update, a CA rotation, a
+  conversion or a promotion waits with `409 TASK_RUN_ACTIVE`.
+- The session lives in memory on the leader that started it. A new leader
+  does not take it over. It ends the run `failed` with
+  `AGENT_INSTALL_LEADER_CHANGED`:
+  - a server that had registered keeps its node, to check on the node page;
+  - the other rows are cut off, and may need the cleanup command above.
+- A Stop (`POST …/task-runs/<id>/stop`) halts every row: an install under
+  way has its unit stopped, a server not yet registered is cleaned, and the
+  credentials go. An install cannot be rerun
+  (`409 AGENT_INSTALL_NOT_RERUNNABLE`); start a new one.
 
 ### Checking an agent
 
@@ -1241,9 +1509,9 @@ A group task runs the same steps on a set of nodes: refresh and upgrade
 packages, restart a service, run a command, write a file, deploy a stack,
 reboot when one is needed. The leader runs it, node by node, and keeps the
 record in replicated state, so a run goes on when the browser that started it
-closes and when the leader changes. There is no screen or CLI for it yet; it
-is the `/api/v1/cluster/tasks` and `/api/v1/cluster/task-runs` routes in
-`api-spec.md` ("그룹 작업 API").
+closes and when the leader changes. The screen is Cluster › Tasks
+(`/cluster/tasks`); there is no CLI. The API is the `/api/v1/cluster/tasks`
+and `/api/v1/cluster/task-runs` routes in `api-spec.md` ("그룹 작업 API").
 
 ### The task document
 
@@ -1300,6 +1568,10 @@ steps:
   `builtin/package-update`, `builtin/package-install`,
   `builtin/service-restart`, `builtin/command` (its one input is `raw`: the
   whole command line, as typed) and `builtin/reboot` (only when required).
+  The list also carries `builtin/agent-install`, which has no document: it
+  opens the agent install (§ Installing an agent over SSH). A preview or a
+  start of it is `404 TASK_NOT_FOUND`, and changing or deleting it is
+  `409 TASK_READ_ONLY`.
 - **Limits:** 64 KiB per document, 50 steps per task, 200 targets per run
   (counted before any is left out), a command's time limit 10 minutes unless
   the step says otherwise, a reboot's wait 10 minutes. An input value is at
