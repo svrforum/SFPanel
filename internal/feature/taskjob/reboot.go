@@ -139,11 +139,15 @@ func (r *RebootRunner) Start(ctx context.Context, job *Job) error {
 
 // await waits for the reboot to end this process. If the step's wait runs
 // out first, the reboot did not happen — something held it off — and the
-// job fails, freeing the node. A forced cancel calls the reboot off.
+// job fails, freeing the node. A forced cancel calls the reboot off, unless
+// the timer has already fired and the system is going down: then the job
+// stays rebooting for the next boot to settle by its boot ID, rather than
+// ending cancelled while the host reboots under it.
 func (r *RebootRunner) await(ctx context.Context, job *Job) {
 	wait := rebootWait(job.Spec.Reboot)
 	timer := time.NewTimer(max(0, job.StartedAt.Add(wait).Sub(job.Now())))
 	defer timer.Stop()
+	didNotReboot := Result{Status: tasks.JobFailed, Summary: "the node did not reboot within " + shortDuration(wait)}
 	var res Result
 	select {
 	case <-ctx.Done():
@@ -151,14 +155,33 @@ func (r *RebootRunner) await(ctx context.Context, job *Job) {
 			logger.Warn("calling off a cancelled job's reboot", "id", job.Spec.ID, "unit", job.Unit,
 				"error", err, "output", response.SanitizeOutput(out))
 		}
+		if r.goingDown() {
+			logger.Info("a forced cancel came after the reboot began; the job stays rebooting for the next boot to settle",
+				"id", job.Spec.ID, "unit", job.Unit)
+			appendLog(job, "cancel asked after the reboot had begun: it cannot be called off")
+			// The reboot ends this process; the wait still frees the node
+			// should it somehow not.
+			<-timer.C
+			res = didNotReboot
+			break
+		}
 		res = Result{Status: tasks.JobCancelled, Summary: "cancelled: the reboot was called off"}
 	case <-timer.C:
-		res = Result{Status: tasks.JobFailed, Summary: "the node did not reboot within " + shortDuration(wait)}
+		res = didNotReboot
 	}
 	appendLog(job, res.Summary)
 	if err := job.Finish(res); err != nil {
 		logger.Error("recording a job's end", "id", job.Spec.ID, "error", err)
 	}
+}
+
+// goingDown reports whether systemd has begun shutting the system down —
+// the reboot's timer fired — so stopping the timer no longer calls it off.
+// is-system-running exits non-zero for every state but "running"; the state
+// is in its output either way.
+func (r *RebootRunner) goingDown() bool {
+	out, _ := r.Cmd.RunWithTimeout(systemctlTimeout, "systemctl", "is-system-running")
+	return strings.TrimSpace(out) == "stopping"
 }
 
 // settleReboot is how a job left rebooting stands at boot: succeeded once

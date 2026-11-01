@@ -1394,7 +1394,10 @@ back: the new leader takes the run over (§ A new leader takes over).
   run ends `stopped` (`stopped by <operator>`).
 - **A forced stop** (`{"force": true}`, also on a run already stopping) also
   cancels the command jobs under way — their transient unit is stopped — and
-  calls off a reboot not yet under way (its timer is stopped). Package,
+  calls off a reboot not yet under way (its timer is stopped). A reboot whose
+  timer has already fired (`systemctl is-system-running` says `stopping`)
+  cannot be called off: its job stays `rebooting` and the next boot settles
+  it by its boot ID. Package,
   service, file and stack steps always run to their end: cutting apt short can
   leave dpkg broken.
 

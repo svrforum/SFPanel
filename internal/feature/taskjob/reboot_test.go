@@ -2,6 +2,7 @@ package taskjob
 
 import (
 	"context"
+	"errors"
 	"net/http"
 	"slices"
 	"strings"
@@ -226,5 +227,56 @@ func TestAForcedCancelCallsOffAScheduledReboot(t *testing.T) {
 	}
 	if !stopped {
 		t.Errorf("the timer was not stopped: %v", calledName(m, "systemctl"))
+	}
+}
+
+// forceCancelReboot starts a reboot job on a host whose
+// `systemctl is-system-running` answers state, cancels it with force once it
+// is rebooting, and returns the node, the mock and the job's ID once the
+// runner has asked the system's state.
+func forceCancelReboot(t *testing.T, state string, stateErr error) (*kindNode, *lockedMock, string) {
+	t.Helper()
+	platform.SetForTest(t, platform.Info{NetworkStack: platform.StackNetplan})
+	useSystemd(t, true)
+	m := systemdRunMock()
+	m.m.SetOutput("systemctl", state+"\n", stateErr)
+	k := newKindNode(t, m)
+	s := rebootSpec(0, false, 0)
+	startOK(t, k.testNode, s)
+	k.waitStatus(t, s.ID, tasks.JobRebooting)
+	eventually(t, "systemd-run", func() bool { return len(calledName(m, "systemd-run")) == 1 })
+	if status, env := k.do(t, http.MethodPost, "/api/v1/task-jobs/"+s.ID+"/cancel", map[string]bool{"force": true}, true); status != http.StatusOK {
+		t.Fatalf("forced cancel: %d %q", status, env.code())
+	}
+	return k, m, s.ID
+}
+
+// A forced cancel that comes after the timer fired — the system already
+// stopping for the reboot — cannot call the reboot off: the job stays
+// rebooting, holding the node, for the next boot to settle by its boot ID,
+// rather than ending cancelled while the host reboots under it.
+func TestAForcedCancelLeavesARebootAlreadyUnderWayRebooting(t *testing.T) {
+	k, m, id := forceCancelReboot(t, "stopping", errors.New("exit status 1"))
+	eventually(t, "the cancel to be taken up", func() bool {
+		for _, c := range calledName(m, "systemctl") {
+			if slices.Equal(c.Args, []string{"is-system-running"}) {
+				return true
+			}
+		}
+		return k.record(t, id).status != tasks.JobRebooting
+	})
+	// Give the runner the moment to finish the job, were it going to.
+	time.Sleep(50 * time.Millisecond)
+	if r := k.record(t, id); r.status != tasks.JobRebooting {
+		t.Errorf("the job is %s %q, want still rebooting: the reboot was under way", r.status, r.summary)
+	}
+}
+
+// While the system is still running, a forced cancel calls the reboot off.
+func TestAForcedCancelCallsOffARebootNotYetUnderWay(t *testing.T) {
+	k, _, id := forceCancelReboot(t, "running", nil)
+	r := k.ended(t, id)
+	if r.status != tasks.JobCancelled || r.summary != "cancelled: the reboot was called off" {
+		t.Errorf("the job ended %s %q, want cancelled: the reboot was called off", r.status, r.summary)
 	}
 }
