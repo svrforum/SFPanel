@@ -730,6 +730,10 @@ const (
 	// agent registered: the node stays in the cluster until the row is
 	// reverted. Details: registered ("1").
 	ErrAgentInstallStopped = "AGENT_INSTALL_STOPPED"
+	// ErrAgentInstallLabelFailed is a row that succeeded, its agent online,
+	// whose group label could not be set: the node is in the cluster
+	// without it. Details: group, the label asked for.
+	ErrAgentInstallLabelFailed = "AGENT_INSTALL_LABEL_FAILED"
 )
 
 // File manager error codes

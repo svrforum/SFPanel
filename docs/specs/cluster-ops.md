@@ -839,7 +839,11 @@ these:
 - `GET /api/v1/health`, relayed over the cluster port, answers 200;
 - `GET /api/v1/health` on the agent's panel answers 200 over HTTPS.
 
-The `group` label given is then merged into the node's labels.
+The `group` label given is then merged into the node's labels. A label that
+cannot be set does not fail the agent, which is online by then: the row
+succeeds with `AGENT_INSTALL_LABEL_FAILED` (`group`), the run does not fail
+because of it, and no credentials are kept for it. Set the label on the
+node's page.
 
 **Failure, recheck and revert**
 

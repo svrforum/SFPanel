@@ -6590,10 +6590,11 @@ GitHub 폴더의 작업 파일을 보여 줍니다(리더, 아무것도 쓰지 �
 | `AGENT_INSTALL_NAME_INVALID` | `name` 또는 `hostname` | 노드 이름이 될 수 없음. 이름을 비웠으면 서버의 hostname — 이름을 넣어 다시 |
 | `AGENT_INSTALL_CLUSTER_NOT_READY` | `gate` | 클러스터가 지금 등록을 받지 않음: `proxy_rotation`(프록시 비밀 교체 직후), `ca_rotation`, `managers`(모든 매니저가 에이전트를 지원하지 않음), `max_agents`, `ca_key`, `other` |
 | `AGENT_INSTALL_IDENTITY_TAKEN` | `name`, `ip`, `row` | 클러스터의 노드나 같은 설치의 다른 행(`row`)이 이미 그 이름·주소를 가짐 |
-| `AGENT_INSTALL_FAILED` | `step`, `exit`, `error`, `timeout_minutes`, `no_answer`, `ip` | 자기 코드가 없는 실패. `step`: `ssh`, `login_check`, `probe`, `checksums`, `archive`, `ca_pin`, `mktemp`, `systemd-run`, `install`(`exit`, 또는 30분이 지나 `timeout_minutes`), `register`(install.sh가 0으로 끝났는데 그 `ip`의 에이전트가 없음), `labels`. 질문에 30분 안에 답이 없으면 `no_answer`: `host_key` · `standalone` · `review`. 행의 국면 출력에 무슨 일이 있었는지 남음 |
+| `AGENT_INSTALL_FAILED` | `step`, `exit`, `error`, `timeout_minutes`, `no_answer`, `ip` | 자기 코드가 없는 실패. `step`: `ssh`, `login_check`, `probe`, `checksums`, `archive`, `ca_pin`, `mktemp`, `systemd-run`, `install`(`exit`, 또는 30분이 지나 `timeout_minutes`), `register`(install.sh가 0으로 끝났는데 그 `ip`의 에이전트가 없음). 질문에 30분 안에 답이 없으면 `no_answer`: `host_key` · `standalone` · `review`. 행의 국면 출력에 무슨 일이 있었는지 남음 |
 | `AGENT_INSTALL_OFFLINE` | `cause`와 그 값 | 등록됐지만 3분 안에 연결 확인을 통과하지 못함. `cause`: `agent_to_managers`(하트비트가 오지 않음 — 에이전트가 매니저의 `port`에 닿지 않음), `version`(다른 `version`으로 하트비트), `managers_to_agent`(하트비트는 오는데 리더의 호출이 실패 — `failed`: `relay` · `panel` · `relay,panel`, `ports`: 그 노드의 `grpc,api` 포트, 방화벽 확인). [다시 확인]·[되돌리기] |
 | `AGENT_INSTALL_LEADER_CHANGED` | — | 설치 도중 리더가 바뀜: 인증 정보와 토큰이 옛 리더에만 있었음. `node_id`가 있으면 에이전트로 등록됨 — 노드 화면에서 확인 |
 | `AGENT_INSTALL_CREDENTIALS_GONE` | `reverted` | 인증 정보가 지워진 뒤에 되돌림: 노드는 제거했고 서버의 정리는 운영자 몫, 또는 인증 정보가 사라진 뒤 그 행이 접속하려 함 |
+| `AGENT_INSTALL_LABEL_FAILED` | `group` | 성공한 행(`status: "succeeded"`, `node_id` 있음): 에이전트는 연결 확인을 통과했으나 `group` 라벨을 붙이지 못함. 실행은 이 때문에 실패하지 않고 인증 정보도 남기지 않음 — 노드 화면에서 라벨을 붙임 |
 | `AGENT_INSTALL_STOPPED` | `registered` | 에이전트가 등록된 뒤 운영자가 설치(또는 다시 확인)를 중지함(`registered: "1"`, `status: "stopped"`, `node_id` 있음). 노드는 되돌릴 때까지 클러스터에 남음. [되돌리기]만 — 다시 확인은 없음 |
 
 어느 행이든 되돌리면 `reason_details.reverted`(`removing` · `purged` · `cleanup_failed` · `removed`)가, 원래 SFPanel이 있던 서버면 `standalone: "1"`이 더해집니다. 원래 SFPanel이 있던 서버에서 설치가 등록 없이 끝나면, 사전 점검 때 돌고 있던 패널을 다시 켜고 `reason_details.panel`(`restarted` · `restart_failed`)을 더합니다.

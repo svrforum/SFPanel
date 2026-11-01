@@ -69,7 +69,8 @@ func (r *row) check(ctx context.Context, id string) online {
 
 // verify is phase 4: the three checks every verifyEvery until they all
 // pass or verifyLimit passes, then the group label merged into the node's
-// labels. A timeout names the likelier way the network is cut.
+// labels. A timeout names the likelier way the network is cut; a label that
+// cannot be set does not fail the agent that passed them (label).
 func (r *row) verify(ctx context.Context) error {
 	s, log := r.s, r.logs[phaseVerify]
 	s.mu.Lock()
@@ -139,7 +140,9 @@ func (r *row) offline(id string, o online) error {
 }
 
 // label merges the row's group into the node's labels: UpdateNodeLabels
-// replaces them all.
+// replaces them all. The agent is online by then, so a label that cannot be
+// set leaves the row to succeed, its reason AGENT_INSTALL_LABEL_FAILED
+// {group}: the operator sets it on the node's page.
 func (r *row) label(id string) error {
 	if r.srv.Group == "" {
 		return nil
@@ -155,7 +158,11 @@ func (r *row) label(id string) error {
 	}
 	labels[groupLabel] = r.srv.Group
 	if err := r.s.env.UpdateNodeLabels(id, labels); err != nil {
-		return fail(response.ErrAgentInstallFailed, err.Error(), "step", "labels")
+		r.logs[phaseVerify].printf("labelling group=%s failed: %v", r.srv.Group, err)
+		r.update(func(rec *cluster.RunNodeRecord) {
+			rec.Reason, rec.ReasonDetails = response.ErrAgentInstallLabelFailed, map[string]string{"group": r.srv.Group}
+		})
+		return nil
 	}
 	r.logs[phaseVerify].printf("labelled group=%s", r.srv.Group)
 	return nil
