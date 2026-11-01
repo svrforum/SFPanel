@@ -70,8 +70,12 @@ export function activeRuns(runs: RunRecord[]): RunRecord[] {
  */
 export type ListHolds = (list: TaskView[]) => boolean
 
-/** The waits between reads of the list: the run follower's rhythm for a run not yet found, then two seconds once more. */
-export const READ_AGAIN_MS = [500, 1000, 2000, 2000]
+/**
+ * The waits between reads of the list. A follower learns of a commit when the
+ * leader next tells it, every CommitTimeout (1 s in internal/cluster/raft.go,
+ * randomised to 1–2 s): every half second until 2.5 s, then at 3.5 and 5.5 s.
+ */
+export const READ_AGAIN_MS = [500, 500, 500, 500, 500, 1000, 2000]
 
 /**
  * Reads, and while holds is false and a delay is left, waits it and reads

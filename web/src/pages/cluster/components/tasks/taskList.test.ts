@@ -96,8 +96,11 @@ describe('readUntil', () => {
     expect(r.log).toEqual(['read a', 'wait 500', 'read b', 'wait 1000', 'read c', 'wait 2000', 'read d', 'wait 2000', 'read e'])
   })
 
-  it('waits the run follower\'s rhythm, then two seconds once more', () => {
-    expect(READ_AGAIN_MS).toEqual([500, 1000, 2000, 2000])
+  // A follower learns of a commit 1 to 2 s after it (measured on a test
+  // cluster: 1.1 to 2.0 s), so the list is read every half second until
+  // 2.5 s: the write shows within half a second of the follower having it.
+  it('reads every half second through the commit\'s 1 to 2 s, then at 3.5 and 5.5 s', () => {
+    expect(READ_AGAIN_MS).toEqual([500, 500, 500, 500, 500, 1000, 2000])
   })
 })
 

@@ -1675,8 +1675,8 @@ test.describe('editor', () => {
         'GET /cluster/tasks': () => {
           if (!deleted) return ok(TASKS)
           readsAfter += 1
-          // The follower has the delete from the third read, 1.5 s on.
-          return ok(readsAfter >= 3 ? TASKS.filter((x) => x.id !== ID) : TASKS)
+          // The follower has the delete from the fourth read, 1.5 s on.
+          return ok(readsAfter >= 4 ? TASKS.filter((x) => x.id !== ID) : TASKS)
         },
         [`DELETE /cluster/tasks/${ID}`]: () => {
           deleted = true
@@ -1691,7 +1691,7 @@ test.describe('editor', () => {
     await list(page).getByRole('link', { name: 'Deploy web' }).click()
     await expect(page).toHaveURL(new RegExp(`/cluster/tasks/${DEPLOY_ID}$`))
     await expect(section(page, 'My tasks').getByRole('link')).toHaveText(['Deploy web'])
-    expect(readsAfter).toBe(3)
+    expect(readsAfter).toBe(4)
     await page.waitForTimeout(500)
     await expect(page).toHaveURL(new RegExp(`/cluster/tasks/${DEPLOY_ID}$`))
   })
