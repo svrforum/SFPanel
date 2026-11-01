@@ -1449,3 +1449,62 @@ steps:
 		}
 	})
 }
+
+// TASK_TOO_LARGE always names the limit that was passed, in details.max_kib,
+// so a client can word every refusal the same way; an input's refusal also
+// names the input, or "*" for all of them together.
+func TestTooLargeAlwaysNamesTheLimit(t *testing.T) {
+	const twoInputs = `name: two inputs
+inputs:
+  a: {}
+  b: {}
+targets: { kinds: [agent] }
+steps:
+  - command: { run: "echo {{ a }} {{ b }}" }
+`
+	big := strings.Repeat("x", 16<<10)
+	for _, path := range []string{"/api/v1/cluster/task-runs/plan", "/api/v1/cluster/task-runs"} {
+		t.Run(path, func(t *testing.T) {
+			f := newAPI(t)
+			f.store("t1", twoInputs)
+			a := f.do("POST", path, map[string]any{"task_id": "t1", "inputs": map[string]string{"a": big + "y"}})
+			wantRefusal(t, "one value over 16 KiB", a, 400, response.ErrTaskTooLarge, map[string]string{"input": "a", "max_kib": "16"})
+		})
+	}
+	t.Run("the values together", func(t *testing.T) {
+		f := newAPI(t)
+		f.store("t1", `name: five inputs
+inputs:
+  a: {}
+  b: {}
+  c: {}
+  d: {}
+  e: {}
+targets: { kinds: [agent] }
+steps:
+  - command: { run: "echo {{ a }} {{ b }} {{ c }} {{ d }} {{ e }}" }
+`)
+		a := f.do("POST", "/api/v1/cluster/task-runs", map[string]any{"task_id": "t1", "inputs": map[string]string{"a": big, "b": big, "c": big, "d": big, "e": "y"}})
+		wantRefusal(t, "the values over 64 KiB together", a, 400, response.ErrTaskTooLarge, map[string]string{"input": "*", "max_kib": "64"})
+	})
+	t.Run("the document", func(t *testing.T) {
+		f := newAPI(t)
+		doc := greetDoc + "#" + strings.Repeat("x", tasks.MaxDocumentBytes)
+		for _, path := range []string{"/api/v1/cluster/tasks", "/api/v1/cluster/tasks/validate"} {
+			a := f.do("POST", path, map[string]string{"yaml": doc})
+			wantRefusal(t, path, a, 400, response.ErrTaskTooLarge, map[string]string{"max_kib": "64"})
+		}
+		// The store's own refusal, which the size check above keeps from
+		// being reached through the API today.
+		c := echo.New().NewContext(httptest.NewRequest("POST", "/", nil), httptest.NewRecorder())
+		if err := fail(c, storeError(cluster.ErrTaskTooLarge)); err != nil {
+			t.Fatal(err)
+		}
+		var a answer
+		if err := json.Unmarshal(c.Response().Writer.(*httptest.ResponseRecorder).Body.Bytes(), &a); err != nil {
+			t.Fatal(err)
+		}
+		a.Status = c.Response().Status
+		wantRefusal(t, "the store's refusal", a, 400, response.ErrTaskTooLarge, map[string]string{"max_kib": "64"})
+	})
+}

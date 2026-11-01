@@ -407,7 +407,7 @@ func storeError(err error) error {
 	case errors.Is(err, cluster.ErrTaskNameTaken):
 		return refusal(http.StatusConflict, response.ErrTaskNameTaken, "Another task already has this name", nil)
 	case errors.Is(err, cluster.ErrTaskTooLarge):
-		return refusal(http.StatusBadRequest, response.ErrTaskTooLarge, err.Error(), nil)
+		return refusal(http.StatusBadRequest, response.ErrTaskTooLarge, err.Error(), map[string]string{"max_kib": strconv.Itoa(tasks.MaxDocumentBytes >> 10)})
 	case errors.Is(err, cluster.ErrTaskNotFound):
 		return refusal(http.StatusNotFound, response.ErrTaskNotFound, "No such task", nil)
 	}
@@ -596,7 +596,8 @@ func runInputs(t *tasks.Task, given map[string]string) map[string]string {
 }
 
 // checkInputSizes refuses a value over maxInputBytes, naming its input, and
-// values over maxInputsBytes together, as input "*": 400 TASK_TOO_LARGE.
+// values over maxInputsBytes together, as input "*": 400 TASK_TOO_LARGE,
+// with the limit passed in max_kib, as a document's refusal has it.
 func checkInputSizes(inputs map[string]string) error {
 	names := slices.Sorted(maps.Keys(inputs))
 	total := 0
@@ -604,13 +605,13 @@ func checkInputSizes(inputs map[string]string) error {
 		v := inputs[name]
 		if len(v) > maxInputBytes {
 			return refusal(http.StatusBadRequest, response.ErrTaskTooLarge,
-				fmt.Sprintf("Input %s is over %d KiB", name, maxInputBytes>>10), map[string]string{"input": name})
+				fmt.Sprintf("Input %s is over %d KiB", name, maxInputBytes>>10), map[string]string{"input": name, "max_kib": strconv.Itoa(maxInputBytes >> 10)})
 		}
 		total += len(v)
 	}
 	if total > maxInputsBytes {
 		return refusal(http.StatusBadRequest, response.ErrTaskTooLarge,
-			fmt.Sprintf("The inputs are over %d KiB together", maxInputsBytes>>10), map[string]string{"input": "*"})
+			fmt.Sprintf("The inputs are over %d KiB together", maxInputsBytes>>10), map[string]string{"input": "*", "max_kib": strconv.Itoa(maxInputsBytes >> 10)})
 	}
 	return nil
 }
