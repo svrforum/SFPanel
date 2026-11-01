@@ -6517,14 +6517,14 @@ GitHub 폴더의 작업 파일을 보여 줍니다(리더, 아무것도 쓰지 �
 | POST | `/api/v1/cluster/agent-installs/:id/servers/:key/standalone` | `{ "accept": true }` | 단독 패널을 에이전트로 바꾸는 것을 확인 — 로컬 로그인이 사라지고 HTTPS로 바뀜. `false`면 그 서버를 건너뜀(`skipped`) |
 | POST | `/api/v1/cluster/agent-installs/:id/proceed` | 없음 | `review`로 멈춘 모든 서버를 설치로 보냄 |
 | POST | `/api/v1/cluster/agent-installs/:id/servers/:key/recheck` | 없음 | 등록됐지만 연결 확인에 실패한 행의 세 가지 확인을 다시 함. 실행이 다시 `running`이 되어(다른 실행·리더 이전을 막음) 끝나면 다시 끝을 기록. 인증 정보가 필요 없음 |
-| POST | `/api/v1/cluster/agent-installs/:id/servers/:key/revert` | 없음 | 등록됐지만 연결 확인에 실패한 행을 되돌림: 노드를 클러스터에서 제거하고, 원래 SFPanel이 없던 서버면 인증 정보가 남아 있는 동안 SSH로 `install.sh uninstall --purge`와 이번 실행이 만든 빈 `/opt/stacks`를 지움(뒤에서 진행: `reason_details.reverted`가 `removing` → `purged` · `cleanup_failed`). 원래 단독 패널이던 서버는 노드 제거만(`reverted: removed`, `standalone: "1"`) — 그 로컬 계정은 이미 사라졌으므로 손대지 않음. 인증 정보가 이미 지워졌으면 노드만 제거하고 행의 이유가 `AGENT_INSTALL_CREDENTIALS_GONE`(`reverted: removed`)이 되며, 서버의 정리는 운영자 몫 |
+| POST | `/api/v1/cluster/agent-installs/:id/servers/:key/revert` | 없음 | 등록된 채 실패했거나 중지된 행을 되돌림: 노드를 클러스터에서 제거하고, 원래 SFPanel이 없던 서버면 인증 정보가 남아 있는 동안 SSH로 `install.sh uninstall --purge`와 이번 실행이 만든 빈 `/opt/stacks`를 지움(뒤에서 진행: `reason_details.reverted`가 `removing` → `purged` · `cleanup_failed`). 원래 SFPanel이 있던 서버(`sfpanel_before`: 바이너리나 남은 데이터)는 인증 정보와 상관없이 노드 제거만 하고 행의 이유를 그대로 둠(`reverted: removed`, `standalone: "1"`) — 그 로컬 계정은 이미 사라졌고 데이터는 운영자의 것이므로 손대지 않음. 그 밖의 행은 인증 정보가 이미 지워졌으면(중지한 뒤에는 늘) 노드만 제거하고 행의 이유가 `AGENT_INSTALL_CREDENTIALS_GONE`(`reverted: removed`)이 되며, 서버의 정리는 운영자 몫 |
 
 **에러 응답:**
 | 코드 | HTTP 상태 | 조건 |
 |------|-----------|------|
 | `AGENT_INSTALL_INVALID` | 400 | 읽을 수 없는 본문이나 없는 필드(`field: body`), `accept`가 없음(`field: accept`), 승인인데 `fingerprint`가 없음(`field: fingerprint`) |
 | `AGENT_INSTALL_NOT_FOUND` | 404 | 이 리더에 그 실행의 세션이 없음(리더가 바뀌었거나, 그 뒤 다른 설치가 시작됨), 또는 그 실행에 그런 행이 없음 |
-| `AGENT_INSTALL_NOT_WAITING` | 409 | 그 행이 그 질문을 하고 있지 않음, `review`로 멈춘 행이 없음, 다시 확인·되돌리기할 행이 아님(등록된 채 실패한 행만, 되돌린 행은 다시 안 됨) |
+| `AGENT_INSTALL_NOT_WAITING` | 409 | 그 행이 그 질문을 하고 있지 않음, `review`로 멈춘 행이 없음, 다시 확인·되돌리기할 행이 아님(다시 확인은 등록된 채 실패한 행만 — 설치를 중지한 뒤에는 안 됨, 되돌리기는 등록된 채 실패했거나 중지된 행만, 되돌린 행은 다시 안 됨) |
 | `AGENT_INSTALL_HOST_KEY_CHANGED` | 409 | 승인한 지문이 행이 보여 준 것과 다름. 행은 계속 기다림 (`details.host_key`: 행이 보여 준 것) |
 
 ---
@@ -6545,7 +6545,8 @@ GitHub 폴더의 작업 파일을 보여 줍니다(리더, 아무것도 쓰지 �
 | `nodes.<행>.host` | 입력 그대로 |
 | `nodes.<행>.ip` | 리더가 푼 주소: 에이전트의 advertise 주소이자 토큰을 묶은 주소 |
 | `nodes.<행>.name`, `group` | 입력 그대로(이름을 비웠으면 없음) |
-| `nodes.<행>.node_id` | 등록된 에이전트의 노드 ID(등록 뒤) |
+| `nodes.<행>.node_id` | 등록된 에이전트의 노드 ID: 행의 IP에 있는 매니저가 아닌 노드(사전 점검은 그 IP의 노드를 거부하므로 그 뒤에 나타난 노드는 이 행의 install.sh가 등록한 것). install.sh가 등록한 뒤 실패하거나 시간을 넘겼거나, 그 뒤 중지된 행도 지님 |
+| `nodes.<행>.sfpanel_before` | 사전 점검을 통과할 때 서버에 SFPanel이 있었는지(바이너리, 또는 `install.sh uninstall`이 남기는 `/etc/sfpanel`·`/var/lib/sfpanel`·`/var/log/sfpanel`). 그런 서버는 지우지 않음 |
 | `nodes.<행>.awaiting` | 운영자를 기다리는 질문: `host_key`, `check`, `standalone`, `review` |
 | `nodes.<행>.host_key` | 첫 접속에서 잡은 호스트 키, `"ED25519 SHA256:…"`. 승인 뒤에도 남음 |
 | `nodes.<행>.check_url` | `awaiting: "check"`인 동안 Tailscale SSH의 확인 주소. 화면은 `https:` 주소만 링크하고 호스트를 보여 줌 |
@@ -6555,7 +6556,7 @@ GitHub 폴더의 작업 파일을 보여 줍니다(리더, 아무것도 쓰지 �
 `GET /cluster/task-runs/:id`의 최상위 `steps`는 설치에는 없습니다.
 
 - **국면 출력** `GET /cluster/task-runs/:id/nodes/<행>/steps/<국면>/output?skip=`: 리더가 자기 세션의 국면 로그로 답합니다(다른 매니저는 리더로 전달, 막 뽑힌 리더는 `503`). 국면당 1 MiB까지, 로그처럼 걸러짐(`SanitizeLogPiece`). `kind: "agent-install"`이고 `exit_code`·`summary`는 없습니다. 그 실행의 세션이 리더에 없으면(리더가 바뀌었거나 다른 설치가 시작됨) `404 AGENT_INSTALL_LOG_GONE`
-- **중지** `POST /cluster/task-runs/:id/stop`: 진행 중인 행을 멈추고(설치 중이면 `systemctl stop`), 등록 전이면 서버를 정리하고, 토큰을 회수하고, 인증 정보를 바로 지웁니다. 끝난 설치면 남겨 둔 인증 정보만 지웁니다. `force`는 무시합니다. 세션이 없는 진행 중 설치(리더가 바뀜)는 그 자리에서 리더 변경과 같이 끝냅니다
+- **중지** `POST /cluster/task-runs/:id/stop`: 진행 중인 행을 멈추고 토큰을 회수하고, 인증 정보를 바로 지웁니다. 에이전트가 등록된 행은 노드를 지닌 채 `stopped`, `AGENT_INSTALL_STOPPED`로 끝나고(설치 중이었으면 가입을 지난 설치 유닛은 끝나도록 둠) [되돌리기]로만 노드가 빠집니다. 등록되지 않은 행은 설치 유닛을 멈추고(`systemctl stop`) 서버를 정리합니다. 끝난 설치면 남겨 둔 인증 정보만 지웁니다. `force`는 무시합니다. 세션이 없는 진행 중 설치(리더가 바뀜)는 그 자리에서 리더 변경과 같이 끝냅니다
 - **다시 실행** `POST /cluster/task-runs/:id/rerun`: `409 AGENT_INSTALL_NOT_RERUNNABLE` — 인증 정보가 남아 있지 않으므로 설치 창에서 새로 시작합니다
 - 작업 라우트에서 `builtin/agent-install`은 목록과 조회(`GET /cluster/tasks/:id`)에만 나오고, 미리 보기·실행 시작은 `404 TASK_NOT_FOUND`, 수정·삭제는 `409 TASK_READ_ONLY`
 
@@ -6584,7 +6585,7 @@ GitHub 폴더의 작업 파일을 보여 줍니다(리더, 아무것도 쓰지 �
 | `AGENT_INSTALL_ALREADY_AGENT` | — | 이미 에이전트 |
 | `AGENT_INSTALL_ALREADY_MANAGER` | — | 클러스터 매니저 |
 | `AGENT_INSTALL_MANAGER_FILES` | `files` | 매니저가 두는 파일(CA 키·Raft 상태·가입 토큰)이 남아 있음 |
-| `AGENT_INSTALL_OPERATOR_TLS` | — | 운영자 인증서로 HTTPS를 내는데 `server.tls.ca_file`이 없음 |
+| `AGENT_INSTALL_OPERATOR_TLS` | `ca_file` | 패널이 운영자 인증서로 HTTPS를 냄(`server.tls.cert_file`·`key_file`). 가입은 패널 인증서가 127.0.0.1과 advertise 주소에 맞아야 하며, install.sh가 패널을 멈춘 뒤에야 거부하므로 미리 거부. `ca_file`: `server.tls.ca_file`이 있으면 `1`, 없으면 `0` |
 | `AGENT_INSTALL_NEWER_INSTALLED` | `installed`, `version` | 설치할 버전보다 새것(또는 읽을 수 없는 버전)이 있음 — 내리지 않음 |
 | `AGENT_INSTALL_NAME_INVALID` | `name` 또는 `hostname` | 노드 이름이 될 수 없음. 이름을 비웠으면 서버의 hostname — 이름을 넣어 다시 |
 | `AGENT_INSTALL_CLUSTER_NOT_READY` | `gate` | 클러스터가 지금 등록을 받지 않음: `proxy_rotation`(프록시 비밀 교체 직후), `ca_rotation`, `managers`(모든 매니저가 에이전트를 지원하지 않음), `max_agents`, `ca_key`, `other` |
@@ -6593,8 +6594,9 @@ GitHub 폴더의 작업 파일을 보여 줍니다(리더, 아무것도 쓰지 �
 | `AGENT_INSTALL_OFFLINE` | `cause`와 그 값 | 등록됐지만 3분 안에 연결 확인을 통과하지 못함. `cause`: `agent_to_managers`(하트비트가 오지 않음 — 에이전트가 매니저의 `port`에 닿지 않음), `version`(다른 `version`으로 하트비트), `managers_to_agent`(하트비트는 오는데 리더의 호출이 실패 — `failed`: `relay` · `panel` · `relay,panel`, `ports`: 그 노드의 `grpc,api` 포트, 방화벽 확인). [다시 확인]·[되돌리기] |
 | `AGENT_INSTALL_LEADER_CHANGED` | — | 설치 도중 리더가 바뀜: 인증 정보와 토큰이 옛 리더에만 있었음. `node_id`가 있으면 에이전트로 등록됨 — 노드 화면에서 확인 |
 | `AGENT_INSTALL_CREDENTIALS_GONE` | `reverted` | 인증 정보가 지워진 뒤에 되돌림: 노드는 제거했고 서버의 정리는 운영자 몫, 또는 인증 정보가 사라진 뒤 그 행이 접속하려 함 |
+| `AGENT_INSTALL_STOPPED` | `registered` | 에이전트가 등록된 뒤 운영자가 설치(또는 다시 확인)를 중지함(`registered: "1"`, `status: "stopped"`, `node_id` 있음). 노드는 되돌릴 때까지 클러스터에 남음. [되돌리기]만 — 다시 확인은 없음 |
 
-어느 행이든 되돌리면 `reason_details.reverted`(`removing` · `purged` · `cleanup_failed` · `removed`)가, 원래 단독 패널이던 서버면 `standalone: "1"`이 더해집니다.
+어느 행이든 되돌리면 `reason_details.reverted`(`removing` · `purged` · `cleanup_failed` · `removed`)가, 원래 SFPanel이 있던 서버면 `standalone: "1"`이 더해집니다. 원래 SFPanel이 있던 서버에서 설치가 등록 없이 끝나면, 사전 점검 때 돌고 있던 패널을 다시 켜고 `reason_details.panel`(`restarted` · `restart_failed`)을 더합니다.
 
 ---
 

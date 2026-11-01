@@ -772,7 +772,9 @@ version's archive, a 0600 file holding the join token, and the script go
 into a `mktemp -d` directory under `/tmp`. The install then runs as root
 under `systemd-run --unit=sfpanel-agent-install-<run>-<row>`, so it survives
 a dropped SSH connection. The leader reads the log and exit code every 2
-seconds, for 30 minutes at most.
+seconds, for 30 minutes at most. When a read cannot run because the
+connection broke, the leader logs in again at the next read, accepting the
+approved host key only, and follows the install from there.
 
 **Pre-flight**
 
@@ -783,8 +785,12 @@ The reasons are listed in `api-spec.md` under "행 이유 코드".
 - **The server:** Ubuntu or Debian; amd64 or arm64; systemd; the tools the
   install needs; root, or sudo that works with the password given.
 - **SFPanel already on the server:** an agent or a cluster manager is
-  refused, and so are a cluster manager's files left behind and an operator
-  certificate without `server.tls.ca_file`. An SFPanel newer than the
+  refused, and so are a cluster manager's files left behind and a panel
+  serving the operator's own certificate (`server.tls.cert_file` or
+  `key_file` set), with or without `server.tls.ca_file`
+  (`AGENT_INSTALL_OPERATOR_TLS`). The join requires the panel's certificate
+  to verify for 127.0.0.1 and the advertise address, and would refuse it
+  only after `install.sh` had stopped the panel. An SFPanel newer than the
   version being installed is refused too: the install never downgrades.
 - **The row:** a valid node name (the server's hostname when none is given),
   and the IP given held by the server.
@@ -805,10 +811,13 @@ The reasons are listed in `api-spec.md` under "행 이유 코드".
   - a name and an address no node holds, nor another server of the same
     install.
 
-A server that already runs a **standalone panel** waits with
-`awaiting: "standalone"` until an operator confirms the conversion: its
-local login goes away and its panel switches to HTTPS. Declining skips that
-server.
+A server that **had SFPanel before** waits with `awaiting: "standalone"`
+until an operator confirms the conversion: its local login goes away and
+its panel switches to HTTPS. Declining skips that server. SFPanel before
+means its binary, or only the data `install.sh uninstall` keeps without
+`--purge` (`/etc/sfpanel`, `/var/lib/sfpanel` or `/var/log/sfpanel`); the
+agent takes that data over. The row records it as `sfpanel_before`, and
+nothing purges such a server.
 
 With **Preview** (`review: true`), every server stops after its host key
 and its pre-flight, waiting with `awaiting: "review"`. One **Continue
@@ -816,8 +825,14 @@ install** sends on the servers that passed.
 
 **Checks after the install**
 
-The leader finds the new agent by the bound IP. It then waits up to 3
-minutes, checking every 3 seconds, for all three of these:
+The leader finds the new agent in the cluster by the bound IP: a node that
+is no manager at that address. The pre-flight's gates refused any node
+there, so one found there after the install started is the row's.
+`install.sh` registers the agent inside its join and has steps after it,
+so a row whose `install.sh` exits non-zero, or runs out of time, after an
+agent registered at its IP goes on to the checks all the same. The leader
+then waits up to 3 minutes, checking every 3 seconds, for all three of
+these:
 
 - the leader's heartbeat shows the agent online at the installed version;
 - `GET /api/v1/health`, relayed over the cluster port, answers 200;
@@ -827,15 +842,26 @@ The `group` label given is then merged into the node's labels.
 
 **Failure, recheck and revert**
 
-- **Before registration:** the leader cleans the server over the same SSH
-  connection.
-  - It stops the install unit if it is still running.
-  - If the server had no SFPanel before and this run had begun installing,
-    it runs `install.sh uninstall --purge` and removes the empty
-    `/opt/stacks` the run created.
-  - It always removes the temporary directory.
-
-  A server that ran a standalone panel before is not purged.
+- **Before registration:** a row whose install had started and that ends
+  short of a registration (a failure, a Stop, a timeout) first has its
+  token revoked, so no join can come after, and the leader looks for an
+  agent at the row's IP.
+  - An agent found there is the row's: the row keeps it as `node_id`,
+    nothing is purged, and the install unit, past its join, is left to
+    finish.
+  - With none, the leader stops the install unit if it is still running,
+    and looks once more: a join admitted before the token was revoked may
+    land during the stop.
+  - Only a row with no agent then has its server cleaned, over the same SSH
+    connection. If the server had no SFPanel before, it runs
+    `install.sh uninstall --purge` and removes the empty `/opt/stacks` the
+    run created.
+  - A server that had SFPanel before is not purged. `install.sh` stops its
+    panel to upgrade it; if the panel's service was active at the
+    pre-flight, the leader starts it again (`systemctl start sfpanel`,
+    best effort), and the row's `reason_details.panel` says `restarted` or
+    `restart_failed`.
+  - The temporary directory is always removed.
 - **After registration, offline after 3 minutes:** the row fails
   `AGENT_INSTALL_OFFLINE` with a guess at the cause:
   - no heartbeat: the agent cannot reach the leader's 3629;
@@ -847,12 +873,21 @@ The `group` label given is then merged into the node's labels.
   - **Recheck** runs the three checks again. It needs no credentials.
   - **Revert** removes the node from the cluster.
     - On a server with no SFPanel before, it also purges SFPanel and the
-      empty `/opt/stacks` over SSH, in the background. The row shows
-      `removing`, then `purged` or `cleanup_failed`.
-    - A server that ran a standalone panel before keeps its SFPanel.
-      Reverting cannot give it back its standalone panel, because the
-      install already removed the local account. So that server loses only
-      its node record.
+      empty `/opt/stacks` over SSH, in the background, while the
+      credentials last. The row shows `removing`, then `purged` or
+      `cleanup_failed`.
+    - A server that had SFPanel before keeps it, with or without the
+      credentials, and its row keeps its reason (`reverted: removed`,
+      `standalone: "1"`). Reverting cannot give it back its standalone
+      panel, because the install already removed the local account. So
+      that server loses only its node record.
+- **Stopped after registration:** a row stopped once its agent registered,
+  during the install, the checks or a recheck, ends `stopped` with
+  `AGENT_INSTALL_STOPPED` (`registered: "1"`) and keeps its `node_id`. The
+  node stays in the cluster until the row is reverted. A Stop drops the
+  credentials, so such a revert removes the node only, and the row reads
+  `AGENT_INSTALL_CREDENTIALS_GONE` (`reverted: removed`), unless the server
+  had SFPanel before (above). There is no recheck after a Stop.
 
   Revert never leaves a panel without an administrator.
 - **Credentials.** The SSH password, private key, passphrase and sudo
@@ -878,10 +913,11 @@ The `group` label given is then merged into the node's labels.
 
   `<version>` is the installed version (the run's `inputs.version`); a build
   that is not a release uses `main` in place of `v<version>`. `--purge`
-  removes the configuration, the data and the logs as well. On a
-  server that ran a standalone panel before the install, that includes the
-  former panel's data. Make sure the node is no longer in the cluster
-  first: a removal has to come from a manager (§ Removing an agent).
+  removes the configuration, the data and the logs as well. On a server
+  that had SFPanel before the install (`sfpanel_before`), that is the
+  former panel's data, which the installer never purges: do not run it
+  there. Make sure the node is no longer in the cluster first: a removal
+  has to come from a manager (§ Removing an agent).
 - **Join token.** Each row gets its own token: one-time, agent-only, valid
   for 30 minutes and bound to the row's IP. It travels as a file, never as
   an argument (`--token-file`). However the row ends, the token is revoked
@@ -900,10 +936,13 @@ The `group` label given is then merged into the node's labels.
 - The session lives in memory on the leader that started it. A new leader
   does not take it over. It ends the run `failed` with
   `AGENT_INSTALL_LEADER_CHANGED`:
-  - a server that had registered keeps its node, to check on the node page;
+  - a server that had registered keeps its node, to check on the node page.
+    A row whose install had begun and that names no node is given the
+    agent at its IP, if there is one;
   - the other rows are cut off, and may need the cleanup command above.
-- A Stop (`POST …/task-runs/<id>/stop`) halts every row: an install under
-  way has its unit stopped, a server not yet registered is cleaned, and the
+- A Stop (`POST …/task-runs/<id>/stop`) halts every row and revokes its
+  token. A row whose agent registered keeps its node (above); one with no
+  agent has its install unit stopped and its server cleaned. The
   credentials go. An install cannot be rerun
   (`409 AGENT_INSTALL_NOT_RERUNNABLE`); start a new one.
 
