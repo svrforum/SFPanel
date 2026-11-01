@@ -400,7 +400,9 @@ func Refusal(err error) (status int, code, message string, details map[string]st
 		return http.StatusBadRequest, response.ErrFileTooLarge,
 			response.SanitizeOutput(err.Error()), nil
 	default:
-		return http.StatusInternalServerError, response.ErrGitCloneFailed,
-			response.SanitizeOutput(err.Error()), nil
+		// The page words this code, so the cause rides in the details too:
+		// the sentence would otherwise hide the only clue to what went wrong.
+		cause := response.SanitizeOutput(err.Error())
+		return http.StatusInternalServerError, response.ErrGitCloneFailed, cause, map[string]string{"cause": cause}
 	}
 }

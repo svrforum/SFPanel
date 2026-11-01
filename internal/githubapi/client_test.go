@@ -125,6 +125,16 @@ func TestRefusalMapsEachSentinel(t *testing.T) {
 	}
 }
 
+// A failure GitHub gave no name to is worded on the page, so its cause rides
+// in the details too: the worded sentence would otherwise hide the only clue.
+func TestAFetchFailureNamesItsCauseInItsDetails(t *testing.T) {
+	st, code, msg, details := Refusal(errors.New("GitHub answered HTTP 502"))
+	assert.Equal(t, http.StatusInternalServerError, st)
+	assert.Equal(t, response.ErrGitCloneFailed, code)
+	assert.Equal(t, "GitHub answered HTTP 502", msg)
+	assert.Equal(t, map[string]string{"cause": "GitHub answered HTTP 502"}, details)
+}
+
 // A # or ? in a file name is part of the name: it reaches GitHub whole, and
 // the ref still arrives as a query value.
 func TestAPathWithAHashReachesGitHubAsWrittenWithItsRef(t *testing.T) {
