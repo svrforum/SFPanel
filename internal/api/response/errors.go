@@ -580,6 +580,13 @@ const (
 	// ErrAgentInstallNotFound is returned (HTTP 404) for an install run, or
 	// a server of one, that no session on this leader holds.
 	ErrAgentInstallNotFound = "AGENT_INSTALL_NOT_FOUND"
+	// ErrAgentInstallInvalid is returned (HTTP 400) for an install request,
+	// or an answer to one of its questions, that is not one: no servers or
+	// too many, a port, name or group out of bounds, a host given twice, a
+	// login method without its secret or with another method's. Details:
+	// field, the request's own name for what is wrong, and row (s1, s2 …,
+	// in the order the servers were given) when it is one server's.
+	ErrAgentInstallInvalid = "AGENT_INSTALL_INVALID"
 )
 
 // Group task error codes: the task and task-run API on a manager.

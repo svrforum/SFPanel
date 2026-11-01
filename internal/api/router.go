@@ -22,6 +22,7 @@ import (
 	"github.com/svrforum/SFPanel/internal/config"
 	sfdb "github.com/svrforum/SFPanel/internal/db"
 	"github.com/svrforum/SFPanel/internal/docker"
+	featureAgentInstall "github.com/svrforum/SFPanel/internal/feature/agentinstall"
 	featureAI "github.com/svrforum/SFPanel/internal/feature/ai"
 	featureAlert "github.com/svrforum/SFPanel/internal/feature/alert"
 	featureAppstore "github.com/svrforum/SFPanel/internal/feature/appstore"
@@ -249,6 +250,8 @@ func NewRouter(database *sql.DB, auditWriter *sfdb.AsyncWriter, alertManager *fe
 	// tasksHandler serves group tasks and runs the runs this manager leads;
 	// set right below the cluster handler, which activates managers.
 	var tasksHandler *featureTasks.Handler
+	// installHandler starts agent installs over SSH; set with tasksHandler.
+	var installHandler *featureAgentInstall.Handler
 	if !agent {
 		clusterHandler = &featureCluster.Handler{
 			Manager:      clusterMgr,
@@ -298,6 +301,15 @@ func NewRouter(database *sql.DB, auditWriter *sfdb.AsyncWriter, alertManager *fe
 		// A cluster update, a CA rotation, a conversion and a promotion wait
 		// for a task run under way, read from this node's replicated state.
 		clusterHandler.SetTaskRunsActive(tasksHandler.ActiveRun)
+		// The agent installer, whose sessions and credentials live in the
+		// memory of the leader that started them. It reads the manager per
+		// use, so a manager made at runtime needs nothing more. An install's
+		// record is a task run, which the task engine leaves to it; while one
+		// is under way a task run waits, and the leader keeps its role.
+		installer := featureAgentInstall.New(featureAgentInstall.NewClusterEnv(clusterHandler.GetManager, version, auditWriter))
+		tasksHandler.SetInstallRuns(installer)
+		clusterHandler.SetAgentInstallActive(installer.Active)
+		installHandler = featureAgentInstall.NewHandler(installer, clusterHandler.GetManager, clusterHandler)
 		// The boot manager, if any: ActivateBootManager does not call
 		// OnManagerActivated. Outside a cluster it returns at once.
 		tasksHandler.Start(context.Background())
@@ -469,6 +481,18 @@ func NewRouter(database *sql.DB, auditWriter *sfdb.AsyncWriter, alertManager *fe
 		clusterGroup.POST("/task-runs/:id/stop", tasksHandler.StopRun, taskBody)
 		clusterGroup.POST("/task-runs/:id/rerun", tasksHandler.RerunRun, taskBody)
 		clusterGroup.GET("/task-runs/:id/nodes/:node/steps/:n/output", tasksHandler.StepOutput)
+		// Agent installs over SSH: the start and the answers to the questions
+		// its servers ask, all the leader's, as its memory holds the session.
+		// Progress, history, a phase's output and stopping are the task-run
+		// routes above. A body is capped at 1 MiB: a start's carries the
+		// credentials, a private key among them, and up to 50 servers.
+		installBody := echoMw.BodyLimit("1MiB")
+		clusterGroup.POST("/agent-installs", installHandler.Start, installBody)
+		clusterGroup.POST("/agent-installs/:id/servers/:key/host-key", installHandler.ApproveHostKey, installBody)
+		clusterGroup.POST("/agent-installs/:id/servers/:key/standalone", installHandler.ConfirmStandalone, installBody)
+		clusterGroup.POST("/agent-installs/:id/proceed", installHandler.Proceed, installBody)
+		clusterGroup.POST("/agent-installs/:id/servers/:key/recheck", installHandler.Recheck, installBody)
+		clusterGroup.POST("/agent-installs/:id/servers/:key/revert", installHandler.Revert, installBody)
 	} else {
 		// An agent's half of its promotion to a manager, which the leader
 		// calls (POST /cluster/nodes/:id/promote): under /system, as an agent

@@ -140,6 +140,12 @@ var expectedManagerOnlyRoutes = func() []string {
 		"POST /api/v1/cluster/task-runs/:id/stop",
 		"POST /api/v1/cluster/task-runs/:id/rerun",
 		"GET /api/v1/cluster/task-runs/:id/nodes/:node/steps/:n/output",
+		"POST /api/v1/cluster/agent-installs",
+		"POST /api/v1/cluster/agent-installs/:id/servers/:key/host-key",
+		"POST /api/v1/cluster/agent-installs/:id/servers/:key/standalone",
+		"POST /api/v1/cluster/agent-installs/:id/proceed",
+		"POST /api/v1/cluster/agent-installs/:id/servers/:key/recheck",
+		"POST /api/v1/cluster/agent-installs/:id/servers/:key/revert",
 
 		"GET /api/v1/docker/compose/cluster-stacks",
 		"POST /api/v1/docker/compose/:project/migrate/preflight",

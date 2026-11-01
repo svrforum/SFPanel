@@ -299,7 +299,7 @@ func (e *Engine) Start(_ context.Context, r Request) (runID string, err error) {
 		s.drop()
 		return "", err
 	}
-	e.env.Audit(s.head.StartedBy, http.MethodPost, auditPath(s.id)+"#start", http.StatusAccepted)
+	e.env.Audit(s.head.StartedBy, http.MethodPost, startAuditPath+s.id+"#start", http.StatusAccepted)
 	if archives != "" {
 		logger().Warn("installing an unreleased version from SFPANEL_AGENT_ARCHIVES without a signature check",
 			"run", s.id, "version", version, "dir", archives)
@@ -308,17 +308,24 @@ func (e *Engine) Start(_ context.Context, r Request) (runID string, err error) {
 	return s.id, nil
 }
 
-// auditPath is where an install's audit rows sit: under the task runs, as
-// its record is one.
+// auditPath is where an install's end and reverts are audited: under the
+// task runs, as its record is one and the supervisor ends one left behind
+// there too.
 func auditPath(id string) string { return "/api/v1/cluster/task-runs/" + id }
 
-// normalise checks a request and fills in its defaults.
+// startAuditPath is where an install's start is audited: under the route
+// that started it, with the run's ID, as no request path carries one.
+const startAuditPath = "/api/v1/cluster/agent-installs/"
+
+// normalise checks a request and fills in its defaults. A request that is
+// not one is 400 AGENT_INSTALL_INVALID, its details naming the field as the
+// API spells it and, for one server's, its row.
 func normalise(r *Request) error {
 	bad := func(msg string, details ...string) error {
-		return refusal(http.StatusBadRequest, response.ErrInvalidRequest, msg, details...)
+		return refusal(http.StatusBadRequest, response.ErrAgentInstallInvalid, msg, details...)
 	}
 	if len(r.Servers) == 0 || len(r.Servers) > maxServers {
-		return bad(fmt.Sprintf("An install takes 1 to %d servers", maxServers), "max", strconv.Itoa(maxServers))
+		return bad(fmt.Sprintf("An install takes 1 to %d servers", maxServers), "field", "servers", "max", strconv.Itoa(maxServers))
 	}
 	switch {
 	case r.Concurrency == 0:
@@ -333,48 +340,96 @@ func normalise(r *Request) error {
 	default:
 		return bad("The mode is auto, online or offline", "field", "mode")
 	}
-	a := r.Account
-	if a.User == "" {
-		return bad("The account needs a user", "field", "user")
+	if field, msg := accountProblem(r.Account); field != "" {
+		return bad(msg, "field", field)
 	}
-	switch a.Method {
-	case "password":
-		if len(a.Password) == 0 {
-			return bad("The password is missing", "field", "password")
-		}
-	case "key":
-		if len(a.Key) == 0 {
-			return bad("The private key is missing", "field", "key")
-		}
-	case "none":
-	default:
-		return bad("The login method is password, key or none", "field", "method")
-	}
+	// A server given twice would be worked on twice at once, and could
+	// register only once.
+	seen := map[string]string{}
 	for i := range r.Servers {
 		srv := &r.Servers[i]
 		key := rowKey(i)
 		srv.Host = strings.TrimSpace(srv.Host)
 		if srv.Host == "" || strings.ContainsAny(srv.Host, " \t/") {
-			return bad("A server's host is missing or malformed", "server", key, "field", "host")
+			return bad("A server's host is missing or malformed", "row", key, "field", "host")
 		}
+		if first, ok := seen[hostIdentity(srv.Host)]; ok {
+			return bad("A server is given twice", "row", key, "field", "host", "same_as", first)
+		}
+		seen[hostIdentity(srv.Host)] = key
 		if srv.Port == 0 {
 			srv.Port = 22
 		}
 		if srv.Port < 1 || srv.Port > 65535 {
-			return bad("A server's SSH port is 1 to 65535", "server", key, "field", "port")
+			return bad("A server's SSH port is 1 to 65535", "row", key, "field", "port")
 		}
 		if srv.Name != "" {
 			if err := cluster.ValidNodeName(srv.Name); err != nil {
-				return bad(err.Error(), "server", key, "field", "name")
+				return bad(err.Error(), "row", key, "field", "name")
 			}
 		}
 		if srv.Group != "" {
 			if err := cluster.ValidateLabels(map[string]string{groupLabel: srv.Group}); err != nil {
-				return bad(err.Error(), "server", key, "field", "group")
+				return bad(err.Error(), "row", key, "field", "group")
 			}
 		}
 	}
 	return nil
+}
+
+// accountProblem names the field of an account that does not hold together,
+// and why, or "" when it does: each method takes its own secret and no
+// other's, and the sudo password is the login password's only when there
+// is one.
+func accountProblem(a Account) (field, msg string) {
+	if a.User == "" {
+		return "user", "The account needs a user"
+	}
+	switch a.Method {
+	case "password":
+		switch {
+		case len(a.Password) == 0:
+			return "password", "The password is missing"
+		case len(a.Key) > 0:
+			return "key", "A password login takes no private key"
+		case len(a.Passphrase) > 0:
+			return "passphrase", "A password login takes no passphrase"
+		}
+	case "key":
+		switch {
+		case len(a.Key) == 0:
+			return "key", "The private key is missing"
+		case len(a.Password) > 0:
+			return "password", "A key login takes no password"
+		}
+	case "none":
+		switch {
+		case len(a.Password) > 0:
+			return "password", "Tailscale SSH takes no password"
+		case len(a.Key) > 0:
+			return "key", "Tailscale SSH takes no private key"
+		case len(a.Passphrase) > 0:
+			return "passphrase", "Tailscale SSH takes no passphrase"
+		}
+	default:
+		return "method", "The login method is a password, a private key or Tailscale SSH"
+	}
+	switch {
+	case a.SudoSame && a.Method != "password":
+		return "sudo_same", "Only a password login has a password for sudo to share"
+	case a.SudoSame && len(a.SudoPassword) > 0:
+		return "sudo_password", "The sudo password is the login's, or one of its own: not both"
+	}
+	return "", ""
+}
+
+// hostIdentity is what makes two hosts one: an address in its canonical
+// form, a name without case or its trailing dot.
+func hostIdentity(host string) string {
+	if ip := net.ParseIP(host); ip != nil {
+		return ip.String()
+	}
+	return strings.ToLower(strings.TrimSuffix(host, "."))
 }
 
 // groupLabel is the label a server's group is kept under, the one task

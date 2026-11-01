@@ -721,7 +721,7 @@ func TestStartRefusesWhileARunIsActive(t *testing.T) {
 	if env.unownedPuts != 0 {
 		t.Fatalf("%d run writes while the session did not own the run", env.unownedPuts)
 	}
-	if want := []string{"admin POST /api/v1/cluster/task-runs/" + id + "#start 202", "admin TASK /api/v1/cluster/task-runs/" + id + "#end:stopped 200"}; !reflect.DeepEqual(env.audits, want) {
+	if want := []string{"admin POST /api/v1/cluster/agent-installs/" + id + "#start 202", "admin TASK /api/v1/cluster/task-runs/" + id + "#end:stopped 200"}; !reflect.DeepEqual(env.audits, want) {
 		t.Fatalf("audits = %q, want %q", env.audits, want)
 	}
 }
