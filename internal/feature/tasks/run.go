@@ -439,18 +439,26 @@ func stepName(s tasks.Step) string {
 }
 
 // quorumWithout reports whether the manager voters online by live health,
-// node id left out, are still a majority of all manager voters.
+// node id left out, are still a majority of all manager voters. A lone voter
+// has no other manager to keep a quorum for: it reboots, and the run goes on
+// once it is back.
 func (r *runner) quorumWithout(id string) bool {
 	health := r.env.Health()
-	voters, online := 0, 0
+	voters, online, voter := 0, 0, false
 	for _, n := range r.env.Nodes() {
 		if !n.IsManager() || n.Role != cluster.RoleVoter {
 			continue
 		}
 		voters++
-		if n.ID != id && health[n.ID] == cluster.StatusOnline {
+		switch {
+		case n.ID == id:
+			voter = true
+		case health[n.ID] == cluster.StatusOnline:
 			online++
 		}
+	}
+	if voter && voters == 1 {
+		return true
 	}
 	return online >= voters/2+1
 }

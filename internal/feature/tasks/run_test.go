@@ -230,6 +230,22 @@ func TestARebootOfAManagerThatWouldBreakQuorumIsSkippedAndStopsTheRun(t *testing
 			t.Errorf("jobs started = %v, want m2's and m4's reboots", e2)
 		}
 	})
+	t.Run("two voters: rebooting either leaves one of two", func(t *testing.T) {
+		e := newFakeEnv(t, "m1", manager("m1", "leader"), manager("m2", "mgr-2"))
+		run := newRun(t, e, steps(true, `reboot: { only_if_required: false }`), [][]string{{"m2"}, {"m1"}})
+		mustRun(t, e, run)
+		wantStarted(t, e)
+		wantNode(t, e, "m2", cluster.RunNodeSkipped, reasonQuorum)
+		wantHead(t, e, cluster.RunStopped, "quorum: rebooting mgr-2")
+	})
+	t.Run("a lone voter: no other manager keeps a quorum, and it reboots", func(t *testing.T) {
+		e := newFakeEnv(t, "m1", manager("m1", "leader"), agent("a1", "web-1"))
+		run := newRun(t, e, steps(true, `reboot: { only_if_required: false }`), [][]string{{"a1"}, {"m1"}})
+		mustRun(t, e, run)
+		wantStarted(t, e, "a1/0", "m1/0")
+		wantNode(t, e, "m1", cluster.RunNodeSucceeded, "")
+		wantHead(t, e, cluster.RunSucceeded, "")
+	})
 }
 
 func TestARebootWaitsForTheNodeToComeBack(t *testing.T) {
@@ -302,6 +318,23 @@ func TestALoneManagerRunsItsOwnStepsItself(t *testing.T) {
 		wantNode(t, e, "m1", cluster.RunNodeFailed, "leadership could not be handed over to mgr-2: timed out")
 		wantHead(t, e, cluster.RunFailed, "")
 	})
+}
+
+// A stop the operator records as the leader's turn comes is kept: the run is
+// not marked handing over, and the leadership stays where it is.
+func TestAStopAtTheLeadersTurnKeepsTheLeadership(t *testing.T) {
+	e := newFakeEnv(t, "m1", manager("m1", "leader"), manager("m2", "mgr-2"))
+	e.handTo = "m2"
+	run := newRun(t, e, steps(true, cmdTrue), [][]string{{"m1"}})
+	e.store.setHead(run.ID, func(h *cluster.RunRecord) { h.Status = cluster.RunStopping })
+	r := &runner{ctx: context.Background(), env: e, st: e.store, run: run}
+	if handed, err := r.handOver(); handed || err != nil {
+		t.Fatalf("handOver = %v, %v; want not handed over, no error", handed, err)
+	}
+	if len(e.handedAt) != 0 {
+		t.Errorf("the leadership was handed over with the run's head %v", e.handedAt)
+	}
+	wantHead(t, e, cluster.RunStopping, "")
 }
 
 func TestAProxmoxHostsRebootStepIsSkippedNotFailed(t *testing.T) {
