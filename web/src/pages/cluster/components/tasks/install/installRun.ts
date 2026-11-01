@@ -309,7 +309,6 @@ const VARIANTS: Record<string, (d: Details, record: RunNodeRecord) => Words | nu
   },
   AGENT_INSTALL_FAILED: (d) => {
     if (d.no_answer) return (t, p) => t('cluster.tasks.install.reason.failedNoAnswer', p)
-    if (d.step === 'labels') return (t) => t('cluster.tasks.install.reason.failedLabels')
     if (d.step === 'register') return (t, p) => t('cluster.tasks.install.reason.failedRegister', p)
     if (d.timeout_minutes) return (t, p) => t('cluster.tasks.install.reason.failedTimeout', p)
     if (d.step && d.exit) return (t, p) => t('cluster.tasks.install.reason.failedExit', p)

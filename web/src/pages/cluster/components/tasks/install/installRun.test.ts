@@ -208,7 +208,6 @@ const REASONS: [string, Record<string, string> | undefined][] = [
   ['AGENT_INSTALL_FAILED', { step: 'install', exit: '3' }],
   ['AGENT_INSTALL_FAILED', { step: 'install', timeout_minutes: '30' }],
   ['AGENT_INSTALL_FAILED', { step: 'register', ip: '192.0.2.21' }],
-  ['AGENT_INSTALL_FAILED', { step: 'labels' }],
   ['AGENT_INSTALL_FAILED', { step: 'something-new' }],
   ['AGENT_INSTALL_FAILED', { no_answer: 'host_key' }],
   ['AGENT_INSTALL_FAILED', { no_answer: 'standalone' }],

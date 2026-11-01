@@ -1705,7 +1705,6 @@
           "failedExit": "{{step}} failed with exit code {{exit}}. Its phase's log shows why: fix the cause, then install again.",
           "failedTimeout": "install.sh did not finish within {{timeout_minutes}} minutes and was stopped. The Install phase's log shows how far it got: fix the cause, then install again.",
           "failedRegister": "install.sh finished, but no agent registered at {{ip}}. The Install phase's log shows why: fix the cause, then install again.",
-          "failedLabels": "The agent is online, but its group label could not be set. Set the label on the node page.",
           "labelFailed": "The agent is online, but the group {{group}} could not be set on it. Set the group on its node page.",
           "failedNoAnswer": "No answer came within 30 minutes ({{no_answer}}), so this server stopped there. Install it again when you can answer.",
           "failedError": "The install failed: {{error}}. Fix the cause, then install again.",
