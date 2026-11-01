@@ -6,6 +6,7 @@ import (
 	"strconv"
 	"strings"
 	"time"
+	"unicode/utf8"
 
 	"gopkg.in/yaml.v3"
 )
@@ -189,13 +190,28 @@ func addDuration(m *yaml.Node, key string, d, def time.Duration) {
 // would read back as something else (true, 123, null, a leading { or *);
 // a value of several lines is written as a literal block, as a script is
 // by hand. The encoder falls back to a quoted string when a block cannot
-// hold the value exactly (trailing spaces on a line, a carriage return).
+// hold the value exactly (trailing spaces on a line, a carriage return),
+// but not for two it gets wrong: a leading line break, which it drops, and
+// a leading tab, which it writes with no indentation indicator, so the
+// document no longer parses. Those are double-quoted here.
 func text(s string) *yaml.Node {
 	n := &yaml.Node{Kind: yaml.ScalarNode, Tag: "!!str", Value: s}
 	if strings.Contains(s, "\n") {
 		n.Style = yaml.LiteralStyle
+		if r, _ := utf8.DecodeRuneInString(s); r == '\t' || isLineBreak(r) {
+			n.Style = yaml.DoubleQuotedStyle
+		}
 	}
 	return n
+}
+
+// isLineBreak is a rune YAML reads as a line break.
+func isLineBreak(r rune) bool {
+	switch r {
+	case '\n', '\r', '\u0085', '\u2028', '\u2029':
+		return true
+	}
+	return false
 }
 
 func number(i int) *yaml.Node {

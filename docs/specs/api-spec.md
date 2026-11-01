@@ -5961,7 +5961,7 @@ steps:
 ```
 
 - `Parse`가 채우는 기본값과 같은 값은 쓰지 않습니다: `batch: 1`, `stop_on_failure: true`, 명령의 `timeout: 10m`, 재부팅의 `wait: 10m`·`only_if_required: true`. 기간이 `0`이거나 `batch`가 `0`이면 정하지 않은 것으로 보고 역시 쓰지 않습니다
-- `upgrade_all`은 `upgrade: all`로, 입력값은 모델의 순서대로 맵으로, 여러 줄 문자열은 블록(`|`)으로, 기간은 `10m`·`1h30m`처럼 씁니다. 키 순서는 `name`, `description`, `inputs`, `targets`, `batch`, `stop_on_failure`, `steps`이고 단계는 `name`, `continue_on_error`, 종류 순입니다
+- `upgrade_all`은 `upgrade: all`로, 입력값은 모델의 순서대로 맵으로, 여러 줄 문자열은 블록(`|`)으로(줄바꿈이나 탭으로 시작하는 값은 블록이 그대로 담지 못해 큰따옴표로), 기간은 `10m`·`1h30m`처럼 씁니다. 키 순서는 `name`, `description`, `inputs`, `targets`, `batch`, `stop_on_failure`, `steps`이고 단계는 `name`, `continue_on_error`, 종류 순입니다
 - 유효한 작업이면 그 문서를 다시 검사한 결과가 같은 작업입니다. 유효하지 않은 모델(본문 없는 단계, 모르는 종류)도 문서로 쓰며, 문제는 그 문서를 `validate`하거나 저장할 때 나옵니다
 - 주석과 원래 서식은 모델에 없으므로 돌아오지 않습니다
 

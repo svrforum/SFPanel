@@ -2,6 +2,7 @@ package tasks
 
 import (
 	"reflect"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -112,6 +113,72 @@ func TestFormatRoundTrips(t *testing.T) {
 			}
 			if !reflect.DeepEqual(t1, t2) {
 				t.Errorf("the round trip changed the task:\n before %+v\n after  %+v\ndocument:\n%s", t1, t2, out)
+			}
+		})
+	}
+}
+
+// TestFormatKeepsEveryStringExactly puts each awkward string in every string
+// field Format writes and reads the document back. A block scalar cannot
+// start with a line break (the emitter drops it) or a tab (it writes no
+// indentation indicator, and the document no longer parses).
+//
+// Fields Parse checks take what they accept: a task's name and a command's
+// run and script cannot be blank ("\n", "\n\n", "\t\n"), so those keep the
+// base value; a file path is absolute unless it holds a reference, so the
+// string is followed by one; a file mode (octal digits) and a package name
+// (no space or line break) take none of these strings and keep the base. A
+// reference must name an input, so the one here is the base's own.
+func TestFormatKeepsEveryStringExactly(t *testing.T) {
+	const base = `name: base
+description: d
+inputs:
+  in: { label: l, default: v }
+steps:
+  - name: n
+    service: { name: s, action: restart }
+  - command: { run: r }
+  - command: { script: s }
+  - file: { path: /p, content: c, mode: "0644", owner: o }
+  - stack: { name: s, compose: c }
+  - packages: { install: [htop] }
+`
+	for _, s := range []string{
+		"\n", "\n\n", "\na", "\n\na", "\n  a", " \nb", "\ta\nb", "\t\n", "\r\na", "\u2028\na",
+		"\nAuthorized use only\n", "\tbuild:\n\tgo build\n",
+		"a\nb\n", "  indented\nx", "x  \ny", "a\r\nb", "# not a comment\n", "{{ in }}\n", "yes\nno",
+	} {
+		t.Run(strconv.Quote(s), func(t *testing.T) {
+			model, problems := Parse([]byte(base))
+			if problems != nil {
+				t.Fatalf("the base has problems: %+v", problems)
+			}
+			blank := strings.TrimSpace(s) == ""
+			if !blank {
+				model.Name = s
+				model.Steps[1].Command.Run = s
+				model.Steps[2].Command.Script = s
+			}
+			model.Description = s
+			model.Inputs[0].Label, model.Inputs[0].Default = s, s
+			model.Steps[0].Name = s
+			model.Steps[0].Service.Name = s
+			model.Steps[3].File.Path = s + "{{ node.name }}"
+			model.Steps[3].File.Content = s
+			model.Steps[3].File.Owner = s
+			model.Steps[4].Stack.Name = s
+			model.Steps[4].Stack.Compose = s
+
+			out, err := Format(model)
+			if err != nil {
+				t.Fatalf("Format: %v", err)
+			}
+			back, problems := Parse(out)
+			if problems != nil {
+				t.Fatalf("Format wrote a document with problems %+v:\n%s", problems, out)
+			}
+			if !reflect.DeepEqual(model, back) {
+				t.Errorf("the round trip changed the task:\n before %+v\n after  %+v\ndocument:\n%s", model, back, out)
 			}
 		})
 	}
