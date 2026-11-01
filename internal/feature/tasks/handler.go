@@ -482,6 +482,9 @@ type formatBody struct {
 // is, for the editor's YAML view (validate goes the other way). It writes
 // nothing and reads no cluster state, so any manager answers it. A model that
 // is not a valid task still gets its document; saving it is what refuses.
+// That holds for size too: Format re-indents, so a document stored just
+// under the limit can come out over it, and the editor needs it in its YAML
+// view to trim it.
 func (h *Handler) FormatTask(c echo.Context) error {
 	var body formatBody
 	if err := c.Bind(&body); err != nil {
@@ -494,10 +497,6 @@ func (h *Handler) FormatTask(c echo.Context) error {
 	if err != nil {
 		logger().Error("task format", "error", err)
 		return response.Fail(c, http.StatusInternalServerError, response.ErrInternalError, "The task could not be written as YAML")
-	}
-	if len(doc) > tasks.MaxDocumentBytes {
-		return response.FailWith(c, http.StatusBadRequest, response.ErrTaskTooLarge,
-			cluster.ErrTaskTooLarge.Error(), map[string]string{"max_kib": strconv.Itoa(tasks.MaxDocumentBytes >> 10)})
 	}
 	return response.OK(c, map[string]string{"yaml": string(doc)})
 }

@@ -12,9 +12,11 @@ import (
 )
 
 // Format writes a task back into a document, the inverse of Parse: for a
-// task Parse returned, Parse(Format(t)) is equal to t. The editor's card view
-// edits the parsed model and its YAML view the document, and the web carries
-// no YAML library, so the panel turns one into the other here.
+// task Parse returned, Parse(Format(t)) is equal to t, up to the size limit.
+// Format re-indents, so a document just under MaxDocumentBytes can come out
+// over it, and that one reads back with the size problem. The editor's card
+// view edits the parsed model and its YAML view the document, and the web
+// carries no YAML library, so the panel turns one into the other here.
 //
 // It leaves out every value Parse fills in when a key is missing (batch 1,
 // stop_on_failure true, a command's 10m timeout, a reboot's 10m wait and

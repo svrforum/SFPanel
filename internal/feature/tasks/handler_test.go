@@ -1596,11 +1596,25 @@ func TestTheFormatRoute(t *testing.T) {
 		}
 	})
 
+	// Format re-indents, so a stored document near the limit can come out
+	// over it. The editor still gets it, to trim in its YAML view: saving
+	// it is what refuses.
 	t.Run("a document over 64 KiB", func(t *testing.T) {
 		f := newAPI(t)
 		big := *model
 		big.Description = strings.Repeat("x", tasks.MaxDocumentBytes)
 		a := f.do("POST", path, map[string]any{"task": big})
-		wantRefusal(t, "a task whose document is over 64 KiB", a, http.StatusBadRequest, response.ErrTaskTooLarge, map[string]string{"max_kib": "64"})
+		if a.Status != http.StatusOK {
+			t.Fatalf("answer %d %q, want 200", a.Status, a.code())
+		}
+		var out struct {
+			YAML string `json:"yaml"`
+		}
+		a.data(t, &out)
+		if len(out.YAML) <= tasks.MaxDocumentBytes || !strings.Contains(out.YAML, big.Description) {
+			t.Errorf("yaml is %d bytes, want the whole document, over %d", len(out.YAML), tasks.MaxDocumentBytes)
+		}
+		save := f.do("POST", "/api/v1/cluster/tasks", map[string]string{"yaml": out.YAML})
+		wantRefusal(t, "saving it", save, http.StatusBadRequest, response.ErrTaskTooLarge, map[string]string{"max_kib": "64"})
 	})
 }
