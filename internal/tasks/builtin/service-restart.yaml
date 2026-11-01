@@ -1,7 +1,7 @@
 name: 서비스 재시작
 description: 입력한 서비스를 재시작합니다.
 inputs:
-  service: { label: 재시작할 서비스, required: true }
+  service: { label: "재시작할 서비스 (예: nginx.service)", required: true }
 steps:
   - name: 서비스 재시작
     service: { name: "{{ service }}", action: restart }
