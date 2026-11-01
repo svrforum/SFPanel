@@ -598,6 +598,82 @@ const (
 	ErrTaskClusterChanging = "TASK_CLUSTER_CHANGING"
 )
 
+// Agent install row reasons: why the installer stopped at one server of an
+// install run. They are never an HTTP answer's code: a row of the run record
+// carries one, with its details, and the screen words it.
+const (
+	// ErrAgentInstallOS is a server that is not Ubuntu or Debian. Details:
+	// os_id, os_like.
+	ErrAgentInstallOS = "AGENT_INSTALL_OS"
+	// ErrAgentInstallArch is a CPU no release is built for (amd64 and arm64
+	// are). Details: arch, as uname -m prints it.
+	ErrAgentInstallArch = "AGENT_INSTALL_ARCH"
+	// ErrAgentInstallNoSystemd is a server without systemd: install.sh would
+	// install the binary and start nothing.
+	ErrAgentInstallNoSystemd = "AGENT_INSTALL_NO_SYSTEMD"
+	// ErrAgentInstallNotRoot is a login that cannot become root: not root,
+	// and no sudo, or sudo that asks for a password none was given for.
+	// Details: sudo (none | password).
+	ErrAgentInstallNotRoot = "AGENT_INSTALL_NOT_ROOT"
+	// ErrAgentInstallPortBusy is a panel or cluster port another program
+	// listens on. Details: port, owner (a process name, or ? when unknown).
+	ErrAgentInstallPortBusy = "AGENT_INSTALL_PORT_BUSY"
+	// ErrAgentInstallClock is a server whose clock is more than 30 seconds
+	// from the leader's: managers refuse its relays. Details: skew_seconds.
+	ErrAgentInstallClock = "AGENT_INSTALL_CLOCK"
+	// ErrAgentInstallCannotReachManager is a server that cannot open a TCP
+	// connection to the leader's cluster port. Details: manager.
+	ErrAgentInstallCannotReachManager = "AGENT_INSTALL_CANNOT_REACH_MANAGER"
+	// ErrAgentInstallIPNotLocal is an IP the server does not hold: the agent
+	// registers at it and listens on it. Details: ip.
+	ErrAgentInstallIPNotLocal = "AGENT_INSTALL_IP_NOT_LOCAL"
+	// ErrAgentInstallAlreadyAgent is a server that is an agent already.
+	ErrAgentInstallAlreadyAgent = "AGENT_INSTALL_ALREADY_AGENT"
+	// ErrAgentInstallAlreadyManager is a server that is a cluster manager.
+	ErrAgentInstallAlreadyManager = "AGENT_INSTALL_ALREADY_MANAGER"
+	// ErrAgentInstallNewerInstalled is a server whose SFPanel is newer than
+	// the version being installed, or of a version that cannot be read:
+	// install.sh would downgrade it. Details: installed, version.
+	ErrAgentInstallNewerInstalled = "AGENT_INSTALL_NEWER_INSTALLED"
+	// ErrAgentInstallManagerFiles is a server that still holds files a
+	// manager keeps (the CA key, the Raft state, join tokens). Details: files,
+	// comma-separated.
+	ErrAgentInstallManagerFiles = "AGENT_INSTALL_MANAGER_FILES"
+	// ErrAgentInstallOperatorTLS is a panel serving the operator's own
+	// certificate without server.tls.ca_file: managers could not verify it.
+	ErrAgentInstallOperatorTLS = "AGENT_INSTALL_OPERATOR_TLS"
+	// ErrAgentInstallNoTools is a server missing a command the install needs.
+	// Details: missing, comma-separated.
+	ErrAgentInstallNoTools = "AGENT_INSTALL_NO_TOOLS"
+	// ErrAgentInstallNoInternet is a server asked to install online that
+	// cannot reach GitHub's release downloads.
+	ErrAgentInstallNoInternet = "AGENT_INSTALL_NO_INTERNET"
+	// ErrAgentInstallNameInvalid is a node name the cluster refuses: the one
+	// given, or the server's hostname when none was. Details: name or
+	// hostname.
+	ErrAgentInstallNameInvalid = "AGENT_INSTALL_NAME_INVALID"
+	// ErrAgentInstallDisk is a server short of disk space for the binary and
+	// its archive. Details: free_kb, need_kb.
+	ErrAgentInstallDisk = "AGENT_INSTALL_DISK"
+	// ErrAgentInstallAuthFailed is an SSH login the server refused.
+	ErrAgentInstallAuthFailed = "AGENT_INSTALL_AUTH_FAILED"
+	// ErrAgentInstallUnreachable is a server the leader cannot open SSH to.
+	ErrAgentInstallUnreachable = "AGENT_INSTALL_UNREACHABLE"
+	// ErrAgentInstallFailed is an install that failed for a reason with no
+	// code of its own; the row's log says what happened.
+	ErrAgentInstallFailed = "AGENT_INSTALL_FAILED"
+	// ErrAgentInstallOffline is an agent that registered but did not come
+	// online in time.
+	ErrAgentInstallOffline = "AGENT_INSTALL_OFFLINE"
+	// ErrAgentInstallLeaderChanged is a row cut off by a leader change: the
+	// credentials and the token lived on the old leader only.
+	ErrAgentInstallLeaderChanged = "AGENT_INSTALL_LEADER_CHANGED"
+	// ErrAgentInstallCredentialsGone is a row whose credentials were wiped
+	// before it was reverted: the node was removed, and what was installed on
+	// the server is the operator's to clean up.
+	ErrAgentInstallCredentialsGone = "AGENT_INSTALL_CREDENTIALS_GONE"
+)
+
 // File manager error codes
 const (
 	// ErrNotTextFile is returned (HTTP 415) when a caller asks to read a file
