@@ -383,9 +383,10 @@ func (c *Client) Upload(ctx context.Context, path string, mode os.FileMode, data
 //
 // The head is a new slice holding the password; the caller appends the
 // command's own stdin after it and wipes both when done. With -S, sudo reads
-// the first line only when it asks for a password: on an account with
-// NOPASSWD sudo the line would reach cmd's stdin instead, so check
-// "sudo -n true" first and pass no password when it succeeds.
+// the first line only when it asks for a password, so -k has it ask whatever
+// it has cached; on an account with NOPASSWD sudo it never asks and the line
+// would reach cmd's stdin instead, so check "sudo -n true" first and pass no
+// password when it succeeds.
 func SudoCommand(cmd string, root bool, sudoPassword []byte) (string, []byte) {
 	if root {
 		return cmd, nil
@@ -396,7 +397,7 @@ func SudoCommand(cmd string, root bool, sudoPassword []byte) (string, []byte) {
 	head := make([]byte, 0, len(sudoPassword)+1)
 	head = append(head, sudoPassword...)
 	head = append(head, '\n')
-	return "sudo -S -p '' bash -c " + ShellQuote(cmd), head
+	return "sudo -k -S -p '' bash -c " + ShellQuote(cmd), head
 }
 
 // ShellQuote quotes s as one POSIX shell word.

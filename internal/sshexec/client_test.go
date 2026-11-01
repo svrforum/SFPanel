@@ -205,7 +205,9 @@ func TestNothingSecretInArgv(t *testing.T) {
 
 	writeToken := "umask 077 && cat > /tmp/sfpanel-install.X/token"
 	cmd, head := SudoCommand(writeToken, false, []byte(sudoPW))
-	if want := "sudo -S -p '' bash -c 'umask 077 && cat > /tmp/sfpanel-install.X/token'"; cmd != want {
+	// -k: sudo asks for the password whatever it has cached, so it reads the
+	// first line every time rather than leave it on the command's stdin.
+	if want := "sudo -k -S -p '' bash -c 'umask 077 && cat > /tmp/sfpanel-install.X/token'"; cmd != want {
 		t.Fatalf("sudo command = %q, want %q", cmd, want)
 	}
 	if _, _, exit, err := c.Run(ctx, cmd, append(head, token...)); err != nil || exit != 0 {
