@@ -2347,10 +2347,43 @@ func (m *Manager) StartLocalMetrics(collector MetricsCollector) {
 		}
 
 		collect() // immediate first collection
+		// A follower streams to a new leader once it learns of it, not at its
+		// next send: until it pings, that leader lists it offline (GetNodes)
+		// and holds a task run back for it (TasksReady). A manager that just
+		// joined starts the same way, once it knows its leader. Only a change
+		// of leader acts; a stream failing to the same one keeps the send
+		// schedule and its backoff.
+		follow := time.NewTicker(leaderFollowCheck)
+		defer follow.Stop()
+		var seenLeader string
 		for {
 			select {
 			case <-ticker.C:
 				collect()
+			case <-follow.C:
+				if m.raft == nil {
+					continue
+				}
+				if m.raft.IsLeader() {
+					seenLeader = ""
+					continue
+				}
+				id := m.raft.LeaderID()
+				if id == "" || id == seenLeader {
+					continue
+				}
+				// A manager catching up may know its leader's ID before its
+				// FSM has the leader's record: looked at again next time.
+				addr := m.raft.LeaderGRPCAddress()
+				if addr == "" {
+					continue
+				}
+				seenLeader = id
+				if addr != connectedLeaderAddr {
+					// A new leader is a new target: nothing to back off from.
+					dialFailures, dialSkipCount = 0, 0
+					collect()
+				}
 			case <-m.heartbeat.Done():
 				closeStream()
 				return

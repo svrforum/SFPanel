@@ -178,6 +178,9 @@ const (
 	// two are kept coupled here so they can't silently drift back into a race.
 	metricsStreamSendInterval = 30 * time.Second
 	metricsStreamIdleTimeout  = 3 * metricsStreamSendInterval
+	// leaderFollowCheck is how often a follower looks for a new leader to
+	// stream to between sends (StartLocalMetrics).
+	leaderFollowCheck = time.Second
 	// HTTP/2 keepalive on the cluster gRPC connections: a connection killed
 	// while the process couldn't observe it (an unclean peer death, a
 	// NAT/conntrack entry expiring on an idle path) otherwise stays "open" to
