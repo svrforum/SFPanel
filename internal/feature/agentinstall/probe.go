@@ -106,9 +106,12 @@ type Facts struct {
 	ClusterEnabled bool
 	// ManagerFiles are the files of cluster.ManagerFiles found on the server.
 	ManagerFiles []string
-	// OperatorTLSNoCA is an existing panel that serves the operator's own
-	// certificate and names no server.tls.ca_file.
-	OperatorTLSNoCA bool
+	// OperatorTLS is an existing panel that serves the operator's own
+	// certificate (server.tls.cert_file or key_file set); OperatorTLSCA
+	// whether its config names a server.tls.ca_file too.
+	OperatorTLS, OperatorTLSCA bool
+	// SFPanelActive is whether the sfpanel service was active.
+	SFPanelActive bool
 	// Ports are the panel and cluster ports the agent will listen on: an
 	// existing config's, else 3628 and 3629. PortsBusy are the ones something
 	// already listens on.
@@ -283,11 +286,9 @@ for f in @MANAGER_PATHS@; do
   if [ -e "$R$f" ] || [ -L "$R$f" ]; then found="$found${found:+,}$f"; fi
 done
 kv manager_files "$found"
-if { [ -n "$(cfg server.tls.cert_file)" ] || [ -n "$(cfg server.tls.key_file)" ]; } && [ -z "$(cfg server.tls.ca_file)" ]; then
-  kv operator_tls_no_ca 1
-else
-  kv operator_tls_no_ca 0
-fi
+if [ -n "$(cfg server.tls.cert_file)" ] || [ -n "$(cfg server.tls.key_file)" ]; then kv operator_tls 1; else kv operator_tls 0; fi
+if [ -n "$(cfg server.tls.ca_file)" ]; then kv operator_tls_ca 1; else kv operator_tls_ca 0; fi
+if has systemctl && systemctl is-active --quiet sfpanel; then kv sfpanel_active 1; else kv sfpanel_active 0; fi
 
 panel_port=$(cfg server.port); case "$panel_port" in ''|*[!0-9]*) panel_port=3628 ;; esac
 grpc_port=$(cfg cluster.grpc_port); case "$grpc_port" in ''|*[!0-9]*) grpc_port=3629 ;; esac
@@ -331,7 +332,7 @@ var (
 var (
 	loginKeys = []string{"uid", "bash", "sudo"}
 	probeKeys = []string{"os_id", "os_like", "debian", "arch", "systemd", "hostname", "addrs",
-		"sfpanel_version", "sfpanel_data", "role", "cluster_enabled", "manager_files", "operator_tls_no_ca",
+		"sfpanel_version", "sfpanel_data", "role", "cluster_enabled", "manager_files", "operator_tls", "operator_tls_ca", "sfpanel_active",
 		"ports", "ports_busy", "tools_missing", "disk_kb", "opt_stacks", "now"}
 	optionalKeys = []string{"github"}
 )
@@ -411,6 +412,14 @@ func flag(kv map[string]string, key string) (bool, error) {
 	return false, fmt.Errorf("the probe's %s %q is not 1 or 0", key, kv[key])
 }
 
+// flagText is a flag as the probe prints it: 1 or 0.
+func flagText(b bool) string {
+	if b {
+		return "1"
+	}
+	return "0"
+}
+
 func items(s string) []string {
 	var out []string
 	for _, it := range strings.Split(s, ",") {
@@ -438,7 +447,8 @@ func ParseFacts(out []byte) (Facts, error) {
 		key string
 		to  *bool
 	}{{"debian", &f.Debian}, {"systemd", &f.Systemd}, {"sfpanel_data", &f.SFPanelData}, {"cluster_enabled", &f.ClusterEnabled},
-		{"operator_tls_no_ca", &f.OperatorTLSNoCA}, {"github", &f.GitHub}, {"opt_stacks", &f.OptStacks}} {
+		{"operator_tls", &f.OperatorTLS}, {"operator_tls_ca", &f.OperatorTLSCA}, {"sfpanel_active", &f.SFPanelActive},
+		{"github", &f.GitHub}, {"opt_stacks", &f.OptStacks}} {
 		if *b.to, err = flag(kv, b.key); err != nil {
 			return Facts{}, err
 		}
@@ -570,9 +580,13 @@ func debianFamily(f Facts) bool {
 
 // Judge decides whether to install on a server from what the probe found:
 // the first reason to stop, in the order a person would fix them, or a pass
-// that says whether the server runs a standalone panel and whether to install
-// online. Everything install.sh or the agent join would refuse after the
-// installed panel was already stopped is caught here first.
+// that says whether the server had SFPanel before (a conversion the operator
+// confirms) and whether to install online. Of an SFPanel already on the
+// server it refuses what install.sh or the agent join would refuse only
+// after stopping the panel: an agent, a cluster manager, a manager's files
+// left behind and a panel serving the operator's own certificate. It also
+// refuses an SFPanel newer than the one being installed, which install.sh
+// would downgrade.
 func Judge(f Facts, in JudgeInput) Verdict {
 	if v := JudgeLogin(f.Login, in.SudoPassword); v.Code != "" {
 		return v
@@ -605,8 +619,11 @@ func Judge(f Facts, in JudgeInput) Verdict {
 	if len(f.ManagerFiles) > 0 {
 		return refuse(response.ErrAgentInstallManagerFiles, "the server holds files a manager keeps", "files", strings.Join(f.ManagerFiles, ","))
 	}
-	if f.OperatorTLSNoCA {
-		return refuse(response.ErrAgentInstallOperatorTLS, "the panel serves its own certificate without server.tls.ca_file")
+	if f.OperatorTLS {
+		// The join requires the panel's certificate to verify for
+		// 127.0.0.1 and the advertise address, which an operator's rarely
+		// does, and refuses it after install.sh has stopped the panel.
+		return refuse(response.ErrAgentInstallOperatorTLS, "the panel serves the operator's own certificate", "ca_file", flagText(f.OperatorTLSCA))
 	}
 	if f.SFPanelVersion != "" {
 		if cmp, err := release.CompareVersions(f.SFPanelVersion, in.Version); err != nil || cmp > 0 {

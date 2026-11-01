@@ -3,6 +3,7 @@ package agentinstall
 import (
 	"context"
 	"reflect"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -327,6 +328,58 @@ func TestKeptDataIsSFPanelBefore(t *testing.T) {
 		time.Sleep(20 * time.Millisecond)
 		if after, _, _ := d.counts(); after != dials || s.ran("uninstall --purge") {
 			t.Fatal("the server with SFPanel before was touched")
+		}
+	})
+}
+
+// install.sh stops a standalone panel to upgrade it before its join: an
+// install that then ends unregistered starts that panel again, when it ran
+// before the install.
+func TestAStandalonePanelIsNotLeftStopped(t *testing.T) {
+	run := func(t *testing.T, active bool) (*fakeEnv, *fakeServer, string) {
+		t.Helper()
+		env := newFakeEnv()
+		s := passingServer(t, env, 1)
+		s.facts.SFPanelVersion = "0.80.0"
+		s.facts.SFPanelData = true
+		s.facts.SFPanelActive = active
+		s.facts.PortsBusy = []BusyPort{{Port: 3628, Owner: "sfpanel"}}
+		s.installExit = 1
+		e := newTestEngine(env, newFakeDialer(s))
+		id, err := e.Start(context.Background(), request(s))
+		if err != nil {
+			t.Fatal(err)
+		}
+		approveAll(t, e, env, id, "s1")
+		confirmStandalone(t, e, env, id)
+		env.waitEnded(t, id)
+		return env, s, id
+	}
+	t.Run("a panel that ran is started again", func(t *testing.T) {
+		env, s, id := run(t, true)
+		r := env.row(id, "s1")
+		if r.Status != cluster.RunNodeFailed || r.Reason != response.ErrAgentInstallFailed || r.ReasonDetails["panel"] != "restarted" {
+			t.Fatalf("s1 = %s %s %v, want failed with panel restarted", r.Status, r.Reason, r.ReasonDetails)
+		}
+		s.mu.Lock()
+		roots := slices.Clone(s.roots)
+		s.mu.Unlock()
+		installed := slices.IndexFunc(roots, func(c string) bool { return strings.HasPrefix(c, "systemd-run: ") })
+		started := slices.Index(roots, "systemctl start sfpanel")
+		if installed < 0 || started < installed {
+			t.Fatalf("commands as root %q, want systemctl start sfpanel after install.sh", roots)
+		}
+		if s.rootRan("uninstall --purge") {
+			t.Fatal("the panel's server was purged")
+		}
+	})
+	t.Run("a panel that was not running is left so", func(t *testing.T) {
+		env, s, id := run(t, false)
+		if r := env.row(id, "s1"); r.Status != cluster.RunNodeFailed || r.ReasonDetails["panel"] != "" {
+			t.Fatalf("s1 = %s %v, want failed without a panel restart", r.Status, r.ReasonDetails)
+		}
+		if s.rootRan("systemctl start") {
+			t.Fatal("a panel that was not running was started")
 		}
 	})
 }

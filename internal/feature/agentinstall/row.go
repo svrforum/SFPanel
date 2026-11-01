@@ -47,9 +47,13 @@ type row struct {
 	name     string
 	online   bool
 	arch     string
-	// sfpanelBefore (SFPanel's binary or its data) and optStacksBefore are
-	// what the pre-flight found before this install touched the server.
-	sfpanelBefore, optStacksBefore bool
+	// sfpanelBefore (SFPanel's binary or its data), panelActive (its
+	// service running) and optStacksBefore are what the pre-flight found
+	// before this install touched the server.
+	sfpanelBefore, panelActive, optStacksBefore bool
+	// panel is what came of starting a standalone panel again after an
+	// install that registered no agent: restarted or restart_failed.
+	panel string
 
 	tgt  Target
 	held bool
@@ -201,6 +205,9 @@ func (r *row) end(err error) {
 		default:
 			rec.Status, rec.Reason = cluster.RunNodeFailed, response.ErrAgentInstallFailed
 			rec.ReasonDetails = map[string]string{"error": err.Error()}
+		}
+		if r.panel != "" {
+			rec.ReasonDetails = mergeDetails(rec.ReasonDetails, map[string]string{"panel": r.panel})
 		}
 		for i := range rec.Steps {
 			if rec.Steps[i].Status == cluster.RunStepPending {
@@ -413,7 +420,7 @@ func (r *row) preflight(ctx context.Context) error {
 		return &rowFail{code: v.Code, message: v.Message, details: v.Details}
 	}
 	r.name, r.online, r.arch = v.Name, v.Online, facts.ReleaseArch()
-	r.sfpanelBefore, r.optStacksBefore = facts.SFPanelBefore(), facts.OptStacks
+	r.sfpanelBefore, r.panelActive, r.optStacksBefore = facts.SFPanelBefore(), facts.SFPanelActive, facts.OptStacks
 	r.update(func(rec *cluster.RunNodeRecord) { rec.Name, rec.SFPanelBefore = v.Name, r.sfpanelBefore })
 	if other := s.claim(s.names, v.Name, r.key); other != "" {
 		return fail(response.ErrAgentInstallIdentityTaken, "another server of this install has the same name", "name", v.Name, "row", other)
@@ -759,14 +766,41 @@ func (r *row) stopInstall(ctx context.Context) {
 }
 
 // cleanTarget takes off the server what an install that registered no agent
-// put there, once its unit has stopped: SFPanel, when the server had neither
-// its binary nor its data before, and the /opt/stacks the panel made, when
-// the server had none.
+// put there, once its unit has stopped or exited: SFPanel, when the server
+// had neither its binary nor its data before, and the /opt/stacks the panel
+// made, when the server had none. A server that had SFPanel before is not
+// purged; its panel, which install.sh stops to upgrade it, is started again
+// when it ran before the install.
 func (r *row) cleanTarget(ctx context.Context) {
-	if r.tgt == nil || r.sfpanelBefore {
+	if r.tgt == nil {
 		return
 	}
-	r.purge(ctx, r.tmp, r.logs[phaseInstall])
+	if !r.sfpanelBefore {
+		r.purge(ctx, r.tmp, r.logs[phaseInstall])
+		return
+	}
+	if r.panelActive {
+		r.restartPanel(ctx)
+	}
+}
+
+// restartPanel starts the sfpanel service again if it is not active, best
+// effort; the row's details say how it went.
+func (r *row) restartPanel(ctx context.Context) {
+	log := r.logs[phaseInstall]
+	if _, _, exit, err := r.priv(ctx, "systemctl is-active --quiet sfpanel", nil); err == nil && exit == 0 {
+		log.printf("the panel still runs")
+		return
+	}
+	_, stderr, exit, err := r.priv(ctx, "systemctl start sfpanel", nil)
+	if err != nil || exit != 0 {
+		log.write(stderr)
+		log.printf("starting the panel again failed (exit %d): %v", exit, err)
+		r.panel = "restart_failed"
+		return
+	}
+	log.printf("the panel was started again")
+	r.panel = "restarted"
 }
 
 // purge runs the uploaded install.sh's uninstall --purge, then removes

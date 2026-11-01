@@ -339,6 +339,9 @@ type fakeServer struct {
 	// revokedAtStop says whether the row's token was revoked by the time
 	// the install unit was stopped.
 	revokedAtStop bool
+	// panelStopped is the sfpanel service install.sh stopped, active again
+	// once systemctl starts it; it ran before when facts.SFPanelActive says.
+	panelStopped bool
 	labels        map[string]string
 	// probeDelay holds the probe, so rows overlap.
 	probeDelay time.Duration
@@ -408,13 +411,6 @@ func loginText(l Login) string {
 	return fmt.Sprintf("uid=%d\nbash=%s\nsudo=%s\n", l.UID, b, l.Sudo)
 }
 
-func flagText(b bool) string {
-	if b {
-		return "1"
-	}
-	return "0"
-}
-
 func probeText(f Facts) string {
 	var w strings.Builder
 	kv := func(k, v string) { fmt.Fprintf(&w, "%s=%s\n", k, v) }
@@ -434,7 +430,9 @@ func probeText(f Facts) string {
 	kv("role", f.Role)
 	kv("cluster_enabled", flagText(f.ClusterEnabled))
 	kv("manager_files", strings.Join(f.ManagerFiles, ","))
-	kv("operator_tls_no_ca", flagText(f.OperatorTLSNoCA))
+	kv("operator_tls", flagText(f.OperatorTLS))
+	kv("operator_tls_ca", flagText(f.OperatorTLSCA))
+	kv("sfpanel_active", flagText(f.SFPanelActive))
 	var ports, busy []string
 	for _, p := range f.Ports {
 		ports = append(ports, strconv.Itoa(p))
@@ -507,6 +505,7 @@ func (s *fakeServer) run(ctx context.Context, cmd string, stdin []byte) ([]byte,
 		s.dir = strings.Replace(unquote(strings.TrimPrefix(inner, "mktemp -d ")), "XXXXXXXXXX", "abcDEF0123", 1)
 		return []byte(s.dir + "\n"), nil, 0, nil
 	case strings.HasPrefix(inner, "systemd-run "):
+		s.panelStopped = true
 		if s.registerAnyway {
 			s.env.register(s.ip, s.facts.Hostname, s.labels)
 		}
@@ -528,6 +527,14 @@ func (s *fakeServer) run(ctx context.Context, cmd string, stdin []byte) ([]byte,
 			return nil, nil, 0, nil
 		}
 		return b[n-1:], nil, 0, nil
+	case inner == "systemctl is-active --quiet sfpanel":
+		if s.facts.SFPanelActive && !s.panelStopped {
+			return nil, nil, 0, nil
+		}
+		return nil, nil, 3, nil
+	case inner == "systemctl start sfpanel":
+		s.panelStopped = false
+		return nil, nil, 0, nil
 	case strings.HasPrefix(inner, "systemctl stop "):
 		s.revokedAtStop = len(s.env.revokedTokens()) > 0
 		if s.registerOnStop {

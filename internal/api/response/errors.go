@@ -681,7 +681,10 @@ const (
 	// comma-separated.
 	ErrAgentInstallManagerFiles = "AGENT_INSTALL_MANAGER_FILES"
 	// ErrAgentInstallOperatorTLS is a panel serving the operator's own
-	// certificate without server.tls.ca_file: managers could not verify it.
+	// certificate (server.tls.cert_file or key_file set): the agent join
+	// requires the panel's certificate to verify for 127.0.0.1 and the
+	// advertise address, and refuses it only after install.sh has stopped
+	// the panel. Details: ca_file (1 when server.tls.ca_file is set, else 0).
 	ErrAgentInstallOperatorTLS = "AGENT_INSTALL_OPERATOR_TLS"
 	// ErrAgentInstallNoTools is a server missing a command the install needs.
 	// Details: missing, comma-separated.

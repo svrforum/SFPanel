@@ -80,8 +80,10 @@ func TestJudgeRefusesEachReasonWithItsCode(t *testing.T) {
 			f.SFPanelVersion, f.ManagerFiles = "0.81.0", []string{"/etc/sfpanel/cluster/ca.key", "/var/lib/sfpanel/cluster/raft-log.db"}
 		}, code: response.ErrAgentInstallManagerFiles,
 			details: map[string]string{"files": "/etc/sfpanel/cluster/ca.key,/var/lib/sfpanel/cluster/raft-log.db"}},
-		{name: "operator TLS without a CA", facts: func(f *Facts) { f.SFPanelVersion, f.OperatorTLSNoCA = "0.81.0", true },
-			code: response.ErrAgentInstallOperatorTLS},
+		{name: "operator TLS without a CA", facts: func(f *Facts) { f.SFPanelVersion, f.OperatorTLS = "0.81.0", true },
+			code: response.ErrAgentInstallOperatorTLS, details: map[string]string{"ca_file": "0"}},
+		{name: "operator TLS with a CA", facts: func(f *Facts) { f.SFPanelVersion, f.OperatorTLS, f.OperatorTLSCA = "0.81.0", true, true },
+			code: response.ErrAgentInstallOperatorTLS, details: map[string]string{"ca_file": "1"}},
 		{name: "newer installed", facts: func(f *Facts) { f.SFPanelVersion = "0.82.0" },
 			code: response.ErrAgentInstallNewerInstalled, details: map[string]string{"installed": "0.82.0", "version": "0.81.0"}},
 		{name: "unreadable version installed", facts: func(f *Facts) { f.SFPanelVersion = "unknown" },
@@ -219,7 +221,9 @@ sfpanel_data=1
 role=
 cluster_enabled=0
 manager_files=
-operator_tls_no_ca=0
+operator_tls=0
+operator_tls_ca=0
+sfpanel_active=1
 ports=3628,3629
 ports_busy=3628:sfpanel,3629:?
 tools_missing=curl
@@ -250,6 +254,7 @@ func TestParseFactsIgnoresNoise(t *testing.T) {
 		Addrs:          []net.IP{net.ParseIP("192.0.2.10"), net.ParseIP("fe80::1"), net.ParseIP("100.64.0.10")},
 		SFPanelVersion: "0.80.2",
 		SFPanelData:    true,
+		SFPanelActive:  true,
 		Ports:          []int{3628, 3629},
 		PortsBusy:      []BusyPort{{Port: 3628, Owner: "sfpanel"}, {Port: 3629, Owner: "?"}},
 		ToolsMissing:   []string{"curl"},
@@ -265,7 +270,7 @@ func TestParseFactsIgnoresNoise(t *testing.T) {
 		t.Errorf("release arch = %q, want arm64", got)
 	}
 
-	for _, key := range []string{"uid", "sudo", "arch", "addrs", "now", "disk_kb", "ports_busy", "sfpanel_version", "sfpanel_data"} {
+	for _, key := range []string{"uid", "sudo", "arch", "addrs", "now", "disk_kb", "ports_busy", "sfpanel_version", "sfpanel_data", "operator_tls", "operator_tls_ca", "sfpanel_active"} {
 		t.Run("without "+key, func(t *testing.T) {
 			var kept []string
 			for _, line := range strings.Split(probeOutput, "\n") {
@@ -425,6 +430,7 @@ func TestTheProbeReadsAServerAndChangesNothing(t *testing.T) {
         enabled: true
         cert_file: /etc/ssl/panel.pem # the operator's
         key_file: "/etc/ssl/panel.key"
+        ca_file: /etc/ssl/panel-ca.pem
 docker:
     observability:
         enabled: true
@@ -448,8 +454,9 @@ case "$*" in *:8443*) echo 'LISTEN 0 4096 *:8443 *:* users:(("sfpanel",pid=812,f
 		"df": `echo 'Filesystem 1024-blocks Used Available Capacity Mounted on'
 echo '/dev/sda1 20000000 1000000 900000 6% /'
 echo '/dev/sda2 20000000 1000000 1500000 6% /var'`,
-		"curl": `printf '%s\n' "$@" > ` + sshexec.ShellQuote(curlArgs),
-		"tar":  `exit 0`,
+		"curl":      `printf '%s\n' "$@" > ` + sshexec.ShellQuote(curlArgs),
+		"tar":       `exit 0`,
+		"systemctl": `[ "$*" = "is-active --quiet sfpanel" ]`,
 	})
 
 	listener, err := net.Listen("tcp", "127.0.0.1:0")
@@ -490,25 +497,27 @@ echo '/dev/sda2 20000000 1000000 1500000 6% /var'`,
 		t.Fatalf("%v\n%s", err, out)
 	}
 	want := Facts{
-		Login:           Login{UID: 0, Sudo: SudoNone, Bash: true},
-		OSID:            "ubuntu",
-		OSLike:          "debian",
-		Debian:          true,
-		Arch:            "x86_64",
-		Systemd:         true,
-		Hostname:        "web-01",
-		Addrs:           []net.IP{net.ParseIP("127.0.0.1"), net.ParseIP("192.0.2.10"), net.ParseIP("fd7a:115c:a1e0::1")},
-		SFPanelVersion:  "0.80.2",
-		SFPanelData:     true,
-		ManagerFiles:    []string{"/srv/cluster/tokens.json"},
-		OperatorTLSNoCA: true,
-		Ports:           []int{8443, 3629},
-		PortsBusy:       []BusyPort{{Port: 8443, Owner: "sfpanel"}},
-		ToolsMissing:    []string{"sha256sum"},
-		GitHub:          true,
-		Reach:           []bool{true, false, false},
-		DiskKB:          900000,
-		Now:             time.Unix(1_800_000_000, 0),
+		Login:          Login{UID: 0, Sudo: SudoNone, Bash: true},
+		OSID:           "ubuntu",
+		OSLike:         "debian",
+		Debian:         true,
+		Arch:           "x86_64",
+		Systemd:        true,
+		Hostname:       "web-01",
+		Addrs:          []net.IP{net.ParseIP("127.0.0.1"), net.ParseIP("192.0.2.10"), net.ParseIP("fd7a:115c:a1e0::1")},
+		SFPanelVersion: "0.80.2",
+		SFPanelData:    true,
+		ManagerFiles:   []string{"/srv/cluster/tokens.json"},
+		OperatorTLS:    true,
+		OperatorTLSCA:  true,
+		SFPanelActive:  true,
+		Ports:          []int{8443, 3629},
+		PortsBusy:      []BusyPort{{Port: 8443, Owner: "sfpanel"}},
+		ToolsMissing:   []string{"sha256sum"},
+		GitHub:         true,
+		Reach:          []bool{true, false, false},
+		DiskKB:         900000,
+		Now:            time.Unix(1_800_000_000, 0),
 	}
 	if !reflect.DeepEqual(f, want) {
 		t.Errorf("facts =\n%+v\nwant\n%+v\nprobe printed:\n%s", f, want, out)
@@ -543,9 +552,9 @@ func TestTheProbeSeesSFPanelsDataWithoutItsBinary(t *testing.T) {
 	writeFile(t, filepath.Join(root, "var/lib/sfpanel/sfpanel.db"), "SQLite format 3\x00", 0o600)
 	stubTools(t, bin, []string{"bash", "awk", "sed", "grep", "head", "sort", "tr", "cat", "timeout"}, map[string]string{
 		"uname": `echo x86_64`, "hostname": `echo web-01`, "date": `echo 1800000000`,
-		"ip": `echo '2: eth0    inet 192.0.2.10/24 scope global eth0'`,
-		"ss": `echo 'State Recv-Q Send-Q Local Address:Port Peer Address:Port Process'`,
-		"df": `echo 'Filesystem 1024-blocks Used Available Capacity Mounted on'; echo '/dev/sda1 20000000 1000000 900000 6% /'`,
+		"ip":   `echo '2: eth0    inet 192.0.2.10/24 scope global eth0'`,
+		"ss":   `echo 'State Recv-Q Send-Q Local Address:Port Peer Address:Port Process'`,
+		"df":   `echo 'Filesystem 1024-blocks Used Available Capacity Mounted on'; echo '/dev/sda1 20000000 1000000 900000 6% /'`,
 		"curl": `exit 0`, "tar": `exit 0`, "sha256sum": `exit 0`,
 	})
 	listener, err := net.Listen("tcp", "127.0.0.1:0")
