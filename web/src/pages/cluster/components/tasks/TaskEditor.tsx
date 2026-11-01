@@ -34,6 +34,7 @@ import {
   STEP_KINDS,
 } from './taskForm'
 import { draftFromModel, draftFromTask, draftKey, dropDraft, keepDraft, readDraft, type TaskDraft } from './taskDrafts'
+import { listShows, type ListHolds } from './taskList'
 import { useTaskDelete } from './useTaskDelete'
 
 // Monaco is only fetched when the YAML view is opened.
@@ -44,8 +45,8 @@ interface TaskEditorProps {
   taskId?: string
   /** Its name as the list shows it. */
   name?: string
-  /** Reads the list again after a save or a delete; the page moves once it has. */
-  onSaved: () => Promise<void> | void
+  /** Reads the list again after a save or a delete, until it shows what was written; the page moves once it has. */
+  onSaved: (holds?: ListHolds) => Promise<void> | void
 }
 
 const NO_PROBLEMS: TaskProblem[] = []
@@ -79,7 +80,7 @@ interface EditorLoaderProps {
   taskId?: string
   from: string | null
   name?: string
-  onSaved: () => Promise<void> | void
+  onSaved: (holds?: ListHolds) => Promise<void> | void
 }
 
 // What the editor opens with: a draft kept from before, a new task, a clone
@@ -164,7 +165,7 @@ function EditorLoader({ draft, taskId, from, name, onSaved }: EditorLoaderProps)
   )
 }
 
-function ReadOnlyTask({ view, heading, onDeleted }: { view: TaskView; heading: string; onDeleted: () => Promise<void> | void }) {
+function ReadOnlyTask({ view, heading, onDeleted }: { view: TaskView; heading: string; onDeleted: (holds?: ListHolds) => Promise<void> | void }) {
   const { t } = useTranslation()
   const { remove, deleting } = useTaskDelete(onDeleted)
   const git = view.source.kind === 'git'
@@ -206,7 +207,7 @@ interface DocumentEditorProps {
   /** Opened from a draft kept from before. */
   restored: boolean
   onDiscard: () => void
-  onSaved: () => Promise<void> | void
+  onSaved: (holds?: ListHolds) => Promise<void> | void
 }
 
 interface Problems {
@@ -352,7 +353,7 @@ function DocumentEditor({ draftKey: key, taskId, heading, back, init, restored, 
       dropDraft(key)
       setDirty(false)
       toast.success(t('cluster.tasks.editor.saved'))
-      await onSaved()
+      await onSaved(listShows([saved]))
       navigate(taskPath(saved.id))
     } catch (err) {
       setError(taskErrorMessage(err, t))

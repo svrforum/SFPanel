@@ -1396,7 +1396,7 @@ test.describe('editor', () => {
       replies: {
         'POST /cluster/tasks/format': ok({ yaml }),
         'POST /cluster/tasks/validate': valid(model),
-        'POST /cluster/tasks': ok({ id, name: 'Check disk', source: { kind: 'user' }, read_only: false, yaml, task: model }),
+        'POST /cluster/tasks': ok({ id, name: 'Check disk', source: { kind: 'user' }, read_only: false, updated_at: seen, updated_by: 'admin', yaml, task: model }),
       },
     })
     await page.goto('/cluster/tasks')
@@ -1563,6 +1563,72 @@ test.describe('editor', () => {
     await expect(section(page, 'Git')).toHaveCount(0)
   })
 
+  // The browser's manager is a follower: a write goes on to the leader, and
+  // this manager has it a second or two later. The page waits for the list
+  // to show the write before it moves on.
+  test('a task saved through a follower is waited for: the page lands on it, and the list has it', async ({ page }) => {
+    const id = '3d4e5f6071829304'
+    const yaml = 'name: Check disk\nsteps:\n  - command:\n      run: df -h\n'
+    const model = { name: 'Check disk', targets: {}, batch: 1, stop_on_failure: true, steps: [{ kind: 'command', command: { run: 'df -h', timeout: 600_000_000_000 } }] }
+    const created = { id, name: 'Check disk', source: { kind: 'user' }, read_only: false, updated_at: '2026-01-02T00:00:00Z', updated_by: 'admin' }
+    let saved = false
+    let readsAfter = 0
+    await mock(page, {
+      replies: {
+        'GET /cluster/tasks': () => {
+          if (!saved) return ok(TASKS)
+          readsAfter += 1
+          return ok(readsAfter >= 2 ? [...TASKS, created] : TASKS)
+        },
+        [`GET /cluster/tasks/${id}`]: ok({ ...created, yaml, task: model }),
+        'POST /cluster/tasks/format': ok({ yaml }),
+        'POST /cluster/tasks/validate': valid(model),
+        'POST /cluster/tasks': () => {
+          saved = true
+          return ok({ ...created, yaml, task: model })
+        },
+      },
+    })
+    await page.goto('/cluster/tasks/new')
+    const editor = editorPane(page)
+    await editor.getByLabel('Task name').fill('Check disk')
+    await editor.getByRole('button', { name: 'Add step' }).click()
+    await page.getByRole('menuitem', { name: 'Command' }).click()
+    await editor.getByTestId('task-step-0').getByLabel('Command', { exact: true }).fill('df -h')
+    await editor.getByRole('button', { name: 'Save', exact: true }).click()
+    await expect(page).toHaveURL(new RegExp(`/cluster/tasks/${id}$`))
+    const pane = page.getByTestId('task-pane-setup')
+    await expect(pane.getByRole('heading', { name: 'Check disk' })).toBeVisible()
+    await expect(pane).not.toContainText('No such task')
+    await expect(section(page, 'My tasks').getByRole('link', { name: 'Check disk' })).toHaveAttribute('aria-current', 'page')
+    expect(readsAfter).toBe(2)
+  })
+
+  test('a task deleted through a follower is waited for: it leaves the list without a reload', async ({ page }) => {
+    const ID = '1b2c3d4e5f607182'
+    let deleted = false
+    let readsAfter = 0
+    await mock(page, {
+      replies: {
+        'GET /cluster/tasks': () => {
+          if (!deleted) return ok(TASKS)
+          readsAfter += 1
+          return ok(readsAfter >= 2 ? TASKS.filter((x) => x.id !== ID) : TASKS)
+        },
+        [`DELETE /cluster/tasks/${ID}`]: () => {
+          deleted = true
+          return ok({})
+        },
+      },
+    })
+    await page.goto(`/cluster/tasks/${ID}`)
+    await page.getByTestId('task-pane-setup').getByRole('button', { name: 'Delete', exact: true }).click()
+    await page.getByRole('dialog').getByRole('button', { name: 'Delete', exact: true }).click()
+    await expect(page).toHaveURL(/\/cluster\/tasks$/)
+    await expect(section(page, 'My tasks').getByRole('link')).toHaveText(['Deploy web'])
+    expect(readsAfter).toBe(2)
+  })
+
   test('read-only tasks offer no edit: a built-in only a clone, a Git task a delete as well', async ({ page }) => {
     await mock(page, { taskDetails: TASK_DETAILS })
     const actions = async (path: string, name: string) => {
@@ -1625,12 +1691,15 @@ test.describe('editor', () => {
     test('[복제해서 고치기] on a built-in opens a new task named "<이름> 복사본", saved with POST', async ({ page }) => {
       await page.addInitScript(() => localStorage.setItem('sfpanel_language', 'ko'))
       const yaml = 'name: 명령 실행 복사본\n'
+      const copy = { id: '4e5f607182930415', name: '명령 실행 복사본', source: { kind: 'user' }, read_only: false, updated_at: seen, updated_by: 'admin' }
+      const tasks: unknown[] = [...TASKS]
       const { calls } = await mock(page, {
+        tasks,
         taskDetails: TASK_DETAILS,
         replies: {
           'POST /cluster/tasks/format': ok({ yaml }),
           'POST /cluster/tasks/validate': valid({ ...COMMAND.task, name: '명령 실행 복사본' }),
-          'POST /cluster/tasks': ok({ id: '4e5f607182930415', name: '명령 실행 복사본', source: { kind: 'user' }, read_only: false }),
+          'POST /cluster/tasks': ok(copy),
         },
       })
       await page.goto('/cluster/tasks/builtin%2Fcommand')
@@ -1646,6 +1715,7 @@ test.describe('editor', () => {
       await page.reload()
       await expect(editor.getByLabel('작업 이름')).toHaveValue('명령 실행 복사본')
 
+      tasks.push(copy)
       await editor.getByRole('button', { name: '저장', exact: true }).click()
       await expect(page).toHaveURL(/\/cluster\/tasks\/4e5f607182930415$/)
       expect(calls.map((c) => `${c.method} ${c.path}`)).toEqual(['POST /cluster/tasks/format', 'POST /cluster/tasks/validate', 'POST /cluster/tasks'])
@@ -1700,7 +1770,7 @@ test.describe('Git import', () => {
   }
   const IMPORTED = {
     commit: COMMIT,
-    imported: [{ id: '7182930415263748', name: 'Deploy everything', read_only: true, source: { kind: 'git', repo: REPO, branch: 'main', path: 'tasks/deploy.yaml', sha: COMMIT } }],
+    imported: [{ id: '7182930415263748', name: 'Deploy everything', read_only: true, updated_at: seen, updated_by: 'admin', source: { kind: 'git', repo: REPO, branch: 'main', path: 'tasks/deploy.yaml', sha: COMMIT } }],
     failed: [{ code: 'TASK_INVALID', message: 'line 3: steps: at least one step', details: { path: 'tasks/broken.yml', line: '3' } }],
   }
   const importDialog = (page: Page) => page.getByRole('dialog')
@@ -1708,7 +1778,9 @@ test.describe('Git import', () => {
   const listReads = (requests: string[]) => requests.filter((r) => r === 'GET /cluster/tasks').length
 
   test('previews a folder, then imports only the files picked, at the commit the preview read', async ({ page }) => {
+    const tasks: unknown[] = [...TASKS]
     const { calls, requests } = await mock(page, {
+      tasks,
       replies: { 'POST /cluster/tasks/import/preview': ok(PREVIEW), 'POST /cluster/tasks/import': ok(IMPORTED) },
     })
     await page.goto('/cluster/tasks')
@@ -1733,6 +1805,8 @@ test.describe('Git import', () => {
 
     await fileBox(page, 'tasks/backup.yaml').click()
     const reads = listReads(requests)
+    // The list read after the import has what it imported.
+    tasks.push(...IMPORTED.imported)
     await dialog.getByRole('button', { name: /^Import/ }).click()
 
     await expect(dialog.getByTestId('import-result')).toContainText('Imported 1 task')
@@ -1745,13 +1819,15 @@ test.describe('Git import', () => {
       { method: 'POST', path: '/cluster/tasks/import/preview', body: { url: REPO, branch: 'main', path: 'tasks' } },
       { method: 'POST', path: '/cluster/tasks/import', body: { url: REPO, branch: 'main', path: 'tasks', commit: COMMIT, files: ['tasks/deploy.yaml', 'tasks/broken.yml'] } },
     ])
-    // The list is read again behind the result, which stays.
+    // The list is read again before the result shows; once, as it has the
+    // task imported. The result stays.
     await expect.poll(() => listReads(requests)).toBe(reads + 1)
     await expect(dialog.getByTestId('import-result')).toBeVisible()
   })
 
   test('the token is a password, sent in the bodies only: in no address, and not kept', async ({ page }) => {
     const { calls, requests } = await mock(page, {
+      tasks: [...TASKS, ...IMPORTED.imported],
       replies: { 'POST /cluster/tasks/import/preview': ok(PREVIEW), 'POST /cluster/tasks/import': ok(IMPORTED) },
     })
     await page.goto('/cluster/tasks')

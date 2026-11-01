@@ -62,3 +62,42 @@ const ACTIVE: ReadonlySet<string> = new Set(['running', 'stopping', 'handing_ove
 export function activeRuns(runs: RunRecord[]): RunRecord[] {
   return runs.filter((r) => ACTIVE.has(r.status))
 }
+
+/**
+ * What the list has to show before the page moves on after a write. Writes
+ * go to the leader; the list is read from the manager this browser talks
+ * to, which as a follower applies the commit a second or two later.
+ */
+export type ListHolds = (list: TaskView[]) => boolean
+
+/** The waits between reads of the list: the run follower's rhythm for a run not yet found, then two seconds once more. */
+export const READ_AGAIN_MS = [500, 1000, 2000, 2000]
+
+/**
+ * Reads, and while holds is false and a delay is left, waits it and reads
+ * again. Answers the last value read, whether it holds or not.
+ */
+export async function readUntil<T>(
+  read: () => Promise<T>,
+  holds: (value: T) => boolean,
+  delays: number[],
+  sleep: (ms: number) => Promise<void>,
+): Promise<T> {
+  let value = await read()
+  for (const ms of delays) {
+    if (holds(value)) break
+    await sleep(ms)
+    value = await read()
+  }
+  return value
+}
+
+/** A save or an import: every task written is listed, with the time it was written. */
+export function listShows(written: Pick<TaskView, 'id' | 'updated_at'>[]): ListHolds {
+  return (list) => written.every((w) => list.some((x) => x.id === w.id && x.updated_at === w.updated_at))
+}
+
+/** A delete: the task is no longer listed. */
+export function listLacks(id: string): ListHolds {
+  return (list) => !list.some((x) => x.id === id)
+}

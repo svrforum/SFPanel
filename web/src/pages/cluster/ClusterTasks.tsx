@@ -14,12 +14,14 @@ import { TaskRunHistory } from './components/tasks/TaskRunHistory'
 import { TaskGitImportDialog } from './components/tasks/TaskGitImportDialog'
 import type { ImportFrom } from './components/tasks/taskImport'
 import { builtinText } from './components/tasks/taskBuiltins'
-import { activeRuns, type ListedTask } from './components/tasks/taskList'
+import { READ_AGAIN_MS, activeRuns, readUntil, type ListHolds, type ListedTask } from './components/tasks/taskList'
 
 // The editor carries Monaco: loaded only when a route opens it.
 const TaskEditor = lazy(() => import('./components/tasks/TaskEditor'))
 
 const RUNS_POLL_MS = 10_000
+
+const sleep = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms))
 
 // The cluster's Tasks tab. Every tasks/* route lands here and the URL picks
 // the right pane: nothing (tasks), a task's run setup (tasks/:taskId), the
@@ -46,9 +48,15 @@ export default function ClusterTasks() {
   // The Git import dialog, while open: empty, or on a folder to pull again.
   const [importing, setImporting] = useState<{ from?: ImportFrom } | null>(null)
 
-  // Also what the editor and a delete wait on before the page moves.
-  const loadTasks = useCallback(() =>
-    Promise.allSettled([api.getClusterStatus(), api.listTasks()]).then(([s, l]) => {
+  // Also what the editor, a delete and the Git import wait on before the
+  // page moves. A write passes what the list has to show (holds): through a
+  // follower the list has it a second or two after the write answered, so
+  // it is read again until it does, or until the waits run out.
+  const loadTasks = useCallback((holds?: ListHolds) =>
+    Promise.allSettled([
+      api.getClusterStatus(),
+      holds ? readUntil(() => api.listTasks(), holds, READ_AGAIN_MS, sleep) : api.listTasks(),
+    ]).then(([s, l]) => {
       if (s.status === 'fulfilled') {
         setStatus(s.value)
         standalone.current = s.value.enabled === false

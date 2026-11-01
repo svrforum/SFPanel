@@ -18,13 +18,14 @@ import { planNeedsReview, runErrorText, type RunErrorText } from './taskPlan'
 import { runStatusText, runStatusTone } from './taskRunStatus'
 import { clonePath, editPath } from './taskForm'
 import { shortSha } from './taskImport'
+import type { ListHolds } from './taskList'
 import { useTaskDelete } from './useTaskDelete'
 
 interface TaskRunSetupProps {
   /** The task as the list has it; undefined when the list has no such ID. */
   task: TaskView | undefined
-  /** Reads the list again once the task is deleted. */
-  onDeleted: () => Promise<void> | void
+  /** Reads the list again once the task is deleted, until it no longer has it. */
+  onDeleted: (holds?: ListHolds) => Promise<void> | void
 }
 
 const RECENT_RUNS = 5
@@ -97,7 +98,7 @@ function GitSource({ source }: { source: TaskSource }) {
   )
 }
 
-function TaskActions({ task, name, onDeleted }: { task: TaskView; name: string; onDeleted: () => Promise<void> | void }) {
+function TaskActions({ task, name, onDeleted }: { task: TaskView; name: string; onDeleted: (holds?: ListHolds) => Promise<void> | void }) {
   const { t } = useTranslation()
   const { remove, deleting } = useTaskDelete(onDeleted)
   return (

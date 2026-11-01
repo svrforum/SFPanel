@@ -12,7 +12,7 @@ import { Label } from '@/components/ui/label'
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog'
 import { StatusPill, type StatusPillTone } from '@/components/StatusPill'
 import type { TaskImportFileState, TaskImportPreview, TaskImportResult } from '@/types/api'
-import { repoLabel } from './taskList'
+import { listShows, repoLabel, type ListHolds } from './taskList'
 import { failedLine, importRequest, initialPicks, pickable, repoUrlValid, shortSha, type ImportFrom } from './taskImport'
 import { useTaskDelete } from './useTaskDelete'
 
@@ -20,8 +20,11 @@ interface TaskGitImportDialogProps {
   /** [Pull again]: the repository, branch and folder its tasks came from. Nothing for a new import. */
   from?: ImportFrom
   onClose: () => void
-  /** Reads the task list again: after an import, and after a task gone from the repository is deleted. */
-  onChanged: () => Promise<void> | void
+  /**
+   * Reads the task list again, until it shows what was written: after an
+   * import, and after a task gone from the repository is deleted.
+   */
+  onChanged: (holds?: ListHolds) => Promise<void> | void
 }
 
 const STATE_TONE: Record<TaskImportFileState, StatusPillTone> = {
@@ -94,8 +97,9 @@ export function TaskGitImportDialog({ from, onClose, onChanged }: TaskGitImportD
     setBusy(true)
     try {
       const r = await api.importTasks(importRequest(preview, picked, token))
+      // The result shows once the list has every task it imported.
+      await onChanged(listShows(r.imported ?? []))
       setResult(r)
-      await onChanged()
     } catch (err) {
       setError(taskErrorMessage(err, t))
     } finally {
