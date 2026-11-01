@@ -39,7 +39,9 @@ var (
 )
 
 const (
-	// keepRuns is how many runs the store keeps once one ends.
+	// keepRuns is how many runs the store keeps once one ends. The run
+	// history page states this number (cluster.tasks.history.kept in
+	// web/src/i18n/locales/*.json): change it there with it here.
 	keepRuns = 200
 	// maxSummary caps a step's summary in the run record: a snapshot holds
 	// up to 200 nodes of 50 steps.
@@ -102,11 +104,11 @@ type runner struct {
 // rather than start it again. A failed step stops its node unless it
 // continues on error; with StopOnFailure a wave with a failed node is the
 // last. A run being stopped starts no new step, and a forced stop cancels
-// the command jobs under way. When the leader's own turn comes it hands the
-// leadership over and returns; the next leader runs it as any manager. A run
-// that ends writes how, and prunes old runs. It returns errAbandoned, with
-// the run left as recorded, when its context ends or it loses the
-// leadership.
+// the command jobs under way and a reboot not yet under way (cancellable).
+// When the leader's own turn comes it hands the leadership over and
+// returns; the next leader runs it as any manager. A run that ends writes
+// how, and prunes old runs. It returns errAbandoned, with the run left as
+// recorded, when its context ends or it loses the leadership.
 func runTask(ctx context.Context, env runEnv, run *cluster.RunRecord) error {
 	r := &runner{ctx: ctx, env: env, st: env.Store(), run: run, nodes: map[string]cluster.Node{}}
 	head, recs, err := r.st.GetRun(run.ID)
@@ -747,7 +749,8 @@ func cancellable(kind string) bool {
 // wait asks node id how job spec stands until it ends. A reboot is waited
 // for until its wait runs out, through the node not answering while it
 // boots; any other job until the node has not answered for lostAfter. A run
-// stopped by force cancels a command job, once.
+// stopped by force cancels a command job, or a reboot not yet under way,
+// once (cancellable).
 func (r *runner) wait(id string, spec tasks.JobSpec, view tasks.JobView, started time.Time) (tasks.JobView, stepResult) {
 	var rebootBy time.Time
 	if spec.Kind == tasks.StepReboot {
