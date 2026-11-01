@@ -1453,6 +1453,12 @@ ends it `failed`, `unknown` ends it `unknown`, `cancelled` ends it `stopped`;
 a node whose every step has ended otherwise ends `succeeded`, whatever its
 health, as no step is left to post.
 
+A run already `stopping` when a leader takes it over ends only once the
+nodes the former leader left `running` are closed: a step in flight is
+followed to its end, or cancelled when the stop was forced, no new step
+starts, and a node whose steps had all ended is closed from its record as
+above. An ended run never lists a node as `running`.
+
 A job does not depend on the leader. Command and package jobs run in
 transient units that a panel restart on the node does not stop either: the
 node takes them back at boot. A stack step runs inside the panel, and a panel

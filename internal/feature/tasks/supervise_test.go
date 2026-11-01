@@ -637,3 +637,75 @@ func TestATakeoverAsksAboutAStartingStepBeforePostingIt(t *testing.T) {
 		wantNode(t, e, "a1", cluster.RunNodeSucceeded, "")
 	})
 }
+
+// A run may already be stopping when a leader takes it over, with a node the
+// former leader left under way. The stop lets a step in flight end, or
+// cancels it when forced, as it would have under that leader: the node is
+// followed and closed before the run ends, never left running in an ended
+// run.
+func TestARunTakenOverWhileStoppingClosesTheNodesLeftUnderWay(t *testing.T) {
+	underWay := func(t *testing.T, e *fakeEnv, steps ...cluster.RunStepRecord) {
+		t.Helper()
+		if err := e.store.PutRunNode(testRunID, "a1", cluster.RunNodeRecord{Status: cluster.RunNodeRunning, Steps: steps}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	posted := func(t *testing.T, e *fakeEnv) {
+		t.Helper()
+		if _, err := e.StartJob(context.Background(), "a1", tasks.JobSpec{ID: jobID(testRunID, 0), RunID: testRunID, Step: 0, Kind: tasks.StepCommand}, "operator"); err != nil {
+			t.Fatal(err)
+		}
+		e.posts, e.started = nil, nil // the old leader's post, above
+	}
+	stopping := func(e *fakeEnv, force bool, by string) {
+		e.store.setHead(testRunID, func(h *cluster.RunRecord) {
+			h.Status, h.Reason, h.Force, h.StoppedBy = cluster.RunStopping, "stopped by "+by, force, by
+		})
+	}
+	t.Run("a step under way: followed to its end, the next not started", func(t *testing.T) {
+		e := newFakeEnv(t, "m1", manager("m1", "leader"), agent("a1", "web-1"), agent("a2", "web-2"))
+		run := newRun(t, e, steps(true, cmdTrue, cmdTrue), [][]string{{"a1"}, {"a2"}})
+		posted(t, e)
+		e.polls[key("a1", 0)] = 3
+		underWay(t, e, cluster.RunStepRecord{Status: cluster.RunStepRunning, JobID: jobID(testRunID, 0), StartedAt: e.now}, cluster.RunStepRecord{Status: cluster.RunStepPending})
+		stopping(e, false, "operator")
+		mustRun(t, e, run)
+
+		if p := e.postList(); len(p) != 0 {
+			t.Errorf("posts = %v, want none: a stopping run starts no step", p)
+		}
+		rec := wantNode(t, e, "a1", cluster.RunNodeStopped, "stopped by operator")
+		wantStep(t, rec, 0, cluster.RunStepSucceeded, "")
+		wantStep(t, rec, 1, cluster.RunStepPending, "")
+		wantNode(t, e, "a2", cluster.RunNodeStopped, "stopped by operator")
+		wantHead(t, e, cluster.RunStopped, "stopped by operator")
+	})
+	t.Run("a forced stop: the step under way cancelled under the stopper's name", func(t *testing.T) {
+		e := newFakeEnv(t, "m1", manager("m1", "leader"), agent("a1", "web-1"))
+		run := newRun(t, e, steps(true, cmdTrue, cmdTrue), [][]string{{"a1"}})
+		posted(t, e)
+		e.polls[key("a1", 0)] = 1000
+		underWay(t, e, cluster.RunStepRecord{Status: cluster.RunStepRunning, JobID: jobID(testRunID, 0), StartedAt: e.now}, cluster.RunStepRecord{Status: cluster.RunStepPending})
+		stopping(e, true, "carol")
+		mustRun(t, e, run)
+
+		if !slices.Equal(e.cancels, []string{"a1/0"}) || !slices.Equal(e.cancelledBy, []string{"a1:carol"}) {
+			t.Errorf("cancels = %v by %v, want a1/0 by a1:carol", e.cancels, e.cancelledBy)
+		}
+		rec := wantNode(t, e, "a1", cluster.RunNodeStopped, reasonStopped)
+		wantStep(t, rec, 0, cluster.RunStepCancelled, "")
+		wantHead(t, e, cluster.RunStopped, "stopped by carol")
+	})
+	t.Run("every step ended, the node's end not written: closed from its record", func(t *testing.T) {
+		e := newFakeEnv(t, "m1", manager("m1", "leader"), agent("a1", "web-1"))
+		run := newRun(t, e, steps(true, cmdTrue, cmdTrue), [][]string{{"a1"}})
+		ended := cluster.RunStepRecord{Status: cluster.RunStepSucceeded, JobID: jobID(testRunID, 0), StartedAt: e.now, EndedAt: e.now}
+		underWay(t, e, ended, ended)
+		stopping(e, false, "operator")
+		mustRun(t, e, run)
+
+		wantStarted(t, e)
+		wantNode(t, e, "a1", cluster.RunNodeSucceeded, "")
+		wantHead(t, e, cluster.RunStopped, "stopped by operator")
+	})
+}

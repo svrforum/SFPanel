@@ -141,7 +141,7 @@ func runTask(ctx context.Context, env runEnv, run *cluster.RunRecord) error {
 			return errAbandoned
 		}
 		if head.Status == cluster.RunStopping {
-			return r.finish(cluster.RunStopped, stopReason(head))
+			return r.stop(head)
 		}
 		if failed && run.StopOnFailure {
 			return r.finish(cluster.RunFailed, reasonEarlierFail)
@@ -174,16 +174,7 @@ func runTask(ctx context.Context, env runEnv, run *cluster.RunRecord) error {
 			}
 		}
 
-		outcomes := make([]nodeOutcome, len(todo))
-		var wg sync.WaitGroup
-		for i, id := range todo {
-			wg.Add(1)
-			go func() {
-				defer wg.Done()
-				outcomes[i] = r.runNode(id)
-			}()
-		}
-		wg.Wait()
+		outcomes := r.runNodes(todo)
 		quorum := ""
 		for i, o := range outcomes {
 			switch o {
@@ -200,12 +191,45 @@ func runTask(ctx context.Context, env runEnv, run *cluster.RunRecord) error {
 		}
 	}
 	if head, err := r.readHead(true); err == nil && head.Status == cluster.RunStopping {
-		return r.finish(cluster.RunStopped, stopReason(head))
+		return r.stop(head)
 	}
 	if failed {
 		return r.finish(cluster.RunFailed, "")
 	}
 	return r.finish(cluster.RunSucceeded, "")
+}
+
+// runNodes runs the nodes ids at once and returns how each ended.
+func (r *runner) runNodes(ids []string) []nodeOutcome {
+	outcomes := make([]nodeOutcome, len(ids))
+	var wg sync.WaitGroup
+	for i, id := range ids {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			outcomes[i] = r.runNode(id)
+		}()
+	}
+	wg.Wait()
+	return outcomes
+}
+
+// stop ends a stopping run. A node a former leader left under way, recorded
+// running, is run first, as under that leader: its step in flight is
+// followed to its end, or cancelled when the stop is forced, no new step
+// starts, and a node whose steps had all ended is closed from its record —
+// rather than left running in an ended run.
+func (r *runner) stop(head cluster.RunRecord) error {
+	var todo []string
+	for _, id := range r.run.Nodes {
+		if r.record(id).Status == cluster.RunNodeRunning {
+			todo = append(todo, id)
+		}
+	}
+	if slices.Contains(r.runNodes(todo), nodeAbandoned) {
+		return errAbandoned
+	}
+	return r.finish(cluster.RunStopped, stopReason(head))
 }
 
 func stopReason(head cluster.RunRecord) string {
