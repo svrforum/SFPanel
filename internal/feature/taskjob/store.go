@@ -218,7 +218,7 @@ func (h *Handler) finish(id string, r Result) error {
 		WHERE id = ? AND status IN (?, ?)`,
 		r.Status, r.Changed, r.ExitCode, r.Summary, formatTime(h.now()), id, tasks.JobRunning, tasks.JobRebooting)
 	if err == nil {
-		logger.Info("task job ended", "id", id, "status", r.Status, "changed", r.Changed)
+		logger().Info("task job ended", "id", id, "status", r.Status, "changed", r.Changed)
 	}
 	return err
 }
@@ -247,13 +247,13 @@ func (h *Handler) sweep() error {
 	}
 	for _, id := range ids {
 		if err := os.Remove(h.logPath(id)); err != nil && !errors.Is(err, os.ErrNotExist) {
-			logger.Warn("removing an old job's log", "id", id, "error", err)
+			logger().Warn("removing an old job's log", "id", id, "error", err)
 			continue
 		}
 		// A command job removes its script when it ends; one the panel
 		// stopped under may have left it.
 		if err := os.Remove(scriptPath(h.logPath(id))); err != nil && !errors.Is(err, os.ErrNotExist) {
-			logger.Warn("removing an old job's script", "id", id, "error", err)
+			logger().Warn("removing an old job's script", "id", id, "error", err)
 		}
 		if _, err := h.DB.Exec(`DELETE FROM task_jobs WHERE id = ?`, id); err != nil {
 			return err
@@ -276,7 +276,7 @@ func (h *Handler) view(r record, skip int64, withOutput bool) tasks.JobView {
 	final := !active(r.status)
 	out, next, atEnd, err := readOutput(h.logPath(r.spec.ID), skip, final)
 	if err != nil {
-		logger.Warn("reading a job's output", "id", r.spec.ID, "error", err)
+		logger().Warn("reading a job's output", "id", r.spec.ID, "error", err)
 	}
 	v.Output, v.NextSkip, v.Done = out, next, final && atEnd && err == nil
 	return v
@@ -424,14 +424,14 @@ func unitRunning(state string) bool {
 func (h *Handler) Recover() {
 	rows, err := h.DB.Query(`SELECT `+recordColumns+` FROM task_jobs WHERE status = ?`, tasks.JobRunning)
 	if err != nil {
-		logger.Error("reading the jobs left running", "error", err)
+		logger().Error("reading the jobs left running", "error", err)
 		return
 	}
 	var running []record
 	for rows.Next() {
 		r, err := scanRecord(rows)
 		if err != nil {
-			logger.Error("reading a job left running", "error", err)
+			logger().Error("reading a job left running", "error", err)
 			continue
 		}
 		running = append(running, r)
@@ -441,7 +441,7 @@ func (h *Handler) Recover() {
 	for _, r := range running {
 		id := r.spec.ID
 		if resumer, ok := h.runners[r.spec.Kind].(Resumer); ok && r.unit != "" {
-			logger.Info("task job taken back after a restart", "id", id, "unit", r.unit)
+			logger().Info("task job taken back after a restart", "id", id, "unit", r.unit)
 			h.launch(&Job{Spec: r.spec, LogPath: h.logPath(id), StartedAt: r.startedAt, Unit: r.unit, h: h}, resumer.Resume)
 			continue
 		}
@@ -449,7 +449,7 @@ func (h *Handler) Recover() {
 		if r.unit != "" {
 			out, _ := h.Cmd.RunWithTimeout(systemctlTimeout, "systemctl", "is-active", r.unit)
 			if unitRunning(strings.TrimSpace(out)) {
-				logger.Info("task job still running after a restart", "id", id, "unit", r.unit)
+				logger().Info("task job still running after a restart", "id", id, "unit", r.unit)
 				continue
 			}
 			if code, ok := exitFromLog(h.logPath(id)); ok {
@@ -462,11 +462,11 @@ func (h *Handler) Recover() {
 			}
 		}
 		if err := h.finish(id, res); err != nil {
-			logger.Error("settling a job left running", "id", id, "error", err)
+			logger().Error("settling a job left running", "id", id, "error", err)
 		}
 	}
 	h.recoverRebooting()
 	if err := h.sweep(); err != nil {
-		logger.Warn("sweeping old jobs", "error", err)
+		logger().Warn("sweeping old jobs", "error", err)
 	}
 }

@@ -102,7 +102,7 @@ func rebootWait(step *tasks.RebootStep) time.Duration {
 func (r *RebootRunner) Start(ctx context.Context, job *Job) error {
 	finish := func(res Result) error {
 		if err := job.Finish(res); err != nil {
-			logger.Error("recording a job's end", "id", job.Spec.ID, "error", err)
+			logger().Error("recording a job's end", "id", job.Spec.ID, "error", err)
 		}
 		return nil
 	}
@@ -132,7 +132,7 @@ func (r *RebootRunner) Start(ctx context.Context, job *Job) error {
 			Summary: "systemd-run: " + response.SanitizeOutput(strings.TrimSpace(firstNonEmpty(out, err.Error())))})
 	}
 	appendLog(job, "reboot scheduled in 5 seconds ("+unit+")")
-	logger.Info("task job scheduled a reboot", "id", job.Spec.ID, "unit", unit)
+	logger().Info("task job scheduled a reboot", "id", job.Spec.ID, "unit", unit)
 	r.await(ctx, job)
 	return nil
 }
@@ -152,11 +152,11 @@ func (r *RebootRunner) await(ctx context.Context, job *Job) {
 	select {
 	case <-ctx.Done():
 		if out, err := r.Cmd.RunWithTimeout(systemctlTimeout, "systemctl", "stop", job.Unit); err != nil {
-			logger.Warn("calling off a cancelled job's reboot", "id", job.Spec.ID, "unit", job.Unit,
+			logger().Warn("calling off a cancelled job's reboot", "id", job.Spec.ID, "unit", job.Unit,
 				"error", err, "output", response.SanitizeOutput(out))
 		}
 		if r.goingDown() {
-			logger.Info("a forced cancel came after the reboot began; the job stays rebooting for the next boot to settle",
+			logger().Info("a forced cancel came after the reboot began; the job stays rebooting for the next boot to settle",
 				"id", job.Spec.ID, "unit", job.Unit)
 			appendLog(job, "cancel asked after the reboot had begun: it cannot be called off")
 			// The reboot ends this process; the wait still frees the node
@@ -171,7 +171,7 @@ func (r *RebootRunner) await(ctx context.Context, job *Job) {
 	}
 	appendLog(job, res.Summary)
 	if err := job.Finish(res); err != nil {
-		logger.Error("recording a job's end", "id", job.Spec.ID, "error", err)
+		logger().Error("recording a job's end", "id", job.Spec.ID, "error", err)
 	}
 }
 
@@ -196,7 +196,7 @@ func (h *Handler) settleReboot(r record) bool {
 	}
 	res := Result{Status: tasks.JobSucceeded, Changed: true, Summary: "rebooted"}
 	if err := h.finish(r.spec.ID, res); err != nil {
-		logger.Error("settling a reboot", "id", r.spec.ID, "error", err)
+		logger().Error("settling a reboot", "id", r.spec.ID, "error", err)
 	}
 	return true
 }
@@ -206,14 +206,14 @@ func (h *Handler) settleReboot(r record) bool {
 func (h *Handler) recoverRebooting() {
 	rows, err := h.DB.Query(`SELECT `+recordColumns+` FROM task_jobs WHERE status = ?`, tasks.JobRebooting)
 	if err != nil {
-		logger.Error("reading the jobs left rebooting", "error", err)
+		logger().Error("reading the jobs left rebooting", "error", err)
 		return
 	}
 	var waiting []record
 	for rows.Next() {
 		r, err := scanRecord(rows)
 		if err != nil {
-			logger.Error("reading a job left rebooting", "error", err)
+			logger().Error("reading a job left rebooting", "error", err)
 			continue
 		}
 		waiting = append(waiting, r)
@@ -221,14 +221,14 @@ func (h *Handler) recoverRebooting() {
 	rows.Close()
 	for _, r := range waiting {
 		if h.settleReboot(r) {
-			logger.Info("task job's reboot done", "id", r.spec.ID)
+			logger().Info("task job's reboot done", "id", r.spec.ID)
 			continue
 		}
 		runner, ok := h.runners[tasks.StepReboot].(*RebootRunner)
 		if !ok {
 			continue
 		}
-		logger.Info("task job still waiting on its reboot", "id", r.spec.ID, "boot_id", r.bootID)
+		logger().Info("task job still waiting on its reboot", "id", r.spec.ID, "boot_id", r.bootID)
 		job := &Job{Spec: r.spec, LogPath: h.logPath(r.spec.ID), StartedAt: r.startedAt, Unit: r.unit, h: h}
 		h.launch(job, func(ctx context.Context, job *Job) error {
 			runner.await(ctx, job)

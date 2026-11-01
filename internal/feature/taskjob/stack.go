@@ -77,7 +77,7 @@ func (StackStepRunner) Check(spec tasks.JobSpec) tasks.CheckVerdict {
 func (StackStepRunner) Start(ctx context.Context, job *Job) error {
 	res := runStack(ctx, job)
 	if err := job.Finish(res); err != nil {
-		logger.Error("recording a job's end", "id", job.Spec.ID, "error", err)
+		logger().Error("recording a job's end", "id", job.Spec.ID, "error", err)
 	}
 	return nil
 }

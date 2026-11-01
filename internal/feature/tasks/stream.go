@@ -78,7 +78,7 @@ func (h *Handler) StreamRun(c echo.Context) error {
 	send := func(ev streamEvent) {
 		b, err := json.Marshal(ev)
 		if err != nil {
-			logger.Warn("encoding a task run event", "run", id, "error", err)
+			logger().Warn("encoding a task run event", "run", id, "error", err)
 			return
 		}
 		write("data: " + string(b) + "\n\n")
@@ -104,7 +104,7 @@ func (h *Handler) StreamRun(c echo.Context) error {
 			send(streamEvent{Type: "end"}) // pruned: nothing more will come
 			return nil
 		case err != nil:
-			logger.Warn("reading a task run for its stream", "run", id, "error", err)
+			logger().Warn("reading a task run for its stream", "run", id, "error", err)
 		default:
 			nextNodes = withPending(next, nextNodes)
 			ids := make([]string, 0, len(nextNodes))

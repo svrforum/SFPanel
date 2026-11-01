@@ -17,7 +17,11 @@ import (
 	"github.com/svrforum/SFPanel/internal/tasks"
 )
 
-var logger = slog.With("component", "tasks")
+// logger is made at each call, from the default logger as it is then:
+// logging.Setup installs the panel's handler after this package is
+// initialised, and a logger taken from the default before that writes plain
+// text through the log package, every line at INFO whatever its level.
+func logger() *slog.Logger { return slog.With("component", "tasks") }
 
 // Variables so tests can shorten them.
 var (
@@ -309,7 +313,7 @@ func (r *runner) handOver() (handed bool, err error) {
 	}
 	target, herr := r.env.HandOver()
 	if target != "" && herr == nil {
-		logger.Info("task run handed over with the leadership", "run", r.run.ID, "to", target)
+		logger().Info("task run handed over with the leadership", "run", r.run.ID, "to", target)
 		return true, nil
 	}
 	if err := r.putHead(func(h *cluster.RunRecord) {
@@ -326,7 +330,7 @@ func (r *runner) handOver() (handed bool, err error) {
 		if err := r.write(local, rec); err != nil {
 			return false, err
 		}
-		logger.Warn("task run could not hand the leadership over", "run", r.run.ID, "to", target, "error", herr)
+		logger().Warn("task run could not hand the leadership over", "run", r.run.ID, "to", target, "error", herr)
 	}
 	return false, nil
 }
@@ -446,7 +450,7 @@ func (r *runner) runNode(id string) nodeOutcome {
 
 		if !resume && spec.Kind == tasks.StepReboot && n.IsManager() && !r.quorumWithout(id) {
 			rec.Steps[i] = cluster.RunStepRecord{Status: cluster.RunStepSkipped, Summary: reasonQuorum, EndedAt: r.env.Now().UTC()}
-			logger.Warn("task run skipped a manager's reboot: quorum", "run", r.run.ID, "node", id)
+			logger().Warn("task run skipped a manager's reboot: quorum", "run", r.run.ID, "node", id)
 			return r.fail(id, rec, cluster.RunNodeSkipped, reasonQuorum)
 		}
 
@@ -773,7 +777,7 @@ func (r *runner) wait(id string, spec tasks.JobSpec, view tasks.JobView, started
 				cancel()
 				if err == nil {
 					cancelled = true
-					logger.Info("task run cancelled a job: forced stop", "run", r.run.ID, "node", id, "job", spec.ID)
+					logger().Info("task run cancelled a job: forced stop", "run", r.run.ID, "node", id, "job", spec.ID)
 				}
 			}
 		}
@@ -863,9 +867,9 @@ func (r *runner) finish(status, reason string) error {
 	}); err != nil {
 		return errAbandoned
 	}
-	logger.Info("task run ended", "run", r.run.ID, "task", r.run.TaskName, "status", status, "reason", reason)
+	logger().Info("task run ended", "run", r.run.ID, "task", r.run.TaskName, "status", status, "reason", reason)
 	if err := r.st.PruneRuns(keepRuns); err != nil {
-		logger.Warn("pruning task runs", "error", err)
+		logger().Warn("pruning task runs", "error", err)
 	}
 	return nil
 }

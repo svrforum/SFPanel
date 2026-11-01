@@ -154,7 +154,7 @@ func (r *PackageRunner) Resume(ctx context.Context, job *Job) error {
 func (r *PackageRunner) run(ctx context.Context, job *Job, phases []pkgPhase, from int, tx string, copied int64, done []string) {
 	finish := func(res Result) {
 		if err := job.Finish(res); err != nil {
-			logger.Error("recording a job's end", "id", job.Spec.ID, "error", err)
+			logger().Error("recording a job's end", "id", job.Spec.ID, "error", err)
 		}
 	}
 	for i := from; i < len(phases); i++ {
@@ -180,7 +180,7 @@ func (r *PackageRunner) run(ctx context.Context, job *Job, phases []pkgPhase, fr
 				unit = aptUnitPrefix + id + ".service"
 			}
 			if err := job.SetUnit(unit); err != nil {
-				logger.Warn("recording a job's unit", "id", job.Spec.ID, "unit", unit, "error", err)
+				logger().Warn("recording a job's unit", "id", job.Spec.ID, "unit", unit, "error", err)
 			}
 			appendLog(job, phaseMarker+strconv.Itoa(i)+" tx="+id)
 		}
@@ -293,13 +293,13 @@ func copyOutput(job *Job, src string, offset int64) int64 {
 	}
 	out, err := os.OpenFile(job.LogPath, os.O_WRONLY|os.O_APPEND, 0)
 	if err != nil {
-		logger.Warn("writing a job's log", "id", job.Spec.ID, "error", err)
+		logger().Warn("writing a job's log", "id", job.Spec.ID, "error", err)
 		return offset
 	}
 	defer out.Close()
 	n, err := io.Copy(out, in)
 	if err != nil {
-		logger.Warn("copying a transaction's output", "id", job.Spec.ID, "error", err)
+		logger().Warn("copying a transaction's output", "id", job.Spec.ID, "error", err)
 	}
 	return offset + n
 }

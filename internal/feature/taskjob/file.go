@@ -44,7 +44,7 @@ func (FileRunner) Start(_ context.Context, job *Job) error {
 	res := writeFileStep(job.Spec.File)
 	appendLog(job, job.Spec.File.Path+": "+res.Summary)
 	if err := job.Finish(res); err != nil {
-		logger.Error("recording a job's end", "id", job.Spec.ID, "error", err)
+		logger().Error("recording a job's end", "id", job.Spec.ID, "error", err)
 	}
 	return nil
 }
@@ -205,7 +205,7 @@ func writeAtomic(path string, content []byte, mode os.FileMode, uid, gid int) er
 	// The rename is durable once the directory is.
 	if d, err := os.Open(dir); err == nil {
 		if err := d.Sync(); err != nil {
-			logger.Warn("flushing a directory", "dir", dir, "error", err)
+			logger().Warn("flushing a directory", "dir", dir, "error", err)
 		}
 		_ = d.Close()
 	}

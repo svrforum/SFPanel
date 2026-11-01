@@ -47,7 +47,7 @@ func (h *Handler) supervise(ctx context.Context) {
 		case <-ctx.Done():
 			return
 		case <-env.Done():
-			logger.Info("task run supervisor stopped with the cluster manager")
+			logger().Info("task run supervisor stopped with the cluster manager")
 			return
 		case <-ticker.C:
 		}
@@ -60,14 +60,14 @@ func (h *Handler) supervise(ctx context.Context) {
 func (h *Handler) superviseOnce(ctx context.Context, env runEnv) {
 	if !env.CaughtUp() {
 		if n := h.stopRunners(); n > 0 {
-			logger.Info("this node no longer leads: its task runs are left to the leader", "runs", n)
+			logger().Info("this node no longer leads: its task runs are left to the leader", "runs", n)
 		}
 		return
 	}
 	st := env.Store()
 	runs, err := st.ListRuns()
 	if err != nil {
-		logger.Warn("listing task runs", "error", err)
+		logger().Warn("listing task runs", "error", err)
 		return
 	}
 	for _, run := range runs {
@@ -76,12 +76,12 @@ func (h *Handler) superviseOnce(ctx context.Context, env runEnv) {
 		}
 		if run.Status == cluster.RunHandingOver {
 			if err := resumeHandedOver(st, &run); err != nil {
-				logger.Warn("taking a handed-over task run back to running", "run", run.ID, "error", err)
+				logger().Warn("taking a handed-over task run back to running", "run", run.ID, "error", err)
 				continue
 			}
 		}
 		if h.launch(ctx, run) {
-			logger.Info("task run taken over by this leader", "run", run.ID, "task", run.TaskName)
+			logger().Info("task run taken over by this leader", "run", run.ID, "task", run.TaskName)
 		}
 	}
 }

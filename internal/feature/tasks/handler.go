@@ -116,7 +116,7 @@ func (h *Handler) ActiveRun() string {
 	}
 	runs, err := env.Store().ListRuns()
 	if err != nil {
-		logger.Warn("listing task runs for the start gate", "error", err)
+		logger().Warn("listing task runs for the start gate", "error", err)
 		return ""
 	}
 	for _, r := range runs {
@@ -171,7 +171,7 @@ func (h *Handler) launch(ctx context.Context, run cluster.RunRecord) bool {
 			return
 		}
 		if err := runTask(ctx, env, &run); err != nil {
-			logger.Warn("task run left unfinished on this node", "run", run.ID, "error", err)
+			logger().Warn("task run left unfinished on this node", "run", run.ID, "error", err)
 			return
 		}
 		if head, _, err := st.GetRun(run.ID); err == nil && !head.Active() {
@@ -247,7 +247,7 @@ func fail(c echo.Context, err error) error {
 	case errors.Is(err, cluster.ErrNotLeader):
 		return response.Fail(c, http.StatusServiceUnavailable, response.ErrInternalError, "This node is not the cluster leader: retry in a few seconds")
 	}
-	logger.Error("task API", "path", c.Path(), "error", err)
+	logger().Error("task API", "path", c.Path(), "error", err)
 	return response.Fail(c, http.StatusInternalServerError, response.ErrInternalError, "The task store could not be read or written")
 }
 

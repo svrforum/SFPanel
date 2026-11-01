@@ -100,7 +100,7 @@ func (r *CommandRunner) Start(ctx context.Context, job *Job) error {
 		res := runDirect(ctx, job, script, timeout)
 		removeScript(job)
 		if err := job.Finish(res); err != nil {
-			logger.Error("recording a job's end", "id", job.Spec.ID, "error", err)
+			logger().Error("recording a job's end", "id", job.Spec.ID, "error", err)
 		}
 		return nil
 	}
@@ -162,7 +162,7 @@ func (r *CommandRunner) watch(ctx context.Context, job *Job, timeout time.Durati
 		case <-cancel:
 			cancel, cancelled = nil, true
 			if out, err := r.Cmd.RunWithTimeout(stopTimeout, "systemctl", "stop", job.Unit); err != nil {
-				logger.Warn("stopping a cancelled job's unit", "id", job.Spec.ID, "unit", job.Unit,
+				logger().Warn("stopping a cancelled job's unit", "id", job.Spec.ID, "unit", job.Unit,
 					"error", err, "output", response.SanitizeOutput(out))
 			}
 		case <-time.After(r.poll):
@@ -174,7 +174,7 @@ func (r *CommandRunner) watch(ctx context.Context, job *Job, timeout time.Durati
 	}
 	removeScript(job)
 	if err := job.Finish(res); err != nil {
-		logger.Error("recording a job's end", "id", job.Spec.ID, "error", err)
+		logger().Error("recording a job's end", "id", job.Spec.ID, "error", err)
 	}
 }
 
@@ -271,7 +271,7 @@ var runDirect = func(ctx context.Context, job *Job, script string, timeout time.
 // the step said, which may be a secret, and the spec keeps it anyway.
 func removeScript(job *Job) {
 	if err := os.Remove(scriptPath(job.LogPath)); err != nil && !errors.Is(err, os.ErrNotExist) {
-		logger.Warn("removing a job's script", "id", job.Spec.ID, "error", err)
+		logger().Warn("removing a job's script", "id", job.Spec.ID, "error", err)
 	}
 }
 
@@ -282,7 +282,7 @@ func appendLog(job *Job, text string) {
 	}
 	f, err := os.OpenFile(job.LogPath, os.O_WRONLY|os.O_APPEND, 0)
 	if err != nil {
-		logger.Warn("writing a job's log", "id", job.Spec.ID, "error", err)
+		logger().Warn("writing a job's log", "id", job.Spec.ID, "error", err)
 		return
 	}
 	defer f.Close()

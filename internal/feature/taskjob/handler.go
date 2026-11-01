@@ -46,7 +46,11 @@ const DefaultBootIDPath = "/proc/sys/kernel/random/boot_id"
 // step's index, counted from 0.
 var idPattern = regexp.MustCompile(`^[0-9]{8}-[0-9]{6}-[0-9a-f]{6}-[0-9]{1,2}$`)
 
-var logger = slog.With("component", "taskjob")
+// logger is made at each call, from the default logger as it is then:
+// logging.Setup installs the panel's handler after this package is
+// initialised, and a logger taken from the default before that writes plain
+// text through the log package, every line at INFO whatever its level.
+func logger() *slog.Logger { return slog.With("component", "taskjob") }
 
 // Runner does one kind of step.
 type Runner interface {
@@ -138,9 +142,9 @@ func (h *Handler) launch(job *Job, fn func(ctx context.Context, job *Job) error)
 	h.cancelMu.Unlock()
 	go func() {
 		if err := fn(ctx, job); err != nil {
-			logger.Warn("task job did not run", "id", job.Spec.ID, "error", err)
+			logger().Warn("task job did not run", "id", job.Spec.ID, "error", err)
 			if ferr := job.Finish(Result{Status: tasks.JobFailed, Summary: response.SanitizeOutput(err.Error())}); ferr != nil {
-				logger.Error("recording a job's end", "id", job.Spec.ID, "error", ferr)
+				logger().Error("recording a job's end", "id", job.Spec.ID, "error", ferr)
 			}
 		}
 	}()
@@ -195,7 +199,7 @@ func (h *Handler) StartJob(c echo.Context) error {
 	}
 	if !errors.Is(err, errNotFound) {
 		h.startMu.Unlock()
-		logger.Error("reading a job", "id", spec.ID, "error", err)
+		logger().Error("reading a job", "id", spec.ID, "error", err)
 		return response.Fail(c, http.StatusInternalServerError, response.ErrDBError, "Could not read the node's jobs")
 	}
 	if refuser, ok := runner.(Refuser); ok {
@@ -206,7 +210,7 @@ func (h *Handler) StartJob(c echo.Context) error {
 	}
 	if holder, err := h.active(); err != nil {
 		h.startMu.Unlock()
-		logger.Error("reading the node's running job", "error", err)
+		logger().Error("reading the node's running job", "error", err)
 		return response.Fail(c, http.StatusInternalServerError, response.ErrDBError, "Could not read the node's jobs")
 	} else if holder != nil {
 		h.startMu.Unlock()
@@ -218,12 +222,12 @@ func (h *Handler) StartJob(c echo.Context) error {
 	rec = record{spec: spec, status: tasks.JobRunning, bootID: h.bootID(), username: username, startedAt: h.now().UTC()}
 	if err := h.createLog(spec.ID); err != nil {
 		h.startMu.Unlock()
-		logger.Error("creating a job's log", "id", spec.ID, "error", err)
+		logger().Error("creating a job's log", "id", spec.ID, "error", err)
 		return response.Fail(c, http.StatusInternalServerError, response.ErrInternalError, "Could not create the job's log")
 	}
 	if err := h.insert(rec); err != nil {
 		h.startMu.Unlock()
-		logger.Error("recording a job", "id", spec.ID, "error", err)
+		logger().Error("recording a job", "id", spec.ID, "error", err)
 		return response.Fail(c, http.StatusInternalServerError, response.ErrDBError, "Could not record the job")
 	}
 	job := &Job{Spec: spec, LogPath: h.logPath(spec.ID), StartedAt: rec.startedAt, h: h}
@@ -231,9 +235,9 @@ func (h *Handler) StartJob(c echo.Context) error {
 	h.startMu.Unlock()
 
 	if err := h.sweep(); err != nil {
-		logger.Warn("sweeping old jobs", "error", err)
+		logger().Warn("sweeping old jobs", "error", err)
 	}
-	logger.Info("task job started", "id", spec.ID, "task", spec.Task, "kind", spec.Kind, "user", username)
+	logger().Info("task job started", "id", spec.ID, "task", spec.Task, "kind", spec.Kind, "user", username)
 	return c.JSON(http.StatusCreated, response.Response{Success: true, Data: h.view(rec, 0, false)})
 }
 
@@ -317,7 +321,7 @@ func (h *Handler) lookup(c echo.Context) (rec record, ok bool, err error) {
 		return record{}, false, response.Fail(c, http.StatusNotFound, response.ErrTaskJobNotFound, "No such task job on this node")
 	}
 	if err != nil {
-		logger.Error("reading a job", "id", id, "error", err)
+		logger().Error("reading a job", "id", id, "error", err)
 		return record{}, false, response.Fail(c, http.StatusInternalServerError, response.ErrDBError, "Could not read the node's jobs")
 	}
 	return rec, true, nil
@@ -354,7 +358,7 @@ func (h *Handler) CancelJob(c echo.Context) error {
 	if cancel != nil {
 		cancel()
 	}
-	logger.Info("task job cancelled", "id", rec.spec.ID)
+	logger().Info("task job cancelled", "id", rec.spec.ID)
 	return response.OK(c, h.view(rec, 0, false))
 }
 

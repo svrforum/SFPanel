@@ -56,7 +56,7 @@ func (r *ServiceRunner) Start(_ context.Context, job *Job) error {
 		res = r.run(job, step)
 	}
 	if err := job.Finish(res); err != nil {
-		logger.Error("recording a job's end", "id", job.Spec.ID, "error", err)
+		logger().Error("recording a job's end", "id", job.Spec.ID, "error", err)
 	}
 	return nil
 }
