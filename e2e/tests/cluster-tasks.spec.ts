@@ -1281,3 +1281,318 @@ test.describe('history', () => {
     })
   })
 })
+
+// ----------------------------------------------------------------- editor --
+
+// The editor holds one document in two views: step cards (the model validate
+// returns) and YAML (Monaco). The web has no YAML parser: cards become YAML
+// through POST /cluster/tasks/format, YAML becomes cards through validate.
+test.describe('editor', () => {
+  const GIT_ID = '2c3d4e5f60718293'
+  const editorPane = (page: Page) => page.getByTestId('task-pane-editor')
+  const viewButton = (page: Page, name: 'Form' | 'YAML') => editorPane(page).getByRole('button', { name, exact: true })
+  const problemList = (page: Page) => editorPane(page).getByRole('region', { name: 'Problems in the document' })
+  /** The editor's line n (from 1), as Monaco draws its decorations. */
+  const editorLine = (page: Page, n: number) => editorPane(page).locator('.view-overlays > div').nth(n - 1)
+  const valid = (task: unknown): Reply => ok({ valid: true, problems: [], task })
+
+  test('a new task built from cards is formatted, validated, then created from that YAML', async ({ page }) => {
+    const id = '3d4e5f6071829304'
+    const yaml = 'name: Check disk\nsteps:\n  - command:\n      run: df -h\n  - reboot: {}\n'
+    const model = {
+      name: 'Check disk', targets: {}, batch: 1, stop_on_failure: true,
+      steps: [
+        { kind: 'command', command: { run: 'df -h', timeout: 600_000_000_000 } },
+        { kind: 'reboot', reboot: { only_if_required: true, wait: 600_000_000_000 } },
+      ],
+    }
+    const tasks: unknown[] = [...TASKS]
+    const { calls } = await mock(page, {
+      tasks,
+      replies: {
+        'POST /cluster/tasks/format': ok({ yaml }),
+        'POST /cluster/tasks/validate': valid(model),
+        'POST /cluster/tasks': ok({ id, name: 'Check disk', source: { kind: 'user' }, read_only: false, yaml, task: model }),
+      },
+    })
+    await page.goto('/cluster/tasks')
+    await list(page).getByRole('link', { name: 'New task' }).click()
+    await expect(page).toHaveURL(/\/cluster\/tasks\/new$/)
+    const editor = editorPane(page)
+    await expect(viewButton(page, 'Form')).toHaveAttribute('aria-pressed', 'true')
+    await editor.getByLabel('Task name').fill('Check disk')
+    await editor.getByRole('button', { name: 'Add step' }).click()
+    await page.getByRole('menuitem', { name: 'Command' }).click()
+    await editor.getByTestId('task-step-0').getByLabel('Command', { exact: true }).fill('df -h')
+    await editor.getByRole('button', { name: 'Add step' }).click()
+    await page.getByRole('menuitem', { name: 'Reboot' }).click()
+    await expect(editor.getByTestId('task-step-1').getByLabel('Only when the node needs it')).toBeChecked()
+
+    // The list read after the save has the new task.
+    tasks.push({ id, name: 'Check disk', source: { kind: 'user' }, read_only: false, updated_at: seen, updated_by: 'admin' })
+    await editor.getByRole('button', { name: 'Save', exact: true }).click()
+    await expect(page).toHaveURL(new RegExp(`/cluster/tasks/${id}$`))
+    // Defaults the server's format leaves out still go: stop on failure, and
+    // a reboot only when required, are true.
+    expect(calls).toEqual([
+      { method: 'POST', path: '/cluster/tasks/format', body: { task: model } },
+      { method: 'POST', path: '/cluster/tasks/validate', body: { yaml } },
+      { method: 'POST', path: '/cluster/tasks', body: { yaml } },
+    ])
+    await expect(section(page, 'My tasks').getByRole('link', { name: 'Check disk' })).toHaveAttribute('aria-current', 'page')
+    await expect(page.getByTestId('task-pane-setup')).toContainText('Check disk')
+  })
+
+  test('a YAML with problems shows them listed and on their line, and is not saved', async ({ page }) => {
+    // No newline at the end: Monaco would indent the line after it.
+    const bad = 'name: Bad\nsteps:\n  - shell: { run: ls }'
+    const { calls } = await mock(page, {
+      replies: {
+        'POST /cluster/tasks/format': ok({ yaml: 'name: ""\nsteps: []\n' }),
+        'POST /cluster/tasks/validate': ok({ valid: false, task: null, problems: [{ line: 3, message: 'unknown step kind "shell"' }] }),
+      },
+    })
+    await page.goto('/cluster/tasks/new')
+    const editor = editorPane(page)
+    await viewButton(page, 'YAML').click()
+    await expect(editor.locator('.view-lines')).toContainText('steps: []')
+    await editor.locator('.monaco-editor').click()
+    await page.keyboard.press('Control+a')
+    await page.keyboard.insertText(bad)
+    await editor.getByRole('button', { name: 'Save', exact: true }).click()
+
+    await expect(problemList(page).getByRole('button')).toHaveText(['Line 3: unknown step kind "shell"'])
+    await expect(editorLine(page, 3).locator('.squiggly-error')).toHaveCount(1)
+    await expect(editor.locator('.view-overlays .squiggly-error')).toHaveCount(1)
+    expect(calls).toEqual([
+      { method: 'POST', path: '/cluster/tasks/format', body: { task: { name: '', targets: {}, batch: 1, stop_on_failure: true, steps: [] } } },
+      { method: 'POST', path: '/cluster/tasks/validate', body: { yaml: bad } },
+    ])
+    // A problem chosen puts the cursor on its line, from wherever it was.
+    await editor.locator('.monaco-editor').click()
+    await page.keyboard.press('Control+Home')
+    await expect(editorLine(page, 1).locator('.current-line')).toHaveCount(1)
+    await problemList(page).getByRole('button').click()
+    await expect(editorLine(page, 3).locator('.current-line')).toHaveCount(1)
+  })
+
+  test('problems found on saving the cards are listed there and lead to their line in YAML', async ({ page }) => {
+    const yaml = 'name: ""\nsteps: []\n'
+    const { calls } = await mock(page, {
+      replies: {
+        'POST /cluster/tasks/format': ok({ yaml }),
+        'POST /cluster/tasks/validate': ok({
+          valid: false, task: null,
+          problems: [{ line: 1, message: 'name is required' }, { line: 2, message: 'a task needs at least one step' }],
+        }),
+      },
+    })
+    await page.goto('/cluster/tasks/new')
+    await editorPane(page).getByRole('button', { name: 'Save', exact: true }).click()
+    await expect(problemList(page).getByRole('button')).toHaveText(['Line 1: name is required', 'Line 2: a task needs at least one step'])
+    await expect(viewButton(page, 'Form')).toHaveAttribute('aria-pressed', 'true')
+    expect(calls.map((c) => `${c.method} ${c.path}`)).toEqual(['POST /cluster/tasks/format', 'POST /cluster/tasks/validate'])
+
+    await problemList(page).getByRole('button', { name: /^Line 2/ }).click()
+    await expect(viewButton(page, 'YAML')).toHaveAttribute('aria-pressed', 'true')
+    await expect(editorPane(page).locator('.view-lines')).toContainText('steps: []')
+    await expect(editorLine(page, 2).locator('.squiggly-error')).toHaveCount(1)
+    await expect(editorLine(page, 2).locator('.current-line')).toHaveCount(1)
+  })
+
+  test('a YAML with comments asks before it becomes cards', async ({ page }) => {
+    const yaml = '# rolls the web stack\nname: Deploy web\n'
+    const { calls } = await mock(page, {
+      taskDetails: { [DEPLOY_ID]: { ...DEPLOY, yaml } },
+      replies: { 'POST /cluster/tasks/validate': valid(DEPLOY.task) },
+    })
+    await page.goto(`/cluster/tasks/${DEPLOY_ID}/edit`)
+    const editor = editorPane(page)
+    // A document with comments opens as it is written.
+    await expect(viewButton(page, 'YAML')).toHaveAttribute('aria-pressed', 'true')
+    await expect(editor.locator('.view-lines')).toContainText('# rolls the web stack')
+
+    await viewButton(page, 'Form').click()
+    const dialog = page.getByRole('dialog')
+    await expect(dialog).toContainText('Comments and formatting will be lost')
+    await dialog.getByRole('button', { name: 'Cancel' }).click()
+    await expect(dialog).toHaveCount(0)
+    await expect(viewButton(page, 'YAML')).toHaveAttribute('aria-pressed', 'true')
+    expect(calls).toEqual([])
+
+    await viewButton(page, 'Form').click()
+    await page.getByRole('dialog').getByRole('button', { name: 'Switch to the form' }).click()
+    await expect(editor.getByLabel('Task name')).toHaveValue('Deploy web')
+    expect(calls).toEqual([{ method: 'POST', path: '/cluster/tasks/validate', body: { yaml } }])
+  })
+
+  test("an operator's own task is changed with PUT, and its pane is shown again", async ({ page }) => {
+    const yaml = 'name: Deploy web\ndescription: Rolls the web stack\n'
+    const { calls } = await mock(page, {
+      taskDetails: TASK_DETAILS,
+      replies: {
+        'POST /cluster/tasks/format': ok({ yaml }),
+        'POST /cluster/tasks/validate': valid({ ...DEPLOY.task, description: 'Rolls the web stack' }),
+        [`PUT /cluster/tasks/${DEPLOY_ID}`]: ok({ ...DEPLOY, yaml }),
+      },
+    })
+    await page.goto(`/cluster/tasks/${DEPLOY_ID}`)
+    const pane = page.getByTestId('task-pane-setup')
+    await pane.getByRole('link', { name: 'Edit', exact: true }).click()
+    await expect(page).toHaveURL(new RegExp(`/cluster/tasks/${DEPLOY_ID}/edit$`))
+    const editor = editorPane(page)
+    await expect(viewButton(page, 'Form')).toHaveAttribute('aria-pressed', 'true')
+    await expect(editor.getByLabel('Task name')).toHaveValue('Deploy web')
+    await editor.getByLabel('Description').fill('Rolls the web stack')
+    await editor.getByRole('button', { name: 'Save', exact: true }).click()
+    // A stored task is changed in place, not created again.
+    await expect.poll(() => calls.map((c) => `${c.method} ${c.path}`)).toEqual([
+      'POST /cluster/tasks/format', 'POST /cluster/tasks/validate', `PUT /cluster/tasks/${DEPLOY_ID}`,
+    ])
+    await expect(page).toHaveURL(new RegExp(`/cluster/tasks/${DEPLOY_ID}$`))
+    // Everything the cards did not touch goes back as it came.
+    expect(calls).toEqual([
+      { method: 'POST', path: '/cluster/tasks/format', body: { task: { ...DEPLOY.task, description: 'Rolls the web stack' } } },
+      { method: 'POST', path: '/cluster/tasks/validate', body: { yaml } },
+      { method: 'PUT', path: `/cluster/tasks/${DEPLOY_ID}`, body: { yaml } },
+    ])
+  })
+
+  test('Delete asks first, then sends DELETE and goes back to the list', async ({ page }) => {
+    const tasks: { id: string }[] = [...TASKS]
+    const { calls } = await mock(page, { tasks })
+    await page.goto(`/cluster/tasks/${GIT_ID}`)
+    const pane = page.getByTestId('task-pane-setup')
+    await pane.getByRole('button', { name: 'Delete', exact: true }).click()
+    const dialog = page.getByRole('dialog')
+    await expect(dialog).toContainText('Delete Nightly backup?')
+    await dialog.getByRole('button', { name: 'Cancel' }).click()
+    await expect(dialog).toHaveCount(0)
+    expect(calls).toEqual([])
+
+    await pane.getByRole('button', { name: 'Delete', exact: true }).click()
+    tasks.splice(tasks.findIndex((x) => x.id === GIT_ID), 1)
+    await page.getByRole('dialog').getByRole('button', { name: 'Delete', exact: true }).click()
+    await expect(page).toHaveURL(/\/cluster\/tasks$/)
+    expect(calls).toEqual([{ method: 'DELETE', path: `/cluster/tasks/${GIT_ID}`, body: null }])
+    // The list is read again, without it.
+    await expect(section(page, 'Git')).toHaveCount(0)
+  })
+
+  test('read-only tasks offer no edit: a built-in only a clone, a Git task a delete as well', async ({ page }) => {
+    await mock(page, { taskDetails: TASK_DETAILS })
+    const actions = async (path: string, name: string) => {
+      await page.goto(path)
+      const pane = page.getByTestId('task-pane-setup')
+      await expect(pane.getByRole('heading', { level: 2 })).toHaveText(name)
+      return {
+        edit: await pane.getByRole('link', { name: 'Edit', exact: true }).count(),
+        clone: await pane.getByRole('link', { name: 'Clone and edit', exact: true }).count(),
+        delete: await pane.getByRole('button', { name: 'Delete', exact: true }).count(),
+      }
+    }
+    expect(await actions('/cluster/tasks/builtin%2Freboot', 'Reboot (only when required)')).toEqual({ edit: 0, clone: 1, delete: 0 })
+    expect(await actions(`/cluster/tasks/${GIT_ID}`, 'Nightly backup')).toEqual({ edit: 0, clone: 1, delete: 1 })
+    expect(await actions('/cluster/tasks/1b2c3d4e5f607182', 'Rotate logs')).toEqual({ edit: 1, clone: 0, delete: 1 })
+
+    // An edit address for a read-only task shows it read-only, with the clone.
+    await page.goto(`/cluster/tasks/${GIT_ID}/edit`)
+    const editor = editorPane(page)
+    await expect(editor).toContainText('imported from Git')
+    await expect(editor.getByRole('button', { name: 'Save', exact: true })).toHaveCount(0)
+    await expect(editor.getByLabel('Task name')).toHaveCount(0)
+    await expect(editor.getByRole('button', { name: 'Delete', exact: true })).toHaveCount(1)
+
+    await page.goto('/cluster/tasks/builtin%2Fcommand/edit')
+    await expect(editor).toContainText('A built-in task cannot be changed')
+    await expect(editor.getByRole('button', { name: 'Save', exact: true })).toHaveCount(0)
+    await expect(editor.getByRole('button', { name: 'Delete', exact: true })).toHaveCount(0)
+    // The clone takes the screen's words for a built-in.
+    await editor.getByRole('link', { name: 'Clone and edit', exact: true }).click()
+    await expect(page).toHaveURL(/\/cluster\/tasks\/new\?from=builtin%2Fcommand$/)
+    await expect(editor.getByLabel('Task name')).toHaveValue('Run a command copy')
+    await expect(editor.getByLabel('Description')).toHaveValue('Runs the command you type as root. It goes to the shell exactly as typed.')
+  })
+
+  test('a draft survives a trip to another menu, and leaving the page asks first', async ({ page }) => {
+    await mock(page)
+    await page.goto('/cluster/tasks/new')
+    const editor = editorPane(page)
+    await editor.getByLabel('Task name').fill('Half done')
+    await tab(page, 'Overview').click()
+    await expect(page).toHaveURL(/\/cluster\/overview$/)
+    await tab(page, 'Tasks').click()
+    await list(page).getByRole('link', { name: 'New task' }).click()
+    await expect(editor.getByLabel('Task name')).toHaveValue('Half done')
+    await expect(editor).toContainText('Your unsaved changes were kept')
+
+    let asked = ''
+    page.on('dialog', (d) => {
+      asked = d.type()
+      void d.dismiss()
+    })
+    await page.close({ runBeforeUnload: true })
+    await expect.poll(() => asked).toBe('beforeunload')
+  })
+
+  test.describe('Korean', () => {
+    test.use({ locale: 'ko-KR' })
+
+    test('[복제해서 고치기] on a built-in opens a new task named "<이름> 복사본", saved with POST', async ({ page }) => {
+      await page.addInitScript(() => localStorage.setItem('sfpanel_language', 'ko'))
+      const yaml = 'name: 명령 실행 복사본\n'
+      const { calls } = await mock(page, {
+        taskDetails: TASK_DETAILS,
+        replies: {
+          'POST /cluster/tasks/format': ok({ yaml }),
+          'POST /cluster/tasks/validate': valid({ ...COMMAND.task, name: '명령 실행 복사본' }),
+          'POST /cluster/tasks': ok({ id: '4e5f607182930415', name: '명령 실행 복사본', source: { kind: 'user' }, read_only: false }),
+        },
+      })
+      await page.goto('/cluster/tasks/builtin%2Fcommand')
+      const pane = page.getByTestId('task-pane-setup')
+      await expect(pane.getByRole('heading', { level: 2 })).toHaveText('명령 실행')
+      await expect(pane.getByRole('link', { name: '고치기', exact: true })).toHaveCount(0)
+      await expect(pane.getByRole('button', { name: '삭제', exact: true })).toHaveCount(0)
+      await pane.getByRole('link', { name: '복제해서 고치기' }).click()
+      await expect(page).toHaveURL(/\/cluster\/tasks\/new\?from=builtin%2Fcommand$/)
+      const editor = editorPane(page)
+      await expect(editor.getByLabel('작업 이름')).toHaveValue('명령 실행 복사본')
+      // The address keeps the clone across a reload.
+      await page.reload()
+      await expect(editor.getByLabel('작업 이름')).toHaveValue('명령 실행 복사본')
+
+      await editor.getByRole('button', { name: '저장', exact: true }).click()
+      await expect(page).toHaveURL(/\/cluster\/tasks\/4e5f607182930415$/)
+      expect(calls.map((c) => `${c.method} ${c.path}`)).toEqual(['POST /cluster/tasks/format', 'POST /cluster/tasks/validate', 'POST /cluster/tasks'])
+      expect(calls[0].body).toEqual({
+        task: {
+          ...COMMAND.task,
+          name: '명령 실행 복사본',
+          description: '입력한 명령을 root 권한으로 실행합니다. 입력한 그대로 셸에 전달됩니다.',
+        },
+      })
+      expect(calls[2].body).toEqual({ yaml })
+    })
+  })
+
+  test.describe('phone', () => {
+    test.use({ viewport: { width: 412, height: 860 }, hasTouch: true })
+
+    test('the editor, its inputs and a step fit the screen', async ({ page }) => {
+      await mock(page)
+      await page.goto('/cluster/tasks/new')
+      const editor = editorPane(page)
+      await editor.getByRole('button', { name: 'Add input' }).click()
+      await editor.getByRole('button', { name: 'Add step' }).click()
+      await page.getByRole('menuitem', { name: 'File' }).click()
+      await expect(editor.getByTestId('task-step-0')).toBeVisible()
+      const main = page.getByRole('main')
+      expect(await main.evaluate((m) => m.scrollWidth <= m.clientWidth)).toBe(true)
+      for (const part of [editor, editor.getByTestId('task-step-0'), editor.getByTestId('task-input-0')]) {
+        const box = await part.boundingBox()
+        expect(box && box.x >= 0 && box.x + box.width <= 412).toBe(true)
+      }
+    })
+  })
+})

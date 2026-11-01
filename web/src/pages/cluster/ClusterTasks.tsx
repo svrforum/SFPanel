@@ -42,7 +42,8 @@ export default function ClusterTasks() {
   // Outside a cluster there are no runs to ask for every ten seconds.
   const standalone = useRef(false)
 
-  const loadTasks = useCallback(() => {
+  // Also what the editor and a delete wait on before the page moves.
+  const loadTasks = useCallback(() =>
     Promise.allSettled([api.getClusterStatus(), api.listTasks()]).then(([s, l]) => {
       if (s.status === 'fulfilled') {
         setStatus(s.value)
@@ -55,8 +56,7 @@ export default function ClusterTasks() {
         setTasksError(taskErrorMessage(l.reason, t))
       }
       setTasksLoading(false)
-    })
-  }, [t])
+    }), [t])
 
   useEffect(() => {
     loadTasks()
@@ -123,10 +123,10 @@ export default function ClusterTasks() {
   else if (isNew || isEdit) {
     pane = (
       <Suspense fallback={<Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />}>
-        <TaskEditor taskId={isEdit ? taskId : undefined} name={taskId ? nameOf(taskId) : undefined} />
+        <TaskEditor taskId={isEdit ? taskId : undefined} name={taskId ? nameOf(taskId) : undefined} onSaved={loadTasks} />
       </Suspense>
     )
-  } else if (taskId) pane = tasks === null ? null : <TaskRunSetup key={taskId} task={task} />
+  } else if (taskId) pane = tasks === null ? null : <TaskRunSetup key={taskId} task={task} onDeleted={loadTasks} />
   else {
     pane = (
       <section data-testid="task-pane-none" className="hidden md:block rounded-2xl bg-card p-5 card-shadow space-y-2">

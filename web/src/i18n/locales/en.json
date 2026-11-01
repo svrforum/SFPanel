@@ -1292,9 +1292,6 @@
         "title": "Group tasks",
         "description": "Choose a task to run it on the nodes you pick, or open the run history to see what ran and where."
       },
-      "pane": {
-        "notYet": "This part of the Tasks tab is not built yet."
-      },
       "history": {
         "kept": "The cluster keeps its 200 latest ended runs, and every run under way.",
         "loadError": "Could not load the run history",
@@ -1485,6 +1482,111 @@
         "trimmed": "Only the last 1 MiB of the output is kept here.",
         "following": "Following the output…",
         "empty": "No output."
+      },
+      "editor": {
+        "title": "New task",
+        "view": "View",
+        "viewForm": "Form",
+        "viewYaml": "YAML",
+        "yamlLabel": "Task document (YAML)",
+        "name": "Task name",
+        "description": "Description",
+        "inputs": "Inputs",
+        "inputsHint": "Values asked for when the task runs. A step uses one as {{example}}.",
+        "inputName": "Name",
+        "inputNameInvalid": "Letters, digits and _ only, not starting with a digit. node is taken.",
+        "inputLabel": "Label",
+        "inputDefault": "Default",
+        "inputRequired": "Required",
+        "inputRaw": "Goes in as typed",
+        "addInput": "Add input",
+        "removeInput": "Remove input {{n}}",
+        "targetsHint": "A run starts from these targets, and can change them.",
+        "steps": "Steps",
+        "stepsHint": "A step can use an input as {{input}}, and the node it runs on as {{nodeName}} or {{nodeAddress}}.",
+        "noSteps": "No steps yet. A task needs at least one.",
+        "addStep": "Add step",
+        "stepsFull": "A task has at most {{max}} steps.",
+        "kind": {
+          "packages": "Packages",
+          "service": "Service",
+          "command": "Command",
+          "file": "File",
+          "stack": "Stack",
+          "reboot": "Reboot"
+        },
+        "step": {
+          "name": "Name shown in the run",
+          "continueOnError": "Carry on if this step fails",
+          "moveUp": "Move step {{n}} up",
+          "moveDown": "Move step {{n}} down",
+          "remove": "Remove step {{n}}"
+        },
+        "packages": {
+          "update": "Refresh the package lists first (apt-get update)",
+          "then": "Then",
+          "none": "Nothing else",
+          "upgradeAll": "Upgrade every package",
+          "upgrade": "Upgrade these packages",
+          "install": "Install these packages",
+          "remove": "Remove these packages",
+          "names": "Packages",
+          "namesHint": "Separate names with spaces or commas."
+        },
+        "service": {
+          "name": "Service",
+          "action": "Action",
+          "start": "Start",
+          "stop": "Stop",
+          "restart": "Restart",
+          "enable": "Enable at boot",
+          "disable": "Disable at boot"
+        },
+        "command": {
+          "oneLine": "One command",
+          "script": "Script",
+          "run": "Command",
+          "timeout": "Timeout"
+        },
+        "file": {
+          "path": "Path",
+          "content": "Content",
+          "mode": "Mode",
+          "owner": "Owner"
+        },
+        "stack": {
+          "name": "Stack name",
+          "compose": "Compose file",
+          "up": "Bring it up after writing it"
+        },
+        "reboot": {
+          "onlyIfRequired": "Only when the node needs it",
+          "wait": "Wait for it to come back"
+        },
+        "durationInvalid": "Write a duration such as 90s, 10m or 1h30m.",
+        "durationDefault": "Left empty: {{value}}",
+        "problems": "Problems in the document",
+        "problemsHint": "Choose one to see its line in the YAML view.",
+        "problemLine": "Line {{line}}",
+        "problemDocument": "The whole document",
+        "commentsTitle": "Comments and formatting will be lost",
+        "commentsDescription": "The form shows what the document says, and writes it anew when it is saved: comments and the layout you chose do not survive. Switch anyway?",
+        "commentsConfirm": "Switch to the form",
+        "toFormInvalid": "Fix the problems below to see the document as steps.",
+        "saved": "Task saved",
+        "deleteTitle": "Delete {{name}}?",
+        "deleteDescription": "Runs already in the history keep their record.",
+        "deleted": "Task deleted",
+        "edit": "Edit",
+        "clone": "Clone and edit",
+        "copyName": "{{name}} copy",
+        "readOnlyBuiltin": "A built-in task cannot be changed. Clone it to make a task of your own.",
+        "readOnlyGit": "This task was imported from Git and changes only when it is fetched again. Clone it to make a task of your own.",
+        "restored": "Your unsaved changes were kept.",
+        "discard": "Discard them",
+        "discardTitle": "Discard your changes?",
+        "discardDescription": "What you changed since the last save is lost.",
+        "discardConfirm": "Discard"
       }
     }
   },

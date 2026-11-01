@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useId, useMemo, useState } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
 import { useTranslation } from 'react-i18next'
-import { AlertTriangle, Eye, Loader2, Play } from 'lucide-react'
+import { AlertTriangle, Copy, Eye, Loader2, Pencil, Play, Trash2 } from 'lucide-react'
 import { api, type ApiError } from '@/lib/api'
 import { taskErrorMessage } from '@/lib/taskErrors'
 import { formatDate } from '@/lib/utils'
@@ -16,10 +16,14 @@ import { TaskPlanDialog, type FilledInput } from './TaskPlanDialog'
 import { checkInputs, countTargets, runInputs, type InputProblem } from './taskTargets'
 import { planNeedsReview, runErrorText, type RunErrorText } from './taskPlan'
 import { runStatusText, runStatusTone } from './taskRunStatus'
+import { clonePath, editPath } from './taskForm'
+import { useTaskDelete } from './useTaskDelete'
 
 interface TaskRunSetupProps {
   /** The task as the list has it; undefined when the list has no such ID. */
   task: TaskView | undefined
+  /** Reads the list again once the task is deleted. */
+  onDeleted: () => Promise<void> | void
 }
 
 const RECENT_RUNS = 5
@@ -42,8 +46,10 @@ interface Review {
 // preview first and starts that plan straight away when there is nothing to
 // show (no step to confirm or refused, no node left out or unchecked, every
 // manager ready); otherwise it opens the preview. The last runs of the task
-// sit underneath.
-export function TaskRunSetup({ task }: TaskRunSetupProps) {
+// sit underneath. Above them, what can be done to the task itself: the
+// operator's own tasks are edited and deleted; a built-in is only cloned;
+// a Git task is cloned or deleted (it changes only when fetched again).
+export function TaskRunSetup({ task, onDeleted }: TaskRunSetupProps) {
   const { t } = useTranslation()
   if (!task) {
     return (
@@ -53,15 +59,49 @@ export function TaskRunSetup({ task }: TaskRunSetupProps) {
     )
   }
   const description = builtinText(t, task.id, 'description', task.description ?? '')
+  const name = builtinText(t, task.id, 'name', task.name)
   return (
     <section data-testid="task-pane-setup" className="rounded-2xl bg-card p-5 card-shadow space-y-5">
       <div className="space-y-2">
-        <h2 className="text-[18px] font-bold break-words">{builtinText(t, task.id, 'name', task.name)}</h2>
+        <div className="flex flex-wrap items-start justify-between gap-x-3 gap-y-2">
+          <h2 className="min-w-0 text-[18px] font-bold break-words">{name}</h2>
+          <TaskActions task={task} name={name} onDeleted={onDeleted} />
+        </div>
         {description && <p className="text-[13px] text-muted-foreground whitespace-pre-wrap break-words">{description}</p>}
       </div>
       <RunForm task={task} />
       <RecentRuns taskId={task.id} />
     </section>
+  )
+}
+
+function TaskActions({ task, name, onDeleted }: { task: TaskView; name: string; onDeleted: () => Promise<void> | void }) {
+  const { t } = useTranslation()
+  const { remove, deleting } = useTaskDelete(onDeleted)
+  return (
+    <div className="flex flex-wrap gap-2">
+      {task.read_only ? (
+        <Button asChild variant="outline" size="sm">
+          <Link to={clonePath(task.id)}>
+            <Copy className="h-4 w-4" />
+            {t('cluster.tasks.editor.clone')}
+          </Link>
+        </Button>
+      ) : (
+        <Button asChild variant="outline" size="sm">
+          <Link to={editPath(task.id)}>
+            <Pencil className="h-4 w-4" />
+            {t('cluster.tasks.editor.edit')}
+          </Link>
+        </Button>
+      )}
+      {task.source.kind !== 'builtin' && (
+        <Button variant="outline" size="sm" className="text-destructive" loading={deleting} onClick={() => remove(task.id, name)}>
+          <Trash2 className="h-4 w-4" />
+          {t('common.delete')}
+        </Button>
+      )}
+    </div>
   )
 }
 

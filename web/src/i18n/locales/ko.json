@@ -1289,9 +1289,6 @@
         "title": "그룹 작업",
         "description": "작업을 골라 원하는 노드에서 실행하거나, 실행 기록에서 무엇이 어디서 돌았는지 봅니다."
       },
-      "pane": {
-        "notYet": "작업 탭의 이 부분은 아직 만들어지지 않았습니다."
-      },
       "history": {
         "kept": "클러스터는 끝난 실행을 최근 200개까지, 진행 중인 실행은 모두 보관합니다.",
         "loadError": "실행 기록을 불러오지 못했습니다",
@@ -1479,6 +1476,111 @@
         "trimmed": "출력은 마지막 1 MiB만 여기에 남깁니다.",
         "following": "출력을 받는 중…",
         "empty": "출력이 없습니다."
+      },
+      "editor": {
+        "title": "새 작업",
+        "view": "보기",
+        "viewForm": "화면",
+        "viewYaml": "YAML",
+        "yamlLabel": "작업 문서 (YAML)",
+        "name": "작업 이름",
+        "description": "설명",
+        "inputs": "입력값",
+        "inputsHint": "실행할 때 묻는 값입니다. 단계에서는 {{example}}처럼 씁니다.",
+        "inputName": "이름",
+        "inputNameInvalid": "영문자·숫자·_만 쓰고 숫자로 시작할 수 없습니다. node는 쓸 수 없습니다.",
+        "inputLabel": "라벨",
+        "inputDefault": "기본값",
+        "inputRequired": "필수",
+        "inputRaw": "그대로 들어감",
+        "addInput": "입력값 추가",
+        "removeInput": "입력값 {{n}} 지우기",
+        "targetsHint": "실행은 이 대상에서 시작하고, 실행할 때 바꿀 수 있습니다.",
+        "steps": "단계",
+        "stepsHint": "단계에서 입력값은 {{input}}처럼, 도는 노드는 {{nodeName}}·{{nodeAddress}}처럼 씁니다.",
+        "noSteps": "아직 단계가 없습니다. 작업에는 단계가 하나 이상 있어야 합니다.",
+        "addStep": "단계 추가",
+        "stepsFull": "작업의 단계는 {{max}}개까지입니다.",
+        "kind": {
+          "packages": "패키지",
+          "service": "서비스",
+          "command": "명령",
+          "file": "파일",
+          "stack": "스택",
+          "reboot": "재부팅"
+        },
+        "step": {
+          "name": "실행 화면에 보일 이름",
+          "continueOnError": "실패해도 계속",
+          "moveUp": "단계 {{n}} 위로",
+          "moveDown": "단계 {{n}} 아래로",
+          "remove": "단계 {{n}} 지우기"
+        },
+        "packages": {
+          "update": "먼저 패키지 목록 새로 받기 (apt-get update)",
+          "then": "그다음",
+          "none": "그 밖에는 없음",
+          "upgradeAll": "모든 패키지 업그레이드",
+          "upgrade": "이 패키지만 업그레이드",
+          "install": "이 패키지 설치",
+          "remove": "이 패키지 제거",
+          "names": "패키지",
+          "namesHint": "이름은 공백이나 쉼표로 나눕니다."
+        },
+        "service": {
+          "name": "서비스",
+          "action": "동작",
+          "start": "시작",
+          "stop": "중지",
+          "restart": "재시작",
+          "enable": "부팅 때 시작",
+          "disable": "부팅 때 시작 안 함"
+        },
+        "command": {
+          "oneLine": "명령 한 줄",
+          "script": "스크립트",
+          "run": "명령",
+          "timeout": "제한 시간"
+        },
+        "file": {
+          "path": "경로",
+          "content": "내용",
+          "mode": "권한",
+          "owner": "소유자"
+        },
+        "stack": {
+          "name": "스택 이름",
+          "compose": "Compose 파일",
+          "up": "쓴 뒤 올리기"
+        },
+        "reboot": {
+          "onlyIfRequired": "필요할 때만",
+          "wait": "다시 연결될 때까지 기다리는 시간"
+        },
+        "durationInvalid": "90s, 10m, 1h30m처럼 씁니다.",
+        "durationDefault": "비워 두면 {{value}}",
+        "problems": "문서의 문제",
+        "problemsHint": "누르면 YAML 보기에서 그 줄로 갑니다.",
+        "problemLine": "{{line}}번째 줄",
+        "problemDocument": "문서 전체",
+        "commentsTitle": "주석과 서식이 사라집니다",
+        "commentsDescription": "화면 보기는 문서의 내용을 보여 주고, 저장할 때 문서를 새로 씁니다. 주석과 직접 맞춘 서식은 남지 않습니다. 그래도 바꿀까요?",
+        "commentsConfirm": "화면으로 바꾸기",
+        "toFormInvalid": "아래 문제를 고쳐야 단계로 볼 수 있습니다.",
+        "saved": "작업을 저장했습니다",
+        "deleteTitle": "{{name}} 작업을 지울까요?",
+        "deleteDescription": "기록에 있는 실행은 그대로 남습니다.",
+        "deleted": "작업을 지웠습니다",
+        "edit": "고치기",
+        "clone": "복제해서 고치기",
+        "copyName": "{{name}} 복사본",
+        "readOnlyBuiltin": "내장 작업은 고칠 수 없습니다. 복제해서 내 작업으로 고치세요.",
+        "readOnlyGit": "Git에서 가져온 작업은 다시 받을 때만 바뀝니다. 복제해서 내 작업으로 고치세요.",
+        "restored": "저장하지 않은 고친 내용을 이어서 보여 줍니다.",
+        "discard": "버리기",
+        "discardTitle": "고친 내용을 버릴까요?",
+        "discardDescription": "마지막으로 저장한 뒤 고친 내용이 사라집니다.",
+        "discardConfirm": "버리기"
       }
     }
   },
