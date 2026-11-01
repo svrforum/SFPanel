@@ -5832,14 +5832,14 @@ CA 교체를 멈추고 현재 CA를 지킵니다. `trust`에서는 `drop`으로(
 
 ## 그룹 작업 API (`/api/v1/cluster/tasks`, `/api/v1/cluster/task-runs`)
 
-같은 단계(패키지·서비스·명령·파일·스택·재부팅)를 여러 노드에 차례로 돌리는 작업의 정의와 실행입니다. 매니저 전용 `/cluster` 그룹에 있으며 에이전트에는 없습니다. 쓰기(정의의 생성·수정·삭제, 실행 시작·중지·다시 실행)와 미리 보기는 리더가 처리하고 다른 매니저에서 요청하면 리더로 전달됩니다. 목록·조회·검증·YAML 변환·진행 스트림·단계 출력은 요청을 받은 매니저가 자기 복제 상태에서 답합니다. 실행은 요청·브라우저와 떨어져 리더에서 돌고, 리더가 바뀌면 새 리더가 이어받습니다. 순서, 실패와 중지, 정족수·Proxmox, 다른 클러스터 작업과의 관문, 저장과 보관은 `docs/specs/cluster-ops.md`의 "Group tasks"를 보세요. 화면은 클러스터의 작업 탭이고, CLI는 없습니다.
+같은 단계(패키지·서비스·명령·파일·스택·재부팅)를 여러 노드에 차례로 돌리는 작업의 정의와 실행입니다. 매니저 전용 `/cluster` 그룹에 있으며 에이전트에는 없습니다. 쓰기(정의의 생성·수정·삭제, Git 가져오기, 실행 시작·중지·다시 실행)와 미리 보기(실행의 미리 보기, Git 가져오기의 미리 보기)는 리더가 처리하고 다른 매니저에서 요청하면 리더로 전달됩니다. 목록·조회·검증·YAML 변환·진행 스트림·단계 출력은 요청을 받은 매니저가 자기 복제 상태에서 답합니다. 실행은 요청·브라우저와 떨어져 리더에서 돌고, 리더가 바뀌면 새 리더가 이어받습니다. 순서, 실패와 중지, 정족수·Proxmox, 다른 클러스터 작업과의 관문, 저장과 보관은 `docs/specs/cluster-ops.md`의 "Group tasks"를 보세요. 화면은 클러스터의 작업 탭이고, CLI는 없습니다.
 
 - **인증 필요**: 예 (모두)
 - 클러스터가 아니면 `400 INVALID_REQUEST`(`Cluster not configured`) — `POST /cluster/tasks/validate`와 `POST /cluster/tasks/format`만 예외
 - 다른 매니저에서 전달된 쓰기가 도착하기 전에 리더가 바뀌면 `503 INTERNAL_ERROR`(`This node is not the cluster leader: retry in a few seconds`), 복제 상태를 읽거나 쓰지 못하면 `500 INTERNAL_ERROR`
-- 막 뽑힌 리더는 이전 리더가 커밋한 기록을 모두 적용할 때까지(첫 배리어) 쓰기와 미리 보기(정의의 생성·수정·삭제, 미리 보기, 시작, 중지, 다시 실행)에 `503 INTERNAL_ERROR`(`The cluster leader is catching up: retry in a few seconds`)로 답하고 아무것도 쓰지 않습니다 — 덜 따라잡은 상태로 판단하면 끝난 실행을 다시 `stopping`으로 덮거나 노드를 잡은 실행을 못 볼 수 있습니다. 보통 몇 초 안에 풀립니다
-- 본문을 받는 라우트(`POST /tasks`, `POST /tasks/validate`, `POST /tasks/format`, `PUT /tasks/:id`, `POST /task-runs/plan`, `POST /task-runs`, `POST /task-runs/:id/stop`, `POST /task-runs/:id/rerun`)는 본문이 1 MiB를 넘으면 핸들러 전에 `413`(Echo의 `{"message":"Request Entity Too Large"}`, 응답 봉투가 아님)
-- `?node=<매니저 ID>`를 붙이면 다른 요청처럼 그 매니저로 중계되지만(미리 보기는 5분, 스트림은 HTTP 릴레이 5분) 필요 없습니다: 어느 매니저든 같은 기록을 답합니다. `?node=`가 에이전트면 `409 CLUSTER_ROUTE_NOT_ON_AGENT`
+- 막 뽑힌 리더는 이전 리더가 커밋한 기록을 모두 적용할 때까지(첫 배리어) 쓰기와 미리 보기(정의의 생성·수정·삭제, Git 가져오기와 그 미리 보기, 미리 보기, 시작, 중지, 다시 실행)에 `503 INTERNAL_ERROR`(`The cluster leader is catching up: retry in a few seconds`)로 답하고 아무것도 쓰지 않습니다 — 덜 따라잡은 상태로 판단하면 끝난 실행을 다시 `stopping`으로 덮거나 노드를 잡은 실행을 못 볼 수 있습니다. 보통 몇 초 안에 풀립니다
+- 본문을 받는 라우트(`POST /tasks`, `POST /tasks/validate`, `POST /tasks/format`, `POST /tasks/import/preview`, `POST /tasks/import`, `PUT /tasks/:id`, `POST /task-runs/plan`, `POST /task-runs`, `POST /task-runs/:id/stop`, `POST /task-runs/:id/rerun`)는 본문이 1 MiB를 넘으면 핸들러 전에 `413`(Echo의 `{"message":"Request Entity Too Large"}`, 응답 봉투가 아님)
+- `?node=<매니저 ID>`를 붙이면 다른 요청처럼 그 매니저로 중계되지만(미리 보기와 Git 가져오기는 5분, 스트림은 HTTP 릴레이 5분) 필요 없습니다: 어느 매니저든 같은 기록을 답합니다. `?node=`가 에이전트면 `409 CLUSTER_ROUTE_NOT_ON_AGENT`
 
 ### 작업 문서
 
@@ -5904,7 +5904,7 @@ steps:
 }
 ```
 
-`source.kind`: `builtin`, `user`(패널에서 씀), `git`(Git에서 가져옴 — `repo`·`branch`·`path`·`sha`가 함께 있음. 가져오기 라우트는 아직 없음).
+`source.kind`: `builtin`, `user`(패널에서 씀), `git`(Git에서 가져옴 — `repo`(`https://github.com/<owner>/<repo>`), `branch`, `path`(저장소 안의 파일 경로), `sha`(가져온 커밋)가 함께 있음. `POST /cluster/tasks/import`가 씀).
 
 ---
 
@@ -6018,6 +6018,104 @@ steps:
 |------|-----------|------|
 | `TASK_NOT_FOUND` | 404 | 그런 작업이 없음 |
 | `TASK_READ_ONLY` | 409 | 내장 작업 |
+
+---
+
+### POST /api/v1/cluster/tasks/import/preview
+GitHub 폴더의 작업 파일을 보여 줍니다(리더, 아무것도 쓰지 않음). 브랜치가 지금 가리키는 커밋을 정하고, 그 커밋에서 폴더를 한 단계만(하위 폴더로 내려가지 않음) 읽어 `.yaml`·`.yml` 파일마다 그 폴더에서 가져온 작업과 git blob SHA로 비교합니다. 파일 내용은 받지 않으므로 GitHub에 두 번 묻습니다(저장소가 없는지 브랜치가 없는지 가릴 때 한 번 더). GitHub만 지원합니다.
+
+**Request Body:**
+```json
+{ "url": "https://github.com/acme/ops", "branch": "main", "path": "tasks", "token": "github_pat_… (선택)" }
+```
+
+- `url`: `https://github.com/<owner>/<repo>[.git]`
+- `branch`: 비우면 `main`
+- `path`: `""`(저장소 루트), 폴더, 또는 `.yaml`·`.yml` 파일 하나. 앞뒤의 `/` 하나는 무시
+- `token`: 비공개 저장소일 때. GitHub에 `Authorization` 헤더로만 보내고 어디에도 저장·기록하지 않습니다(작업의 `source`, 로그, 응답, 오류 문장 모두). 다시 받을 때 다시 넣습니다
+
+**Response (200):**
+```json
+{
+  "success": true,
+  "data": {
+    "repo": "https://github.com/acme/ops", "branch": "main", "path": "tasks",
+    "commit": "<40자리 커밋 SHA>",
+    "files": [
+      { "path": "tasks/web.yaml", "name": "web.yaml", "sha": "<blob>", "size": 812, "state": "new" },
+      { "path": "tasks/db.yml", "name": "db.yml", "sha": "<blob>", "size": 433, "state": "changed", "task_id": "9c1e4b7a2d3f5e60", "task_name": "db backup" },
+      { "path": "tasks/ok.yaml", "name": "ok.yaml", "sha": "<blob>", "size": 120, "state": "unchanged", "task_id": "…", "task_name": "…" },
+      { "path": "tasks/big.yaml", "name": "big.yaml", "sha": "<blob>", "size": 90000, "state": "too_large" }
+    ],
+    "removed": [ { "task_id": "…", "task_name": "old", "path": "tasks/old.yaml" } ]
+  }
+}
+```
+
+- `state`: `new`(가져온 작업이 없음), `changed`(가져온 작업의 문서와 다름), `unchanged`(같음), `too_large`(64 KiB 초과, 가져올 수 없음). 가져온 작업이 있으면 `task_id`·`task_name`이 붙습니다
+- 같은 작업이란 저장소(대소문자 무시)·브랜치·파일 경로가 같은 Git 작업입니다
+- `removed`: 그 폴더(파일 하나를 지정했으면 그 파일)에서 가져왔는데 이 커밋에는 파일이 없는 작업. 가져오기는 지우지 않습니다 — 지우려면 `DELETE /cluster/tasks/:id`
+- 응답에 문서는 싣지 않습니다(팔로워를 거친 응답은 4 MiB 아래여야 함)
+- 가져오기는 이 `commit`을 그대로 보냅니다
+
+**에러 응답:**
+| 코드 | HTTP 상태 | 조건 |
+|------|-----------|------|
+| `INVALID_REQUEST` | 400 | 읽을 수 없는 본문, GitHub URL이 아님, 경로·브랜치에 빈 마디·`.`·`..`·`\`·NUL, 또는 작업 파일이 50개 초과(`details.max`: `"50"`, `details.found`: 찾은 수) |
+| `GIT_AUTH_FAILED` | 400 | GitHub가 토큰을 거부함(401), 또는 사용량 제한이 아닌 403 |
+| `GIT_RATE_LIMITED` | 429 | GitHub 사용량 제한(익명은 시간당 60회). `details`: `reset_at`(RFC 3339 UTC), `limit`, `retry_after`(초) — GitHub가 알려 준 것만 |
+| `GIT_REPO_NOT_FOUND` | 404 | 저장소 없음(토큰 없이 본 비공개 저장소도 같음) |
+| `GIT_PATH_NOT_FOUND` | 404 | 그런 브랜치나 경로가 없음 |
+| `GIT_CLONE_FAILED` | 500 | 그 밖에 GitHub에서 읽지 못함 |
+
+---
+
+### POST /api/v1/cluster/tasks/import
+미리 보기에서 고른 파일을 가져옵니다(리더). 처음 가져올 때도 다시 받을 때도 이 라우트입니다.
+
+**Request Body:**
+```json
+{ "url": "https://github.com/acme/ops", "branch": "main", "path": "tasks", "token": "…(선택)",
+  "commit": "<미리 보기의 commit>", "files": ["tasks/web.yaml", "tasks/db.yml"] }
+```
+
+- `files`: 1~50개, 겹치지 않고, 모두 `path` 바로 아래의(또는 `path` 자신인) `.yaml`·`.yml` 파일
+- **파일은 모두 `commit`에서 읽습니다**(`ref=<commit>`). 미리 보기와 가져오기 사이에 브랜치에 push가 있어도 운영자가 본 커밋의 내용만 들어옵니다
+- 고른 파일을 **모두 먼저 읽고** 씁니다. 토큰 거부, 사용량 제한, 저장소 없음, 그 밖의 GitHub 실패면 아무것도 쓰지 않고 그 오류로 답합니다
+- 파일마다 검사해 통과한 것만 씁니다. 통과하지 못한 파일은 `failed`에 각자의 코드로 실립니다(아래 표). 작업마다 따로 기록되므로, 도중에 리더가 바뀌면 그때까지 쓴 것은 남고 `503`으로 답합니다 — 다시 가져오면 같은 ID로 다시 씁니다
+- 저장되는 작업: 이름은 문서의 `name`, 문서는 받은 바이트 그대로, `source`는 `{kind: "git", repo: "https://github.com/<owner>/<repo>", branch, path: 파일 경로, sha: commit}`, `read_only: true`. 저장소(대소문자 무시)·브랜치·경로가 같은 작업이 있으면 그 ID를 유지하고 문서와 `sha`를 바꿉니다
+- 가져온 작업은 고칠 수 없고(`PUT`은 `409 TASK_READ_ONLY`), 지울 수는 있습니다
+
+**Response (200):**
+```json
+{
+  "success": true,
+  "data": {
+    "commit": "<40자리 커밋 SHA>",
+    "imported": [
+      { "id": "9c1e4b7a2d3f5e60", "name": "web", "source": { "kind": "git", "repo": "https://github.com/acme/ops", "branch": "main", "path": "tasks/web.yaml", "sha": "<commit>" },
+        "read_only": true, "updated_at": "2026-11-01T09:00:00Z", "updated_by": "admin" }
+    ],
+    "failed": [
+      { "code": "TASK_INVALID", "message": "line 3: unknown key \"bogus\"", "details": { "path": "tasks/db.yml", "line": "3" } }
+    ]
+  }
+}
+```
+
+`imported`는 목록 항목과 같은 모양이고 문서는 싣지 않습니다. `failed`의 항목(`details.path`는 늘 있음):
+
+| 코드 | details | 조건 |
+|------|---------|------|
+| `GIT_PATH_NOT_FOUND` | `path` | 그 커밋에 그 파일이 없음 |
+| `TASK_TOO_LARGE` | `path`, `max_kib` | 64 KiB 초과 |
+| `TASK_INVALID` | `path`, 문제가 있으면 `line` | UTF-8이 아닌 파일(UTF-16으로 저장한 파일 등), 또는 문서의 첫 문제(`message`가 `line N: …`) |
+| `TASK_NAME_TAKEN` | `path` | 내장 작업이나 다른 작업(다른 브랜치에서 가져온 같은 이름 포함)이 같은 이름 |
+
+**에러 응답:** 미리 보기의 표에 더해(50개 초과는 `files`의 수)
+| 코드 | HTTP 상태 | 조건 |
+|------|-----------|------|
+| `INVALID_REQUEST` | 400 | `commit`이 40자리 소문자 hex가 아님, `files`가 비었거나 겹치거나 `path` 바로 아래의 `.yaml`·`.yml`이 아님 — GitHub에 묻기 전에 거부 |
 
 ---
 
@@ -7024,7 +7122,7 @@ WireGuard 키페어 생성 (`wg genkey` + `wg pubkey`).
 | POST | `/api/v1/cluster/rotate/ca/abort` | O | CA 교체 중단 — `promote` 전까지만 (202) |
 | GET | `/api/v1/cluster/rotation` | O | 비밀 교체의 노드별 상태 (리더가 답함, 비밀은 싣지 않음) |
 
-### 그룹 작업 (14개)
+### 그룹 작업 (17개)
 
 매니저 전용. 쓰기와 미리 보기는 리더가 처리하고(팔로워는 전달), 나머지는 받은 매니저가 자기 복제 상태에서 답한다. 상세는 위의 "그룹 작업 API".
 
@@ -7034,6 +7132,8 @@ WireGuard 키페어 생성 (`wg genkey` + `wg pubkey`).
 | POST | `/api/v1/cluster/tasks` | O | 작업 저장 (리더, `{yaml}`) |
 | POST | `/api/v1/cluster/tasks/validate` | O | 작업 문서 검사 — 줄 번호가 붙은 문제 목록 |
 | POST | `/api/v1/cluster/tasks/format` | O | 작업 모델 → YAML 문서 (편집기의 카드 ↔ YAML 전환, 아무것도 쓰지 않음) |
+| POST | `/api/v1/cluster/tasks/import/preview` | O | GitHub 폴더의 작업 파일과 가져온 작업의 비교 (리더, 아무것도 쓰지 않음) |
+| POST | `/api/v1/cluster/tasks/import` | O | 미리 보기의 커밋에서 고른 파일 가져오기·다시 받기 (리더) |
 | GET | `/api/v1/cluster/tasks/:id` | O | 작업 하나 (문서와 파싱 결과) |
 | PUT | `/api/v1/cluster/tasks/:id` | O | 작업 수정 (리더, 내장·Git 작업은 409) |
 | DELETE | `/api/v1/cluster/tasks/:id` | O | 작업 삭제 (리더, 내장 작업은 409) |

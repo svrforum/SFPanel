@@ -29,6 +29,8 @@ func TestTaskRoutesLimitTheirBody(t *testing.T) {
 		{http.MethodPost, "/api/v1/cluster/tasks"},
 		{http.MethodPost, "/api/v1/cluster/tasks/validate"},
 		{http.MethodPost, "/api/v1/cluster/tasks/format"},
+		{http.MethodPost, "/api/v1/cluster/tasks/import/preview"},
+		{http.MethodPost, "/api/v1/cluster/tasks/import"},
 		{http.MethodPut, "/api/v1/cluster/tasks/t1"},
 		{http.MethodPost, "/api/v1/cluster/task-runs/plan"},
 		{http.MethodPost, "/api/v1/cluster/task-runs"},

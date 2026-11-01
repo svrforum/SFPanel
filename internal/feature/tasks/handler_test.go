@@ -77,6 +77,8 @@ func registerRoutes(g *echo.Group, h *Handler) {
 	g.POST("/tasks", h.CreateTask)
 	g.POST("/tasks/validate", h.ValidateTask)
 	g.POST("/tasks/format", h.FormatTask)
+	g.POST("/tasks/import/preview", h.PreviewImport)
+	g.POST("/tasks/import", h.Import)
 	g.GET("/tasks/:id", h.GetTask)
 	g.PUT("/tasks/:id", h.UpdateTask)
 	g.DELETE("/tasks/:id", h.DeleteTask)
@@ -471,6 +473,10 @@ func TestAFollowerSendsWritesToTheLeader(t *testing.T) {
 		{"POST", "/api/v1/cluster/task-runs"},
 		{"POST", "/api/v1/cluster/task-runs/" + srcRun + "/stop"},
 		{"POST", "/api/v1/cluster/task-runs/" + srcRun + "/rerun"},
+		// A preview writes nothing, but the leader is where an import is
+		// judged and written, against the tasks it holds.
+		{"POST", "/api/v1/cluster/tasks/import/preview"},
+		{"POST", "/api/v1/cluster/tasks/import"},
 	}
 	for _, w := range writes {
 		t.Run(w.method+" "+w.path, func(t *testing.T) {
@@ -999,6 +1005,8 @@ func TestWritesWaitForTheLeaderToCatchUp(t *testing.T) {
 		{"POST", "/api/v1/cluster/task-runs"},
 		{"POST", "/api/v1/cluster/task-runs/" + otherRun + "/stop"},
 		{"POST", "/api/v1/cluster/task-runs/" + srcRun + "/rerun"},
+		{"POST", "/api/v1/cluster/tasks/import/preview"},
+		{"POST", "/api/v1/cluster/tasks/import"},
 	}
 	for _, w := range writes {
 		t.Run(w.method+" "+w.path, func(t *testing.T) {

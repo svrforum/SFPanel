@@ -1308,6 +1308,45 @@ steps:
   record every manager holds. A request body to the task routes is at most
   1 MiB (`413`).
 
+### Importing tasks from GitHub
+
+Task documents kept in a GitHub repository can be imported and fetched again
+later (`POST /api/v1/cluster/tasks/import/preview`, then
+`POST /api/v1/cluster/tasks/import`). Only GitHub is supported, through its
+REST API; nothing is cloned.
+
+- **What is read.** A folder (or the repository root, or one file) on a
+  branch, `main` if none is given. Its `.yaml` and `.yml` files are the
+  candidates, one level deep: subfolders are not entered. At most 50 per
+  folder.
+- **Pinned to a commit.** The preview resolves the branch to its commit and
+  lists the folder at that commit; the import reads each picked file at the
+  same commit. A push between the two cannot bring in content the operator
+  did not see. Each imported task records the repository, branch, file path
+  and that commit as its `source`.
+- **Fetching again.** The same repository (case aside), branch and file path
+  is the same task: a fresh import changes it in place and keeps its ID. The
+  preview compares each file's git blob SHA with the stored document, so a
+  refresh where nothing changed costs two GitHub calls, and lists the tasks
+  whose file is gone as `removed` (deleting them is the operator's call). An
+  imported task is read-only (`PUT` is `409 TASK_READ_ONLY`); it may be
+  deleted.
+- **All or nothing from GitHub, file by file for the documents.** Every
+  picked file is read before anything is written: a refused token, a used-up
+  allowance (`429 GIT_RATE_LIMITED`; 60 calls an hour without a token) or a
+  missing repository writes nothing. A file that is not a task — not UTF-8,
+  a document with problems, over 64 KiB, a name taken — is listed in the
+  answer's `failed` with its code, and the others are written.
+- **The token** is optional, for private repositories. It is sent to GitHub
+  in the `Authorization` header and is never stored: not in the task, Raft,
+  the panel's log or an audit row. A private repository asks for it again on
+  each refresh.
+- **Where it runs.** The leader calls GitHub for both routes, so one address
+  spends the allowance and the preview compares against the store the import
+  writes to; a follower forwards them (five minutes). The leader logs one line
+  per import, `tasks imported from git`, with the repository, branch, commit
+  and counts.
+
 ### The preview and the start
 
 `POST /api/v1/cluster/task-runs/plan` is the preview: the order the run would

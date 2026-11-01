@@ -101,6 +101,10 @@ func TestProxyAllowsTheOperationsTheHandlersAllow(t *testing.T) {
 		// A follower sends a group task's preview to the leader, which asks
 		// every target node for its verdicts.
 		"/api/v1/cluster/task-runs/plan",
+		// A follower sends a Git import to the leader, which reads up to 50
+		// files from GitHub one after another.
+		"/api/v1/cluster/tasks/import",
+		"/api/v1/cluster/tasks/import/preview",
 	}
 	for _, p := range long {
 		if got := ProxyTimeoutFor(p); got != 5*time.Minute {
@@ -121,6 +125,9 @@ func TestProxyKeepsOrdinaryRequestsShort(t *testing.T) {
 		"/api/v1/system/processes",
 		// Starting a run asks no node: it stays inside the default.
 		"/api/v1/cluster/task-runs",
+		// A task's writes ask no one outside the cluster.
+		"/api/v1/cluster/tasks",
+		"/api/v1/cluster/tasks/t1",
 	}
 	for _, p := range short {
 		if got := ProxyTimeoutFor(p); got != 30*time.Second {

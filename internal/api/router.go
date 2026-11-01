@@ -454,6 +454,10 @@ func NewRouter(database *sql.DB, auditWriter *sfdb.AsyncWriter, alertManager *fe
 		clusterGroup.POST("/tasks", tasksHandler.CreateTask, taskBody)
 		clusterGroup.POST("/tasks/validate", tasksHandler.ValidateTask, taskBody)
 		clusterGroup.POST("/tasks/format", tasksHandler.FormatTask, taskBody)
+		// Importing from a GitHub folder: a preview that writes nothing, and
+		// the import. Both are the leader's, which calls GitHub.
+		clusterGroup.POST("/tasks/import/preview", tasksHandler.PreviewImport, taskBody)
+		clusterGroup.POST("/tasks/import", tasksHandler.Import, taskBody)
 		clusterGroup.GET("/tasks/:id", tasksHandler.GetTask)
 		clusterGroup.PUT("/tasks/:id", tasksHandler.UpdateTask, taskBody)
 		clusterGroup.DELETE("/tasks/:id", tasksHandler.DeleteTask)

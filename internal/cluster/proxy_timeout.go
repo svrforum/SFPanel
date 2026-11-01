@@ -36,6 +36,10 @@ var longProxyPaths = []string{
 	// A group task's preview asks every target node for its verdicts, and a
 	// follower sends it on to the leader.
 	"/api/v1/cluster/task-runs/plan",
+	// A Git import of tasks, and its preview (matched too), which a
+	// follower sends on to the leader: it reads up to 50 files from
+	// GitHub one after another.
+	"/api/v1/cluster/tasks/import",
 }
 
 // ProxyTimeoutFor is how long a proxied request may take, on the sending
