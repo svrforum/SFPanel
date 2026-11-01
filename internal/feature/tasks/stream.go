@@ -66,12 +66,14 @@ func (h *Handler) StreamRun(c echo.Context) error {
 	w.WriteHeader(http.StatusOK)
 	flusher, _ := w.Writer.(http.Flusher)
 	last := env.Now()
+	// The quiet is counted from when a write starts: a client that has read
+	// what was sent may already be acting on it before the flush returns.
 	write := func(s string) {
+		last = env.Now()
 		_, _ = io.WriteString(w, s)
 		if flusher != nil {
 			flusher.Flush()
 		}
-		last = env.Now()
 	}
 	send := func(ev streamEvent) {
 		b, err := json.Marshal(ev)
