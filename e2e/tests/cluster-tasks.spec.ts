@@ -709,6 +709,31 @@ test.describe('run setup', () => {
     expect(plans[1].body).toEqual(plans[0].body)
   })
 
+  test('a preview that answers after the operator moved to another task starts nothing and leaves the page be', async ({ page }) => {
+    const { calls } = await mock(page, {
+      taskDetails: TASK_DETAILS,
+      replies: { 'POST /cluster/task-runs/plan': planReply(), 'POST /cluster/task-runs': started() },
+    })
+    // A large cluster: every node is asked, and the answer takes its time.
+    await page.route('**/api/v1/cluster/task-runs/plan', async (route) => {
+      await new Promise((resolve) => setTimeout(resolve, 1500))
+      await route.fallback()
+    })
+    await page.goto(`/cluster/tasks/${DEPLOY_ID}`)
+    await setup(page).getByLabel('Version').fill('1.2.3')
+    const answered = page.waitForResponse('**/api/v1/cluster/task-runs/plan')
+    await setup(page).getByRole('button', { name: 'Run' }).click()
+    // A clean preview would start at once; the operator has moved on by then.
+    await list(page).getByRole('link', { name: 'Rotate logs' }).click()
+    await expect(page).toHaveURL(/\/cluster\/tasks\/1b2c3d4e5f607182$/)
+    await answered
+    await page.waitForTimeout(1000)
+    expect(posts(calls, '/cluster/task-runs/plan')).toHaveLength(1)
+    expect(posts(calls, '/cluster/task-runs')).toEqual([])
+    await expect(page).toHaveURL(/\/cluster\/tasks\/1b2c3d4e5f607182$/)
+    await expect(previewDialog(page)).toHaveCount(0)
+  })
+
   test('a manager not ready keeps Run from starting and names it', async ({ page }) => {
     const { calls } = await mock(page, {
       taskDetails: TASK_DETAILS,

@@ -18,6 +18,7 @@ import {
   CELL_ORDER, cellText, cellTone, focusStep, nodeStatusText, nodeStatusTone, runActions, runStepCount, stepHeader, unsuccessfulNodes,
 } from './taskRunView'
 import { useTaskRun } from './useTaskRun'
+import { useMounted } from './useMounted'
 import { TaskRunMatrix, type ChosenCell } from './TaskRunMatrix'
 import { TaskNodeOutput } from './TaskNodeOutput'
 
@@ -176,12 +177,13 @@ interface RunActionsProps {
 }
 
 // Stop and force stop for a run under way; the reruns for one that ended. A
-// rerun's 202 goes to the new run. Nothing is retried by itself: a 502 or 504
-// may have started it all the same.
+// rerun's 202 goes to the new run, if the operator is still on this one.
+// Nothing is retried by itself: a 502 or 504 may have started it all the same.
 function RunActions({ run, state, nodeName, onHead }: RunActionsProps) {
   const { t } = useTranslation()
   const confirm = useConfirm()
   const navigate = useNavigate()
+  const mounted = useMounted()
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [choosing, setChoosing] = useState(false)
@@ -211,7 +213,7 @@ function RunActions({ run, state, nodeName, onHead }: RunActionsProps) {
     setError(null)
     try {
       const { run_id } = await api.rerunTaskRun(run.id, which)
-      navigate(`/cluster/tasks/runs/${encodeURIComponent(run_id)}`)
+      if (mounted.current) navigate(`/cluster/tasks/runs/${encodeURIComponent(run_id)}`)
     } catch (err) {
       setError(taskErrorMessage(err, t))
       setChoosing(false)

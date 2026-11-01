@@ -35,6 +35,7 @@ import {
 } from './taskForm'
 import { draftFromModel, draftFromTask, draftKey, dropDraft, keepDraft, readDraft, type TaskDraft } from './taskDrafts'
 import { listShows, type ListHolds } from './taskList'
+import { useMounted } from './useMounted'
 import { useTaskDelete } from './useTaskDelete'
 
 // Monaco is only fetched when the YAML view is opened.
@@ -219,6 +220,7 @@ interface Problems {
 function DocumentEditor({ draftKey: key, taskId, heading, back, init, restored, onDiscard, onSaved }: DocumentEditorProps) {
   const { t } = useTranslation()
   const navigate = useNavigate()
+  const mounted = useMounted()
   const confirm = useConfirm()
   const id = useId()
   const [doc, setDoc] = useState<TaskDraft>(init)
@@ -354,7 +356,8 @@ function DocumentEditor({ draftKey: key, taskId, heading, back, init, restored, 
       setDirty(false)
       toast.success(t('cluster.tasks.editor.saved'))
       await onSaved(listShows([saved]))
-      navigate(taskPath(saved.id))
+      // Saved and listed either way; the page moves only if the operator is still here.
+      if (mounted.current) navigate(taskPath(saved.id))
     } catch (err) {
       setError(taskErrorMessage(err, t))
     } finally {

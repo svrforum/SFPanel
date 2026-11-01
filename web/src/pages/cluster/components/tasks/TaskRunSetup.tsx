@@ -19,6 +19,7 @@ import { runStatusText, runStatusTone } from './taskRunStatus'
 import { clonePath, editPath } from './taskForm'
 import { shortSha } from './taskImport'
 import type { ListHolds } from './taskList'
+import { useMounted } from './useMounted'
 import { useTaskDelete } from './useTaskDelete'
 
 interface TaskRunSetupProps {
@@ -131,6 +132,7 @@ function TaskActions({ task, name, onDeleted }: { task: TaskView; name: string; 
 function RunForm({ task }: { task: TaskView }) {
   const { t } = useTranslation()
   const navigate = useNavigate()
+  const mounted = useMounted()
   const id = useId()
   const name = builtinText(t, task.id, 'name', task.name)
 
@@ -252,7 +254,7 @@ function RunForm({ task }: { task: TaskView }) {
     const fail = fromReview ? setReviewError : setError
     try {
       const { run_id } = await api.startTaskRun({ ...req, plan_id: plan.plan_id, ...(steps.length > 0 ? { confirmed: steps } : {}) })
-      navigate(`/cluster/tasks/runs/${encodeURIComponent(run_id)}`)
+      if (mounted.current) navigate(`/cluster/tasks/runs/${encodeURIComponent(run_id)}`)
     } catch (err) {
       if ((err as ApiError).code !== 'TASK_PLAN_CHANGED') {
         fail(runErrorText(err, t, nodeName))
@@ -278,7 +280,8 @@ function RunForm({ task }: { task: TaskView }) {
   }
 
   // [Preview] always opens the preview; [Run] opens it only when there is
-  // something to see, and otherwise starts what it previewed.
+  // something to see, and otherwise starts what it previewed. A preview that
+  // answers once the operator has left this task does neither.
   const go = async (andRun: boolean) => {
     setAttempted(true)
     if (problems.length > 0) return
@@ -287,6 +290,7 @@ function RunForm({ task }: { task: TaskView }) {
     setError(null)
     try {
       const plan = await api.planTaskRun(req)
+      if (!mounted.current) return
       if (andRun && !planNeedsReview(plan)) await start(plan, req, [], false)
       else openReview(plan, req, false)
     } catch (err) {
