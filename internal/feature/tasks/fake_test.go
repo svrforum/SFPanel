@@ -140,6 +140,7 @@ type fakeEnv struct {
 	outdated    map[string]bool
 	unreachable map[string]bool
 	notLeader   bool
+	stopped     chan struct{}
 	store       *fakeStore
 	now         time.Time
 
@@ -193,7 +194,11 @@ func agent(id, name string) cluster.Node {
 }
 
 func (e *fakeEnv) IsLeader() bool  { return !e.notLeader }
+func (e *fakeEnv) CaughtUp() bool  { return !e.notLeader }
 func (e *fakeEnv) LocalID() string { return e.local }
+
+// Done is the manager's lifetime: a test that supervises closes stopped.
+func (e *fakeEnv) Done() <-chan struct{} { return e.stopped }
 func (e *fakeEnv) Nodes() []cluster.Node {
 	e.mu.Lock()
 	defer e.mu.Unlock()

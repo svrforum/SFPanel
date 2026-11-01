@@ -305,18 +305,29 @@ func (r *runner) record(id string) cluster.RunNodeRecord {
 }
 
 // newRecord is node id's latest record with a step for every step of the
-// task.
+// task. In a rerun, the steps before the node's start step (StartAt) are
+// recorded as they ended in the run it reruns: succeeded, there.
 func (r *runner) newRecord(id string) cluster.RunNodeRecord {
 	rec := r.record(id)
 	steps := make([]cluster.RunStepRecord, len(r.task.Steps))
 	copy(steps, rec.Steps)
+	start := r.run.StartAt[id]
 	for i := range steps {
-		if steps[i].Status == "" {
+		switch {
+		case i < start && (steps[i].Status == "" || steps[i].Status == cluster.RunStepPending):
+			steps[i] = cluster.RunStepRecord{Status: cluster.RunStepSucceeded, Summary: "succeeded in run " + r.run.RerunOf}
+		case steps[i].Status == "":
 			steps[i].Status = cluster.RunStepPending
 		}
 	}
 	rec.Steps = steps
 	return rec
+}
+
+// inFlight reports whether step status is one a leader recorded as started
+// and never saw end: a leader that takes the run over follows that job.
+func inFlight(status string) bool {
+	return status == cluster.RunStepStarting || status == cluster.RunStepRunning
 }
 
 // write records node id's part of the run.
@@ -344,12 +355,16 @@ func (r *runner) fail(id string, rec cluster.RunNodeRecord, status, reason strin
 }
 
 // runNode runs node id's steps in order, from the first that has not ended.
+// A step a former leader started is followed to its end first, whatever the
+// node's health: it may be rebooting, and its job is under way either way.
 func (r *runner) runNode(id string) nodeOutcome {
 	rec := r.newRecord(id)
 	n, ok := r.nodes[id]
+	resuming := slices.ContainsFunc(rec.Steps, func(s cluster.RunStepRecord) bool { return inFlight(s.Status) })
 	switch {
 	case !ok:
 		return r.fail(id, rec, cluster.RunNodeFailed, "the node is no longer in the cluster")
+	case resuming:
 	case id != r.env.LocalID() && r.env.Health()[id] != cluster.StatusOnline:
 		return r.fail(id, rec, cluster.RunNodeFailed, "the node was offline when its turn came")
 	case r.env.Unreachable(id):
@@ -365,9 +380,8 @@ func (r *runner) runNode(id string) nodeOutcome {
 	}
 
 	for i, spec := range specs {
-		switch rec.Steps[i].Status {
-		case cluster.RunStepPending, cluster.RunStepStarting, cluster.RunStepRunning:
-		default:
+		resume := inFlight(rec.Steps[i].Status)
+		if !resume && rec.Steps[i].Status != cluster.RunStepPending {
 			continue // ended before
 		}
 		if r.ctx.Err() != nil {
@@ -377,13 +391,15 @@ func (r *runner) runNode(id string) nodeOutcome {
 		if err != nil {
 			return nodeAbandoned
 		}
-		if head.Status == cluster.RunStopping {
+		// A step under way is followed to its end, as a stop leaves a
+		// running job to finish; the quorum was judged as it started.
+		if !resume && head.Status == cluster.RunStopping {
 			return r.fail(id, rec, cluster.RunNodeStopped, stopReason(head))
 		}
 		spec.ID, spec.RunID = jobID(r.run.ID, i), r.run.ID
 		spec.Confirmed = slices.Contains(r.run.Confirmed, i)
 
-		if spec.Kind == tasks.StepReboot && n.IsManager() && !r.quorumWithout(id) {
+		if !resume && spec.Kind == tasks.StepReboot && n.IsManager() && !r.quorumWithout(id) {
 			rec.Steps[i] = cluster.RunStepRecord{Status: cluster.RunStepSkipped, Summary: reasonQuorum, EndedAt: r.env.Now().UTC()}
 			logger.Warn("task run skipped a manager's reboot: quorum", "run", r.run.ID, "node", id)
 			return r.fail(id, rec, cluster.RunNodeSkipped, reasonQuorum)
@@ -453,17 +469,35 @@ const (
 
 // runStep runs step i on node id: it records the step starting with its job
 // ID, starts the job, and asks how it stands every pollInterval until it
-// ends.
+// ends. A step a former leader recorded is the job it recorded, by that ID
+// and from when it started: one recorded starting is posted again, as the
+// post may never have arrived and the node returns the job it has for the
+// ID; one recorded running is only asked about, as the node took it, and
+// one the node no longer has is unknown, not started again.
 func (r *runner) runStep(id string, rec *cluster.RunNodeRecord, i int, spec tasks.JobSpec) stepResult {
 	step := &rec.Steps[i]
-	*step = cluster.RunStepRecord{Status: cluster.RunStepStarting, JobID: spec.ID, StartedAt: r.env.Now().UTC()}
-	// Recorded before the job is posted: a leader that takes over after the
-	// post asks for this ID, and the node has one job per ID.
-	if err := r.write(id, *rec); err != nil {
-		return stepAbandoned
+	if inFlight(step.Status) {
+		if step.JobID != "" {
+			spec.ID = step.JobID
+		}
+		if step.StartedAt.IsZero() {
+			step.StartedAt = r.env.Now().UTC()
+		}
+	} else {
+		*step = cluster.RunStepRecord{Status: cluster.RunStepStarting, JobID: spec.ID, StartedAt: r.env.Now().UTC()}
+		// Recorded before the job is posted: a leader that takes over after
+		// the post asks for this ID, and the node has one job per ID.
+		if err := r.write(id, *rec); err != nil {
+			return stepAbandoned
+		}
 	}
-	end := func(status, summary string, changed bool) {
-		step.Status, step.Summary, step.Changed, step.EndedAt = status, capSummary(summary), changed, r.env.Now().UTC()
+
+	if step.Status == cluster.RunStepRunning {
+		view := tasks.JobView{ID: spec.ID, Kind: spec.Kind, Status: tasks.JobRunning}
+		if spec.Kind == tasks.StepReboot {
+			view.Status = tasks.JobRebooting
+		}
+		return r.follow(id, rec, i, spec, view)
 	}
 
 	view, err := r.start(id, spec)
@@ -476,17 +510,17 @@ func (r *runner) runStep(id string, rec *cluster.RunNodeRecord, i int, spec task
 		switch {
 		case errors.As(err, &ref) && ref.Code == response.ErrTaskRebootPVEHost && spec.Kind == tasks.StepReboot:
 			// The design reboots no Proxmox host: the VMs on it stop too.
-			end(cluster.RunStepSkipped, reasonProxmoxHost, false)
+			r.endStep(step, cluster.RunStepSkipped, reasonProxmoxHost, false)
 			res = stepDone
 		case errors.As(err, &ref) && ref.Code == response.ErrTaskNodeBusy:
-			end(cluster.RunStepFailed, err.Error(), false)
+			r.endStep(step, cluster.RunStepFailed, err.Error(), false)
 			rec.Reason = fmt.Sprintf("busy with job %s of run %s (%s)", ref.Details["job_id"], ref.Details["run_id"], ref.Details["task"])
 			res = stepBusy
 		case ref != nil:
-			end(cluster.RunStepFailed, err.Error(), false)
+			r.endStep(step, cluster.RunStepFailed, err.Error(), false)
 		default:
 			// The node did not answer: the job may have started.
-			end(cluster.RunStepUnknown, "the node did not answer: "+err.Error(), false)
+			r.endStep(step, cluster.RunStepUnknown, "the node did not answer: "+err.Error(), false)
 			res = stepUnknown
 		}
 		if err := r.write(id, *rec); err != nil {
@@ -499,24 +533,36 @@ func (r *runner) runStep(id string, rec *cluster.RunNodeRecord, i int, spec task
 	if err := r.write(id, *rec); err != nil {
 		return stepAbandoned
 	}
+	return r.follow(id, rec, i, spec, view)
+}
+
+// endStep records how step ended, now.
+func (r *runner) endStep(step *cluster.RunStepRecord, status, summary string, changed bool) {
+	step.Status, step.Summary, step.Changed, step.EndedAt = status, capSummary(summary), changed, r.env.Now().UTC()
+}
+
+// follow waits for step i's job on node id to end, from view, and records
+// how it ended.
+func (r *runner) follow(id string, rec *cluster.RunNodeRecord, i int, spec tasks.JobSpec, view tasks.JobView) stepResult {
+	step := &rec.Steps[i]
 	view, res := r.wait(id, spec, view, step.StartedAt)
 	if res == stepAbandoned {
 		return stepAbandoned
 	}
 	if res == stepUnknown {
-		end(cluster.RunStepUnknown, view.Summary, false)
+		r.endStep(step, cluster.RunStepUnknown, view.Summary, false)
 	} else {
 		switch view.Status {
 		case tasks.JobSucceeded:
-			end(cluster.RunStepSucceeded, view.Summary, view.Changed)
+			r.endStep(step, cluster.RunStepSucceeded, view.Summary, view.Changed)
 		case tasks.JobFailed:
-			end(cluster.RunStepFailed, failSummary(view), view.Changed)
+			r.endStep(step, cluster.RunStepFailed, failSummary(view), view.Changed)
 			res = stepFailed
 		case tasks.JobCancelled:
-			end(cluster.RunStepCancelled, view.Summary, view.Changed)
+			r.endStep(step, cluster.RunStepCancelled, view.Summary, view.Changed)
 			res = stepCancelled
 		default: // interrupted, or a status this leader does not know
-			end(cluster.RunStepUnknown, "the job's result is not known ("+view.Status+")", view.Changed)
+			r.endStep(step, cluster.RunStepUnknown, "the job's result is not known ("+view.Status+")", view.Changed)
 			res = stepUnknown
 		}
 	}

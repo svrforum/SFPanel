@@ -1366,6 +1366,14 @@ func (m *Manager) pickTransferTarget() string {
 // comes, or "" when there is none.
 func (m *Manager) PickTransferTarget() string { return m.pickTransferTarget() }
 
+// CaughtUpLeader reports whether this node leads with an FSM that holds every
+// committed entry (caughtUpLeader): what a task run's supervisor waits for
+// before it takes the runs in progress over. A node with no Raft is not the
+// leader.
+func (m *Manager) CaughtUpLeader(timeout time.Duration) bool {
+	return m.raft != nil && m.raft.caughtUpLeader(timeout)
+}
+
 // ReachCount is how many agents manager nodeID reaches: this manager's own
 // fresh probe, another's last ping. It is -1 when that is unknown — no fresh
 // probe here, no ping there, or a ping that named none: an empty list and an

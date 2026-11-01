@@ -34,6 +34,11 @@ type runStore interface {
 // order and every decision can be tested without one.
 type runEnv interface {
 	IsLeader() bool
+	// CaughtUp reports whether this node leads with an FSM that holds every
+	// committed entry: only then are the runs it reads all the runs.
+	CaughtUp() bool
+	// Done is closed when the cluster manager stops.
+	Done() <-chan struct{}
 	LocalID() string
 	Nodes() []cluster.Node
 	// Health is LiveHealth: what an operator starts goes by it.
@@ -92,6 +97,20 @@ type clusterRunEnv struct {
 
 func (e clusterRunEnv) IsLeader() bool  { return e.mgr.IsLeader() }
 func (e clusterRunEnv) LocalID() string { return e.mgr.LocalNodeID() }
+
+// caughtUpWait bounds the wait to enqueue the barrier a new leader's first
+// look takes (caughtUpLeader), as the other leader-side loops do.
+const caughtUpWait = 2 * time.Second
+
+func (e clusterRunEnv) CaughtUp() bool { return e.mgr.CaughtUpLeader(caughtUpWait) }
+
+// Done is the heartbeat's: the manager stops it first as it shuts down.
+func (e clusterRunEnv) Done() <-chan struct{} {
+	if hb := e.mgr.GetHeartbeat(); hb != nil {
+		return hb.Done()
+	}
+	return nil
+}
 
 func (e clusterRunEnv) Nodes() []cluster.Node {
 	nodes := e.mgr.GetNodes()

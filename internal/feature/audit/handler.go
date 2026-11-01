@@ -35,6 +35,24 @@ func RecordWSSession(writer *sfdb.AsyncWriter, username, path, ip, nodeID string
 	})
 }
 
+// RecordEvent writes a durable audit_logs row for something the panel does
+// that is no request of its own to AuditMiddleware, such as a group task
+// run's start and end on the cluster's leader, under the operator who caused
+// it. path names the event; the caller keeps anything secret out of it.
+func RecordEvent(writer *sfdb.AsyncWriter, username, method, path string, status int, nodeID string) {
+	if writer == nil {
+		return
+	}
+	writer.Submit(func(db *sql.DB) {
+		if _, err := db.Exec(
+			"INSERT INTO audit_logs (username, method, path, status, ip, node_id) VALUES (?, ?, ?, ?, ?, ?)",
+			username, method, path, status, "", nodeID,
+		); err != nil {
+			slog.Error("audit event write failed", "component", "audit", "error", err, "path", path)
+		}
+	})
+}
+
 // actionAuditLogCleared is recorded with protected=1 immediately before a
 // clear so the wipe itself survives subsequent wipes. The marker rides in
 // the `path` column rather than a new column because the audit_logs schema
