@@ -32,7 +32,7 @@ func TestPlanOrdersAgentsInBatchesThenManagersThenTheLeader(t *testing.T) {
 	e.checks["a-5"] = []tasks.CheckVerdict{{Step: 0, NeedsConfirm: true}}
 	e.checkErr["m-b"] = errors.New("deadline exceeded")
 
-	plan, err := planRun(e, parse(t, steps(true, cmdTrue)), tasks.Targets{Kinds: []string{"agent", "manager"}}, nil, 2)
+	plan, err := planRun(e, parse(t, steps(true, cmdTrue)), tasks.Targets{Kinds: []string{"agent", "manager"}}, nil, 2, "")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -61,7 +61,7 @@ func TestPlanOrdersAgentsInBatchesThenManagersThenTheLeader(t *testing.T) {
 func TestPlanTargetsTheUnionOfGroupsKindsAndNodes(t *testing.T) {
 	e := newFakeEnv(t, "m1", manager("m1", "leader"),
 		grouped(agent("a1", "web-1"), "web"), grouped(agent("a2", "db-1"), "db"), agent("a3", "other"), manager("m2", "mgr-2"))
-	plan, err := planRun(e, parse(t, steps(true, cmdTrue)), tasks.Targets{Groups: []string{"web"}, Nodes: []string{"a3", "m2"}}, nil, 5)
+	plan, err := planRun(e, parse(t, steps(true, cmdTrue)), tasks.Targets{Groups: []string{"web"}, Nodes: []string{"a3", "m2"}}, nil, 5, "")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -87,7 +87,7 @@ func TestPlanSaysWhyANodeIsLeftOut(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			e := newFakeEnv(t, "m1", manager("m1", "leader"), agent("a1", "web-1"), agent("a2", "web-2"))
 			tc.setup(e)
-			plan, err := planRun(e, parse(t, steps(true, cmdTrue)), tasks.Targets{Kinds: []string{"agent"}}, nil, 1)
+			plan, err := planRun(e, parse(t, steps(true, cmdTrue)), tasks.Targets{Kinds: []string{"agent"}}, nil, 1, "")
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -105,14 +105,14 @@ func TestPlanSaysWhyANodeIsLeftOut(t *testing.T) {
 	t.Run("a run that has ended holds nothing", func(t *testing.T) {
 		e := newFakeEnv(t, "m1", manager("m1", "leader"), agent("a1", "web-1"))
 		_ = e.store.PutRun(cluster.RunRecord{ID: "20261101-110000-000001", Status: cluster.RunFailed, Nodes: []string{"a1"}})
-		plan, err := planRun(e, parse(t, steps(true, cmdTrue)), tasks.Targets{Kinds: []string{"agent"}}, nil, 1)
+		plan, err := planRun(e, parse(t, steps(true, cmdTrue)), tasks.Targets{Kinds: []string{"agent"}}, nil, 1, "")
 		if err != nil || len(plan.Left) != 0 {
 			t.Errorf("plan = %+v, %v; want a1 planned", plan, err)
 		}
 	})
 	t.Run("a node ID nobody has", func(t *testing.T) {
 		e := newFakeEnv(t, "m1", manager("m1", "leader"))
-		plan, err := planRun(e, parse(t, steps(true, cmdTrue)), tasks.Targets{Nodes: []string{"gone"}}, nil, 1)
+		plan, err := planRun(e, parse(t, steps(true, cmdTrue)), tasks.Targets{Nodes: []string{"gone"}}, nil, 1, "")
 		if err != nil || len(plan.Left) != 1 || plan.Left[0].Reason != LeftUnknown {
 			t.Errorf("plan = %+v, %v; want gone left out as unknown", plan, err)
 		}
@@ -126,10 +126,10 @@ func TestPlanCapsTargetsAt200(t *testing.T) {
 	}
 	e := newFakeEnv(t, "m1", nodes...)
 	task := parse(t, steps(true, cmdTrue))
-	if _, err := planRun(e, task, tasks.Targets{Kinds: []string{"agent"}}, nil, 10); err != nil {
+	if _, err := planRun(e, task, tasks.Targets{Kinds: []string{"agent"}}, nil, 10, ""); err != nil {
 		t.Fatalf("200 targets: %v", err)
 	}
-	if _, err := planRun(e, task, tasks.Targets{Kinds: []string{"agent", "manager"}}, nil, 10); !errors.Is(err, ErrTooManyTargets) {
+	if _, err := planRun(e, task, tasks.Targets{Kinds: []string{"agent", "manager"}}, nil, 10, ""); !errors.Is(err, ErrTooManyTargets) {
 		t.Fatalf("201 targets: %v, want ErrTooManyTargets", err)
 	}
 }
@@ -137,7 +137,7 @@ func TestPlanCapsTargetsAt200(t *testing.T) {
 func TestPlanRefusesAMissingInput(t *testing.T) {
 	e := newFakeEnv(t, "m1", manager("m1", "leader"), agent("a1", "web-1"))
 	doc := "name: t\ninputs:\n  svc: { required: true }\nsteps:\n  - service: { name: \"{{ svc }}\", action: restart }\n"
-	_, err := planRun(e, parse(t, doc), tasks.Targets{Kinds: []string{"agent"}}, nil, 1)
+	_, err := planRun(e, parse(t, doc), tasks.Targets{Kinds: []string{"agent"}}, nil, 1, "")
 	if !errors.Is(err, tasks.ErrInputMissing) {
 		t.Fatalf("err = %v, want ErrInputMissing", err)
 	}

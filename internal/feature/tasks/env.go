@@ -62,13 +62,14 @@ type runEnv interface {
 	// Unreachable reports whether this leader's fresh probe found agent id
 	// out of reach.
 	Unreachable(id string) bool
-	// StartJob, GetJob, CancelJob and Check call a node's task-job routes.
-	// A node's refusal is a *jobRefusal; any other error is the call's own.
-	// None sets a time limit: the caller's context does.
+	// StartJob, GetJob, CancelJob and Check call a node's task-job routes,
+	// a write under the name of the operator it is for, which the node's
+	// audit row carries. A node's refusal is a *jobRefusal; any other error
+	// is the call's own. None sets a time limit: the caller's context does.
 	StartJob(ctx context.Context, nodeID string, spec tasks.JobSpec, username string) (tasks.JobView, error)
 	GetJob(ctx context.Context, nodeID, jobID string, skip int64) (tasks.JobView, error)
-	CancelJob(ctx context.Context, nodeID, jobID string, force bool) error
-	Check(ctx context.Context, nodeID string, specs []tasks.JobSpec) ([]tasks.CheckVerdict, error)
+	CancelJob(ctx context.Context, nodeID, jobID string, force bool, username string) error
+	Check(ctx context.Context, nodeID string, specs []tasks.JobSpec, username string) ([]tasks.CheckVerdict, error)
 	Store() runStore
 	// Tasks is the whole task store, for the API.
 	Tasks() taskStore
@@ -189,21 +190,21 @@ func (e clusterRunEnv) GetJob(ctx context.Context, nodeID, jobID string, skip in
 	return v, err
 }
 
-func (e clusterRunEnv) CancelJob(ctx context.Context, nodeID, jobID string, force bool) error {
+func (e clusterRunEnv) CancelJob(ctx context.Context, nodeID, jobID string, force bool, username string) error {
 	body, err := json.Marshal(map[string]bool{"force": force})
 	if err != nil {
 		return err
 	}
-	return e.call(ctx, nodeID, http.MethodPost, taskJobsPath+"/"+jobID+"/cancel", body, "", nil)
+	return e.call(ctx, nodeID, http.MethodPost, taskJobsPath+"/"+jobID+"/cancel", body, username, nil)
 }
 
-func (e clusterRunEnv) Check(ctx context.Context, nodeID string, specs []tasks.JobSpec) ([]tasks.CheckVerdict, error) {
+func (e clusterRunEnv) Check(ctx context.Context, nodeID string, specs []tasks.JobSpec, username string) ([]tasks.CheckVerdict, error) {
 	body, err := json.Marshal(specs)
 	if err != nil {
 		return nil, err
 	}
 	var out []tasks.CheckVerdict
-	err = e.call(ctx, nodeID, http.MethodPost, taskJobCheckPath, body, "", &out)
+	err = e.call(ctx, nodeID, http.MethodPost, taskJobCheckPath, body, username, &out)
 	return out, err
 }
 

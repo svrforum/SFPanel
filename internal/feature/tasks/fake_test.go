@@ -243,14 +243,18 @@ type fakeEnv struct {
 	readsOutput bool
 	output      map[string]string
 
-	jobs     map[string]*fakeJob
-	posts    []string // node/step, every post, whether it started a job or not
-	started  []string // node/step, in order posted
-	cancels  []string // node/step force-cancelled
-	specs    map[string]tasks.JobSpec
-	handTo   string
-	handErr  error
-	handedAt []string // the run's head status as HandOver was called
+	jobs    map[string]*fakeJob
+	posts   []string // node/step, every post, whether it started a job or not
+	started []string // node/step, in order posted
+	cancels []string // node/step force-cancelled
+	// checkedBy and cancelledBy are "node:operator" for every Check and
+	// CancelJob, as the node's audit row would name them.
+	checkedBy   []string
+	cancelledBy []string
+	specs       map[string]tasks.JobSpec
+	handTo      string
+	handErr     error
+	handedAt    []string // the run's head status as HandOver was called
 }
 
 func newFakeEnv(t *testing.T, local string, nodes ...cluster.Node) *fakeEnv {
@@ -326,7 +330,10 @@ func (e *fakeEnv) HandOver() (string, error) {
 	return e.handTo, e.handErr
 }
 
-func (e *fakeEnv) Check(_ context.Context, nodeID string, specs []tasks.JobSpec) ([]tasks.CheckVerdict, error) {
+func (e *fakeEnv) Check(_ context.Context, nodeID string, specs []tasks.JobSpec, username string) ([]tasks.CheckVerdict, error) {
+	e.mu.Lock()
+	e.checkedBy = append(e.checkedBy, nodeID+":"+username)
+	e.mu.Unlock()
 	if err := e.checkErr[nodeID]; err != nil {
 		return nil, err
 	}
@@ -412,9 +419,10 @@ func (e *fakeEnv) GetJob(_ context.Context, nodeID, jobID string, skip int64) (t
 	return v, nil
 }
 
-func (e *fakeEnv) CancelJob(_ context.Context, nodeID, jobID string, force bool) error {
+func (e *fakeEnv) CancelJob(_ context.Context, nodeID, jobID string, force bool, username string) error {
 	e.mu.Lock()
 	defer e.mu.Unlock()
+	e.cancelledBy = append(e.cancelledBy, nodeID+":"+username)
 	j, ok := e.jobs[nodeID+"/"+jobID]
 	if !ok {
 		return &jobRefusal{Status: http.StatusNotFound, Code: response.ErrTaskJobNotFound}

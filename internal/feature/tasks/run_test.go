@@ -464,3 +464,25 @@ func TestAStepSummaryIsCappedAtACharacterBoundary(t *testing.T) {
 		t.Errorf("summary = %d bytes %q, want at most %d bytes of whole characters", len(got), got, maxSummary)
 	}
 }
+
+// A forced stop cancels a job under the name of the operator who stopped the
+// run, so the node's audit row says who; a run stopped with no name recorded
+// falls back to the operator who started it.
+func TestAForcedCancelCarriesTheOperatorWhoStopped(t *testing.T) {
+	for _, tc := range []struct{ stoppedBy, want string }{{"carol", "a1:carol"}, {"", "a1:operator"}} {
+		t.Run("stopped by "+tc.stoppedBy, func(t *testing.T) {
+			e := newFakeEnv(t, "m1", manager("m1", "leader"), agent("a1", "web-1"))
+			e.polls[key("a1", 0)] = 100
+			e.onPoll = func(node string, step, poll int) {
+				if poll == 1 {
+					e.store.setHead(testRunID, func(h *cluster.RunRecord) { h.Status, h.Force, h.StoppedBy = cluster.RunStopping, true, tc.stoppedBy })
+				}
+			}
+			run := newRun(t, e, steps(true, cmdTrue), [][]string{{"a1"}})
+			mustRun(t, e, run)
+			if !slices.Equal(e.cancelledBy, []string{tc.want}) {
+				t.Errorf("cancels = %v, want [%s]", e.cancelledBy, tc.want)
+			}
+		})
+	}
+}

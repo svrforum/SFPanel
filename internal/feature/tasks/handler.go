@@ -711,7 +711,7 @@ func (h *Handler) PlanRun(c echo.Context) error {
 	if err != nil {
 		return fail(c, err)
 	}
-	plan, err := planRun(env, rt.task, rt.targets, req.Inputs, rt.batch)
+	plan, err := planRun(env, rt.task, rt.targets, req.Inputs, rt.batch, operator(c))
 	if err != nil {
 		return fail(c, planError(err))
 	}
@@ -951,6 +951,8 @@ func (h *Handler) GetRun(c echo.Context) error {
 // under way goes to stopping, by the operator; the engine starts no new
 // step, and with force cancels the command jobs under way. A run already
 // stopping is forced when asked; one that has ended is answered as it is.
+// StoppedBy names who stopped it, or forced the stop: a forced cancel goes to
+// the node under that name.
 // The head is read and written under headMu, so a write the engine makes
 // from an earlier read does not undo the stop.
 func (h *Handler) StopRun(c echo.Context) error {
@@ -978,10 +980,10 @@ func (h *Handler) StopRun(c echo.Context) error {
 	switch head.Status {
 	case cluster.RunRunning, cluster.RunHandingOver:
 		head.Status, head.Force, head.Reason = cluster.RunStopping, body.Force, "stopped by "+operator(c)
-		changed = true
+		head.StoppedBy, changed = operator(c), true
 	case cluster.RunStopping:
 		if body.Force && !head.Force {
-			head.Force, changed = true, true
+			head.Force, head.StoppedBy, changed = true, operator(c), true
 		}
 	}
 	if changed {

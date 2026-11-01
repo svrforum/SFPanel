@@ -148,7 +148,10 @@ type RunRecord struct {
 	Status        string `json:"status"`
 	Reason        string `json:"reason,omitempty"`
 	// Force marks a forced stop: command jobs are cancelled, not left to end.
-	Force     bool      `json:"force,omitempty"`
+	Force bool `json:"force,omitempty"`
+	// StoppedBy is the operator who stopped the run, or forced its stop: the
+	// node rows of the jobs a forced stop cancels carry this name.
+	StoppedBy string    `json:"stopped_by,omitempty"`
 	StartedBy string    `json:"started_by"`
 	StartedAt time.Time `json:"started_at"`
 	EndedAt   time.Time `json:"ended_at,omitzero"`

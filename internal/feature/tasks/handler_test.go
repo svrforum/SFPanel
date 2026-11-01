@@ -1317,3 +1317,37 @@ steps:
 		}
 	})
 }
+
+// A node's audit row names the operator a leader's call is for: the
+// preview's checks carry who asked for the preview, a stop records who
+// stopped the run.
+func TestNodeCallsCarryTheOperator(t *testing.T) {
+	t.Run("the preview's checks", func(t *testing.T) {
+		f := newAPI(t)
+		f.store("t1", greetDoc)
+		if a := f.do("POST", "/api/v1/cluster/task-runs/plan", map[string]any{"task_id": "t1", "inputs": map[string]string{"who": "x"}}); a.Status != 200 {
+			t.Fatalf("plan = %d %+v", a.Status, a.Error)
+		}
+		got := slices.Sorted(slices.Values(f.env.checkedBy))
+		if want := []string{"a1:operator", "a2:operator", "a3:operator"}; !slices.Equal(got, want) {
+			t.Errorf("checks = %v, want %v", got, want)
+		}
+	})
+	t.Run("a stop", func(t *testing.T) {
+		f := newAPI(t)
+		f.runOf(srcRun, cluster.RunRunning, nil, "a1")
+		f.do("POST", "/api/v1/cluster/task-runs/"+srcRun+"/stop", nil)
+		if h := f.env.store.head(srcRun); h.StoppedBy != "operator" {
+			t.Errorf("stopped_by = %q, want operator", h.StoppedBy)
+		}
+	})
+	t.Run("a stop forced by another operator", func(t *testing.T) {
+		f := newAPI(t)
+		f.runOf(srcRun, cluster.RunStopping, nil, "a1")
+		f.env.store.setHead(srcRun, func(h *cluster.RunRecord) { h.Reason, h.StoppedBy = "stopped by someone", "someone" })
+		f.do("POST", "/api/v1/cluster/task-runs/"+srcRun+"/stop", map[string]bool{"force": true})
+		if h := f.env.store.head(srcRun); h.StoppedBy != "operator" || !h.Force {
+			t.Errorf("stopped_by = %q, force %v; want the operator who forced it", h.StoppedBy, h.Force)
+		}
+	})
+}

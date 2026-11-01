@@ -100,14 +100,14 @@ func (p Plan) NodeIDs() []string {
 // on agents before any manager; then the other managers one at a time; then
 // this leader. Each group goes by name, then ID, so a run takes the same
 // order every time. Every node is asked for its verdicts on the steps,
-// filled in for it; a required input left out is an error
-// (tasks.ErrInputMissing).
-func planRun(env runEnv, t *tasks.Task, targets tasks.Targets, inputs map[string]string, batch int) (Plan, error) {
+// filled in for it, under username, the operator who asked; a required
+// input left out is an error (tasks.ErrInputMissing).
+func planRun(env runEnv, t *tasks.Task, targets tasks.Targets, inputs map[string]string, batch int, username string) (Plan, error) {
 	plan, byID, err := orderRun(env, targets, runBatch(t, batch))
 	if err != nil {
 		return Plan{}, err
 	}
-	if err := checkPlan(env, t, inputs, byID, plan); err != nil {
+	if err := checkPlan(env, t, inputs, byID, plan, username); err != nil {
 		return Plan{}, err
 	}
 	return plan, nil
@@ -240,9 +240,10 @@ func sortPlanNodes(s []PlanNode) {
 }
 
 // checkPlan fills in every planned node's verdicts, asking up to
-// checkParallel nodes at once. The steps are rendered for each node first:
+// checkParallel nodes at once, under the name of the operator who asked for
+// the preview. The steps are rendered for each node first:
 // a missing input fails the whole plan, before any node is asked.
-func checkPlan(env runEnv, t *tasks.Task, inputs map[string]string, byID map[string]cluster.Node, plan Plan) error {
+func checkPlan(env runEnv, t *tasks.Task, inputs map[string]string, byID map[string]cluster.Node, plan Plan, username string) error {
 	jobs, err := renderPlan(t, inputs, byID, plan)
 	if err != nil {
 		return err
@@ -257,7 +258,7 @@ func checkPlan(env runEnv, t *tasks.Task, inputs map[string]string, byID map[str
 			defer func() { <-sem }()
 			ctx, cancel := context.WithTimeout(context.Background(), checkTimeout)
 			defer cancel()
-			v, err := env.Check(ctx, j.node.ID, j.specs)
+			v, err := env.Check(ctx, j.node.ID, j.specs, username)
 			if err != nil {
 				j.node.CheckError = err.Error()
 				return

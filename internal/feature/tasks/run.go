@@ -738,8 +738,14 @@ func (r *runner) wait(id string, spec tasks.JobSpec, view tasks.JobView, started
 		r.env.Sleep(pollInterval)
 		if !cancelled && cancellable(spec.Kind) {
 			if head, err := r.readHead(false); err == nil && head.Status == cluster.RunStopping && head.Force {
+				// Under the name of the operator who stopped the run, which
+				// the node's audit row carries.
+				by := head.StoppedBy
+				if by == "" {
+					by = r.run.StartedBy
+				}
 				ctx, cancel := context.WithTimeout(r.ctx, callTimeout)
-				err := r.env.CancelJob(ctx, id, spec.ID, true)
+				err := r.env.CancelJob(ctx, id, spec.ID, true, by)
 				cancel()
 				if err == nil {
 					cancelled = true
