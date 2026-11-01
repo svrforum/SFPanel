@@ -193,7 +193,8 @@ func runEnded(st *fakeStore, id string) func() bool {
 
 // m1 posts the first step and loses the leadership before the node's answer
 // reaches it: the step is recorded starting with its job ID, and the node
-// has the job. m2 takes the run over and posts that ID again.
+// has the job. m2 takes the run over, asks the node for that ID and follows
+// the job rather than post it again.
 func TestANewLeaderTakesOverARunningRun(t *testing.T) {
 	shortSupervise(t)
 	c := newShared(t, "m1", manager("m1", "mgr-1"), manager("m2", "mgr-2"), agent("a1", "web-1"))
@@ -218,14 +219,11 @@ func TestANewLeaderTakesOverARunningRun(t *testing.T) {
 		t.Errorf("a1 ran step 1 %d times, want once", n)
 	}
 	want := jobID(testRunID, 0)
-	ids := c.postsBy("m2", "a1", 0)
-	if len(ids) == 0 {
-		t.Fatal("m2 never posted step 0: the run was not taken over")
+	if ids := c.postsBy("m2", "a1", 1); len(ids) == 0 {
+		t.Fatal("m2 never posted step 1: the run was not taken over")
 	}
-	for _, id := range ids {
-		if id != want {
-			t.Errorf("m2 posted step 0 as job %q, want the recorded %q", id, want)
-		}
+	if ids := c.postsBy("m2", "a1", 0); len(ids) != 0 {
+		t.Errorf("m2 posted step 0 as %v, want it followed: the node has the job", ids)
 	}
 	rec := wantNode(t, c.fakeEnv, "a1", cluster.RunNodeSucceeded, "")
 	wantStep(t, rec, 0, cluster.RunStepSucceeded, "")
@@ -543,4 +541,99 @@ func TestATakeoverClosesANodeFromItsOwnRecord(t *testing.T) {
 			wantHead(t, e, tc.head, "")
 		})
 	}
+}
+
+// A step recorded starting may never have reached its node. The leader that
+// takes the run over asks the node for the recorded job before it posts it
+// again: a job the node has is followed, never posted; one it has not is a
+// step not yet started, which the stop and a manager's quorum apply to.
+func TestATakeoverAsksAboutAStartingStepBeforePostingIt(t *testing.T) {
+	starting := func(t *testing.T, e *fakeEnv, node string) {
+		t.Helper()
+		if err := e.store.PutRunNode(testRunID, node, cluster.RunNodeRecord{Status: cluster.RunNodeRunning, Steps: []cluster.RunStepRecord{
+			{Status: cluster.RunStepStarting, JobID: jobID(testRunID, 0), StartedAt: e.now},
+		}}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	t.Run("a manager's reboot the node never got, a voter down: skipped for the quorum", func(t *testing.T) {
+		e := newFakeEnv(t, "m1", manager("m1", "leader"), manager("m2", "mgr-2"), manager("m3", "mgr-3"), manager("m4", "mgr-4"))
+		e.health["m3"] = cluster.StatusOffline
+		run := newRun(t, e, steps(true, `reboot: { only_if_required: false }`), [][]string{{"m2"}, {"m4"}, {"m1"}})
+		starting(t, e, "m2")
+		mustRun(t, e, run)
+
+		if p := e.postList(); len(p) != 0 {
+			t.Errorf("posts = %v, want none", p)
+		}
+		rec := wantNode(t, e, "m2", cluster.RunNodeSkipped, reasonQuorum)
+		wantStep(t, rec, 0, cluster.RunStepSkipped, reasonQuorum)
+		wantHead(t, e, cluster.RunStopped, "quorum: rebooting mgr-2")
+	})
+	t.Run("a job the node has: followed, not posted", func(t *testing.T) {
+		e := newFakeEnv(t, "m1", manager("m1", "leader"), agent("a1", "web-1"))
+		run := newRun(t, e, steps(true, cmdTrue), [][]string{{"a1"}})
+		if _, err := e.StartJob(context.Background(), "a1", tasks.JobSpec{ID: jobID(testRunID, 0), RunID: testRunID, Step: 0, Kind: tasks.StepCommand}, "operator"); err != nil {
+			t.Fatal(err)
+		}
+		e.posts = nil // the old leader's post, above
+		starting(t, e, "a1")
+		mustRun(t, e, run)
+
+		if p := e.postList(); len(p) != 0 {
+			t.Errorf("posts = %v, want none: the node has the job", p)
+		}
+		rec := wantNode(t, e, "a1", cluster.RunNodeSucceeded, "")
+		wantStep(t, rec, 0, cluster.RunStepSucceeded, "")
+		wantHead(t, e, cluster.RunSucceeded, "")
+	})
+	t.Run("a post that never arrived, the run stopping: stopped, nothing posted", func(t *testing.T) {
+		e := newFakeEnv(t, "m1", manager("m1", "leader"), agent("a1", "web-1"), agent("a2", "web-2"))
+		run := newRun(t, e, steps(true, cmdTrue), [][]string{{"a1"}, {"a2"}})
+		starting(t, e, "a1")
+		// Stopped as the wave starts: the runner's first read and the wave's
+		// own look saw the run running, the node's look sees it stopping.
+		reads := 0
+		e.store.afterGetRun = func(string) {
+			if reads++; reads == 2 {
+				e.store.setHead(testRunID, func(h *cluster.RunRecord) { h.Status, h.Reason = cluster.RunStopping, "stopped by operator" })
+			}
+		}
+		mustRun(t, e, run)
+
+		if p := e.postList(); len(p) != 0 {
+			t.Errorf("posts = %v, want none", p)
+		}
+		wantNode(t, e, "a1", cluster.RunNodeStopped, "stopped by operator")
+		wantHead(t, e, cluster.RunStopped, "stopped by operator")
+	})
+	t.Run("the node does not answer the question: posted again with the recorded ID", func(t *testing.T) {
+		e := newFakeEnv(t, "m1", manager("m1", "leader"), agent("a1", "web-1"))
+		run := newRun(t, e, steps(true, cmdTrue), [][]string{{"a1"}})
+		if _, err := e.StartJob(context.Background(), "a1", tasks.JobSpec{ID: jobID(testRunID, 0), RunID: testRunID, Step: 0, Kind: tasks.StepCommand}, "operator"); err != nil {
+			t.Fatal(err)
+		}
+		e.posts = nil // the old leader's post, above
+		e.getErrs[key("a1", 0)] = 1
+		starting(t, e, "a1")
+		mustRun(t, e, run)
+
+		if p := e.postList(); !slices.Equal(p, []string{"a1/0"}) {
+			t.Errorf("posts = %v, want a1/0 posted again", p)
+		}
+		wantStarted(t, e, "a1/0") // the old leader's: the node kept one job for the ID
+		wantNode(t, e, "a1", cluster.RunNodeSucceeded, "")
+	})
+	t.Run("a post that never arrived, the run going on: posted with the recorded ID", func(t *testing.T) {
+		e := newFakeEnv(t, "m1", manager("m1", "leader"), agent("a1", "web-1"))
+		run := newRun(t, e, steps(true, cmdTrue), [][]string{{"a1"}})
+		starting(t, e, "a1")
+		mustRun(t, e, run)
+
+		wantStarted(t, e, "a1/0")
+		if s := e.specs[key("a1", 0)]; s.ID != jobID(testRunID, 0) {
+			t.Errorf("posted as job %q, want %q", s.ID, jobID(testRunID, 0))
+		}
+		wantNode(t, e, "a1", cluster.RunNodeSucceeded, "")
+	})
 }

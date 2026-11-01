@@ -241,6 +241,7 @@ type fakeEnv struct {
 	output      map[string]string
 
 	jobs     map[string]*fakeJob
+	posts    []string // node/step, every post, whether it started a job or not
 	started  []string // node/step, in order posted
 	cancels  []string // node/step force-cancelled
 	specs    map[string]tasks.JobSpec
@@ -337,6 +338,7 @@ func (e *fakeEnv) StartJob(_ context.Context, nodeID string, spec tasks.JobSpec,
 	defer e.mu.Unlock()
 	k := key(nodeID, spec.Step)
 	e.specs[k] = spec
+	e.posts = append(e.posts, k)
 	if err := e.refuse[k]; err != nil {
 		return tasks.JobView{}, err
 	}
@@ -426,6 +428,12 @@ func (e *fakeEnv) startedList() []string {
 	e.mu.Lock()
 	defer e.mu.Unlock()
 	return slices.Clone(e.started)
+}
+
+func (e *fakeEnv) postList() []string {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	return slices.Clone(e.posts)
 }
 
 func (e *fakeEnv) cancelList() []string {

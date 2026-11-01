@@ -400,6 +400,15 @@ func (r *runner) runNode(id string) nodeOutcome {
 		if r.ctx.Err() != nil {
 			return nodeAbandoned
 		}
+		spec.ID, spec.RunID = jobID(r.run.ID, i), r.run.ID
+		if rec.Steps[i].Status == cluster.RunStepStarting {
+			switch r.askStarting(id, &rec, i, &spec) {
+			case startingFresh:
+				resume = false
+			case startingAbandoned:
+				return nodeAbandoned
+			}
+		}
 		head, err := r.readHead(true)
 		if err != nil {
 			return nodeAbandoned
@@ -409,7 +418,6 @@ func (r *runner) runNode(id string) nodeOutcome {
 		if !resume && head.Status == cluster.RunStopping {
 			return r.fail(id, rec, cluster.RunNodeStopped, stopReason(head))
 		}
-		spec.ID, spec.RunID = jobID(r.run.ID, i), r.run.ID
 		spec.Confirmed = slices.Contains(r.run.Confirmed, i)
 
 		if !resume && spec.Kind == tasks.StepReboot && n.IsManager() && !r.quorumWithout(id) {
@@ -508,6 +516,52 @@ func (r *runner) quorumWithout(id string) bool {
 	return online >= voters/2+1
 }
 
+// startingAnswer is what a takeover learns of a step recorded starting
+// (askStarting).
+type startingAnswer int
+
+const (
+	startingRepost    startingAnswer = iota // the node did not answer: post it again, with the recorded ID
+	startingFollow                          // the node has the job: follow it
+	startingFresh                           // the node has no such job: the post never arrived
+	startingAbandoned                       // errAbandoned
+)
+
+// askStarting asks node id for step i's job, recorded starting by a former
+// leader, before it is posted again: the post may never have arrived, and a
+// step that never started is judged as a new one — the stop and a manager's
+// quorum apply to it. A job the node has is recorded running and followed. A
+// step the node has no job for goes back to pending, its job to be posted
+// with the recorded ID. A node that does not answer leaves the step to be
+// posted again, as the node keeps one job per ID.
+func (r *runner) askStarting(id string, rec *cluster.RunNodeRecord, i int, spec *tasks.JobSpec) startingAnswer {
+	step := &rec.Steps[i]
+	if step.JobID != "" {
+		spec.ID = step.JobID
+	}
+	ctx, cancel := context.WithTimeout(r.ctx, callTimeout)
+	_, err := r.env.GetJob(ctx, id, spec.ID, statusOnly)
+	cancel()
+	switch {
+	case err == nil:
+		step.Status = cluster.RunStepRunning
+		if step.StartedAt.IsZero() {
+			step.StartedAt = r.env.Now().UTC()
+		}
+	case refusalCode(err) == response.ErrTaskJobNotFound:
+		*step = cluster.RunStepRecord{Status: cluster.RunStepPending}
+	default:
+		return startingRepost
+	}
+	if err := r.write(id, *rec); err != nil {
+		return startingAbandoned
+	}
+	if step.Status == cluster.RunStepPending {
+		return startingFresh
+	}
+	return startingFollow
+}
+
 // stepResult is how one step ended.
 type stepResult int
 
@@ -523,10 +577,11 @@ const (
 // runStep runs step i on node id: it records the step starting with its job
 // ID, starts the job, and asks how it stands every pollInterval until it
 // ends. A step a former leader recorded is the job it recorded, by that ID
-// and from when it started: one recorded starting is posted again, as the
-// post may never have arrived and the node returns the job it has for the
-// ID; one recorded running is only asked about, as the node took it, and
-// one the node no longer has is unknown, not started again.
+// and from when it started: one still recorded starting once runNode asked
+// the node about it (askStarting) is one the node did not answer for, and is
+// posted again, as the node returns the job it has for the ID; one recorded
+// running is only asked about, as the node took it, and one the node no
+// longer has is unknown, not started again.
 func (r *runner) runStep(id string, rec *cluster.RunNodeRecord, i int, spec tasks.JobSpec) stepResult {
 	step := &rec.Steps[i]
 	if inFlight(step.Status) {
