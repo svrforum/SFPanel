@@ -72,7 +72,8 @@ type session struct {
 	// two servers of one install never register as one.
 	ips, names map[string]string
 
-	// rel guards what the release gave, fetched once per session.
+	// rel guards what the release gave: fetched once per session, and
+	// again by the next row after a failure.
 	rel      sync.Mutex
 	sums     []byte
 	sumsErr  error
@@ -117,6 +118,9 @@ func newSession(e *Engine, r Request, version, archives string) *session {
 		s.rows = append(s.rows, rw)
 		s.byKey[key] = rw
 	}
+	// Under way from the start, so a second install is refused before
+	// this one is recorded.
+	s.running = len(s.rows)
 	s.head = cluster.RunRecord{
 		ID: s.id, Kind: cluster.RunKindAgentInstall, TaskID: cluster.AgentInstallTaskID, TaskName: installTaskName,
 		Inputs: map[string]string{"mode": r.Mode, "review": strconv.FormatBool(r.Review), "version": version},
@@ -145,7 +149,6 @@ func (s *session) record() error {
 	for _, r := range s.rows {
 		rows[r.key] = r.rec
 	}
-	s.running = len(s.rows)
 	s.mu.Unlock()
 	if err := s.env.PutRun(head); err != nil {
 		return err
@@ -238,6 +241,26 @@ func (s *session) finish() {
 	s.mu.Unlock()
 	s.putHead(head)
 	s.env.Audit(head.StartedBy, "TASK", auditPath(s.id)+"#end:"+head.Status, 200)
+}
+
+// dropUnused drops the credentials kept after the install's end once no
+// row can use them any more: every registered row that failed was reverted.
+func (s *session) dropUnused() {
+	s.mu.Lock()
+	if s.credsGone || s.running > 0 {
+		s.mu.Unlock()
+		return
+	}
+	for _, r := range s.rows {
+		if r.rec.Status == cluster.RunNodeFailed && r.rec.NodeID != "" && !r.reverted {
+			s.mu.Unlock()
+			return
+		}
+	}
+	s.wipeLocked()
+	head := s.head
+	s.mu.Unlock()
+	s.putHead(head)
 }
 
 // sweep drops the credentials once CredentialsUntil passes by the leader's

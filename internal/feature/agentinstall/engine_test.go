@@ -424,6 +424,7 @@ func TestRevertPurgesOnlyWhatThisRunInstalled(t *testing.T) {
 		if r.Reason != response.ErrAgentInstallOffline {
 			t.Fatalf("reason = %s, want the failure's own", r.Reason)
 		}
+		waitFor(t, "the credentials to go once nothing can use them", func() bool { return env.head(id).CredentialsUntil.IsZero() })
 		if !s.ran(sudoWithPassword+"'bash '\\''/tmp/sfpanel-agent.abcDEF0123/install.sh'\\'' uninstall --purge'") ||
 			!s.ran(sudoWithPassword+"'rmdir /opt/stacks 2>/dev/null || true'") {
 			t.Fatalf("commands %q, want the purge and /opt/stacks removed as root", s.commands())
@@ -601,11 +602,23 @@ func TestUnreleasedVersionNeedsTheArchiveDir(t *testing.T) {
 		req := request(s)
 		pw := req.Account.Password
 		_, err := e.Start(context.Background(), req)
-		if st, code := refusalCode(err); st != http.StatusConflict || code != response.ErrAgentInstallUnreleased {
-			t.Fatalf("start = %v, want 409 %s", err, response.ErrAgentInstallUnreleased)
+		if st, code := refusalCode(err); st != http.StatusConflict || code != response.ErrAgentInstallUnreleased ||
+			!strings.Contains(err.Error(), "names no directory") {
+			t.Fatalf("start = %v, want 409 %s for the variable unset", err, response.ErrAgentInstallUnreleased)
 		}
 		if len(env.runs) != 0 || !isZero(pw) {
 			t.Fatal("a refused start recorded a run or kept the password")
+		}
+	})
+	t.Run("with a directory that holds no checksums.txt", func(t *testing.T) {
+		env := newFakeEnv()
+		env.version, env.managers = "0.81.0-dev", map[string]string{"m2": "0.81.0-dev"}
+		env.archives = t.TempDir()
+		s := passingServer(t, env, 1)
+		e := newTestEngine(env, newFakeDialer(s))
+		_, err := e.Start(context.Background(), request(s))
+		if st, code := refusalCode(err); st != http.StatusConflict || code != response.ErrAgentInstallUnreleased {
+			t.Fatalf("start = %v, want 409 %s", err, response.ErrAgentInstallUnreleased)
 		}
 	})
 	t.Run("with the directory it installs offline from it", func(t *testing.T) {

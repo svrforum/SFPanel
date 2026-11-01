@@ -158,10 +158,12 @@ func (st *sshTarget) session(ch ssh.Channel, reqs <-chan *ssh.Request) {
 }
 
 func (st *sshTarget) exec(cmd string, stdin []byte) ([]byte, []byte, int) {
+	// The login check and the probe never run here, whatever their
+	// command line has become.
 	switch {
-	case cmd == "sh -s" && string(stdin) == LoginCheckScript():
+	case bytes.Contains(stdin, []byte(LoginCheckScript())):
 		return []byte(loginText(st.facts.Login)), nil, 0
-	case strings.HasSuffix(cmd, "bash -c 'bash -s'"):
+	case strings.Contains(cmd, "bash -s"):
 		return []byte(probeText(st.facts)), nil, 0
 	}
 	c := exec.Command("bash", "-c", cmd)

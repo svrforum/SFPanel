@@ -250,6 +250,7 @@ func (e *Engine) Revert(runID, key, by string) error {
 		r.update(func(rec *cluster.RunNodeRecord) {
 			rec.ReasonDetails = mergeDetails(rec.ReasonDetails, map[string]string{"reverted": "removed", "standalone": "1"})
 		})
+		s.dropUnused()
 		return nil
 	}
 	r.update(func(rec *cluster.RunNodeRecord) {
@@ -291,4 +292,5 @@ func (r *row) purgeAfter() {
 	r.update(func(rec *cluster.RunNodeRecord) {
 		rec.ReasonDetails = mergeDetails(rec.ReasonDetails, map[string]string{"reverted": result})
 	})
+	r.s.dropUnused()
 }

@@ -250,8 +250,9 @@ func (e *Engine) Owns(runID string) bool {
 // versions, and 409 AGENT_INSTALL_UNRELEASED for a version that is no
 // release without SFPANEL_AGENT_ARCHIVES. Off the leader it is
 // cluster.ErrNotLeader. Whatever it answers, the account's bytes are the
-// engine's: zeroed on a refusal, and when the session drops them.
-func (e *Engine) Start(ctx context.Context, r Request) (runID string, err error) {
+// engine's: zeroed on a refusal, and when the session drops them. ctx is
+// the request's: the install itself runs on in its session.
+func (e *Engine) Start(_ context.Context, r Request) (runID string, err error) {
 	handed := false
 	defer func() {
 		if !handed {
@@ -269,7 +270,6 @@ func (e *Engine) Start(ctx context.Context, r Request) (runID string, err error)
 		return "", err
 	}
 
-	s := newSession(e, r, version, archives)
 	e.mu.Lock()
 	if e.cur != nil && e.cur.active() {
 		e.mu.Unlock()
@@ -281,6 +281,7 @@ func (e *Engine) Start(ctx context.Context, r Request) (runID string, err error)
 	}
 	// The session owns its run before the record exists: the supervisor
 	// ends an install under way that no session here owns.
+	s := newSession(e, r, version, archives)
 	old := e.cur
 	e.cur = s
 	e.mu.Unlock()
