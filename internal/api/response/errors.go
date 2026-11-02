@@ -704,6 +704,9 @@ const (
 	// ErrAgentInstallAuthFailed is an SSH login the server refused.
 	ErrAgentInstallAuthFailed = "AGENT_INSTALL_AUTH_FAILED"
 	// ErrAgentInstallUnreachable is a server the leader cannot open SSH to.
+	// Details: host (a name that does not resolve) or address; for a server
+	// at a Tailscale address while the leader has none, tailscale
+	// ("leader_none") and managers, those with one, comma-separated.
 	ErrAgentInstallUnreachable = "AGENT_INSTALL_UNREACHABLE"
 	// ErrAgentInstallFailed is an install that failed for a reason with no
 	// code of its own; the row's log says what happened.
@@ -720,7 +723,9 @@ const (
 	ErrAgentInstallCredentialsGone = "AGENT_INSTALL_CREDENTIALS_GONE"
 	// ErrAgentInstallClusterNotReady is a server the cluster would not let
 	// register now. Details: gate (proxy_rotation | ca_rotation | managers |
-	// max_agents | ca_key | other).
+	// max_agents | ca_key | join_address | other); join_address, the leader
+	// having no address on the server's network, adds tailscale and managers
+	// as ErrAgentInstallUnreachable does for a server at a Tailscale address.
 	ErrAgentInstallClusterNotReady = "AGENT_INSTALL_CLUSTER_NOT_READY"
 	// ErrAgentInstallIdentityTaken is a node name or address a node of the
 	// cluster has already, or another server of the same install. Details:

@@ -261,7 +261,7 @@ func (r *row) connect(ctx context.Context) error {
 		if ctx.Err() != nil {
 			return ctx.Err()
 		}
-		return fail(response.ErrAgentInstallUnreachable, err.Error(), "address", r.addr)
+		return r.offTailscale(fail(response.ErrAgentInstallUnreachable, err.Error(), "address", r.addr))
 	}
 	text := hostKeyText(hk)
 	s.mu.Lock()
@@ -342,7 +342,7 @@ func (r *row) dial(ctx context.Context, log *phaseLog) error {
 		case dctx.Err() != nil:
 			return fail(response.ErrAgentInstallAuthFailed, "the login was not approved in time", "check", "timeout")
 		}
-		return fail(response.ErrAgentInstallUnreachable, err.Error(), "address", r.addr)
+		return r.offTailscale(fail(response.ErrAgentInstallUnreachable, err.Error(), "address", r.addr))
 	}
 	r.tgt = t
 	return nil
@@ -413,6 +413,9 @@ func (r *row) runErr(ctx context.Context, err error) error {
 func (r *row) preflight(ctx context.Context) error {
 	s, log := r.s, r.logs[phasePreflight]
 	join, err := s.env.JoinAddressFor(r.ip)
+	if errors.Is(err, cluster.ErrNoJoinAddress) {
+		return r.offTailscale(fail(response.ErrAgentInstallClusterNotReady, err.Error(), "gate", "join_address"))
+	}
 	if err != nil {
 		return clusterFail(err, "", r.ip)
 	}
@@ -493,6 +496,38 @@ func clusterFail(err error, name string, ip net.IP) error {
 		return gate("ca_key")
 	}
 	return gate("other")
+}
+
+// offTailscale adds to f, a server at a Tailscale address the leader cannot
+// reach or give an address to join, that the leader has no Tailscale address
+// of its own (cluster.ErrNoJoinAddress), and the managers that have one,
+// where the leadership can go: such a server is reached at, and joins, a
+// Tailscale address of the leader.
+func (r *row) offTailscale(f *rowFail) *rowFail {
+	if !cluster.IsTailscaleIP(r.ip) {
+		return f
+	}
+	if _, err := r.s.env.JoinAddressFor(r.ip); !errors.Is(err, cluster.ErrNoJoinAddress) {
+		return f
+	}
+	var names []string
+	for _, n := range r.s.env.Nodes() {
+		if !n.IsManager() {
+			continue
+		}
+		for _, a := range n.AllAddresses() {
+			if ip := net.ParseIP(a); ip != nil && cluster.IsTailscaleIP(ip) {
+				names = append(names, n.Name)
+				break
+			}
+		}
+	}
+	slices.Sort(names)
+	if f.details == nil {
+		f.details = map[string]string{}
+	}
+	f.details["tailscale"], f.details["managers"] = "leader_none", strings.Join(names, ",")
+	return f
 }
 
 // wait shows kind on the row and waits for the operator's answer, without

@@ -7,6 +7,11 @@ import (
 	"strconv"
 )
 
+// ErrNoJoinAddress is JoinAddressFor's refusal when the leader has no
+// address on the target's network: a target in Tailscale's range joins a
+// Tailscale address of the leader, any other target an address outside it.
+var ErrNoJoinAddress = errors.New("no join address")
+
 // JoinAddressFor is the address a new agent at target joins this leader at
 // (leader only): the leader's own address on the target's network, at the
 // leader's gRPC port. A target in Tailscale's range (IsTailscaleIP) gets the
@@ -14,8 +19,8 @@ import (
 // outside Tailscale, read from the leader's record (AllAddresses). A server
 // reached over Tailscale may reach no LAN address of the leader, and a LAN
 // server no Tailscale one; the configured advertise address is the LAN one,
-// or empty. Without an address of the kind the target needs it refuses,
-// saying which kind is missing.
+// or empty. Without an address of the kind the target needs it refuses with
+// ErrNoJoinAddress, saying which kind is missing.
 func (m *Manager) JoinAddressFor(target net.IP) (string, error) {
 	if m.raft == nil || !m.raft.IsLeader() {
 		return "", ErrNotLeader
@@ -34,7 +39,7 @@ func (m *Manager) JoinAddressFor(target net.IP) (string, error) {
 		}
 	}
 	if tailscale {
-		return "", fmt.Errorf("the leader has no Tailscale address for %s to join at", target)
+		return "", fmt.Errorf("%w: the leader has no Tailscale address for %s to join at", ErrNoJoinAddress, target)
 	}
-	return "", fmt.Errorf("the leader has no address outside Tailscale for %s to join at", target)
+	return "", fmt.Errorf("%w: the leader has no address outside Tailscale for %s to join at", ErrNoJoinAddress, target)
 }

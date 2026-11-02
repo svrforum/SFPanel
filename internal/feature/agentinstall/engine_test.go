@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"errors"
+	"net"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -101,6 +102,65 @@ func TestAHostKeyWaitsForTheOperator(t *testing.T) {
 		}
 		if !strings.Contains(v.Output, "the server presented another host key than the one approved") {
 			t.Fatalf("the connect phase's log = %q, want the refusal whole", v.Output)
+		}
+	})
+}
+
+// A server at a Tailscale address is reached at, and joins, a Tailscale
+// address of the leader. A leader with none says so, naming the managers on
+// Tailscale the leadership can go to, whether the server is out of its reach
+// or reached by a route with nothing of the leader's to join. A LAN server
+// out of reach is out of reach, and nothing more.
+func TestALeaderOffTailscaleNamesTheManagersOnIt(t *testing.T) {
+	offTailscale := func() *fakeEnv {
+		env := newFakeEnv()
+		env.noTailscale = true
+		env.nodes["m2"] = cluster.Node{ID: "m2", Name: "m2", Kind: cluster.KindManager, GRPCAddress: "192.0.2.2:3629", Addresses: []string{"192.0.2.2", "100.64.0.2"}}
+		env.nodes["m3"] = cluster.Node{ID: "m3", Name: "m3", Kind: cluster.KindManager, GRPCAddress: "192.0.2.3:3629", Addresses: []string{"192.0.2.3"}}
+		env.nodes["a1"] = cluster.Node{ID: "a1", Name: "a1", Kind: cluster.KindAgent, GRPCAddress: "100.64.0.21:3629"}
+		return env
+	}
+	ended := func(t *testing.T, env *fakeEnv, e *Engine, s *fakeServer, approve bool) cluster.RunNodeRecord {
+		t.Helper()
+		id, err := e.Start(context.Background(), request(s))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if approve {
+			approveAll(t, e, env, id, "s1")
+		}
+		env.waitEnded(t, id)
+		return env.row(id, "s1")
+	}
+
+	t.Run("out of the leader's reach", func(t *testing.T) {
+		env := offTailscale()
+		s := passingServer(t, env, 1)
+		s.ip = net.ParseIP("100.64.0.31").To4()
+		r := ended(t, env, newTestEngine(env, newFakeDialer()), s, false)
+		want := map[string]string{"address": "100.64.0.31:22", "tailscale": "leader_none", "managers": "m2"}
+		if r.Reason != response.ErrAgentInstallUnreachable || !reflect.DeepEqual(r.ReasonDetails, want) {
+			t.Fatalf("s1 = %s %v, want %s %v", r.Reason, r.ReasonDetails, response.ErrAgentInstallUnreachable, want)
+		}
+	})
+	t.Run("reached, with nothing of the leader's to join", func(t *testing.T) {
+		env := offTailscale()
+		s := passingServer(t, env, 1)
+		s.ip = net.ParseIP("100.64.0.31").To4()
+		s.facts.Addrs = []net.IP{s.ip}
+		r := ended(t, env, newTestEngine(env, newFakeDialer(s)), s, true)
+		want := map[string]string{"gate": "join_address", "tailscale": "leader_none", "managers": "m2"}
+		if r.Reason != response.ErrAgentInstallClusterNotReady || !reflect.DeepEqual(r.ReasonDetails, want) {
+			t.Fatalf("s1 = %s %v, want %s %v", r.Reason, r.ReasonDetails, response.ErrAgentInstallClusterNotReady, want)
+		}
+	})
+	t.Run("a LAN server out of reach", func(t *testing.T) {
+		env := offTailscale()
+		s := passingServer(t, env, 1)
+		r := ended(t, env, newTestEngine(env, newFakeDialer()), s, false)
+		want := map[string]string{"address": "192.0.2.11:22"}
+		if r.Reason != response.ErrAgentInstallUnreachable || !reflect.DeepEqual(r.ReasonDetails, want) {
+			t.Fatalf("s1 = %s %v, want %s %v", r.Reason, r.ReasonDetails, response.ErrAgentInstallUnreachable, want)
 		}
 	})
 }

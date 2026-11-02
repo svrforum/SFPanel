@@ -44,6 +44,9 @@ type fakeEnv struct {
 	archiveAsked  []string
 	ready         func(name string, ip net.IP) error
 	joinAddr      string
+	// noTailscale is a leader with no Tailscale address: JoinAddressFor
+	// refuses a target at one.
+	noTailscale bool
 
 	nodes   map[string]cluster.Node
 	minted  []mintedToken
@@ -126,7 +129,12 @@ func (f *fakeEnv) ReadyForAgentRegistration(name string, ip net.IP) error {
 	return nil
 }
 
-func (f *fakeEnv) JoinAddressFor(net.IP) (string, error) { return f.joinAddr, nil }
+func (f *fakeEnv) JoinAddressFor(ip net.IP) (string, error) {
+	if f.noTailscale && cluster.IsTailscaleIP(ip) {
+		return "", fmt.Errorf("%w: the leader has no Tailscale address for %s to join at", cluster.ErrNoJoinAddress, ip)
+	}
+	return f.joinAddr, nil
+}
 
 func (f *fakeEnv) CAPin() (string, error) { return "sha256:" + strings.Repeat("ab", 32), nil }
 

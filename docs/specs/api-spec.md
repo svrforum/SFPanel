@@ -6568,7 +6568,7 @@ GitHub 폴더의 작업 파일을 보여 줍니다(리더, 아무것도 쓰지 �
 
 | 코드 | `reason_details` | 의미 |
 |------|------------------|------|
-| `AGENT_INSTALL_UNREACHABLE` | `host` 또는 `address` | 이름이 주소로 풀리지 않음(`host`), 또는 리더에서 SSH가 닿지 않음(`address`) |
+| `AGENT_INSTALL_UNREACHABLE` | `host` 또는 `address`, `tailscale`, `managers` | 이름이 주소로 풀리지 않음(`host`), 또는 리더에서 SSH가 닿지 않음(`address`). Tailscale 주소의 서버인데 리더에 Tailscale 주소가 없으면 `tailscale: "leader_none"`과 Tailscale 주소가 있는 매니저 이름(`managers`, 쉼표로 구분, 없으면 빈 값) — 리더십을 그 매니저로 옮기라는 뜻 |
 | `AGENT_INSTALL_AUTH_FAILED` | — | 서버가 SSH 로그인을 거부함 |
 | `AGENT_INSTALL_HOST_KEY_CHANGED` | `host_key`, `approved` | 승인한 것과 다른 호스트 키를 내놓음(가운데 사람 공격일 수 있음). `host_key`: 서버가 내놓은 키(승인한 키 종류의 키를 내놓지 않았으면 없음), `approved`: 승인한 키 |
 | `AGENT_INSTALL_NOT_ROOT` | `sudo` | root가 될 수 없음: `none`(sudo 없음), `password`(sudo가 비밀번호를 묻는데 받지 않음), `refused`(sudo가 받은 비밀번호를 거부) |
@@ -6588,7 +6588,7 @@ GitHub 폴더의 작업 파일을 보여 줍니다(리더, 아무것도 쓰지 �
 | `AGENT_INSTALL_OPERATOR_TLS` | `ca_file` | 패널이 운영자 인증서로 HTTPS를 냄(`server.tls.cert_file`·`key_file`). 가입은 패널 인증서가 127.0.0.1과 advertise 주소에 맞아야 하며, install.sh가 패널을 멈춘 뒤에야 거부하므로 미리 거부. `ca_file`: `server.tls.ca_file`이 있으면 `1`, 없으면 `0` |
 | `AGENT_INSTALL_NEWER_INSTALLED` | `installed`, `version` | 설치할 버전보다 새것(또는 읽을 수 없는 버전)이 있음 — 내리지 않음 |
 | `AGENT_INSTALL_NAME_INVALID` | `name` 또는 `hostname` | 노드 이름이 될 수 없음. 이름을 비웠으면 서버의 hostname — 이름을 넣어 다시 |
-| `AGENT_INSTALL_CLUSTER_NOT_READY` | `gate` | 클러스터가 지금 등록을 받지 않음: `proxy_rotation`(프록시 비밀 교체 직후), `ca_rotation`, `managers`(모든 매니저가 에이전트를 지원하지 않음), `max_agents`, `ca_key`, `other` |
+| `AGENT_INSTALL_CLUSTER_NOT_READY` | `gate`, `tailscale`, `managers` | 클러스터가 지금 등록을 받지 않음: `proxy_rotation`(프록시 비밀 교체 직후), `ca_rotation`, `managers`(모든 매니저가 에이전트를 지원하지 않음), `max_agents`, `ca_key`, `join_address`(리더에 그 서버의 망 주소가 없어 가입시킬 주소가 없음 — Tailscale 주소의 서버면 `AGENT_INSTALL_UNREACHABLE`처럼 `tailscale`·`managers`), `other` |
 | `AGENT_INSTALL_IDENTITY_TAKEN` | `name`, `ip`, `row` | 클러스터의 노드나 같은 설치의 다른 행(`row`)이 이미 그 이름·주소를 가짐 |
 | `AGENT_INSTALL_FAILED` | `step`, `exit`, `error`, `timeout_minutes`, `no_answer`, `ip` | 자기 코드가 없는 실패. `step`: `ssh`, `login_check`, `probe`, `checksums`, `archive`, `ca_pin`, `mktemp`, `systemd-run`, `install`(`exit`, 또는 30분이 지나 `timeout_minutes`), `register`(install.sh가 0으로 끝났는데 그 `ip`의 에이전트가 없음). 질문에 30분 안에 답이 없으면 `no_answer`: `host_key` · `standalone` · `review`. 행의 국면 출력에 무슨 일이 있었는지 남음 |
 | `AGENT_INSTALL_OFFLINE` | `cause`와 그 값 | 등록됐지만 3분 안에 연결 확인을 통과하지 못함. `cause`: `agent_to_managers`(하트비트가 오지 않음 — 에이전트가 매니저의 `port`에 닿지 않음), `version`(다른 `version`으로 하트비트), `managers_to_agent`(하트비트는 오는데 리더의 호출이 실패 — `failed`: `relay` · `panel` · `relay,panel`, `ports`: 그 노드의 `grpc,api` 포트, 방화벽 확인). [다시 확인]·[되돌리기] |

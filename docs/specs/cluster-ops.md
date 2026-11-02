@@ -726,7 +726,13 @@ roles:
 - it decides where the agent joins. A server in 100.64.0.0/10 joins at the
   leader's Tailscale address; any other server joins at one of the leader's
   addresses outside that range (§ Managers on more than one network). The
-  port is the leader's `cluster.grpc_port`.
+  port is the leader's `cluster.grpc_port`. A leader with no address on the
+  server's network fails that server: `AGENT_INSTALL_UNREACHABLE` when it
+  cannot open SSH to it, `AGENT_INSTALL_CLUSTER_NOT_READY` (`gate:
+  join_address`) when it can but has nothing to give it to join. For a
+  server at a Tailscale address both add `tailscale: "leader_none"` and the
+  managers that have a Tailscale address (`managers`): transfer the
+  leadership to one of them on the Nodes page, then install again.
 
 **Host keys**
 

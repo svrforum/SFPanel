@@ -39,11 +39,11 @@ func TestJoinAddressForPicksTheLeadersAddressOnTheTargetsNetwork(t *testing.T) {
 	}
 
 	at("192.0.2.1", "192.0.2.1")
-	if got, err := mgr.JoinAddressFor(net.ParseIP("100.64.0.9")); err == nil || !strings.Contains(err.Error(), "no Tailscale address") {
+	if got, err := mgr.JoinAddressFor(net.ParseIP("100.64.0.9")); !errors.Is(err, ErrNoJoinAddress) || !strings.Contains(err.Error(), "no Tailscale address") {
 		t.Errorf("a Tailscale target and a leader without a Tailscale address: %q %v", got, err)
 	}
 	at("100.64.0.1", "100.64.0.1")
-	if got, err := mgr.JoinAddressFor(net.ParseIP("192.0.2.9")); err == nil || !strings.Contains(err.Error(), "no address outside Tailscale") {
+	if got, err := mgr.JoinAddressFor(net.ParseIP("192.0.2.9")); !errors.Is(err, ErrNoJoinAddress) || !strings.Contains(err.Error(), "no address outside Tailscale") {
 		t.Errorf("a LAN target and a leader on Tailscale only: %q %v", got, err)
 	}
 }
