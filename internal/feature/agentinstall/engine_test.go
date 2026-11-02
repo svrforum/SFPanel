@@ -92,6 +92,16 @@ func TestAHostKeyWaitsForTheOperator(t *testing.T) {
 		if r.ReasonDetails["host_key"] != presented || r.ReasonDetails["approved"] != approved || presented == approved {
 			t.Fatalf("s1 details = %v, want host_key %q (presented) and approved %q", r.ReasonDetails, presented, approved)
 		}
+		// The phase's log says so whole: a line shaped "HOST_KEY_…: text"
+		// reads to the log's sanitizer as a secret setting, which hid its
+		// first word.
+		v, err := e.StepOutput(id, "s1", phaseConnect, 0)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if !strings.Contains(v.Output, "the server presented another host key than the one approved") {
+			t.Fatalf("the connect phase's log = %q, want the refusal whole", v.Output)
+		}
 	})
 }
 

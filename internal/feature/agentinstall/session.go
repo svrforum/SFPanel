@@ -492,7 +492,10 @@ type rowFail struct {
 	details map[string]string
 }
 
-func (f *rowFail) Error() string { return f.code + ": " + f.message }
+// Error is the message, its code after it: "CODE: text" is the shape of a
+// setting, and the logs' sanitizer hides the first word after a code whose
+// name reads as a secret's (AGENT_INSTALL_HOST_KEY_CHANGED).
+func (f *rowFail) Error() string { return f.message + " (" + f.code + ")" }
 
 func fail(code, message string, details ...string) *rowFail {
 	f := &rowFail{code: code, message: message}
