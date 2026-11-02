@@ -262,7 +262,6 @@ function stepText(v: string, t: TFunction): string | null {
     case 'systemd-run': return t('cluster.tasks.install.detail.step.systemdRun')
     case 'install': return t('cluster.tasks.install.detail.step.install')
     case 'register': return t('cluster.tasks.install.detail.step.register')
-    case 'labels': return t('cluster.tasks.install.detail.step.labels')
     default: return null
   }
 }

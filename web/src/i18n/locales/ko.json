@@ -1754,9 +1754,8 @@
             "caPin": "클러스터 CA 읽기",
             "mktemp": "임시 디렉터리 만들기",
             "systemdRun": "install.sh 시작",
-            "install": "install.sh",
+            "install": "install.sh 실행",
             "register": "등록",
-            "labels": "그룹 라벨 붙이기",
             "unknown": "한 단계"
           },
           "noAnswer": {
