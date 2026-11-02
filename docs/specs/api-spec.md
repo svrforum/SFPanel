@@ -6551,7 +6551,7 @@ GitHub 폴더의 작업 파일을 보여 줍니다(리더, 아무것도 쓰지 �
 | `nodes.<행>.host_key` | 첫 접속에서 잡은 호스트 키, `"ED25519 SHA256:…"`. 승인 뒤에도 남음 |
 | `nodes.<행>.check_url` | `awaiting: "check"`인 동안 Tailscale SSH의 확인 주소. 화면은 `https:` 주소만 링크하고 호스트를 보여 줌 |
 | `nodes.<행>.reason`, `reason_details` | 실패 이유 코드와 화면이 문장을 만드는 값(아래 "행 이유 코드"). 되돌린 행은 `reason`을 그대로 두고 `reason_details.reverted`를 더함 |
-| `nodes.<행>.steps` | 언제나 다섯 국면(0 접속 · 1 사전 점검 · 2 설치 · 3 등록 · 4 연결 확인). 이름은 보내지 않음. `job_id`: `install/<행>/<국면>` |
+| `nodes.<행>.steps` | 언제나 다섯 국면(0 접속 · 1 사전 점검 · 2 설치 · 3 등록 · 4 연결 확인). 이름은 보내지 않음. `job_id`: `install/<행>/<국면>`. `changed`는 성공한 설치 국면(서버에 SFPanel을 두고 가입시킴)에만 `true` |
 
 `GET /cluster/task-runs/:id`의 최상위 `steps`는 설치에는 없습니다.
 

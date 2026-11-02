@@ -833,6 +833,31 @@ func TestAPhaseLogIsTheRowsAndPhasesOwn(t *testing.T) {
 	}
 }
 
+// The install is the phase that changes the server: it puts SFPanel there
+// and joins it to the cluster. The run's table reads that phase as changed,
+// and the phases that connect, look, find the node or check it as not, as a
+// task's step that changed nothing reads.
+func TestOnlyTheInstallPhaseChangesTheServer(t *testing.T) {
+	env := newFakeEnv()
+	s := passingServer(t, env, 1)
+	e := newTestEngine(env, newFakeDialer(s))
+	id, err := e.Start(context.Background(), request(s))
+	if err != nil {
+		t.Fatal(err)
+	}
+	approveAll(t, e, env, id, "s1")
+	env.waitEnded(t, id)
+	r := env.row(id, "s1")
+	if r.Status != cluster.RunNodeSucceeded {
+		t.Fatalf("s1 = %s %s, want succeeded", r.Status, r.Reason)
+	}
+	for p, step := range r.Steps {
+		if want := p == phaseInstall; step.Changed != want {
+			t.Errorf("phase %d: changed = %v, want %v", p, step.Changed, want)
+		}
+	}
+}
+
 func TestTheWaitsAreTheDesigns(t *testing.T) {
 	got := New(newFakeEnv()).t
 	want := timings{poll: 2 * time.Second, installLimit: 30 * time.Minute, verifyEvery: 3 * time.Second,

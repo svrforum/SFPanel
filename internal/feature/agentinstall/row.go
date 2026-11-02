@@ -155,6 +155,9 @@ func (r *row) phase(ctx context.Context, p int, fn func(context.Context) error) 
 	now = r.s.env.Now()
 	r.update(func(rec *cluster.RunNodeRecord) {
 		rec.Steps[p].Status, rec.Steps[p].EndedAt = stepStatus(err), now
+		// The install is the phase that changes the server: SFPanel put there
+		// and joined. The others connect, look, find the node or check it.
+		rec.Steps[p].Changed = err == nil && p == phaseInstall
 	})
 	return err
 }
