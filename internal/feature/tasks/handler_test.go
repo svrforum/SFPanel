@@ -1838,10 +1838,12 @@ func TestTheInstallBuiltinIsListedButIsNotATask(t *testing.T) {
 
 // An install's record is replicated to every manager and kept: none of its
 // fields may be one a secret could go in. A field named for one fails here
-// before review; host_key is the server's public key fingerprint.
+// before review; host_key is the server's public key fingerprint, and
+// host_key_tailscale how it compares with the one Tailscale reports (match
+// or mismatch).
 func TestInstallFieldsCarryNoSecret(t *testing.T) {
 	forbidden := []string{"password", "passwd", "passphrase", "secret", "token", "private", "sudo", "credential", "key"}
-	allowed := map[string]bool{"host_key": true, "credentials_until": true}
+	allowed := map[string]bool{"host_key": true, "host_key_tailscale": true, "credentials_until": true}
 	for _, typ := range []reflect.Type{reflect.TypeFor[cluster.RunRecord](), reflect.TypeFor[cluster.RunNodeRecord](), reflect.TypeFor[cluster.RunStepRecord]()} {
 		for i := range typ.NumField() {
 			field := typ.Field(i)
