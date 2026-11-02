@@ -91,7 +91,9 @@ export function TailnetPickDialog({ tailnet, onClose, onAdd }: TailnetPickDialog
         {shown.length === 0 ? (
           <p className="text-[13px] text-muted-foreground">{t('cluster.tasks.install.tailnet.noMatch')}</p>
         ) : (
-          <ul data-testid="install-tailnet-peers" className="rounded-xl border border-border divide-y divide-border">
+          // The list scrolls within half the screen, so the buttons below it
+          // stay in view on a phone.
+          <ul data-testid="install-tailnet-peers" className="max-h-[50vh] overflow-y-auto overscroll-contain rounded-xl border border-border divide-y divide-border">
             {shown.map((p) => {
               const box = `${id}-peer-${p.ip}`
               const can = pickable(p)
@@ -105,21 +107,26 @@ export function TailnetPickDialog({ tailnet, onClose, onAdd }: TailnetPickDialog
                     disabled={!can}
                     onCheckedChange={(on) => setPicked(on === true ? [...picked, p.ip] : picked.filter((ip) => ip !== p.ip))}
                   />
-                  <label htmlFor={box} className={can ? 'min-w-0 flex-1 space-y-0.5 cursor-pointer' : 'min-w-0 flex-1 space-y-0.5'}>
-                    <span className="block text-[13px] font-medium break-all">{p.name || p.ip}</span>
-                    <span className="block font-mono text-[12px] text-muted-foreground break-all">{p.ip}</span>
-                    {p.node && (
-                      <span className="block text-[12px] text-muted-foreground break-words">
-                        {t('cluster.tasks.install.tailnet.inCluster', { node: p.node })}
-                      </span>
-                    )}
-                  </label>
-                  <span className="flex shrink-0 flex-wrap justify-end gap-1">
-                    {p.ssh && <StatusPill tone="primary">{t('cluster.tasks.install.tailnet.ssh')}</StatusPill>}
-                    <StatusPill tone={p.online ? 'success' : 'muted'}>
-                      {p.online ? t('cluster.tasks.install.tailnet.online') : t('cluster.tasks.install.tailnet.offline')}
-                    </StatusPill>
-                  </span>
+                  {/* The badges move under the name when both do not fit, so
+                      neither the name nor the address is cut mid-word. A
+                      device that cannot be picked is dimmed. */}
+                  <div className={can ? 'flex min-w-0 flex-1 flex-wrap items-start justify-between gap-x-2 gap-y-1' : 'flex min-w-0 flex-1 flex-wrap items-start justify-between gap-x-2 gap-y-1 opacity-60'}>
+                    <label htmlFor={box} className={can ? 'min-w-0 space-y-0.5 cursor-pointer' : 'min-w-0 space-y-0.5'}>
+                      <span className="block text-[13px] font-medium break-words">{p.name || p.ip}</span>
+                      <span className="block font-mono text-[12px] text-muted-foreground whitespace-nowrap">{p.ip}</span>
+                      {p.node && (
+                        <span className="block text-[12px] text-muted-foreground break-words">
+                          {t('cluster.tasks.install.tailnet.inCluster', { node: p.node })}
+                        </span>
+                      )}
+                    </label>
+                    <span className="flex shrink-0 flex-wrap gap-1">
+                      {p.ssh && <StatusPill tone="primary">{t('cluster.tasks.install.tailnet.ssh')}</StatusPill>}
+                      <StatusPill tone={p.online ? 'success' : 'muted'}>
+                        {p.online ? t('cluster.tasks.install.tailnet.online') : t('cluster.tasks.install.tailnet.offline')}
+                      </StatusPill>
+                    </span>
+                  </div>
                 </li>
               )
             })}
