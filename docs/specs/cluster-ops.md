@@ -957,6 +957,11 @@ node's page.
     A row whose install had begun and that names no node is given the
     agent at its IP, if there is one;
   - the other rows are cut off, and may need the cleanup command above.
+    Their temporary directory (`/tmp/sfpanel-agent.*`, the login's own,
+    with `install.sh`, the archive, `install.log` and the join token) stays
+    on the server, because only the leader that made it removes it: its
+    `install.log` shows how far the install got, the token dies within 30
+    minutes, and the directory is removed by hand.
 - An install's end that cannot be written to the record (a Raft write that
   times out, say) is written again, after 1 second and then twice as long
   each time up to 30 seconds, until it is written. If the leader loses its
