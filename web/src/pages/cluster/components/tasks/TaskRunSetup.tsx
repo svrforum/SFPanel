@@ -18,7 +18,7 @@ import { planNeedsReview, runErrorText, type RunErrorText } from './taskPlan'
 import { runStatusText, runStatusTone } from './taskRunStatus'
 import { clonePath, editPath } from './taskForm'
 import { shortSha } from './taskImport'
-import type { ListHolds } from './taskList'
+import type { ListHolds } from './taskListModel'
 import { useMounted } from './useMounted'
 import { useTaskDelete } from './useTaskDelete'
 

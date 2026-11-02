@@ -34,7 +34,7 @@ import {
   STEP_KINDS,
 } from './taskForm'
 import { draftFromModel, draftFromTask, draftKey, dropDraft, keepDraft, readDraft, type TaskDraft } from './taskDrafts'
-import { listShows, type ListHolds } from './taskList'
+import { listShows, type ListHolds } from './taskListModel'
 import { useMounted } from './useMounted'
 import { useTaskDelete } from './useTaskDelete'
 

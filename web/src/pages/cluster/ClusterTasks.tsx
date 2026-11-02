@@ -16,7 +16,7 @@ import { AgentInstallSetup } from './components/tasks/install/AgentInstallSetup'
 import { AGENT_INSTALL_TASK_ID } from './components/tasks/install/installRun'
 import type { ImportFrom } from './components/tasks/taskImport'
 import { builtinText } from './components/tasks/taskBuiltins'
-import { READ_AGAIN_MS, activeRuns, readUntil, type ListHolds, type ListedTask } from './components/tasks/taskList'
+import { READ_AGAIN_MS, activeRuns, readUntil, type ListHolds, type ListedTask } from './components/tasks/taskListModel'
 
 // The editor carries Monaco: loaded only when a route opens it.
 const TaskEditor = lazy(() => import('./components/tasks/TaskEditor'))

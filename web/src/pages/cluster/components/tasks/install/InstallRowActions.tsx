@@ -11,7 +11,7 @@ import { useConfirm } from '@/components/ConfirmDialog'
 import { useNow } from '@/hooks/useNow'
 import type { RunNodeRecord, RunRecord } from '@/types/api'
 import type { RunState } from '../taskRunProgress'
-import { nodeStatusText, nodeStatusTone } from '../taskRunView'
+import { nodeStatusText, nodeStatusTone } from '../taskRunViewModel'
 import { useMounted } from '../useMounted'
 import {
   PANEL_START_COMMAND, cleanupCommand, clockText, credentialsGone, credentialsLeft, installReasonText, installRowActions,

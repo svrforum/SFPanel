@@ -11,7 +11,7 @@ import {
   runStepCount,
   stepHeader,
   unsuccessfulNodes,
-} from './taskRunView'
+} from './taskRunViewModel'
 
 const run = (over: Partial<RunRecord> = {}): RunRecord => ({
   id: 'r-1', task_id: 't-1', task_name: 'Deploy', rev: 'rev', nodes: ['a', 'b', 'c'], waves: [['a', 'b', 'c']],

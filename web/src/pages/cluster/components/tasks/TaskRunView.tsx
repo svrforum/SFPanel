@@ -16,7 +16,7 @@ import { runMatrix, type RunMatrix, type RunState } from './taskRunProgress'
 import { runStatusText, runStatusTone } from './taskRunStatus'
 import {
   CELL_ORDER, cellText, cellTone, focusStep, nodeStatusText, nodeStatusTone, runActions, runStepCount, stepHeader, unsuccessfulNodes,
-} from './taskRunView'
+} from './taskRunViewModel'
 import { useTaskRun } from './useTaskRun'
 import { useMounted } from './useMounted'
 import { TaskRunMatrix, type ChosenCell } from './TaskRunMatrix'

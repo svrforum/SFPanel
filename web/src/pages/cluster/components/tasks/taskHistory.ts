@@ -1,6 +1,6 @@
 import type { TFunction } from 'i18next'
 import type { RunRecord } from '@/types/api'
-import { activeRuns } from './taskList'
+import { activeRuns } from './taskListModel'
 
 /** Runs on one page of the history. */
 export const HISTORY_PAGE_SIZE = 50

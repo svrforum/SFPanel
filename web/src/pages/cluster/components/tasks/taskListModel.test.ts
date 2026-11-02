@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import type { RunRecord, RunStatus, TaskView } from '@/types/api'
-import { READ_AGAIN_MS, activeRuns, listLacks, listShows, readUntil, repoLabel, taskSections, type ListedTask } from './taskList'
+import { READ_AGAIN_MS, activeRuns, listLacks, listShows, readUntil, repoLabel, taskSections, type ListedTask } from './taskListModel'
 
 const listed = (id: string, kind: TaskView['source']['kind'], name: string, description = '', repo?: string): ListedTask => ({
   task: { id, name, source: { kind, repo }, read_only: kind !== 'user' },

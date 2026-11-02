@@ -4,7 +4,7 @@ import { useTranslation } from 'react-i18next'
 import { ChevronDown, GitBranch, History, ListChecks, Plus, RefreshCw, Search } from 'lucide-react'
 import { Input } from '@/components/ui/input'
 import { cn } from '@/lib/utils'
-import { taskSections, type ListedTask } from './taskList'
+import { taskSections, type ListedTask } from './taskListModel'
 import { pullSources, type ImportFrom } from './taskImport'
 
 /** What the right pane shows, as far as the list marks it chosen. */

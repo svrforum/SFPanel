@@ -12,7 +12,7 @@ import { Label } from '@/components/ui/label'
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog'
 import { StatusPill, type StatusPillTone } from '@/components/StatusPill'
 import type { TaskImportFileState, TaskImportPreview, TaskImportResult } from '@/types/api'
-import { listShows, repoLabel, type ListHolds } from './taskList'
+import { listShows, repoLabel, type ListHolds } from './taskListModel'
 import { failedLine, importRequest, initialPicks, pickable, repoUrlValid, shortSha, type ImportFrom } from './taskImport'
 import { useTaskDelete } from './useTaskDelete'
 

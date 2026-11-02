@@ -6,7 +6,7 @@ import { api } from '@/lib/api'
 import { taskErrorMessage } from '@/lib/taskErrors'
 import { useConfirm } from '@/components/ConfirmDialog'
 import { dropTaskDrafts } from './taskDrafts'
-import { listLacks, type ListHolds } from './taskList'
+import { listLacks, type ListHolds } from './taskListModel'
 
 /**
  * Deleting a task, from its pane or its editor: asked first, then the list

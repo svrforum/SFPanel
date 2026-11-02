@@ -2,7 +2,7 @@ import { useTranslation } from 'react-i18next'
 import { StatusPill } from '@/components/StatusPill'
 import { cn } from '@/lib/utils'
 import type { RunRow } from './taskRunProgress'
-import { cellText, cellTone, nodeStatusText, nodeStatusTone } from './taskRunView'
+import { cellText, cellTone, nodeStatusText, nodeStatusTone } from './taskRunViewModel'
 
 /** The node and step whose output is open. */
 export interface ChosenCell {

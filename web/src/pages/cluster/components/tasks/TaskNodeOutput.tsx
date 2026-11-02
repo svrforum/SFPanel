@@ -8,7 +8,7 @@ import { Button } from '@/components/ui/button'
 import { StatusPill } from '@/components/StatusPill'
 import type { RunStepRecord } from '@/types/api'
 import { cellState } from './taskRunProgress'
-import { appendOutput, cellText, cellTone, emptyOutput, type OutputState } from './taskRunView'
+import { appendOutput, cellText, cellTone, emptyOutput, type OutputState } from './taskRunViewModel'
 
 const OUTPUT_POLL_MS = 2000
 
