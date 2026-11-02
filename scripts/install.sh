@@ -639,7 +639,7 @@ TasksMax=4096
 #   disks and network shares it mounts never reach the host or Docker
 # - ProtectKernelTunables: would break the system tuning feature
 #   (sysctl -p)
-# - ProtectHome: would break the files browser for $HOME of other users
+# - ProtectHome: would break the files browser for \$HOME of other users
 NoNewPrivileges=false
 
 [Install]
