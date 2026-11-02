@@ -6,6 +6,13 @@ The format is loosely based on [Keep a Changelog](https://keepachangelog.com/), 
 
 ---
 
+## [0.82.0] – 2026-11-02
+
+### Added
+
+- **An agent install's servers can be picked from the tailnet.** **Pick from Tailscale** in the Agent install (SSH) form lists the Linux devices of the cluster leader's tailnet — the leader is the node that connects to them — online first, each with its Tailscale address, whether it runs Tailscale SSH, and the cluster node already at that address. A device already in the cluster, or offline, cannot be picked. The picks fill the server table, and when every one of them runs Tailscale SSH the login switches to it. A leader that is not on Tailscale says why — Tailscale not installed, not running, or without an IPv4 address — and to transfer the leadership to a manager on Tailscale. For API clients: `GET /api/v1/cluster/agent-installs/tailnet`, on any manager.
+- **A server's host key is compared with the one Tailscale reports.** For a server at a Tailscale address, the host-key question now says whether Tailscale reports the same key for that device, or another key of the same type, in which case check the key on the server before you approve. It is said only: the approval stays yours, and nothing is sent to the server before it. The row records it as `host_key_tailscale` (`match` or `mismatch`).
+
 ## [0.81.1] – 2026-11-02
 
 ### Fixed
