@@ -6,6 +6,12 @@ The format is loosely based on [Keep a Changelog](https://keepachangelog.com/), 
 
 ---
 
+## [0.81.1] – 2026-11-02
+
+### Fixed
+
+- **The macOS and Windows desktop apps build again.** Two modules of the Tasks screens had names that differed only in case from the components beside them (`TaskList.tsx` and `taskList.ts`, `TaskRunView.tsx` and `taskRunView.ts`). On a filesystem that ignores case an import of one could open the other, so 0.81.0 shipped no macOS or Windows build and no desktop update manifest. The panel itself is unchanged. A test now fails on two modules, or two folders, in one place whose names differ only in case.
+
 ## [0.81.0] – 2026-11-02
 
 ### Security
