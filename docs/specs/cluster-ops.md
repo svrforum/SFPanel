@@ -732,7 +732,9 @@ roles:
 
 The first connection to each server only reads its host key, then closes.
 The row waits with `awaiting: "host_key"` and shows the key as
-`ED25519 SHA256:…`.
+`ED25519 SHA256:…`. The leader asks for the ED25519 key first, as OpenSSH
+does, then ECDSA, then RSA, so a server with keys of several types shows the
+ED25519 one.
 
 - Nothing runs on the server, and no login is tried, until an operator
   approves that fingerprint.

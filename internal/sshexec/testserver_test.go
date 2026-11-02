@@ -1,8 +1,11 @@
 package sshexec
 
 import (
+	"crypto/ecdsa"
 	"crypto/ed25519"
+	"crypto/elliptic"
 	"crypto/rand"
+	"crypto/rsa"
 	"encoding/binary"
 	"errors"
 	"io"
@@ -43,6 +46,10 @@ type serverOpts struct {
 	// silentChannels never answers a channel open, neither accepting nor
 	// rejecting it: a server that stopped answering without a reset.
 	silentChannels bool
+	// hostKeys, when set, are the host keys the server offers, the first
+	// one its signer; a stock sshd offers ED25519, ECDSA and RSA. nil
+	// offers one new ED25519 key.
+	hostKeys []ssh.Signer
 }
 
 // testServer is an in-process SSH server on 127.0.0.1 that records every
@@ -69,9 +76,39 @@ func newHostSigner(t *testing.T) ssh.Signer {
 	return signer
 }
 
+func newECDSAHostSigner(t *testing.T) ssh.Signer {
+	t.Helper()
+	priv, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
+	if err != nil {
+		t.Fatal(err)
+	}
+	signer, err := ssh.NewSignerFromKey(priv)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return signer
+}
+
+func newRSAHostSigner(t *testing.T) ssh.Signer {
+	t.Helper()
+	priv, err := rsa.GenerateKey(rand.Reader, 2048)
+	if err != nil {
+		t.Fatal(err)
+	}
+	signer, err := ssh.NewSignerFromKey(priv)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return signer
+}
+
 func startTestServer(t *testing.T, opts serverOpts) *testServer {
 	t.Helper()
-	s := &testServer{signer: newHostSigner(t)}
+	keys := opts.hostKeys
+	if len(keys) == 0 {
+		keys = []ssh.Signer{newHostSigner(t)}
+	}
+	s := &testServer{signer: keys[0]}
 
 	cfg := &ssh.ServerConfig{
 		AuthLogCallback: func(_ ssh.ConnMetadata, method string, _ error) {
@@ -119,7 +156,9 @@ func startTestServer(t *testing.T, opts serverOpts) *testServer {
 	if opts.banner != "" {
 		cfg.BannerCallback = func(ssh.ConnMetadata) string { return opts.banner }
 	}
-	cfg.AddHostKey(s.signer)
+	for _, k := range keys {
+		cfg.AddHostKey(k)
+	}
 
 	ln, err := net.Listen("tcp", "127.0.0.1:0")
 	if err != nil {

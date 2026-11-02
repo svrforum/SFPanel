@@ -152,7 +152,8 @@ func FetchHostKey(ctx context.Context, addr string, a Auth, timeout time.Duratio
 	}
 	var captured atomic.Pointer[HostKey]
 	cfg := &ssh.ClientConfig{
-		User: a.User,
+		User:              a.User,
+		HostKeyAlgorithms: hostKeyPreference,
 		HostKeyCallback: func(_ string, _ net.Addr, key ssh.PublicKey) error {
 			hk := hostKeyOf(key)
 			captured.Store(&hk)
@@ -238,6 +239,17 @@ func Dial(ctx context.Context, addr string, a Auth, key HostKey, onNotice func(u
 		return nil, fmt.Errorf("sshexec: %s: %w", addr, ErrAuthFailed)
 	}
 	return nil, fmt.Errorf("sshexec: %s: %w", addr, err)
+}
+
+// hostKeyPreference is the order FetchHostKey asks a server for its host
+// key in, OpenSSH's: ED25519 first. x/crypto alone would take a stock
+// sshd's ECDSA key, and the operator would be shown a fingerprint that is
+// neither the one their own ssh printed nor the one
+// ssh-keygen -lf /etc/ssh/ssh_host_ed25519_key.pub gives.
+var hostKeyPreference = []string{
+	ssh.KeyAlgoED25519,
+	ssh.KeyAlgoECDSA256, ssh.KeyAlgoECDSA384, ssh.KeyAlgoECDSA521,
+	ssh.KeyAlgoRSASHA512, ssh.KeyAlgoRSASHA256, ssh.KeyAlgoRSA,
 }
 
 // algorithmsFor lists the host key algorithms that present a key of this

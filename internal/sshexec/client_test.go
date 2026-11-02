@@ -34,6 +34,44 @@ func dialTest(t *testing.T, s *testServer, a Auth, onNotice func(string)) *Clien
 	return c
 }
 
+// A stock sshd has ED25519, ECDSA and RSA host keys, and x/crypto asks for
+// ECDSA first. The key read for the operator to approve is the ED25519 one:
+// the one OpenSSH shows, and the one the screen's hint prints with
+// ssh-keygen -lf /etc/ssh/ssh_host_ed25519_key.pub. The login that follows
+// accepts it alone.
+func TestTheHostKeyReadIsED25519WhenTheServerHasOne(t *testing.T) {
+	ed := newHostSigner(t)
+	s := startTestServer(t, serverOpts{password: "pw", hostKeys: []ssh.Signer{ed, newECDSAHostSigner(t), newRSAHostSigner(t)}})
+	a := Auth{User: "ops", Method: "password", Password: []byte("pw")}
+
+	hk, err := FetchHostKey(testCtx(t), s.addr, a, 10*time.Second)
+	if err != nil {
+		t.Fatalf("FetchHostKey: %v", err)
+	}
+	if want := ssh.FingerprintSHA256(ed.PublicKey()); hk.Type != ssh.KeyAlgoED25519 || hk.Fingerprint != want {
+		t.Fatalf("host key = %s %s, want the ED25519 key %s", hk.Type, hk.Fingerprint, want)
+	}
+	c, err := Dial(testCtx(t), s.addr, a, hk, nil)
+	if err != nil {
+		t.Fatalf("Dial with the ED25519 key: %v", err)
+	}
+	_ = c.Close()
+}
+
+// A server with no ED25519 key gives its ECDSA one.
+func TestTheHostKeyReadIsECDSAWithoutED25519(t *testing.T) {
+	ec := newECDSAHostSigner(t)
+	s := startTestServer(t, serverOpts{password: "pw", hostKeys: []ssh.Signer{ec, newRSAHostSigner(t)}})
+
+	hk, err := FetchHostKey(testCtx(t), s.addr, Auth{User: "ops", Method: "password", Password: []byte("pw")}, 10*time.Second)
+	if err != nil {
+		t.Fatalf("FetchHostKey: %v", err)
+	}
+	if want := ssh.FingerprintSHA256(ec.PublicKey()); hk.Type != ssh.KeyAlgoECDSA256 || hk.Fingerprint != want {
+		t.Fatalf("host key = %s %s, want the ECDSA key %s", hk.Type, hk.Fingerprint, want)
+	}
+}
+
 // The first connection only learns the host key: it is closed inside the
 // key check, so the server sees no authentication attempt at all, let alone
 // a command.
