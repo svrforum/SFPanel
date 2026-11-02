@@ -97,13 +97,14 @@ export function validGroup(group: string): boolean {
   return /^[a-zA-Z0-9._-]{0,63}$/.test(group)
 }
 
-function validName(name: string): boolean {
+/** A node name as the leader takes it; empty is the server's hostname. */
+export function validName(name: string): boolean {
   return name === '' || NODE_NAME_PATTERN.test(name)
 }
 
 // What makes two hosts one, as the leader judges it (hostIdentity): an
 // address in its canonical form, a name without case or its trailing dot.
-function hostIdentity(host: string): string {
+export function hostIdentity(host: string): string {
   const v6 = host.includes(':') ? ipv6(host) : null
   return v6 ?? host.toLowerCase().replace(/\.$/, '')
 }
@@ -210,7 +211,7 @@ export interface FormProblem {
   max?: number
 }
 
-const blank = (r: InstallServerRow) => !r.host.trim() && !r.name.trim() && !r.group.trim()
+export const blank = (r: InstallServerRow) => !r.host.trim() && !r.name.trim() && !r.group.trim()
 
 // The table rows sent, in order: a row left blank is not. The leader's row
 // s<n> is the n-th of these.

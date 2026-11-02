@@ -48,11 +48,12 @@ export function safeCheckURL(url: string | undefined): CheckLink | null {
 }
 
 // What a row waiting on the operator asks: host_key the whole fingerprint to
-// compare with the server's own (never shortened), check the sign-in link
-// (null when the address is not one to follow), standalone and review a yes
-// or no.
+// compare with the server's own (never shortened), and tailscale the leader's
+// comparison with the key Tailscale reports, when it made one; check the
+// sign-in link (null when the address is not one to follow); standalone and
+// review a yes or no.
 export type InstallBanner =
-  | { kind: 'host_key'; hostKey: string }
+  | { kind: 'host_key'; hostKey: string; tailscale?: 'match' | 'mismatch' }
   | { kind: 'check'; link: CheckLink | null }
   | { kind: 'standalone' }
   | { kind: 'review' }
@@ -70,7 +71,11 @@ export function installBanner(record: RunNodeRecord | undefined): InstallBanner 
   if (record.status !== 'running') return null
   switch (record.awaiting) {
     case 'host_key':
-      return record.host_key ? { kind: 'host_key', hostKey: record.host_key } : null
+      if (!record.host_key) return null
+      // A value a newer leader may send and this screen does not know says nothing.
+      return record.host_key_tailscale === 'match' || record.host_key_tailscale === 'mismatch'
+        ? { kind: 'host_key', hostKey: record.host_key, tailscale: record.host_key_tailscale }
+        : { kind: 'host_key', hostKey: record.host_key }
     case 'standalone':
       return { kind: 'standalone' }
     case 'review':

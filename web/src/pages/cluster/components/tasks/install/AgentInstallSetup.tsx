@@ -1,13 +1,13 @@
 import { useId, useRef, useState, type ChangeEvent } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useTranslation } from 'react-i18next'
-import { ClipboardPaste, Eye, EyeOff, FileUp, Loader2, Lock, Play, Plus, X } from 'lucide-react'
+import { ClipboardPaste, Eye, EyeOff, FileUp, Loader2, Lock, Network, Play, Plus, X } from 'lucide-react'
 import { api } from '@/lib/api'
 import { taskErrorMessage } from '@/lib/taskErrors'
 import { cn } from '@/lib/utils'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
-import type { AgentInstallMethod, AgentInstallMode } from '@/types/api'
+import type { AgentInstallMethod, AgentInstallMode, AgentInstallTailnet, AgentInstallTailnetPeer } from '@/types/api'
 import { EditorCheck, EditorField } from '../TaskStepCard'
 import { builtinText } from '../taskBuiltins'
 import { useMounted } from '../useMounted'
@@ -27,6 +27,8 @@ import {
   type LineProblem,
 } from './installForm'
 import { AGENT_INSTALL_TASK_ID } from './installRun'
+import { addPicks, methodAfterPicks } from './installTailnet'
+import { TailnetPickDialog } from './TailnetPickDialog'
 
 const TEXTAREA = cn(
   'w-full min-h-24 rounded-md border border-input bg-transparent px-3 py-2 font-mono text-[13px] shadow-xs outline-none',
@@ -47,10 +49,11 @@ const PLACED = new Set(['servers', 'user', 'method', 'password', 'key', 'passphr
 const blankRow = (r: InstallServerRow) => !r.host.trim() && !r.name.trim() && !r.group.trim()
 const withoutSecrets = (f: InstallForm): InstallForm => ({ ...f, password: '', key: '', passphrase: '', sudoPassword: '' })
 
-// The agent install's form: the servers (typed, or pasted a line each), the
-// one account that logs in to all of them, how to install, then [Preview]
-// (the leader stops every server after its pre-flight check, for a look
-// before anything is installed) or [Start install]. Either opens the run.
+// The agent install's form: the servers (typed, pasted a line each, or picked
+// from the leader's tailnet), the one account that logs in to all of them,
+// how to install, then [Preview] (the leader stops every server after its
+// pre-flight check, for a look before anything is installed) or [Start
+// install]. Either opens the run.
 // It is not a task: no task route, run form or task inputs, which a run
 // records and every manager keeps. The passwords, the key and its passphrase
 // live in this component's state alone and leave the browser in the start's
@@ -76,6 +79,11 @@ export function AgentInstallSetup() {
   const [pasting, setPasting] = useState(false)
   const [pasteText, setPasteText] = useState('')
   const [pasteProblems, setPasteProblems] = useState<{ problem: LineProblem; text: string }[]>([])
+
+  // The tailnet asked for by [Pick from Tailscale] while its dialog is open.
+  const [picking, setPicking] = useState<Promise<AgentInstallTailnet> | null>(null)
+  // What the last pick did to the login, until the login is changed by hand.
+  const [pickNote, setPickNote] = useState<{ switched: boolean; withoutSsh: string[] } | null>(null)
 
   const name = builtinText(t, AGENT_INSTALL_TASK_ID, 'name', '')
   const description = builtinText(t, AGENT_INSTALL_TASK_ID, 'description', '')
@@ -108,6 +116,18 @@ export function AgentInstallSetup() {
     if (servers.length > 0) changeServers([...form.servers.filter((r) => !blankRow(r)), ...servers])
     setPasteText('')
     if (found.length === 0) setPasting(false)
+  }
+
+  // Devices picked from the leader's tailnet: a row each, and Tailscale SSH
+  // as the login when every one added runs it.
+  const addTailnet = (picks: AgentInstallTailnetPeer[]) => {
+    setPicking(null)
+    const { servers, added } = addPicks(form.servers, picks)
+    if (added.length === 0) return
+    const after = methodAfterPicks(form.method, added)
+    setRefused(null)
+    change({ servers, method: after.method })
+    setPickNote(after.switched || after.withoutSsh.length > 0 ? after : null)
   }
 
   const removeRow = (index: number) => {
@@ -260,7 +280,12 @@ export function AgentInstallSetup() {
             <ClipboardPaste className="h-4 w-4" />
             {t('cluster.tasks.install.setup.paste')}
           </Button>
+          <Button type="button" variant="outline" size="sm" onClick={() => setPicking(api.agentInstallTailnet())} disabled={busy}>
+            <Network className="h-4 w-4" />
+            {t('cluster.tasks.install.setup.tailnet')}
+          </Button>
         </div>
+        {picking && <TailnetPickDialog tailnet={picking} onClose={() => setPicking(null)} onAdd={addTailnet} />}
         {pasting && (
           <div className="space-y-2 rounded-xl bg-secondary/40 p-3">
             <EditorField id={`${id}-paste`} label={t('cluster.tasks.install.setup.pasteLabel')} hint={t('cluster.tasks.install.setup.pasteHint')}>
@@ -299,6 +324,19 @@ export function AgentInstallSetup() {
             </ul>
           </div>
         )}
+        {pickNote && (
+          <p
+            data-testid="install-tailnet-note"
+            className={cn(
+              'rounded-xl px-3 py-2 text-[12px] break-words',
+              pickNote.switched ? 'bg-secondary/50 text-muted-foreground' : 'bg-warning/10 text-warning',
+            )}
+          >
+            {pickNote.switched
+              ? t('cluster.tasks.install.tailnet.switched')
+              : t('cluster.tasks.install.tailnet.withoutSsh', { servers: pickNote.withoutSsh.join(', ') })}
+          </p>
+        )}
       </section>
 
       <section aria-labelledby={`${id}-account`} data-testid="install-account" className="space-y-3">
@@ -328,7 +366,10 @@ export function AgentInstallSetup() {
                   name={`${id}-method`}
                   checked={form.method === m}
                   disabled={busy}
-                  onChange={() => change({ method: m })}
+                  onChange={() => {
+                    setPickNote(null)
+                    change({ method: m })
+                  }}
                   className="accent-primary"
                 />
                 {methodLabel(m)}

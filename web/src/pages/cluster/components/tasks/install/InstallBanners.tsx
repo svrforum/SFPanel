@@ -1,6 +1,6 @@
 import { useState, type ReactNode } from 'react'
 import { useTranslation } from 'react-i18next'
-import { ExternalLink, KeyRound, ListChecks, ShieldAlert } from 'lucide-react'
+import { CircleCheck, ExternalLink, KeyRound, ListChecks, ShieldAlert, TriangleAlert } from 'lucide-react'
 import { taskErrorMessage } from '@/lib/taskErrors'
 import { Button } from '@/components/ui/button'
 import type { RunRecord } from '@/types/api'
@@ -38,7 +38,7 @@ export function InstallBanners({ run, state, rowName }: InstallBannersProps) {
         const id = `${key}/${banner.kind}`
         switch (banner.kind) {
           case 'host_key':
-            return <HostKeyQuestion key={id} runId={run.id} rowKey={key} name={name} hostKey={banner.hostKey} />
+            return <HostKeyQuestion key={id} runId={run.id} rowKey={key} name={name} hostKey={banner.hostKey} tailscale={banner.tailscale} />
           case 'check':
             return <CheckWait key={id} rowKey={key} name={name} link={banner.link} sent={state.nodes[key]?.check_url} />
           case 'standalone':
@@ -111,8 +111,10 @@ interface RowQuestionProps {
 
 // The whole fingerprint and its key type, never shortened: the operator
 // compares it with what the server itself prints. The answer carries the
-// fingerprint as shown, so a key that changed since is refused.
-function HostKeyQuestion({ runId, rowKey, name, hostKey }: RowQuestionProps & { hostKey: string }) {
+// fingerprint as shown, so a key that changed since is refused. Under it,
+// whether Tailscale reports the same key for the device, when the leader
+// compared them: said only, the approval stays the operator's.
+function HostKeyQuestion({ runId, rowKey, name, hostKey, tailscale }: RowQuestionProps & { hostKey: string; tailscale?: 'match' | 'mismatch' }) {
   const { t } = useTranslation()
   const { busy, error, send } = useAnswer()
   return (
@@ -121,6 +123,18 @@ function HostKeyQuestion({ runId, rowKey, name, hostKey }: RowQuestionProps & { 
       <code data-testid="install-host-key" className="block rounded-lg bg-background/80 px-3 py-2 font-mono text-[12px] break-all select-all">
         {hostKey}
       </code>
+      {tailscale === 'match' && (
+        <p data-testid="install-host-key-tailscale" className="flex items-start gap-1.5 text-[12px] text-success break-words">
+          <CircleCheck className="h-4 w-4 mt-px shrink-0" aria-hidden />
+          {t('cluster.tasks.install.run.hostKeyTailscaleMatch')}
+        </p>
+      )}
+      {tailscale === 'mismatch' && (
+        <p data-testid="install-host-key-tailscale" className="flex items-start gap-1.5 rounded-lg bg-warning/15 px-3 py-2 text-[12px] font-medium text-warning break-words">
+          <TriangleAlert className="h-4 w-4 mt-px shrink-0" aria-hidden />
+          {t('cluster.tasks.install.run.hostKeyTailscaleMismatch')}
+        </p>
+      )}
       <p className="text-[12px] text-muted-foreground break-words">{t('cluster.tasks.install.run.hostKeyHint')}</p>
       <div className="flex flex-wrap gap-2">
         <Button size="sm" disabled={busy} onClick={() => send(() => api.answerHostKey(runId, rowKey, hostKey, true))}>

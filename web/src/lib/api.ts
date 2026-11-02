@@ -90,6 +90,7 @@ import type {
   TaskImportPreview,
   TaskImportResult,
   AgentInstallRequest,
+  AgentInstallTailnet,
 } from '@/types/api'
 import type { TFunction } from 'i18next'
 import { CODE_DEFAULTS, CODE_DETAIL_FORMATS, CODE_MESSAGES } from './codeMessages'
@@ -2830,6 +2831,12 @@ class ApiClient {
   // 202 once the run is recorded; its progress is the task run's stream.
   startAgentInstall(req: AgentInstallRequest) {
     return this.request<{ run_id: string }>('/cluster/agent-installs', { method: 'POST', body: JSON.stringify(req) })
+  }
+
+  // The leader's tailnet, for the form to pick servers from. A leader that
+  // cannot read it answers 500 AGENT_INSTALL_TAILNET_FAILED.
+  agentInstallTailnet() {
+    return this.request<AgentInstallTailnet>('/cluster/agent-installs/tailnet')
   }
 
   // fingerprint is the row's host_key as shown. Refusing it stops that server.

@@ -1458,6 +1458,12 @@ export interface RunNodeRecord {
   node_id?: string
   awaiting?: InstallAwaiting
   host_key?: string
+  /**
+   * The host key against the one Tailscale reports for the row's device: match
+   * (the same key), mismatch (another key of that type), or absent (no
+   * comparison). Shown only: the approval stays the operator's.
+   */
+  host_key_tailscale?: 'match' | 'mismatch'
   check_url?: string
   /** An install row's server had SFPanel before: its program or its data. */
   sfpanel_before?: boolean
@@ -1619,6 +1625,30 @@ export interface AgentInstallRequest {
   review?: boolean
   mode?: AgentInstallMode
   concurrency?: number
+}
+
+// GET /cluster/agent-installs/tailnet: the leader's tailnet, for the install
+// form to pick servers from. on_tailscale false says why in reason
+// (not_installed, not_running, no_address), with no peers. peers are the
+// tailnet's Linux devices with an IPv4 Tailscale address, online first: ssh
+// when the device reports SSH host keys (it runs Tailscale SSH), node the
+// cluster node already at that address ("" for none).
+export type AgentInstallTailnetReason = 'not_installed' | 'not_running' | 'no_address'
+
+export interface AgentInstallTailnetPeer {
+  name: string
+  dns_name: string
+  ip: string
+  os: string
+  online: boolean
+  ssh: boolean
+  node: string
+}
+
+export interface AgentInstallTailnet {
+  on_tailscale: boolean
+  reason: AgentInstallTailnetReason | ''
+  peers: AgentInstallTailnetPeer[]
 }
 
 // Docker observability — container metrics, events, alert rule kinds

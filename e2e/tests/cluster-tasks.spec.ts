@@ -2166,6 +2166,96 @@ test.describe('agent install', () => {
     await expect(pane(page).locator('[data-testid^="install-server-"]')).toHaveCount(2)
   })
 
+  // The leader's tailnet (GET /cluster/agent-installs/tailnet): its Linux
+  // devices, online first. agent-01 sits at its address in the cluster already.
+  const TAILNET = 'GET /cluster/agent-installs/tailnet'
+  const device = (name: string, ip: string, over: Record<string, unknown> = {}) =>
+    ({ name, dns_name: `${name}.example.ts.net`, ip, os: 'linux', online: true, ssh: true, node: '', ...over })
+  const tailnet = (peers: unknown[]): Reply => ok({ on_tailscale: true, reason: '', peers })
+  const PEERS = [
+    device('agent-01', '100.64.0.33', { node: 'agent-01' }),
+    device('web-01', '100.64.0.11'),
+    device('web-02', '100.64.0.12'),
+    device('db-01', '100.64.0.21', { online: false, ssh: false }),
+  ]
+  const picker = (page: Page) => page.getByRole('dialog', { name: 'Pick from Tailscale' })
+
+  test('servers picked from the tailnet fill the table, and the login turns to Tailscale SSH', async ({ page }) => {
+    const { requests } = await mock(page, { replies: { [TAILNET]: tailnet(PEERS) } })
+    await page.goto(INSTALL_PATH)
+    const account = pane(page).getByTestId('install-account')
+    await expect(account.getByRole('radio', { name: 'Password' })).toBeChecked()
+    await pane(page).getByRole('button', { name: 'Pick from Tailscale' }).click()
+    const d = picker(page)
+    await expect(d.getByTestId('install-tailnet-peers').getByRole('listitem')).toHaveCount(4)
+    await expect(d.getByRole('button', { name: 'Add 0 servers' })).toBeDisabled()
+    await d.getByRole('checkbox', { name: 'web-01' }).check()
+    await d.getByRole('checkbox', { name: 'web-02' }).check()
+    await d.getByRole('button', { name: 'Add 2 servers' }).click()
+    await expect(d).toHaveCount(0)
+
+    // The blank row the form starts with is taken by the picks.
+    await expect(pane(page).locator('[data-testid^="install-server-"]')).toHaveCount(2)
+    await expect(host(page, 1)).toHaveValue('100.64.0.11')
+    await expect(pane(page).getByRole('textbox', { name: 'Server 1: name' })).toHaveValue('web-01')
+    await expect(host(page, 2)).toHaveValue('100.64.0.12')
+    await expect(pane(page).getByRole('textbox', { name: 'Server 2: name' })).toHaveValue('web-02')
+    await expect(account.getByRole('radio', { name: 'Tailscale SSH' })).toBeChecked()
+    await expect(pane(page).getByTestId('install-tailnet-note')).toHaveText('Every server added runs Tailscale SSH, so the login is now Tailscale SSH.')
+
+    // Picked again: an IP the table holds is skipped.
+    await pane(page).getByRole('button', { name: 'Pick from Tailscale' }).click()
+    await picker(page).getByRole('checkbox', { name: 'web-01' }).check()
+    await picker(page).getByRole('button', { name: 'Add 1 server' }).click()
+    await expect(pane(page).locator('[data-testid^="install-server-"]')).toHaveCount(2)
+    expect(requests.filter((r) => r === 'GET /cluster/agent-installs/tailnet')).toHaveLength(2)
+  })
+
+  test('a device already in the cluster, or offline, cannot be picked', async ({ page }) => {
+    await mock(page, { replies: { [TAILNET]: tailnet(PEERS) } })
+    await page.goto(INSTALL_PATH)
+    await pane(page).getByRole('button', { name: 'Pick from Tailscale' }).click()
+    const d = picker(page)
+    const node = d.getByTestId('install-tailnet-100.64.0.33')
+    await expect(node).toContainText('Already in the cluster as agent-01')
+    await expect(node.getByRole('checkbox', { name: 'agent-01' })).toBeDisabled()
+    await expect(node).toContainText('Tailscale SSH')
+    const offline = d.getByTestId('install-tailnet-100.64.0.21')
+    await expect(offline).toContainText('Offline')
+    await expect(offline.getByRole('checkbox', { name: 'db-01' })).toBeDisabled()
+    await expect(offline).not.toContainText('Tailscale SSH')
+    await expect(d.getByRole('checkbox', { name: 'web-01' })).toBeEnabled()
+  })
+
+  test('a leader off Tailscale says why and what to do; a leader that cannot read it says so', async ({ page }) => {
+    await mock(page, {
+      replies: {
+        [TAILNET]: [
+          ok({ on_tailscale: false, reason: 'not_running', peers: [] }),
+          fail(500, 'AGENT_INSTALL_TAILNET_FAILED', 'tailscale status: failed to connect to local tailscaled'),
+          tailnet([]),
+        ],
+      },
+    })
+    await page.goto(INSTALL_PATH)
+    const open = () => pane(page).getByRole('button', { name: 'Pick from Tailscale' }).click()
+    await open()
+    const off = picker(page).getByTestId('install-tailnet-off')
+    await expect(off).toContainText('Tailscale is not running on the cluster leader: it is stopped or logged out.')
+    await expect(off).toContainText('On the Nodes page, transfer the leadership to one')
+    await expect(picker(page).getByRole('button', { name: 'Add 0 servers' })).toBeDisabled()
+    await picker(page).getByRole('button', { name: 'Cancel' }).click()
+
+    await open()
+    await expect(picker(page).getByRole('alert')).toHaveText(
+      'The leader could not read its tailnet: tailscale status failed there. Check that tailscaled is running on the leader, then try again.',
+    )
+    await picker(page).getByRole('button', { name: 'Cancel' }).click()
+
+    await open()
+    await expect(picker(page)).toContainText("No Linux device is in the leader's tailnet.")
+  })
+
   test('the login method decides the fields: Tailscale SSH asks for no secret', async ({ page }) => {
     await mock(page)
     await page.goto(INSTALL_PATH)
@@ -2512,6 +2602,30 @@ test.describe('agent install', () => {
       const output = page.getByTestId('task-node-output')
       await expect(output.getByRole('heading')).toHaveText('web-04 · Connect')
       await expect(output.getByTestId('task-node-output-text')).toHaveText('host key ED25519: waiting for the operator\n')
+    })
+
+    test("a host key says whether Tailscale reports the same key, and the answer is still the operator's", async ({ page }) => {
+      const rows = {
+        s1: srv('s1', 'running', ['running'], { host: '100.64.0.11', name: 'web-01', awaiting: 'host_key', host_key: FINGERPRINT, host_key_tailscale: 'match' }),
+        s2: srv('s2', 'running', ['running'], { host: '100.64.0.12', name: 'web-02', awaiting: 'host_key', host_key: FINGERPRINT2, host_key_tailscale: 'mismatch' }),
+        s3: srv('s3', 'running', ['running'], { host: '192.0.2.23', name: 'web-03', awaiting: 'host_key', host_key: FINGERPRINT }),
+      }
+      const { calls } = await mock(page, {
+        ...follow(install({ nodes: ['s1', 's2', 's3'], waves: [['s1', 's2', 's3']], batch: 3 }), rows),
+        replies: { [`POST ${ROWS}/servers/s2/host-key`]: ok(null) },
+      })
+      await page.goto(`/cluster/tasks/runs/${IRUN}`)
+      await expect(wait(page, 's1').getByTestId('install-host-key-tailscale')).toHaveText('Tailscale reports the same key for this device.')
+      await expect(wait(page, 's2').getByTestId('install-host-key-tailscale')).toHaveText(
+        'Tailscale reports another key for this device. Do not approve before you have checked the key on the server.',
+      )
+      await expect(wait(page, 's3').getByTestId('install-host-key')).toHaveText(FINGERPRINT)
+      await expect(wait(page, 's3').getByTestId('install-host-key-tailscale')).toHaveCount(0)
+      // Nothing was answered for the operator, and the buttons are as ever.
+      await page.waitForTimeout(500)
+      expect(calls).toEqual([])
+      await wait(page, 's2').getByRole('button', { name: 'Yes, continue' }).click()
+      await expect.poll(() => posts(calls, `${ROWS}/servers/s2/host-key`).map((c) => c.body)).toEqual([{ fingerprint: FINGERPRINT2, accept: true }])
     })
 
     test('a Tailscale check links an https address and shows its host; anything else is only text', async ({ page }) => {

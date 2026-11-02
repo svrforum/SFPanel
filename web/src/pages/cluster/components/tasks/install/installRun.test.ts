@@ -95,6 +95,15 @@ describe('installBanner', () => {
     expect(installBanner(running({ awaiting: 'host_key', host_key: 'ED25519 SHA256:AbC+/123' }))).toEqual({ kind: 'host_key', hostKey: 'ED25519 SHA256:AbC+/123' })
   })
 
+  it("carries Tailscale's comparison of the key, and nothing for a value it does not know", () => {
+    const asked = (host_key_tailscale: unknown) =>
+      installBanner(running({ awaiting: 'host_key', host_key: 'ED25519 SHA256:x', host_key_tailscale } as Partial<RunNodeRecord>))
+    expect(asked('match')).toStrictEqual({ kind: 'host_key', hostKey: 'ED25519 SHA256:x', tailscale: 'match' })
+    expect(asked('mismatch')).toStrictEqual({ kind: 'host_key', hostKey: 'ED25519 SHA256:x', tailscale: 'mismatch' })
+    expect(asked(undefined)).toStrictEqual({ kind: 'host_key', hostKey: 'ED25519 SHA256:x' })
+    expect(asked('unsure')).toStrictEqual({ kind: 'host_key', hostKey: 'ED25519 SHA256:x' })
+  })
+
   it('links the Tailscale check only when the address is https', () => {
     expect(installBanner(running({ awaiting: 'check', check_url: 'https://login.example/a/x' }))).toEqual({
       kind: 'check',

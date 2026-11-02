@@ -94,6 +94,7 @@ export const CODE_MESSAGES: Record<string, string> = {
   AGENT_INSTALL_NOT_FOUND: 'cluster.tasks.install.errors.notFound',
   AGENT_INSTALL_NOT_RERUNNABLE: 'cluster.tasks.install.errors.notRerunnable',
   AGENT_INSTALL_LOG_GONE: 'cluster.tasks.install.errors.logGone',
+  AGENT_INSTALL_TAILNET_FAILED: 'cluster.tasks.install.errors.tailnetFailed',
   // An install row's reason, worded with its reason_details by
   // installReasonText (pages/cluster/components/tasks/install/installRun.ts),
   // which picks a closer sentence where the details call for one. Each says

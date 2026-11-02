@@ -1644,7 +1644,8 @@
           "mixedVersions": "매니저들의 버전이 다릅니다({{managers}}). 에이전트는 리더의 버전 {{version}}(으)로 설치하니 모든 매니저를 같은 버전으로 업데이트한 뒤 설치하세요.",
           "notFound": "클러스터 리더에 이 설치가 더 이상 없습니다(리더가 바뀌었거나 다른 설치가 시작됨). 기록은 남아 있으니 필요하면 새로 설치하세요.",
           "notRerunnable": "에이전트 설치는 다시 실행할 수 없습니다. 인증 정보가 남아 있지 않으니 설치 창에서 새로 시작하세요.",
-          "logGone": "이 단계의 로그는 설치를 진행한 리더의 메모리에 있었고 지금은 없습니다(리더가 바뀌었거나 다른 설치가 시작됨)."
+          "logGone": "이 단계의 로그는 설치를 진행한 리더의 메모리에 있었고 지금은 없습니다(리더가 바뀌었거나 다른 설치가 시작됨).",
+          "tailnetFailed": "리더가 자신의 tailnet을 읽지 못했습니다(tailscale status 실패). 리더에서 tailscaled가 실행 중인지 확인한 뒤 다시 시도하세요."
         },
         "field": {
           "servers": "서버 목록(1~50대)",
@@ -1802,6 +1803,26 @@
         },
         "addAgentHint": "또는 클러스터 리더가 SSH로 서버에 접속해 에이전트를 설치하게 할 수 있습니다:",
         "addAgentLink": "SSH로 설치",
+        "tailnet": {
+          "title": "Tailscale에서 고르기",
+          "description": "클러스터 리더의 tailnet에 있는 Linux 기기입니다. 이미 클러스터에 있거나 오프라인인 기기는 고를 수 없습니다(설치는 지금 접속합니다).",
+          "loading": "리더의 tailnet을 읽는 중…",
+          "search": "이름이나 IP로 찾기",
+          "noMatch": "찾는 기기가 없습니다.",
+          "none": "리더의 tailnet에 Linux 기기가 없습니다.",
+          "online": "온라인",
+          "offline": "오프라인",
+          "ssh": "Tailscale SSH",
+          "inCluster": "이미 클러스터에 있음: {{node}}",
+          "add": "{{count}}대 추가",
+          "notInstalled": "클러스터 리더에 Tailscale이 설치되어 있지 않습니다.",
+          "notRunning": "클러스터 리더의 Tailscale이 실행 중이 아닙니다(중지했거나 로그아웃됨).",
+          "noAddress": "클러스터 리더에 Tailscale IPv4 주소가 없습니다.",
+          "offTailnet": "클러스터 리더가 Tailscale에 없습니다.",
+          "leaderHint": "목록은 리더의 tailnet에서 읽으므로 리더가 Tailscale에 있는 매니저여야 합니다. 노드 화면에서 그런 매니저로 리더십을 이전한 뒤 다시 시도하세요.",
+          "switched": "추가한 서버가 모두 Tailscale SSH를 써서 인증을 Tailscale SSH로 바꿨습니다.",
+          "withoutSsh": "추가한 서버 중 Tailscale SSH를 쓰지 않는 서버가 있어 인증은 그대로 두었습니다. 쓰지 않는 서버: {{servers}}"
+        },
         "setup": {
           "servers": "설치할 서버",
           "host": "IP 또는 호스트",
@@ -1821,6 +1842,7 @@
           "pasteHint": "한 줄에 호스트[:포트] [이름] [그룹]을 공백으로 나눠 씁니다. #부터는 주석입니다.",
           "pasteAdd": "목록에 넣기",
           "pasteSkipped": "넣지 못한 줄:",
+          "tailnet": "Tailscale에서 고르기",
           "account": "접속 계정 (모든 서버에 같이 씀)",
           "user": "사용자",
           "method": "인증",
@@ -1869,6 +1891,8 @@
           "leaderChanged": "설치 도중 클러스터 리더가 바뀌어 설치가 그 자리에서 끝났습니다. 인증 정보는 옛 리더와 함께 사라졌습니다. 서버마다 어디서 멈췄는지 아래에 나옵니다.",
           "hostKey": "{{server}}에 처음 접속합니다. 호스트 키 지문이 서버의 것과 같은지 확인하세요:",
           "hostKeyHint": "서버에서 ssh-keygen -lf /etc/ssh/ssh_host_ed25519_key.pub로 볼 수 있습니다(보이는 종류의 키 파일을 쓰세요).",
+          "hostKeyTailscaleMatch": "Tailscale이 알려 주는 이 기기의 키와 같습니다.",
+          "hostKeyTailscaleMismatch": "Tailscale이 알려 주는 이 기기의 키와 다릅니다. 서버에서 키를 직접 확인하기 전에는 승인하지 마세요.",
           "accept": "맞음, 계속",
           "reject": "아니요, 중단",
           "check": "{{server}}의 Tailscale SSH가 리더를 들이기 전에 다시 로그인하라고 합니다.",
