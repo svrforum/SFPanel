@@ -224,6 +224,13 @@ type RunNodeRecord struct {
 	Awaiting string `json:"awaiting,omitempty"`
 	HostKey  string `json:"host_key,omitempty"`
 	CheckURL string `json:"check_url,omitempty"`
+	// HostKeyTailscale is how HostKey compares with the keys of its type
+	// Tailscale reports for the device at a server's Tailscale address:
+	// match, mismatch, or empty when Tailscale says nothing of it (not a
+	// Tailscale address, no such device, no key of that type, or the
+	// tailnet could not be read). It is shown beside the question, which
+	// stays the operator's either way.
+	HostKeyTailscale string `json:"host_key_tailscale,omitempty"`
 }
 
 // RunStepRecord is one step on one node. JobID is written before the job is

@@ -86,6 +86,7 @@ func newAPIFixture(t *testing.T, servers ...*fakeServer) *apiFixture {
 		}
 	})
 	g := f.e.Group("/api/v1/cluster")
+	g.GET("/agent-installs/tailnet", f.h.Tailnet)
 	g.POST("/agent-installs", f.h.Start)
 	g.POST("/agent-installs/:id/servers/:key/host-key", f.h.ApproveHostKey)
 	g.POST("/agent-installs/:id/servers/:key/standalone", f.h.ConfirmStandalone)

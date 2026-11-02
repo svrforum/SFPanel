@@ -114,6 +114,10 @@ type Env interface {
 	Archives() string
 	// InstallScript is the install.sh to upload: this binary's own.
 	InstallScript() []byte
+	// Tailnet is `tailscale status --json` on this leader, within ten
+	// seconds: errNoTailscale without the command, a *TailnetError when it
+	// fails.
+	Tailnet(ctx context.Context) (Tailnet, error)
 	Now() time.Time
 }
 

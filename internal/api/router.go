@@ -306,7 +306,7 @@ func NewRouter(database *sql.DB, auditWriter *sfdb.AsyncWriter, alertManager *fe
 		// use, so a manager made at runtime needs nothing more. An install's
 		// record is a task run, which the task engine leaves to it; while one
 		// is under way a task run waits, and the leader keeps its role.
-		installer := featureAgentInstall.New(featureAgentInstall.NewClusterEnv(clusterHandler.GetManager, version, auditWriter))
+		installer := featureAgentInstall.New(featureAgentInstall.NewClusterEnv(clusterHandler.GetManager, version, auditWriter, cmd))
 		tasksHandler.SetInstallRuns(installer)
 		clusterHandler.SetAgentInstallActive(installer.Active)
 		installHandler = featureAgentInstall.NewHandler(installer, clusterHandler.GetManager, clusterHandler)
@@ -487,6 +487,8 @@ func NewRouter(database *sql.DB, auditWriter *sfdb.AsyncWriter, alertManager *fe
 		// routes above. A body is capped at 1 MiB: a start's carries the
 		// credentials, a private key among them, and up to 50 servers.
 		installBody := echoMw.BodyLimit("1MiB")
+		// The leader's tailnet, the devices the install form picks from.
+		clusterGroup.GET("/agent-installs/tailnet", installHandler.Tailnet)
 		clusterGroup.POST("/agent-installs", installHandler.Start, installBody)
 		clusterGroup.POST("/agent-installs/:id/servers/:key/host-key", installHandler.ApproveHostKey, installBody)
 		clusterGroup.POST("/agent-installs/:id/servers/:key/standalone", installHandler.ConfirmStandalone, installBody)

@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/svrforum/SFPanel/internal/cluster"
+	"github.com/svrforum/SFPanel/internal/common/exec"
 	sfdb "github.com/svrforum/SFPanel/internal/db"
 	"github.com/svrforum/SFPanel/internal/feature/audit"
 	"github.com/svrforum/SFPanel/internal/release"
@@ -20,17 +21,19 @@ import (
 const ArchivesEnv = "SFPANEL_AGENT_ARCHIVES"
 
 // ClusterEnv is Env over this node's cluster manager, the release
-// downloads and its own install.sh.
+// downloads, its own install.sh and its tailscale command.
 type ClusterEnv struct {
 	getMgr  func() *cluster.Manager
 	version string
 	audit   *sfdb.AsyncWriter
+	cmd     exec.Commander
 }
 
 // NewClusterEnv returns the Env the panel runs with: version is this
-// binary's, audit where the install's start and end are recorded.
-func NewClusterEnv(getMgr func() *cluster.Manager, version string, audit *sfdb.AsyncWriter) *ClusterEnv {
-	return &ClusterEnv{getMgr: getMgr, version: version, audit: audit}
+// binary's, audit where the install's start and end are recorded, cmd what
+// runs `tailscale status`.
+func NewClusterEnv(getMgr func() *cluster.Manager, version string, audit *sfdb.AsyncWriter, cmd exec.Commander) *ClusterEnv {
+	return &ClusterEnv{getMgr: getMgr, version: version, audit: audit, cmd: cmd}
 }
 
 func (c *ClusterEnv) mgr() (*cluster.Manager, error) {
@@ -273,5 +276,7 @@ func (c *ClusterEnv) Archive(ctx context.Context, version, arch string, checksum
 func (c *ClusterEnv) Archives() string { return os.Getenv(ArchivesEnv) }
 
 func (c *ClusterEnv) InstallScript() []byte { return scripts.InstallScript }
+
+func (c *ClusterEnv) Tailnet(ctx context.Context) (Tailnet, error) { return readTailnet(ctx, c.cmd) }
 
 func (c *ClusterEnv) Now() time.Time { return time.Now() }

@@ -140,6 +140,7 @@ var expectedManagerOnlyRoutes = func() []string {
 		"POST /api/v1/cluster/task-runs/:id/stop",
 		"POST /api/v1/cluster/task-runs/:id/rerun",
 		"GET /api/v1/cluster/task-runs/:id/nodes/:node/steps/:n/output",
+		"GET /api/v1/cluster/agent-installs/tailnet",
 		"POST /api/v1/cluster/agent-installs",
 		"POST /api/v1/cluster/agent-installs/:id/servers/:key/host-key",
 		"POST /api/v1/cluster/agent-installs/:id/servers/:key/standalone",

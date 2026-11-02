@@ -467,7 +467,7 @@ func TestAnInstallRowKeepsItsReasonDetails(t *testing.T) {
 	row := RunNodeRecord{Status: RunNodeFailed, Reason: "AGENT_INSTALL_PORT_BUSY",
 		ReasonDetails: map[string]string{"port": "3628", "owner": "nginx"},
 		Host:          "web-1.example", IP: "192.0.2.10", Name: "web-1", Group: "web", NodeID: "a9",
-		HostKey: "ED25519 SHA256:abc", Steps: []RunStepRecord{{Status: RunStepFailed, JobID: "install/s1/1"}}}
+		HostKey: "ED25519 SHA256:abc", HostKeyTailscale: "match", Steps: []RunStepRecord{{Status: RunStepFailed, JobID: "install/s1/1"}}}
 	if err := m.PutRunNode(run.ID, "s1", row); err != nil {
 		t.Fatal(err)
 	}

@@ -368,3 +368,24 @@ func (h *Handler) Revert(c echo.Context) error {
 	}
 	return response.OK(c, nil)
 }
+
+// Tailnet answers GET /cluster/agent-installs/tailnet (leader): the Linux
+// devices of the leader's tailnet, for the install form to pick servers
+// from, as the leader is the node that reaches them. A leader not on
+// Tailscale is 200 with on_tailscale false and the reason; a `tailscale
+// status` that fails is 500 AGENT_INSTALL_TAILNET_FAILED, its output
+// sanitized.
+func (h *Handler) Tailnet(c echo.Context) error {
+	if handled, err := h.forward(c); handled {
+		return err
+	}
+	ans, err := h.engine.Tailnet(c.Request().Context())
+	var te *TailnetError
+	if errors.As(err, &te) {
+		return response.Fail(c, http.StatusInternalServerError, response.ErrAgentInstallTailnetFailed, te.Error())
+	}
+	if err != nil {
+		return answerErr(c, err)
+	}
+	return response.OK(c, ans)
+}

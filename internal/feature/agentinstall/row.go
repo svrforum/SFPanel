@@ -267,8 +267,12 @@ func (r *row) connect(ctx context.Context) error {
 	s.mu.Lock()
 	r.fetched = hk
 	s.mu.Unlock()
+	// Shown beside the question, in the same write: it decides nothing.
+	versus := r.againstTailscale(ctx, hk, log)
 	log.printf("host key %s: waiting for the operator", text)
-	accepted, err := r.wait(ctx, awaitHostKey, func(rec *cluster.RunNodeRecord) { rec.HostKey = text })
+	accepted, err := r.wait(ctx, awaitHostKey, func(rec *cluster.RunNodeRecord) {
+		rec.HostKey, rec.HostKeyTailscale = text, versus
+	})
 	if err != nil {
 		return err
 	}

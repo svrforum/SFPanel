@@ -589,6 +589,12 @@ const (
 	// field, the request's own name for what is wrong, and row (s1, s2 …,
 	// in the order the servers were given) when it is one server's.
 	ErrAgentInstallInvalid = "AGENT_INSTALL_INVALID"
+	// ErrAgentInstallTailnetFailed is returned (HTTP 500) when the leader's
+	// `tailscale status --json`, read for the install form's devices, fails
+	// or answers with nothing the panel reads; the message is the command's
+	// output, sanitized. A leader not on Tailscale is no failure: the
+	// answer says why (reason).
+	ErrAgentInstallTailnetFailed = "AGENT_INSTALL_TAILNET_FAILED"
 )
 
 // Group task error codes: the task and task-run API on a manager.

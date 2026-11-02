@@ -21,6 +21,7 @@ import (
 	"golang.org/x/crypto/ssh"
 
 	"github.com/svrforum/SFPanel/internal/cluster"
+	"github.com/svrforum/SFPanel/internal/common/exec"
 	"github.com/svrforum/SFPanel/internal/sshexec"
 )
 
@@ -47,6 +48,11 @@ type fakeEnv struct {
 	// noTailscale is a leader with no Tailscale address: JoinAddressFor
 	// refuses a target at one.
 	noTailscale bool
+	// tailscale runs the leader's `tailscale status --json` (onTailnet);
+	// as made, the leader has no tailscale command. tailnetReads counts
+	// the reads.
+	tailscale    *exec.MockCommander
+	tailnetReads int
 
 	nodes   map[string]cluster.Node
 	minted  []mintedToken
@@ -85,6 +91,7 @@ func newFakeEnv() *fakeEnv {
 		joinAddr: "192.0.2.1:3629",
 		nodes:    map[string]cluster.Node{}, labels: map[string]map[string]string{},
 		runs: map[string]cluster.RunRecord{}, rows: map[string]map[string]cluster.RunNodeRecord{},
+		tailscale: exec.NewMockCommander(),
 	}
 }
 
@@ -258,6 +265,27 @@ func (f *fakeEnv) Archives() string {
 }
 
 func (f *fakeEnv) InstallScript() []byte { return f.script }
+
+func (f *fakeEnv) Tailnet(ctx context.Context) (Tailnet, error) {
+	f.mu.Lock()
+	f.tailnetReads++
+	cmd := f.tailscale
+	f.mu.Unlock()
+	return readTailnet(ctx, cmd)
+}
+
+// onTailnet gives the leader a tailscale command whose `status --json` is
+// status.
+func (f *fakeEnv) onTailnet(status string) {
+	f.tailscale.SetOutput("exists:tailscale", "", nil)
+	f.tailscale.SetOutput("tailscale", status, nil)
+}
+
+func (f *fakeEnv) tailnetReadCount() int {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return f.tailnetReads
+}
 
 func (f *fakeEnv) Now() time.Time {
 	f.mu.Lock()
