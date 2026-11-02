@@ -245,6 +245,16 @@ func TestALeaderOffTailscaleSaysWhy(t *testing.T) {
 		{"no IPv4 address of its own", "no_address", func(env *fakeEnv) {
 			env.onTailnet(strings.ReplaceAll(tailnetFixture, `"100.64.0.1", `, ``))
 		}},
+		// The daemon down: the command reaches no tailscaled, and says so in
+		// either of the forms tailscale 1.96 prints.
+		{"tailscaled not running", "not_running", func(env *fakeEnv) {
+			env.tailscale.SetOutput("exists:tailscale", "", nil)
+			env.tailscale.SetOutput("tailscale", "failed to connect to local tailscaled; it doesn't appear to be running (sudo systemctl start tailscaled ?)\n", errors.New("exit status 1"))
+		}},
+		{"tailscaled not answering", "not_running", func(env *fakeEnv) {
+			env.tailscale.SetOutput("exists:tailscale", "", nil)
+			env.tailscale.SetOutput("tailscale", "failed to connect to local tailscaled (which appears to be running as tailscaled, pid 1325). Got error: Failed to connect to local Tailscale daemon for /localapi/v0/status; not running? Error: dial unix /var/run/tailscale/tailscaled.sock: connect: no such file or directory\n", errors.New("exit status 1"))
+		}},
 	} {
 		t.Run(c.name, func(t *testing.T) {
 			f := newAPIFixture(t)
@@ -265,12 +275,12 @@ func TestATailnetThatCannotBeReadIsAFailure(t *testing.T) {
 	t.Run("the command fails", func(t *testing.T) {
 		f := newAPIFixture(t)
 		f.env.tailscale.SetOutput("exists:tailscale", "", nil)
-		f.env.tailscale.SetOutput("tailscale", "\x1b[31mfailed to connect to local tailscaled; it doesn't appear to be running\x1b[0m\n", errors.New("exit status 1"))
+		f.env.tailscale.SetOutput("tailscale", "\x1b[31mpermission denied: the local API needs root\x1b[0m\n", errors.New("exit status 1"))
 		status, env := f.tailnet()
 		if status != http.StatusInternalServerError || env.Error.Code != response.ErrAgentInstallTailnetFailed {
 			t.Fatalf("GET tailnet = %d %+v, want 500 %s", status, env, response.ErrAgentInstallTailnetFailed)
 		}
-		if want := "tailscale status: failed to connect to local tailscaled; it doesn't appear to be running"; env.Error.Message != want {
+		if want := "tailscale status: permission denied: the local API needs root"; env.Error.Message != want {
 			t.Fatalf("message %q, want %q", env.Error.Message, want)
 		}
 	})
@@ -467,7 +477,7 @@ func TestTheHostKeyIsComparedWithTailscales(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		if n := strings.Count(v.Output, "the tailnet could not be read"); n != 1 || !strings.Contains(v.Output, "failed to connect to local tailscaled") {
+		if n := strings.Count(v.Output, "the tailnet could not be read"); n != 1 || !strings.Contains(v.Output, "tailscaled is not running") {
 			t.Fatalf("the connect phase's log says it %d times: %q; want once, with why", n, v.Output)
 		}
 	})

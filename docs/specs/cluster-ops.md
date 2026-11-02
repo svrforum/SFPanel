@@ -748,8 +748,9 @@ the node that reaches the servers; another manager forwards the request.
   SSH) and which cluster node, manager or agent, already holds that address
   (`node`).
 - A leader not on Tailscale answers `on_tailscale: false` with the reason:
-  `not_installed`, `not_running` or `no_address` (no IPv4 Tailscale address
-  of its own). A command that fails is `500 AGENT_INSTALL_TAILNET_FAILED`.
+  `not_installed`, `not_running` (logged out, stopped, or no tailscaled
+  answering the command) or `no_address` (no IPv4 Tailscale address of its
+  own). A command that fails otherwise is `500 AGENT_INSTALL_TAILNET_FAILED`.
 
 **Host keys**
 

@@ -66,6 +66,10 @@ func (p *TailnetPeer) holds(ip net.IP) bool {
 // errNoTailscale is a leader without the tailscale command.
 var errNoTailscale = errors.New("tailscale is not installed")
 
+// errTailscaledDown is a tailscale command that reaches no tailscaled: the
+// daemon is stopped, or its socket gone.
+var errTailscaledDown = errors.New("tailscaled is not running")
+
 // TailnetError is `tailscale status --json` failing, or answering with
 // nothing this panel reads. Its message is sanitized: it is shown.
 type TailnetError struct{ msg string }
@@ -76,7 +80,8 @@ func (e *TailnetError) Error() string { return e.msg }
 const tailnetTimeout = 10 * time.Second
 
 // readTailnet runs `tailscale status --json` through cmd, which is
-// errNoTailscale without the command and a *TailnetError when it fails.
+// errNoTailscale without the command, errTailscaledDown when the command
+// reaches no daemon, and a *TailnetError when it fails otherwise.
 func readTailnet(ctx context.Context, cmd exec.Commander) (Tailnet, error) {
 	if !cmd.Exists("tailscale") {
 		return Tailnet{}, errNoTailscale
@@ -86,6 +91,11 @@ func readTailnet(ctx context.Context, cmd exec.Commander) (Tailnet, error) {
 	out, err := cmd.RunCtx(ctx, "tailscale", "status", "--json")
 	if err != nil {
 		msg := strings.TrimSpace(out)
+		// "failed to connect to local tailscaled …", whether the daemon is
+		// stopped or its socket does not answer.
+		if strings.Contains(strings.ToLower(msg), "failed to connect to local tailscale") {
+			return Tailnet{}, errTailscaledDown
+		}
 		if msg == "" {
 			msg = err.Error()
 		}
@@ -150,6 +160,9 @@ func (e *Engine) Tailnet(ctx context.Context) (TailnetAnswer, error) {
 	switch {
 	case errors.Is(err, errNoTailscale):
 		ans.Reason = tailnetNotInstalled
+		return ans, nil
+	case errors.Is(err, errTailscaledDown):
+		ans.Reason = tailnetNotRunning
 		return ans, nil
 	case err != nil:
 		return TailnetAnswer{}, err

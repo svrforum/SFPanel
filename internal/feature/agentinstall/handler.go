@@ -372,9 +372,9 @@ func (h *Handler) Revert(c echo.Context) error {
 // Tailnet answers GET /cluster/agent-installs/tailnet (leader): the Linux
 // devices of the leader's tailnet, for the install form to pick servers
 // from, as the leader is the node that reaches them. A leader not on
-// Tailscale is 200 with on_tailscale false and the reason; a `tailscale
-// status` that fails is 500 AGENT_INSTALL_TAILNET_FAILED, its output
-// sanitized.
+// Tailscale, or whose tailscale reaches no tailscaled, is 200 with
+// on_tailscale false and the reason; a `tailscale status` that fails
+// otherwise is 500 AGENT_INSTALL_TAILNET_FAILED, its output sanitized.
 func (h *Handler) Tailnet(c echo.Context) error {
 	if handled, err := h.forward(c); handled {
 		return err

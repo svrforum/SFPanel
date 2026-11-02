@@ -6529,7 +6529,7 @@ GitHub 폴더의 작업 파일을 보여 줍니다(리더, 아무것도 쓰지 �
 | 필드 | 설명 |
 |------|------|
 | `on_tailscale` | 리더가 tailnet에 있는지. `false`면 `peers`는 빈 배열 |
-| `reason` | `on_tailscale: false`인 까닭: `not_installed`(`tailscale` 명령이 없음) · `not_running`(`BackendState`가 `Running`이 아님) · `no_address`(리더 자신에게 IPv4 Tailscale 주소가 없음). 그 밖에는 `""` |
+| `reason` | `on_tailscale: false`인 까닭: `not_installed`(`tailscale` 명령이 없음) · `not_running`(`BackendState`가 `Running`이 아니거나 `tailscale`이 tailscaled에 연결하지 못함) · `no_address`(리더 자신에게 IPv4 Tailscale 주소가 없음). 그 밖에는 `""` |
 | `peers[].name` | 기기의 호스트 이름(`HostName`) |
 | `peers[].dns_name` | MagicDNS 이름, 끝의 `.` 없이 |
 | `peers[].ip` | 기기의 IPv4 Tailscale 주소. 없는 기기는 목록에 없음 |
