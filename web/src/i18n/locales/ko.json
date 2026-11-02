@@ -1665,6 +1665,8 @@
         "reason": {
           "unreachable": "리더가 {{address}}에 SSH로 접속할 수 없습니다. 서버가 켜져 있는지, SSH 포트가 맞는지, 방화벽이 리더를 막지 않는지 확인한 뒤 다시 설치하세요.",
           "unreachableHost": "리더가 {{host}}의 주소를 찾을 수 없습니다. 이름을 확인하거나 서버의 IP를 넣으세요.",
+          "unreachableTailscale": "{{address}}은(는) Tailscale 주소인데 리더가 Tailscale에 없습니다. 노드 화면에서 Tailscale에 있는 매니저({{managers}})로 리더십을 이전한 뒤 다시 설치하세요.",
+          "unreachableTailscaleNone": "{{address}}은(는) Tailscale 주소인데 이 클러스터에는 Tailscale에 있는 매니저가 없습니다. 매니저 하나를 tailnet에 넣고 그 매니저로 리더십을 이전한 뒤 다시 설치하세요.",
           "authFailed": "서버가 SSH 로그인을 거부했습니다. 사용자와 비밀번호 또는 키를 확인한 뒤 다시 설치하세요.",
           "authCheckTimeout": "Tailscale SSH 확인이 시간 안에 승인되지 않았습니다. 다시 설치하고 10분 안에 브라우저에서 확인을 승인하세요.",
           "hostKeyChanged": "서버의 호스트 키가 승인한 것과 다릅니다(지금 서버가 보이는 키: {{host_key}}, 승인한 키: {{approved}}). 다른 기기가 이 주소에서 답하고 있을 수 있으니 서버에서 직접 키를 확인한 뒤 다시 설치하세요.",
@@ -1688,6 +1690,9 @@
           "nameInvalid": "{{name}}은(는) 노드 이름이 될 수 없습니다(영문·숫자·.·-·_ 1~63자, 영문이나 숫자로 시작). 다른 이름을 넣은 뒤 다시 설치하세요.",
           "nameInvalidHostname": "서버의 hostname {{hostname}}은(는) 노드 이름이 될 수 없습니다. 서버의 이름을 넣은 뒤 다시 설치하세요.",
           "clusterNotReady": "클러스터가 지금은 새 에이전트를 받지 않습니다. {{gate}}",
+          "joinAddress": "리더에 이 서버의 망 주소가 없어 서버가 가입할 곳이 없습니다. 노드 화면에서 그 망에 있는 매니저로 리더십을 이전한 뒤 다시 설치하세요.",
+          "joinAddressTailscale": "이 서버는 Tailscale 주소인데 리더가 Tailscale에 없어 가입할 리더 주소가 없습니다. 노드 화면에서 Tailscale에 있는 매니저({{managers}})로 리더십을 이전한 뒤 다시 설치하세요.",
+          "joinAddressTailscaleNone": "이 서버는 Tailscale 주소인데 이 클러스터에는 Tailscale에 있는 매니저가 없습니다. 매니저 하나를 tailnet에 넣고 그 매니저로 리더십을 이전한 뒤 다시 설치하세요.",
           "identityTaken": "클러스터의 다른 노드가 이름 {{name}} 또는 주소 {{ip}}을(를) 이미 쓰고 있습니다. 다른 이름을 고르거나 먼저 예전 노드를 제거하세요.",
           "identityTakenIp": "이 설치의 다른 서버({{row}})도 주소 {{ip}}을(를) 씁니다. 서버마다 한 번씩만 넣으세요.",
           "identityTakenName": "이 설치의 다른 서버({{row}})도 이름 {{name}}을(를) 씁니다. 서버마다 다른 이름을 넣으세요.",

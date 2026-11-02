@@ -97,12 +97,14 @@ export function credentialsLeft(until: string | undefined, now: number): number 
 /**
  * The command that removes SFPanel from a server by hand, once the
  * credentials are gone: the installed version's own install.sh, from its
- * release tag. A version that is no release tag (a development build) takes
- * main's script, and is never pasted into the shell line.
+ * release tag, then the install's temporary directory, which a leader lost
+ * mid-install leaves behind with its join token in it. A version that is no
+ * release tag (a development build) takes main's script, and is never pasted
+ * into the shell line.
  */
 export function cleanupCommand(version: string): string {
   const ref = /^\d+\.\d+\.\d+$/.test(version) ? `v${version}` : 'main'
-  return `curl -fsSL https://raw.githubusercontent.com/svrforum/SFPanel/${ref}/scripts/install.sh | sudo bash -s -- uninstall --purge`
+  return `curl -fsSL https://raw.githubusercontent.com/svrforum/SFPanel/${ref}/scripts/install.sh | sudo bash -s -- uninstall --purge; sudo rm -rf /tmp/sfpanel-agent.*`
 }
 
 /** Seconds as m:ss, for the credentials' countdown. */
@@ -300,7 +302,23 @@ const VARIANTS: Record<string, (d: Details, record: RunNodeRecord) => Words | nu
       ? (t, p) => t('cluster.tasks.install.reason.hostKeyChanged', p)
       : (t, p) => t('cluster.tasks.install.reason.hostKeyChangedType', p)
   },
-  AGENT_INSTALL_UNREACHABLE: (d) => (d.host ? (t, p) => t('cluster.tasks.install.reason.unreachableHost', p) : null),
+  AGENT_INSTALL_UNREACHABLE: (d) => {
+    if (d.host) return (t, p) => t('cluster.tasks.install.reason.unreachableHost', p)
+    if (d.tailscale !== 'leader_none') return null
+    return d.managers
+      ? (t, p) => t('cluster.tasks.install.reason.unreachableTailscale', p)
+      : (t, p) => t('cluster.tasks.install.reason.unreachableTailscaleNone', p)
+  },
+  // A leader with no address on the server's network gives it nothing to
+  // join at. One at a Tailscale address is told which managers are on
+  // Tailscale, where the leadership can go.
+  AGENT_INSTALL_CLUSTER_NOT_READY: (d) => {
+    if (d.gate !== 'join_address') return null
+    if (d.tailscale !== 'leader_none') return (t) => t('cluster.tasks.install.reason.joinAddress')
+    return d.managers
+      ? (t, p) => t('cluster.tasks.install.reason.joinAddressTailscale', p)
+      : (t) => t('cluster.tasks.install.reason.joinAddressTailscaleNone')
+  },
   AGENT_INSTALL_AUTH_FAILED: (d) => (d.check === 'timeout' ? (t) => t('cluster.tasks.install.reason.authCheckTimeout') : null),
   AGENT_INSTALL_NAME_INVALID: (d) => ('hostname' in d || !d.name ? (t, p) => t('cluster.tasks.install.reason.nameInvalidHostname', p) : null),
   AGENT_INSTALL_IDENTITY_TAKEN: (d) => {

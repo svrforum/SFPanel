@@ -929,12 +929,14 @@ node's page.
   install already under way. To clean such a server by hand, run on it:
 
   ```bash
-  curl -fsSL https://raw.githubusercontent.com/svrforum/SFPanel/v<version>/scripts/install.sh | sudo bash -s -- uninstall --purge
+  curl -fsSL https://raw.githubusercontent.com/svrforum/SFPanel/v<version>/scripts/install.sh | sudo bash -s -- uninstall --purge; sudo rm -rf /tmp/sfpanel-agent.*
   ```
 
   `<version>` is the installed version (the run's `inputs.version`); a build
   that is not a release uses `main` in place of `v<version>`. `--purge`
-  removes the configuration, the data and the logs as well. On a server
+  removes the configuration, the data and the logs as well; the `rm`
+  removes the install's temporary directory, which a leader lost during the
+  install leaves behind. On a server
   that had SFPanel before the install (`sfpanel_before`), that is the
   former panel's data, which the installer never purges: do not run it
   there. Make sure the node is no longer in the cluster first: a removal
@@ -967,7 +969,7 @@ node's page.
     with `install.sh`, the archive, `install.log` and the join token) stays
     on the server, because only the leader that made it removes it: its
     `install.log` shows how far the install got, the token dies within 30
-    minutes, and the directory is removed by hand.
+    minutes, and the cleanup command removes the directory.
 - An install's end that cannot be written to the record (a Raft write that
   times out, say) is written again, after 1 second and then twice as long
   each time up to 30 seconds, until it is written. If the leader loses its

@@ -1674,6 +1674,8 @@
         "reason": {
           "unreachable": "The leader cannot open SSH to {{address}}. Check that the server is on, the SSH port is right and no firewall keeps the leader out, then install again.",
           "unreachableHost": "The leader cannot resolve {{host}} to an address. Check the name, or enter the server's IP.",
+          "unreachableTailscale": "{{address}} is a Tailscale address, and the leader is not on Tailscale. On the Nodes page, transfer the leadership to a manager on Tailscale ({{managers}}), then install again.",
+          "unreachableTailscaleNone": "{{address}} is a Tailscale address, and no manager of this cluster is on Tailscale. Put a manager on the tailnet and transfer the leadership to it, then install again.",
           "authFailed": "The server refused the SSH login. Check the user and the password or key, then install again.",
           "authCheckTimeout": "The Tailscale SSH check was not approved in time. Install again, and approve the check in your browser within 10 minutes.",
           "hostKeyChanged": "The server now presents the host key {{host_key}}, not the approved {{approved}}. Another machine may be answering at this address: check the key on the server itself before you install it again.",
@@ -1697,6 +1699,9 @@
           "nameInvalid": "{{name}} cannot be a node name: 1 to 63 letters, digits, dots, hyphens or underscores, starting with a letter or digit. Enter another name, then install again.",
           "nameInvalidHostname": "The server's hostname {{hostname}} cannot be a node name. Enter a name for the server, then install again.",
           "clusterNotReady": "The cluster is not taking new agents right now. {{gate}}",
+          "joinAddress": "The leader has no address on this server's network for it to join at. On the Nodes page, transfer the leadership to a manager on that network, then install again.",
+          "joinAddressTailscale": "This server is at a Tailscale address, and the leader is not on Tailscale, so it has no address of the leader to join at. On the Nodes page, transfer the leadership to a manager on Tailscale ({{managers}}), then install again.",
+          "joinAddressTailscaleNone": "This server is at a Tailscale address, and no manager of this cluster is on Tailscale. Put a manager on the tailnet and transfer the leadership to it, then install again.",
           "identityTaken": "A node of the cluster already has the name {{name}} or the address {{ip}}. Choose another name, or remove the old node first.",
           "identityTakenIp": "Another server of this install ({{row}}) has the same address {{ip}}. Enter each server once.",
           "identityTakenName": "Another server of this install ({{row}}) has the same name {{name}}. Give each server its own name.",

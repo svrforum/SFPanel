@@ -2440,7 +2440,7 @@ test.describe('agent install', () => {
     const ROWS = `/cluster/agent-installs/${IRUN}`
     const FINGERPRINT = 'ED25519 SHA256:4mF1xQb7Lw0eTqGZc2yP9sVhK3nRjUa8oXdE5iBk9Pz'
     const FINGERPRINT2 = 'ECDSA SHA256:Zq0+Xc9yWv8uTs7rQp6oNm5lKj4iHg3fEd2cBa1zYxw'
-    const CLEANUP = 'curl -fsSL https://raw.githubusercontent.com/svrforum/SFPanel/v0.81.0/scripts/install.sh | sudo bash -s -- uninstall --purge'
+    const CLEANUP = 'curl -fsSL https://raw.githubusercontent.com/svrforum/SFPanel/v0.81.0/scripts/install.sh | sudo bash -s -- uninstall --purge; sudo rm -rf /tmp/sfpanel-agent.*'
     const install = (over: Record<string, unknown> = {}) => ({
       id: IRUN, kind: 'agent-install', task_id: 'builtin/agent-install', task_name: '에이전트 설치 (SSH)', rev: '',
       inputs: { mode: 'auto', review: 'false', version: '0.81.0' },

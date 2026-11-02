@@ -80,12 +80,12 @@ describe('credentialsLeft', () => {
 
 describe('cleanupCommand', () => {
   it("removes SFPanel with the installed version's own script", () => {
-    expect(cleanupCommand('0.81.0')).toBe('curl -fsSL https://raw.githubusercontent.com/svrforum/SFPanel/v0.81.0/scripts/install.sh | sudo bash -s -- uninstall --purge')
+    expect(cleanupCommand('0.81.0')).toBe('curl -fsSL https://raw.githubusercontent.com/svrforum/SFPanel/v0.81.0/scripts/install.sh | sudo bash -s -- uninstall --purge; sudo rm -rf /tmp/sfpanel-agent.*')
   })
 
   it("uses main's script for a version that is no release tag, and never pastes the value into the shell", () => {
     for (const v of ['', '0.81.0-dev', 'v0.81.0', '0.81.0; rm -rf /', '$(id)']) {
-      expect(cleanupCommand(v), v).toBe('curl -fsSL https://raw.githubusercontent.com/svrforum/SFPanel/main/scripts/install.sh | sudo bash -s -- uninstall --purge')
+      expect(cleanupCommand(v), v).toBe('curl -fsSL https://raw.githubusercontent.com/svrforum/SFPanel/main/scripts/install.sh | sudo bash -s -- uninstall --purge; sudo rm -rf /tmp/sfpanel-agent.*')
     }
   })
 })
@@ -155,6 +155,11 @@ describe('isInstallRun', () => {
 // Every reason a row can end on (internal/feature/agentinstall), with the
 // details its return sites send.
 const REASONS: [string, Record<string, string> | undefined][] = [
+  ['AGENT_INSTALL_UNREACHABLE', { address: '100.64.0.31:22', tailscale: 'leader_none', managers: 'm2,m3' }],
+  ['AGENT_INSTALL_UNREACHABLE', { address: '100.64.0.31:22', tailscale: 'leader_none', managers: '' }],
+  ['AGENT_INSTALL_CLUSTER_NOT_READY', { gate: 'join_address' }],
+  ['AGENT_INSTALL_CLUSTER_NOT_READY', { gate: 'join_address', tailscale: 'leader_none', managers: 'm2' }],
+  ['AGENT_INSTALL_CLUSTER_NOT_READY', { gate: 'join_address', tailscale: 'leader_none', managers: '' }],
   ['AGENT_INSTALL_UNREACHABLE', { host: 'peer-node.example' }],
   ['AGENT_INSTALL_UNREACHABLE', { address: '192.0.2.21:22' }],
   ['AGENT_INSTALL_AUTH_FAILED', undefined],
@@ -273,6 +278,30 @@ describe('installReasonText', () => {
     // A revert says how far it went.
     expect(word('AGENT_INSTALL_OFFLINE', { cause: 'version', version: '0.80.0', reverted: 'purged' })).toContain('SFPanel was removed from the server')
     expect(word('AGENT_INSTALL_OFFLINE', { cause: 'version', version: '0.80.0', reverted: 'removed', standalone: '1' })).toContain('standalone panel')
+  })
+
+  it('tells a server at a Tailscale address the leader is not on which managers the leadership can go to', async () => {
+    const t = await translator('en')
+    const word = (reason: string, details: Record<string, string>) =>
+      installReasonText({ status: 'failed', reason, reason_details: details }, t) ?? ''
+    const out = word('AGENT_INSTALL_UNREACHABLE', { address: '100.64.0.31:22', tailscale: 'leader_none', managers: 'm2,m3' })
+    expect(out).toContain('100.64.0.31:22 is a Tailscale address, and the leader is not on Tailscale')
+    expect(out).toContain('(m2, m3)')
+    expect(word('AGENT_INSTALL_UNREACHABLE', { address: '100.64.0.31:22', tailscale: 'leader_none', managers: '' })).toContain(
+      'no manager of this cluster is on Tailscale',
+    )
+    expect(word('AGENT_INSTALL_UNREACHABLE', { address: '192.0.2.31:22' })).toContain('cannot open SSH to 192.0.2.31:22')
+    const join = word('AGENT_INSTALL_CLUSTER_NOT_READY', { gate: 'join_address', tailscale: 'leader_none', managers: 'm2' })
+    expect(join).toContain('no address of the leader to join at')
+    expect(join).toContain('(m2)')
+    expect(word('AGENT_INSTALL_CLUSTER_NOT_READY', { gate: 'join_address' })).toContain("no address on this server's network")
+    const ko = await translator('ko')
+    expect(
+      installReasonText(
+        { status: 'failed', reason: 'AGENT_INSTALL_UNREACHABLE', reason_details: { address: '100.64.0.31:22', tailscale: 'leader_none', managers: 'm2,m3' } },
+        ko,
+      ),
+    ).toBe('100.64.0.31:22은(는) Tailscale 주소인데 리더가 Tailscale에 없습니다. 노드 화면에서 Tailscale에 있는 매니저(m2, m3)로 리더십을 이전한 뒤 다시 설치하세요.')
   })
 
   it('reads in Korean with the particles written for both endings', async () => {
