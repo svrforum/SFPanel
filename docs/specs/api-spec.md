@@ -6508,6 +6508,43 @@ GitHub 폴더의 작업 파일을 보여 줍니다(리더, 아무것도 쓰지 �
 
 ---
 
+### GET /api/v1/cluster/agent-installs/tailnet
+리더의 tailnet에서 설치할 서버를 고르도록, 리더가 `tailscale status --json`(10초 제한)을 읽어 그 Linux 기기들을 답합니다. 서버에 닿는 것은 리더이므로 리더가 읽고, 다른 매니저는 전달합니다. 아무것도 쓰지 않고, 서버에 아무것도 보내지 않습니다.
+
+**Response (200):**
+```json
+{
+  "success": true,
+  "data": {
+    "on_tailscale": true,
+    "reason": "",
+    "peers": [
+      { "name": "web-01", "dns_name": "web-01.example.ts.net", "ip": "100.64.0.31",
+        "os": "linux", "online": true, "ssh": true, "node": "" }
+    ]
+  }
+}
+```
+
+| 필드 | 설명 |
+|------|------|
+| `on_tailscale` | 리더가 tailnet에 있는지. `false`면 `peers`는 빈 배열 |
+| `reason` | `on_tailscale: false`인 까닭: `not_installed`(`tailscale` 명령이 없음) · `not_running`(`BackendState`가 `Running`이 아님) · `no_address`(리더 자신에게 IPv4 Tailscale 주소가 없음). 그 밖에는 `""` |
+| `peers[].name` | 기기의 호스트 이름(`HostName`) |
+| `peers[].dns_name` | MagicDNS 이름, 끝의 `.` 없이 |
+| `peers[].ip` | 기기의 IPv4 Tailscale 주소. 없는 기기는 목록에 없음 |
+| `peers[].os` | 언제나 `linux`: 설치는 다른 OS를 지원하지 않으므로 그 밖의 기기는 목록에 없음 |
+| `peers[].online` | Tailscale이 보는 온라인 여부. 온라인인 기기가 먼저, 그다음 이름순 |
+| `peers[].ssh` | Tailscale이 그 기기의 SSH 호스트 키를 알려 주는지(`sshHostKeys`가 비어 있지 않음). Tailscale SSH를 켠 기기가 그렇게 알려 줌 |
+| `peers[].node` | 그 주소를 가진 클러스터 노드(매니저나 에이전트)의 이름, 없으면 `""` |
+
+**에러 응답:**
+| 코드 | HTTP 상태 | 조건 |
+|------|-----------|------|
+| `AGENT_INSTALL_TAILNET_FAILED` | 500 | `tailscale status --json`이 실패했거나 읽을 수 있는 상태를 내놓지 않음. `message`는 명령의 출력을 정리(`SanitizeOutput`)한 것. 리더가 tailnet에 없는 것은 실패가 아니라 위의 `reason` |
+
+---
+
 ### 행의 질문에 답하기
 리더가 처리합니다(다른 매니저는 전달). `:id`는 실행 ID, `:key`는 행 키(`s1` …). 성공하면 `200 { "success": true, "data": null }`이고, 그 결과는 실행 기록과 스트림으로 봅니다.
 
@@ -6549,6 +6586,7 @@ GitHub 폴더의 작업 파일을 보여 줍니다(리더, 아무것도 쓰지 �
 | `nodes.<행>.sfpanel_before` | 사전 점검을 통과할 때 서버에 SFPanel이 있었는지(바이너리, 또는 `install.sh uninstall`이 남기는 `/etc/sfpanel`·`/var/lib/sfpanel`·`/var/log/sfpanel`). 그런 서버는 지우지 않음 |
 | `nodes.<행>.awaiting` | 운영자를 기다리는 질문: `host_key`, `check`, `standalone`, `review` |
 | `nodes.<행>.host_key` | 첫 접속에서 잡은 호스트 키, `"ED25519 SHA256:…"`. 승인 뒤에도 남음 |
+| `nodes.<행>.host_key_tailscale` | Tailscale 주소의 서버일 때, `host_key`를 Tailscale이 그 주소의 기기에 대해 알려 주는 같은 종류의 호스트 키와 견준 결과: `match`(같은 키가 있음) · `mismatch`(그 종류의 키가 있지만 모두 다름). Tailscale 주소가 아니거나, 그 기기가 tailnet에 없거나, 그 종류의 키가 없거나, 리더가 tailnet을 읽지 못했으면 없음(못 읽은 것은 접속 국면의 출력에 한 번 남김). `host_key`와 같은 기록에 실리므로 질문과 함께 보임. 표시일 뿐이라 승인은 여전히 운영자가 함 |
 | `nodes.<행>.check_url` | `awaiting: "check"`인 동안 Tailscale SSH의 확인 주소. 화면은 `https:` 주소만 링크하고 호스트를 보여 줌 |
 | `nodes.<행>.reason`, `reason_details` | 실패 이유 코드와 화면이 문장을 만드는 값(아래 "행 이유 코드"). 되돌린 행은 `reason`을 그대로 두고 `reason_details.reverted`를 더함 |
 | `nodes.<행>.steps` | 언제나 다섯 국면(0 접속 · 1 사전 점검 · 2 설치 · 3 등록 · 4 연결 확인). 이름은 보내지 않음. `job_id`: `install/<행>/<국면>`. `changed`는 성공한 설치 국면(서버에 SFPanel을 두고 가입시킴)에만 `true` |
@@ -7331,12 +7369,13 @@ WireGuard 키페어 생성 (`wg genkey` + `wg pubkey`).
 | GET | `/api/v1/task-jobs/:id` | 내부 | 잡 상태와 출력 조각 (`?skip=`) |
 | POST | `/api/v1/task-jobs/:id/cancel` | 내부 | 잡 취소 (`force`일 때만) |
 
-### 에이전트 설치 (6개)
+### 에이전트 설치 (7개)
 
 매니저 전용. 모두 리더가 처리한다(팔로워는 전달). 진행·기록·출력·중지는 그룹 작업의 실행 라우트. 상세는 위의 "에이전트 설치 API".
 
 | 메서드 | 경로 | 인증 | 설명 |
 |--------|------|------|------|
+| GET | `/api/v1/cluster/agent-installs/tailnet` | O | 리더의 tailnet에서 설치할 수 있는 Linux 기기 (리더가 `tailscale status --json`을 읽음) |
 | POST | `/api/v1/cluster/agent-installs` | O | SSH로 에이전트 설치 시작 (202, 리더, 서버 목록과 계정 — 비밀은 이 본문에만) |
 | POST | `/api/v1/cluster/agent-installs/:id/servers/:key/host-key` | O | 호스트 키 지문 승인·거절 (`{fingerprint, accept}`) |
 | POST | `/api/v1/cluster/agent-installs/:id/servers/:key/standalone` | O | 단독 패널의 전환 확인·거절 (`{accept}`) |

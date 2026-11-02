@@ -734,6 +734,23 @@ roles:
   managers that have a Tailscale address (`managers`): transfer the
   leadership to one of them on the Nodes page, then install again.
 
+**Picking servers from the tailnet**
+
+`GET /api/v1/cluster/agent-installs/tailnet` lists the devices of the
+leader's tailnet for the form to pick from. The leader reads them, as it is
+the node that reaches the servers; another manager forwards the request.
+
+- The leader runs `tailscale status --json`, with a 10-second limit. It
+  sends nothing to any server and writes nothing.
+- Only Linux devices with an IPv4 Tailscale address are listed, online ones
+  first, then by name. Each entry says whether Tailscale reports SSH host
+  keys for the device (`ssh`, as it does for a device running Tailscale
+  SSH) and which cluster node, manager or agent, already holds that address
+  (`node`).
+- A leader not on Tailscale answers `on_tailscale: false` with the reason:
+  `not_installed`, `not_running` or `no_address` (no IPv4 Tailscale address
+  of its own). A command that fails is `500 AGENT_INSTALL_TAILNET_FAILED`.
+
 **Host keys**
 
 The first connection to each server only reads its host key, then closes.
@@ -753,6 +770,24 @@ ED25519 one.
   presented (`host_key`) beside the one approved (`approved`).
 - Declining stops that server only.
 - A fingerprint is remembered for that install only.
+- **For a server at a Tailscale address, the key is compared with
+  Tailscale's.** Before the row asks, the leader reads its tailnet and finds
+  the device holding the row's address. It then compares the fetched key
+  with the keys of the same type that Tailscale reports for that device.
+  - The row records the outcome as `host_key_tailscale`, in the same write
+    as the question, so the two always show together.
+  - `match`: Tailscale lists that very key.
+  - `mismatch`: Tailscale lists keys of that type, and none is this one.
+  - Nothing: the address is not a Tailscale one, the device is not in the
+    tailnet, it lists no key of that type, or the tailnet could not be read.
+    The last is said once in the connect phase's output, and never fails the
+    row.
+- **The comparison is shown, not acted on.** A match approves nothing and a
+  mismatch refuses nothing. The question waits for the operator either way,
+  and nothing is sent to the server before the operator answers. Tailscale
+  learns a device's host keys from that device's own Tailscale client, so a
+  match says the server at that address is the device the tailnet knows. It
+  does not replace looking at what is approved.
 
 Any question the operator leaves unanswered for 30 minutes ends its row
 `AGENT_INSTALL_FAILED`. That covers the host key, a standalone panel and a
