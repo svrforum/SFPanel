@@ -491,10 +491,13 @@ func NewRouter(database *sql.DB, auditWriter *sfdb.AsyncWriter, alertManager *fe
 		clusterGroup.GET("/agent-installs/tailnet", installHandler.Tailnet)
 		// Saved logins the install form picks from, kept by the cluster:
 		// the leader's too, so a page reads its own write. No answer holds
-		// a saved secret.
+		// a saved secret. A login is replicated to every manager and kept up
+		// to 32 times, so its body is capped at 64 KiB, which still holds
+		// the largest private key with room to spare.
+		loginBody := echoMw.BodyLimit("64KiB")
 		clusterGroup.GET("/agent-installs/logins", installHandler.ListLogins)
-		clusterGroup.POST("/agent-installs/logins", installHandler.CreateLogin, installBody)
-		clusterGroup.PUT("/agent-installs/logins/:id", installHandler.UpdateLogin, installBody)
+		clusterGroup.POST("/agent-installs/logins", installHandler.CreateLogin, loginBody)
+		clusterGroup.PUT("/agent-installs/logins/:id", installHandler.UpdateLogin, loginBody)
 		clusterGroup.DELETE("/agent-installs/logins/:id", installHandler.DeleteLogin)
 		clusterGroup.POST("/agent-installs", installHandler.Start, installBody)
 		clusterGroup.POST("/agent-installs/:id/servers/:key/host-key", installHandler.ApproveHostKey, installBody)

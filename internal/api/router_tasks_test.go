@@ -62,18 +62,22 @@ func TestAgentInstallRoutesHaveABodyLimit(t *testing.T) {
 		r.Header.Set("Authorization", "Bearer "+tok)
 		return serve(router, "127.0.0.1:5000", r)
 	}
-	for _, route := range []struct{ method, path string }{
-		{http.MethodPost, "/api/v1/cluster/agent-installs"},
-		{http.MethodPost, "/api/v1/cluster/agent-installs/r1/servers/s1/host-key"},
-		{http.MethodPost, "/api/v1/cluster/agent-installs/r1/servers/s1/standalone"},
-		{http.MethodPost, "/api/v1/cluster/agent-installs/r1/proceed"},
-		{http.MethodPost, "/api/v1/cluster/agent-installs/r1/servers/s1/recheck"},
-		{http.MethodPost, "/api/v1/cluster/agent-installs/r1/servers/s1/revert"},
-		{http.MethodPost, "/api/v1/cluster/agent-installs/logins"},
-		{http.MethodPut, "/api/v1/cluster/agent-installs/logins/l1"},
+	for _, route := range []struct {
+		method, path string
+		limit        int
+	}{
+		{http.MethodPost, "/api/v1/cluster/agent-installs", 1 << 20},
+		{http.MethodPost, "/api/v1/cluster/agent-installs/r1/servers/s1/host-key", 1 << 20},
+		{http.MethodPost, "/api/v1/cluster/agent-installs/r1/servers/s1/standalone", 1 << 20},
+		{http.MethodPost, "/api/v1/cluster/agent-installs/r1/proceed", 1 << 20},
+		{http.MethodPost, "/api/v1/cluster/agent-installs/r1/servers/s1/recheck", 1 << 20},
+		{http.MethodPost, "/api/v1/cluster/agent-installs/r1/servers/s1/revert", 1 << 20},
+		// A saved login is replicated and kept: 64 KiB.
+		{http.MethodPost, "/api/v1/cluster/agent-installs/logins", 64 << 10},
+		{http.MethodPut, "/api/v1/cluster/agent-installs/logins/l1", 64 << 10},
 	} {
-		if rec := send(route.method, route.path, 1<<20); rec.Code != http.StatusRequestEntityTooLarge {
-			t.Errorf("%s %s with a body over 1 MiB = %d %s, want 413", route.method, route.path, rec.Code, rec.Body)
+		if rec := send(route.method, route.path, route.limit); rec.Code != http.StatusRequestEntityTooLarge {
+			t.Errorf("%s %s with a body over %d KiB = %d %s, want 413", route.method, route.path, route.limit>>10, rec.Code, rec.Body)
 		}
 		// Outside a cluster the handler answers 400 Cluster not configured.
 		if rec := send(route.method, route.path, 1<<10); rec.Code != http.StatusBadRequest {
