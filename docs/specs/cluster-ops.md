@@ -735,28 +735,44 @@ start as `account.login`.
   which would protect nothing. Agents hold no Raft, so no agent has them. A
   panel backup holds the database, `config.yaml` and the compose files, not
   the Raft data, so it does not carry them.
+
+  On a cluster whose Raft transport is not TLS (`raft_tls: false`, which
+  `sudo sfpanel cluster rotate status` shows; clusters initialised before
+  Raft TLS existed), the replicated state crosses the managers' network in
+  plaintext: the JWT key, and the saved logins with it. There is no
+  in-place switch: only `init` turns Raft TLS on, for a new cluster, and a
+  manager that joins takes the cluster's setting. On such a cluster, type
+  the account instead of saving it.
 - **Write-only.** No route answers a saved secret. A login is listed with
   `has_password`, `has_key`, `has_passphrase` and `has_sudo_password` in
   their place, and a change that leaves a secret empty keeps the stored one.
   An install's run record names the login it used (`inputs.login`), never
   its secrets.
-- **Where a saved secret may go.** A saved login lets anyone with a panel
-  session start an install with it. A stolen session could aim it at an
-  SSH server of its own and read the password as it arrives. So when an
-  install uses a saved login that sends the server a secret (a password
-  login, or any sudo password, the login password included when sudo shares
-  it), each server's address must be one of:
+- **Where a saved secret may go.** Only to servers on the managers' own
+  networks, private addresses and the leader's tailnet, which is where the
+  operator installs. When an install uses a saved login that sends the
+  server a secret (a password login, or any sudo password, the login
+  password included when sudo shares it), each server's address must be
+  one of:
   - private: 10.0.0.0/8, 172.16.0.0/12, 192.168.0.0/16 or fc00::/7;
   - a Tailscale address the leader's tailnet lists on one of its peers.
 
-  Any other server's row fails `AGENT_INSTALL_LOGIN_OFF_NETWORK` before
-  anything is sent to it, the request for its host key included. A tailnet
-  the leader cannot read (no `tailscale`, no `tailscaled` answering,
-  Tailscale not running) refuses too, and the connect phase's output says why.
-  A key login without a sudo password sends no secret, as public-key
+  A mistyped address, or a name that resolves publicly, never receives
+  one: any other server's row fails `AGENT_INSTALL_LOGIN_OFF_NETWORK`
+  before anything is sent to it, the request for its host key included.
+  For a Tailscale address the row says which (`tailnet`): `not_listed`, no
+  peer of the leader's tailnet has the address; `unknown`, the leader could
+  not read its tailnet (no `tailscale`, no `tailscaled` answering,
+  Tailscale not running), and the connect phase's output says why. A key
+  login without a sudo password sends no secret, as public-key
   authentication never sends the key, and is not limited. Neither is an
-  account typed in the form: the operator typed it for those servers. For a
-  server on a public address, type the password in the form.
+  account typed in the form: the operator typed it for those servers. For
+  a server on a public address, type the password in the form.
+- **What the limit does not protect against: a panel session.** The panel
+  gives any session a root terminal and a file manager on every manager,
+  and the managers' Raft data holds the saved logins in plaintext, as it
+  holds the JWT key. A panel session is, in effect, the administrator of
+  the servers a saved login opens.
 - **An install keeps its own copy.** The leader reads the saved login when
   the install starts, and the install holds its own copy, which it zeroes
   when it drops its credentials. Changing or deleting the login meanwhile

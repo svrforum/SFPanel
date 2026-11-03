@@ -29,9 +29,17 @@ import (
 // answers a saved secret (LoginView says only whether each is set); an
 // install's run record names the login it used, never its secrets; and the
 // install holds its own copy of the account as zeroed bytes, as it does a
-// typed one. A saved login also lets anyone with a panel session start an
-// install with it, so its secrets go only to the servers savedLoginAllowed
-// lets them reach.
+// typed one.
+//
+// A saved login's secrets go only to servers on the managers' own networks,
+// private addresses and the leader's tailnet, which is where the operator
+// installs (savedLoginAllowed): a mistyped address, or a name that resolves
+// publicly, never receives one. That is all the limit is. It does not guard
+// a saved login against a panel session: the panel gives any session a root
+// terminal and a file manager on every manager, and the managers' Raft data
+// holds the saved logins in plaintext, as it holds the JWT key. A panel
+// session is, in effect, the administrator of the servers a saved login
+// opens.
 //
 // Every route here is the leader's, as the install's are: a follower sends
 // it on (forward), and the leader answers from its own state, so a page
@@ -272,6 +280,8 @@ func (e *Engine) useLogin(r *Request, id string) error {
 // login's password, or a sudo password (with SudoSame, the login password,
 // of a password login). A key login sends none, as public-key
 // authentication never sends the key, and Tailscale SSH has none to send.
+// Only a saved login that sends one is kept to the managers' own networks
+// (savedLoginAllowed): one that sends none gives a wrong address nothing.
 func (a *Account) sendsSecret() bool {
 	return a.Method == "password" || len(a.SudoPassword) > 0
 }
@@ -279,13 +289,16 @@ func (a *Account) sendsSecret() bool {
 // savedLoginAllowed refuses the row, before anything reaches its server,
 // its host key included, when the install's account is a saved login that
 // sends the server a secret and the row's address is neither private nor a
-// Tailscale address the leader's tailnet lists on a peer: a stolen panel
-// session could otherwise aim a saved password at a server of its own. A
-// tailnet that cannot be read refuses, and the connect log says why. An
-// account typed in the form is not limited: the operator typed it for these
-// servers. The refusal names the row's address and, for a Tailscale one,
-// what the tailnet said (tailnet): unknown when it could not be read or
-// Tailscale on the leader is not Running, not_listed when no peer holds it.
+// Tailscale address the leader's tailnet lists on a peer. Saved secrets go
+// only to the managers' own networks, where the operator installs, so a
+// mistyped address or a name that resolves publicly never receives one. It
+// is no guard against a panel session, which can read a saved login on any
+// manager (see the head of this file). A tailnet that cannot be read
+// refuses, and the connect log says why. An account typed in the form is
+// not limited: the operator typed it for these servers. The refusal names
+// the row's address and, for a Tailscale one, what the tailnet said
+// (tailnet): unknown when it could not be read or Tailscale on the leader
+// is not Running, not_listed when no peer holds it.
 func (r *row) savedLoginAllowed(ctx context.Context, log *phaseLog) error {
 	s := r.s
 	if !s.savedSecret || r.ip.IsPrivate() {
