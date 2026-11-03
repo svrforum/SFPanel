@@ -187,6 +187,13 @@ describe('formProblems', () => {
     expect(formProblems(form({ method: 'tailscale', password: '', key: '' }))).toEqual([])
   })
 
+  it('asks nothing of the account a saved login stands for, and still checks the servers', () => {
+    expect(formProblems(form({ user: '', password: '' }), true)).toEqual([])
+    expect(formProblems(form({ method: 'key', key: '' }), true)).toEqual([])
+    expect(formProblems(form({ user: '', servers: [row('not/a/host')] }), true)).toEqual([{ field: 'host', index: 0 }])
+    expect(formProblems(form({ user: '', concurrency: 9 }), true)).toEqual([{ field: 'concurrency' }])
+  })
+
   it('keeps the mode and how many at once inside what the server takes', () => {
     expect(formProblems(form({ concurrency: 0 }))).toEqual([{ field: 'concurrency' }])
     expect(formProblems(form({ concurrency: 6 }))).toEqual([{ field: 'concurrency' }])
@@ -270,5 +277,18 @@ describe('buildInstallRequest', () => {
     expect(buildInstallRequest(form({ user: ' root ', password: ' p w ', sudoSame: true, sudoPassword: 'x' }), false).account).toEqual({
       user: 'root', method: 'password', password: ' p w ',
     })
+  })
+
+  it("sends a saved login's ID alone as the account, whatever the fields still hold", () => {
+    const typed = form({ method: 'key', password: 'login-pw', key: 'KEY', passphrase: 'pass', sudoSame: false, sudoPassword: 'sudo-pw' })
+    const req = buildInstallRequest(typed, true, '3f9a1c0b7d2e4a61')
+    expect(req.account).toEqual({ login: '3f9a1c0b7d2e4a61' })
+    expect(Object.keys(req.account)).toEqual(['login'])
+    expect(JSON.stringify(req)).not.toMatch(/login-pw|KEY|pass"|sudo-pw|"user"|"method"/)
+    // The rest of the start is as typed.
+    expect(req).toMatchObject({ servers: [{ host: '192.0.2.21', port: 22 }], review: true, mode: 'auto', concurrency: 3 })
+    // Without one, the account is the one typed.
+    expect(buildInstallRequest(typed, false).account).toEqual({ user: 'ops', method: 'key', key: 'KEY', passphrase: 'pass', sudo_password: 'sudo-pw' })
+    expect(buildInstallRequest(typed, false, '').account).toEqual({ user: 'ops', method: 'key', key: 'KEY', passphrase: 'pass', sudo_password: 'sudo-pw' })
   })
 })

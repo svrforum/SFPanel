@@ -2481,6 +2481,293 @@ test.describe('agent install', () => {
     await expect(sudo).toHaveValue('')
   })
 
+  // Saved logins (/cluster/agent-installs/logins): kept by the cluster, picked
+  // in the pane, never answered with a secret. The browser keeps the ID of the
+  // one the last install took (sfpanel_install_login), and nothing else.
+  test.describe('saved logins', () => {
+    const LOGINS = 'GET /cluster/agent-installs/logins'
+    const LAST = 'sfpanel_install_login'
+    const savedLogin = (id: string, name: string, over: Record<string, unknown> = {}) => ({
+      id, name, user: 'ubuntu', method: 'password',
+      has_password: true, has_key: false, has_passphrase: false, sudo_same: true, has_sudo_password: false,
+      created_at: seen, updated_at: seen, updated_by: 'admin', ...over,
+    })
+    const BASIC = savedLogin('3f9a1c0b7d2e4a61', '기본 계정')
+    const OPS = savedLogin('5b2e8d1c9a4f7360', 'ops key', {
+      user: 'ops', method: 'key', has_password: false, has_key: true, has_passphrase: true, sudo_same: false, has_sudo_password: true,
+    })
+    const listed = (...logins: unknown[]): Reply => ok({ logins })
+    const account = (page: Page) => pane(page).getByTestId('install-account')
+    const chooser = (page: Page) => account(page).getByLabel('Saved login', { exact: true })
+    const reads = (requests: string[]) => requests.filter((r) => r === LOGINS).length
+
+    test('the login last used is chosen again, and the start sends its ID alone, with no secret', async ({ page }) => {
+      await page.addInitScript(([key, id]) => localStorage.setItem(key, id), [LAST, OPS.id])
+      const { calls } = await mock(page, { replies: { [LOGINS]: listed(BASIC, OPS), 'POST /cluster/agent-installs': started() } })
+      await page.goto(INSTALL_PATH)
+      await expect(chooser(page)).toHaveValue(OPS.id)
+      await expect(chooser(page).locator('option')).toHaveText(['Type it in', '기본 계정 (ubuntu · Password)', 'ops key (ops · Private key)'])
+      // A login chosen shows one line, none of its fields.
+      await expect(account(page).getByTestId('install-login-summary')).toHaveText('ops · Private key · sudo password saved')
+      await expect(account(page).getByRole('textbox')).toHaveCount(0)
+      await expect(account(page).getByRole('radio')).toHaveCount(0)
+      await expect(account(page).getByRole('checkbox', { name: 'Save this login' })).toHaveCount(0)
+      await expect(pane(page)).toContainText("A saved login is kept by the cluster's managers")
+      await expect(pane(page)).not.toContainText('never stored')
+
+      await host(page, 1).fill('192.0.2.21')
+      await pane(page).getByRole('button', { name: 'Start install' }).click()
+      await expect(page).toHaveURL(/\/cluster\/tasks\/runs\/i-1$/)
+      expect(calls).toEqual([{
+        method: 'POST',
+        path: '/cluster/agent-installs',
+        body: { servers: [{ host: '192.0.2.21', port: 22 }], account: { login: OPS.id }, review: false, mode: 'auto', concurrency: 3 },
+      }])
+    })
+
+    test('a typed account saved as a login is saved first, then the install starts with it; the browser keeps its ID alone', async ({ page }) => {
+      const NEW = savedLogin('9c8b7a6f5e4d3c21', '기본 계정')
+      const kept: unknown[] = []
+      const { calls } = await mock(page, {
+        replies: {
+          [LOGINS]: () => listed(...kept),
+          'POST /cluster/agent-installs/logins': () => {
+            kept.push(NEW)
+            return { status: 201, body: { success: true, data: { login: NEW } } }
+          },
+          'POST /cluster/agent-installs': started(),
+        },
+      })
+      await page.goto(INSTALL_PATH)
+      // Nothing saved: typing, and nothing to manage.
+      await expect(chooser(page)).toHaveValue('')
+      await expect(chooser(page).locator('option')).toHaveText(['Type it in'])
+      await expect(account(page).getByRole('button', { name: 'Manage' })).toHaveCount(0)
+      await host(page, 1).fill('192.0.2.21')
+      await account(page).getByRole('textbox', { name: 'User' }).fill('ubuntu')
+      await account(page).getByLabel('Login password', { exact: true }).fill(PASSWORD)
+      await expect(pane(page)).toContainText('never stored')
+      await expect(account(page).getByRole('textbox', { name: 'Login name' })).toHaveCount(0)
+      await account(page).getByRole('checkbox', { name: 'Save this login' }).check()
+      // Saved, it is no longer "never stored".
+      await expect(pane(page)).not.toContainText('never stored')
+      await expect(pane(page)).toContainText("A saved login is kept by the cluster's managers")
+      await account(page).getByRole('textbox', { name: 'Login name' }).fill(' 기본 계정 ')
+      await pane(page).getByRole('button', { name: 'Start install' }).click()
+
+      await expect(page).toHaveURL(/\/cluster\/tasks\/runs\/i-1$/)
+      expect(calls).toEqual([
+        {
+          method: 'POST',
+          path: '/cluster/agent-installs/logins',
+          body: { name: '기본 계정', user: 'ubuntu', method: 'password', password: PASSWORD, sudo_same: true },
+        },
+        {
+          method: 'POST',
+          path: '/cluster/agent-installs',
+          body: { servers: [{ host: '192.0.2.21', port: 22 }], account: { login: NEW.id }, review: false, mode: 'auto', concurrency: 3 },
+        },
+      ])
+      expect(await page.evaluate((key) => localStorage.getItem(key), LAST)).toBe(NEW.id)
+      const stored = await page.evaluate(() => JSON.stringify({ ...localStorage }) + JSON.stringify({ ...sessionStorage }) + location.href)
+      expect(stored).not.toContain(PASSWORD)
+
+      // Opened again, the pane starts on it.
+      await section(page, 'Built-in').getByRole('link', { name: 'Agent install (SSH)' }).click()
+      await expect(chooser(page)).toHaveValue(NEW.id)
+      await expect(account(page).getByTestId('install-login-summary')).toHaveText('ubuntu · Password · sudo takes the login password')
+    })
+
+    test('a save refused starts nothing: a name on the name, anything else as the form\'s error, and the secrets stay', async ({ page }) => {
+      const { calls } = await mock(page, {
+        replies: {
+          [LOGINS]: listed(BASIC),
+          'POST /cluster/agent-installs/logins': [
+            fail(409, 'AGENT_INSTALL_LOGIN_EXISTS', 'Another saved login has this name', { field: 'name' }),
+            fail(409, 'AGENT_INSTALL_LOGIN_LIMIT', 'at most 32 saved logins', { max: '32' }),
+            { status: 413, body: { message: 'Request Entity Too Large' } },
+          ],
+        },
+      })
+      await page.goto(INSTALL_PATH)
+      await expect(chooser(page)).toHaveValue(BASIC.id)
+      await chooser(page).selectOption('')
+      await host(page, 1).fill('192.0.2.21')
+      await account(page).getByRole('textbox', { name: 'User' }).fill('ubuntu')
+      const password = account(page).getByLabel('Login password', { exact: true })
+      await password.fill(PASSWORD)
+      await account(page).getByRole('checkbox', { name: 'Save this login' }).check()
+      const name = account(page).getByRole('textbox', { name: 'Login name' })
+      const start = pane(page).getByRole('button', { name: 'Start install' })
+
+      // The list says the name is taken before anything is sent, without regard to case.
+      await name.fill('기본 계정')
+      await start.click()
+      await expect(account(page)).toContainText('Another saved login already has this name.')
+      await expect(pane(page).getByRole('alert')).toContainText('Correct the fields marked above.')
+      expect(calls).toEqual([])
+
+      // The leader's refusals: the name on the name, the rest as the form's error.
+      await name.fill('ops')
+      await expect(account(page)).not.toContainText('Another saved login already has this name.')
+      await start.click()
+      await expect(account(page)).toContainText('Another saved login already has this name.')
+      await start.click()
+      await expect(pane(page).getByRole('alert')).toContainText('The cluster keeps at most 32 saved logins.')
+      await start.click()
+      await expect(pane(page).getByRole('alert')).toContainText('The login is too large to save: a saved login takes at most 64 KiB.')
+      expect(calls.map((c) => c.path)).toEqual(Array(3).fill('/cluster/agent-installs/logins'))
+      await expect(page).toHaveURL(new RegExp(`${INSTALL_PATH}$`))
+      await expect(password).toHaveValue(PASSWORD)
+    })
+
+    test('Manage changes a login, a secret left empty kept, and deletes one after asking; the pane follows', async ({ page }) => {
+      const CHANGED = { ...BASIC, user: 'admin' }
+      const { calls } = await mock(page, {
+        replies: {
+          [LOGINS]: listed(BASIC, OPS),
+          [`PUT /cluster/agent-installs/logins/${BASIC.id}`]: ok({ login: CHANGED }),
+          [`DELETE /cluster/agent-installs/logins/${BASIC.id}`]: ok({ id: BASIC.id }),
+        },
+      })
+      await page.goto(INSTALL_PATH)
+      // None used before: the first listed.
+      await expect(chooser(page)).toHaveValue(BASIC.id)
+      await account(page).getByRole('button', { name: 'Manage' }).click()
+      const d = page.getByRole('dialog', { name: 'Saved logins' })
+      await expect(d.getByTestId('install-logins').getByRole('listitem')).toHaveCount(2)
+      await expect(d.getByTestId(`install-login-${OPS.id}`)).toContainText('ops key')
+      await expect(d.getByTestId(`install-login-${OPS.id}`)).toContainText('ops · Private key')
+
+      await d.getByRole('button', { name: 'Edit 기본 계정' }).click()
+      const edit = page.getByRole('dialog', { name: 'Edit saved login' })
+      await expect(edit.getByRole('textbox', { name: 'Login name' })).toHaveValue('기본 계정')
+      await expect(edit.getByRole('textbox', { name: 'User' })).toHaveValue('ubuntu')
+      await expect(edit.getByRole('radio', { name: 'Password' })).toBeChecked()
+      // Never shown: the field is empty, and says leaving it so keeps the saved one.
+      await expect(edit.getByLabel('Login password', { exact: true })).toHaveValue('')
+      await expect(edit).toContainText('Leave it empty to keep the saved password.')
+      await edit.getByRole('textbox', { name: 'User' }).fill('admin')
+      await edit.getByRole('button', { name: 'Save' }).click()
+      await expect.poll(() => calls.length).toBe(1)
+      expect(calls[0]).toEqual({
+        method: 'PUT',
+        path: `/cluster/agent-installs/logins/${BASIC.id}`,
+        body: { name: '기본 계정', user: 'admin', method: 'password', sudo_same: true },
+      })
+      await expect(d.getByTestId(`install-login-${BASIC.id}`)).toContainText('admin · Password')
+      await expect(chooser(page).locator('option', { hasText: '기본 계정' })).toHaveText('기본 계정 (admin · Password)')
+
+      // Deleted after asking: the login chosen goes, and the pane takes the default.
+      await d.getByRole('button', { name: 'Delete 기본 계정' }).click()
+      const ask = page.getByRole('dialog', { name: 'Delete the saved login 기본 계정?' })
+      await ask.getByRole('button', { name: 'Cancel' }).click()
+      expect(calls).toHaveLength(1)
+      await d.getByRole('button', { name: 'Delete 기본 계정' }).click()
+      await ask.getByRole('button', { name: 'Delete' }).click()
+      await expect.poll(() => calls.length).toBe(2)
+      expect(calls[1]).toEqual({ method: 'DELETE', path: `/cluster/agent-installs/logins/${BASIC.id}`, body: null })
+      await expect(d.getByTestId('install-logins').getByRole('listitem')).toHaveCount(1)
+      await d.locator('[data-slot="dialog-footer"]').getByRole('button', { name: 'Close' }).click()
+      await expect(chooser(page)).toHaveValue(OPS.id)
+      await expect(account(page).getByTestId('install-login-summary')).toHaveText('ops · Private key · sudo password saved')
+    })
+
+    test('a saved login deleted since the list was read: the start says so, and the list is read again', async ({ page }) => {
+      let saved = [BASIC, OPS]
+      const { calls, requests } = await mock(page, {
+        replies: {
+          [LOGINS]: () => listed(...saved),
+          'POST /cluster/agent-installs': () => {
+            saved = [OPS]
+            return fail(404, 'AGENT_INSTALL_LOGIN_NOT_FOUND', 'No saved login has this ID')
+          },
+        },
+      })
+      await page.goto(INSTALL_PATH)
+      await expect(chooser(page)).toHaveValue(BASIC.id)
+      const before = reads(requests)
+      await host(page, 1).fill('192.0.2.21')
+      await pane(page).getByRole('button', { name: 'Start install' }).click()
+      await expect(pane(page).getByRole('alert')).toContainText('The saved login you chose was deleted. Choose a login again, then start.')
+      await expect.poll(() => reads(requests)).toBe(before + 1)
+      await expect(chooser(page)).toHaveValue(OPS.id)
+      await expect(chooser(page).locator('option')).toHaveCount(2)
+      await expect(page).toHaveURL(new RegExp(`${INSTALL_PATH}$`))
+      expect(calls.map((c) => (c.body as { account: unknown }).account)).toEqual([{ login: BASIC.id }])
+    })
+
+    test('a list that cannot be read leaves the account to type, and says why', async ({ page }) => {
+      await mock(page, { replies: { [LOGINS]: fail(503, 'INTERNAL_ERROR', 'Cluster leader is changing') } })
+      await page.goto(INSTALL_PATH)
+      await expect(account(page).getByTestId('install-logins-error')).toHaveText(
+        'The saved logins could not be read, so the account is typed in. The cluster leader is changing or catching up. Try again in a few seconds.',
+      )
+      await expect(chooser(page)).toHaveCount(0)
+      await expect(account(page).getByRole('checkbox', { name: 'Save this login' })).toHaveCount(0)
+      await expect(account(page).getByRole('textbox', { name: 'User' })).toBeVisible()
+    })
+
+    test.describe('Korean', () => {
+      test.use({ locale: 'ko-KR' })
+
+      test('the saved logins read in Korean', async ({ page }) => {
+        await page.addInitScript(() => localStorage.setItem('sfpanel_language', 'ko'))
+        await mock(page, { replies: { [LOGINS]: listed(BASIC) } })
+        await page.goto(INSTALL_PATH)
+        const select = account(page).getByLabel('저장된 로그인', { exact: true })
+        await expect(select.locator('option')).toHaveText(['직접 입력', '기본 계정 (ubuntu · 비밀번호)'])
+        await expect(account(page).getByTestId('install-login-summary')).toHaveText('ubuntu · 비밀번호 · sudo에 접속 비밀번호 사용')
+        await expect(account(page).getByRole('button', { name: '관리' })).toBeVisible()
+        await select.selectOption('')
+        await expect(account(page).getByRole('checkbox', { name: '이 로그인 정보 저장' })).toBeVisible()
+        await account(page).getByRole('button', { name: '관리' }).click()
+        const d = page.getByRole('dialog', { name: '저장된 로그인' })
+        await expect(d.getByRole('button', { name: '기본 계정 수정' })).toHaveText('수정')
+        await expect(d.getByRole('button', { name: '기본 계정 삭제' })).toHaveText('삭제')
+      })
+    })
+
+    test.describe('phone', () => {
+      test.use({ viewport: { width: 412, height: 860 }, hasTouch: true })
+
+      test('the dialog fits the screen: names wrap whole, the list scrolls, the buttons stay in view', async ({ page }) => {
+        const LONG = 'production cluster initial account for the web and database servers in the rack'
+        const many = [
+          savedLogin('0000000000000001', LONG.slice(0, 64), { user: 'administrator-for-production-servers' }),
+          ...Array.from({ length: 11 }, (_, i) => savedLogin(`00000000000001${String(i).padStart(2, '0')}`, `login ${i + 2}`)),
+          OPS,
+        ]
+        await mock(page, { replies: { [LOGINS]: listed(...many) } })
+        await page.goto(INSTALL_PATH)
+        await account(page).getByRole('button', { name: 'Manage' }).click()
+        const d = page.getByRole('dialog', { name: 'Saved logins' })
+        const inView = async (el: ReturnType<Page['locator']>) => {
+          const box = await el.boundingBox()
+          expect(box && box.x >= 0 && box.x + box.width <= 412 && box.y >= 0 && box.y + box.height <= 860).toBe(true)
+        }
+        await inView(d.locator('[data-slot="dialog-footer"]').getByRole('button', { name: 'Close' }))
+        const list = d.getByTestId('install-logins')
+        expect(await list.evaluate((el) => el.scrollHeight > el.clientHeight)).toBe(true)
+        expect(await d.evaluate((el) => el.scrollWidth <= el.clientWidth)).toBe(true)
+        // The long name wraps at its spaces, inside the dialog.
+        const name = d.getByTestId('install-login-0000000000000001').getByText(LONG.slice(0, 64))
+        const box = await name.boundingBox()
+        expect(box && box.x + box.width <= 412 && box.height > 30).toBe(true)
+        await inView(d.getByRole('button', { name: `Edit ${LONG.slice(0, 64)}` }))
+
+        // A key login's change, with every field, scrolls inside; its buttons stay in view.
+        await list.evaluate((el) => { el.scrollTop = el.scrollHeight })
+        await d.getByRole('button', { name: 'Edit ops key' }).click()
+        const edit = page.getByRole('dialog', { name: 'Edit saved login' })
+        await expect(edit.getByRole('textbox', { name: 'Private key' })).toBeVisible()
+        await inView(edit.getByRole('button', { name: 'Save' }))
+        await inView(edit.getByRole('button', { name: 'Cancel' }))
+        expect(await edit.evaluate((el) => el.scrollWidth <= el.clientWidth)).toBe(true)
+      })
+    })
+  })
+
   test.describe('Korean', () => {
     test.use({ locale: 'ko-KR' })
 
@@ -2897,6 +3184,39 @@ test.describe('agent install', () => {
       await page.goto(`/cluster/tasks/runs/${IRUN}`)
       await expect(wait(page, 's2')).toContainText('web-06 uses Tailscale SSH')
       await expect(wait(page, 's2').getByRole('link')).toHaveAttribute('href', 'https://login.tailscale.com/a/5e6f7a8b')
+    })
+
+    test("a server a saved login's password may not go to says why, and to type the account for it", async ({ page }) => {
+      const rows = {
+        s1: SUCCEEDED,
+        s2: srv('s2', 'failed', ['failed', 'skipped', 'skipped', 'skipped', 'skipped'], {
+          host: '203.0.113.9', ip: '203.0.113.9', reason: 'AGENT_INSTALL_LOGIN_OFF_NETWORK', reason_details: { address: '203.0.113.9' },
+        }),
+      }
+      await mock(page, follow(ended({ inputs: { mode: 'auto', review: 'false', version: '0.81.0', login: '기본 계정' } }), rows))
+      await page.goto(`/cluster/tasks/runs/${IRUN}`)
+      await expect(server(page, 's2')).toContainText(
+        "A saved login's password goes only to servers on a private network or in the leader's tailnet, and 203.0.113.9 is on neither. Install this server with the account typed in.",
+      )
+      await expect(runPane(page)).not.toContainText('AGENT_INSTALL_')
+      // Nothing reached the server: there is nothing to clean or revert.
+      await expect(server(page, 's2').getByRole('button')).toHaveCount(0)
+    })
+
+    test("the head names the saved login an install took, and says nothing of one that took none", async ({ page }) => {
+      const withLogin = ended({ inputs: { mode: 'auto', review: 'false', version: '0.81.0', login: '기본 계정' } })
+      const typed = ended({ id: 'i-2' })
+      await mock(page, {
+        runDetails: { ...follow(withLogin, { s1: SUCCEEDED }).runDetails, ...follow(typed, { s1: SUCCEEDED }, 'i-2').runDetails },
+        streams: { ...follow(withLogin, { s1: SUCCEEDED }).streams, ...follow(typed, { s1: SUCCEEDED }, 'i-2').streams },
+      })
+      await page.goto(`/cluster/tasks/runs/${IRUN}`)
+      const login = runPane(page).getByTestId('install-run-login')
+      await expect(login).toHaveText('기본 계정')
+      await expect(login.locator('xpath=preceding-sibling::dt[1]')).toHaveText('Saved login')
+      await page.goto('/cluster/tasks/runs/i-2')
+      await expect(runPane(page).getByTestId('install-run-size')).toBeVisible()
+      await expect(runPane(page).getByTestId('install-run-login')).toHaveCount(0)
     })
 
     test.describe('Korean', () => {

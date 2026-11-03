@@ -1,16 +1,17 @@
-import { useId, useRef, useState, type ChangeEvent } from 'react'
+import { useEffect, useId, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useTranslation } from 'react-i18next'
-import { ClipboardPaste, Eye, EyeOff, FileUp, Loader2, Lock, Network, Play, Plus, X } from 'lucide-react'
-import { api } from '@/lib/api'
+import { ClipboardPaste, Eye, Loader2, Lock, Network, Play, Plus, Settings2, X } from 'lucide-react'
+import { api, type ApiError } from '@/lib/api'
 import { taskErrorMessage } from '@/lib/taskErrors'
 import { cn } from '@/lib/utils'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
-import type { AgentInstallMethod, AgentInstallMode, AgentInstallTailnet, AgentInstallTailnetPeer } from '@/types/api'
+import type { AgentInstallLogin, AgentInstallMode, AgentInstallTailnet, AgentInstallTailnetPeer } from '@/types/api'
 import { EditorCheck, EditorField } from '../TaskStepCard'
 import { builtinText } from '../taskBuiltins'
 import { useMounted } from '../useMounted'
+import { AccountFields } from './AccountFields'
 import {
   MAX_CONCURRENCY,
   buildInstallRequest,
@@ -26,8 +27,13 @@ import {
   type InstallServerRow,
   type LineProblem,
 } from './installForm'
+import {
+  TYPED, defaultLogin, loginBody, loginErrorText, loginLabel, loginNameProblem, loginNameRefusal, loginNameText, loginSummary,
+  readLastLogin, rememberLogin, withLogin,
+} from './installLogins'
 import { AGENT_INSTALL_TASK_ID } from './installRun'
 import { addPicks, methodAfterPicks } from './installTailnet'
+import { InstallLoginsDialog } from './InstallLoginsDialog'
 import { TailnetPickDialog } from './TailnetPickDialog'
 
 const TEXTAREA = cn(
@@ -38,9 +44,6 @@ const SELECT = 'min-h-9 w-28 rounded-md border border-input bg-transparent px-3 
 // The table's columns on a wide screen: host, port, name, group, remove. On a
 // phone each server is a card: the host and its remove button, then the rest.
 const ROW_GRID = 'grid grid-cols-3 gap-2 md:grid-cols-[minmax(0,2fr)_5.5rem_minmax(0,1.5fr)_minmax(0,1fr)_2.25rem]'
-// No private key comes near this; a file this large is some other file.
-const MAX_KEY_FILE_BYTES = 64 * 1024
-const METHODS: AgentInstallMethod[] = ['password', 'key', 'tailscale']
 const MODES: AgentInstallMode[] = ['auto', 'online', 'offline']
 // Where each problem the form or the leader names is shown, apart from a
 // server's own, which sits under its row.
@@ -50,17 +53,23 @@ const blankRow = (r: InstallServerRow) => !r.host.trim() && !r.name.trim() && !r
 const withoutSecrets = (f: InstallForm): InstallForm => ({ ...f, password: '', key: '', passphrase: '', sudoPassword: '' })
 
 // The agent install's form: the servers (typed, pasted a line each, or picked
-// from the leader's tailnet), the one account that logs in to all of them,
-// how to install, then [Preview] (the leader stops every server after its
-// pre-flight check, for a look before anything is installed) or [Start
-// install]. Either opens the run.
+// from the leader's tailnet), the one account that logs in to all of them —
+// typed in, or a login the cluster keeps — how to install, then [Preview]
+// (the leader stops every server after its pre-flight check, for a look
+// before anything is installed) or [Start install]. Either opens the run.
 // It is not a task: no task route, run form or task inputs, which a run
 // records and every manager keeps. The passwords, the key and its passphrase
-// live in this component's state alone and leave the browser in the start's
-// body alone: never in an address, a storage or a draft. A start the leader
-// refuses, or one that never reached it, keeps them, so the operator puts the
-// cause right and starts again without typing them twice. A start the leader
-// took clears them, and they go with the state when the pane is left.
+// typed here live in this component's state alone and leave the browser in a
+// request's body alone: the start's, or a saved login's when the operator
+// ticks [Save this login]. Never in an address, a storage or a draft. A saved
+// login's secrets never come back to the browser: the pane knows whether each
+// is stored, and a start names the login by its ID alone. That ID, of the
+// login the last install started with, is all this browser keeps. A start
+// the leader refuses, or one that never reached it, keeps the typed secrets,
+// so the operator puts the cause right and starts again without typing them
+// twice. A start the leader took clears them, as does a save, after which
+// the saved login is the account; and they go with the state when the pane
+// is left.
 export function AgentInstallSetup() {
   const { t } = useTranslation()
   const navigate = useNavigate()
@@ -85,10 +94,72 @@ export function AgentInstallSetup() {
   // What the last pick did to the login, until the login is changed by hand.
   const [pickNote, setPickNote] = useState<{ switched: boolean; withoutSsh: string[] } | null>(null)
 
+  // The saved logins, once read (null until then), or why they could not be.
+  const [logins, setLogins] = useState<AgentInstallLogin[] | null>(null)
+  const [loginsError, setLoginsError] = useState<string | null>(null)
+  // The saved login the install takes, or TYPED for the account typed in.
+  const [chosen, setChosen] = useState(TYPED)
+  // [Save this login] for an account typed in, the name to save it under,
+  // and the leader's refusal of that name.
+  const [save, setSave] = useState(false)
+  const [saveName, setSaveName] = useState('')
+  const [nameRefused, setNameRefused] = useState<string | null>(null)
+  const [managing, setManaging] = useState(false)
+
+  // Read as the pane opens. It starts on the login the last install took,
+  // else the first saved; a list that cannot be read leaves typing alone.
+  useEffect(() => {
+    let live = true
+    api.agentInstallLogins().then(
+      (list) => {
+        if (!live) return
+        setLogins(list)
+        setChosen(defaultLogin(list, readLastLogin()))
+      },
+      (err) => { if (live) setLoginsError(taskErrorMessage(err, t)) },
+    )
+    return () => { live = false }
+  }, [t])
+
   const name = builtinText(t, AGENT_INSTALL_TASK_ID, 'name', '')
   const description = builtinText(t, AGENT_INSTALL_TASK_ID, 'description', '')
 
   const change = (patch: Partial<InstallForm>) => setForm((f) => ({ ...f, ...patch }))
+  // The login changed by hand: what a pick said of it no longer holds.
+  const changeAccount = (patch: Partial<InstallForm>) => {
+    if (patch.method !== undefined) setPickNote(null)
+    change(patch)
+  }
+
+  const selected = chosen === TYPED ? undefined : logins?.find((l) => l.id === chosen)
+  const canSave = logins !== null && !loginsError
+  const saving = !selected && save && canSave
+  const choose = (value: string) => {
+    setChosen(value)
+    setPickNote(null)
+  }
+  // The list as the dialog left it: a login chosen that it no longer has
+  // gives way to the default.
+  const replaceLogins = (list: AgentInstallLogin[]) => {
+    const last = readLastLogin()
+    setLogins(list)
+    setChosen((c) => (c === TYPED || list.some((l) => l.id === c) ? c : defaultLogin(list, last)))
+  }
+  // A start refused because its login is gone: the list again, and the default.
+  const reloadLogins = () => {
+    api.agentInstallLogins().then(
+      (list) => {
+        if (!mounted.current) return
+        setLogins(list)
+        setChosen(defaultLogin(list, readLastLogin()))
+      },
+      (err) => {
+        if (!mounted.current) return
+        setLoginsError(taskErrorMessage(err, t))
+        setChosen(TYPED)
+      },
+    )
+  }
   // A row the leader named is the row it was sent as: once the table
   // changes, that may be another row.
   const changeServers = (servers: InstallServerRow[]) => {
@@ -98,7 +169,10 @@ export function AgentInstallSetup() {
   const changeRow = (index: number, patch: Partial<InstallServerRow>) =>
     changeServers(form.servers.map((r, i) => (i === index ? { ...r, ...patch } : r)))
 
-  const ownProblems = attempted ? formProblems(form) : []
+  const ownProblems = attempted ? formProblems(form, Boolean(selected)) : []
+  // The name a typed account is saved under, once a start was asked for.
+  const nameProblem = attempted && saving ? loginNameProblem(saveName, logins ?? []) : null
+  const nameError = nameRefused ?? (nameProblem ? loginNameText(nameProblem, t) : undefined)
   const problems = [...ownProblems, ...(refused ? [refused] : [])]
   const rowProblems = (index: number) =>
     [...new Set(problems.filter((p) => p.index === index).map((p) => formProblemText(p, t)))]
@@ -119,13 +193,19 @@ export function AgentInstallSetup() {
   }
 
   // Devices picked from the leader's tailnet: a row each, and Tailscale SSH
-  // as the login when every one added runs it.
+  // as the typed login when every one added runs it. A saved login chosen
+  // stays the account.
   const addTailnet = (picks: AgentInstallTailnetPeer[]) => {
     setPicking(null)
     const { servers, added } = addPicks(form.servers, picks)
     if (added.length === 0) return
-    const after = methodAfterPicks(form.method, added)
     setRefused(null)
+    if (selected) {
+      change({ servers })
+      setPickNote(null)
+      return
+    }
+    const after = methodAfterPicks(form.method, added)
     change({ servers, method: after.method })
     setPickNote(after.switched || after.withoutSsh.length > 0 ? after : null)
   }
@@ -135,36 +215,64 @@ export function AgentInstallSetup() {
     changeServers(rest.length > 0 ? rest : [emptyServerRow()])
   }
 
+  // With [Save this login] ticked the account is saved first, and the
+  // install starts with the saved login; a save refused starts nothing.
   const submit = async (review: boolean) => {
     setAttempted(true)
     setRefused(null)
     setError(null)
-    if (formProblems(form).length > 0) return
+    setNameRefused(null)
+    if (formProblems(form, Boolean(selected)).length > 0) return
+    if (saving && loginNameProblem(saveName, logins ?? [])) return
     const sent = form
-    const request = buildInstallRequest(sent, review)
+    let login = selected?.id
     setBusy(true)
     try {
-      const { run_id } = await api.startAgentInstall(request)
+      if (saving) {
+        let saved: AgentInstallLogin
+        try {
+          saved = await api.createAgentInstallLogin(loginBody(saveName, sent))
+        } catch (err) {
+          if (!mounted.current) return
+          // Nothing was saved and nothing starts. The secrets stay.
+          const onName = loginNameRefusal(err, t)
+          if (onName) {
+            setNameRefused(onName)
+          } else {
+            setRefused(problemFromError(err, sent))
+            setError(loginErrorText(err, t))
+          }
+          return
+        }
+        if (!mounted.current) return
+        // The cluster keeps the account now: the pane takes the saved
+        // login, and the form forgets what was typed.
+        setLogins((list) => withLogin(list ?? [], saved))
+        setChosen(saved.id)
+        setSave(false)
+        setSaveName('')
+        setForm(withoutSecrets)
+        login = saved.id
+      }
+      const { run_id } = await api.startAgentInstall(buildInstallRequest(sent, review, login))
       if (!mounted.current) return
+      if (login) rememberLogin(login)
       // The leader holds them now: the form forgets them.
       setForm(withoutSecrets)
       navigate(`/cluster/tasks/runs/${encodeURIComponent(run_id)}`)
     } catch (err) {
       if (!mounted.current) return
+      if (login && (err as ApiError)?.code === 'AGENT_INSTALL_LOGIN_NOT_FOUND') {
+        // Deleted since the list was read: the list again, to choose from.
+        setError(t('cluster.tasks.install.logins.gone'))
+        reloadLogins()
+        return
+      }
       // Rows are read against the form as it was sent. The secrets stay.
       setRefused(problemFromError(err, sent))
       setError(taskErrorMessage(err, t))
     } finally {
       if (mounted.current) setBusy(false)
-    }
-  }
-
-  const rootUser = form.user.trim() === 'root'
-  const methodLabel = (m: AgentInstallMethod) => {
-    switch (m) {
-      case 'password': return t('cluster.tasks.install.setup.methodPassword')
-      case 'key': return t('cluster.tasks.install.setup.methodKey')
-      case 'tailscale': return t('cluster.tasks.install.setup.methodTailscale')
     }
   }
   const modeLabel = (m: AgentInstallMode) => {
@@ -341,104 +449,77 @@ export function AgentInstallSetup() {
 
       <section aria-labelledby={`${id}-account`} data-testid="install-account" className="space-y-3">
         <h3 id={`${id}-account`} className="text-[14px] font-semibold">{t('cluster.tasks.install.setup.account')}</h3>
-        <div className="max-w-xs">
-          <EditorField id={`${id}-user`} label={t('cluster.tasks.install.setup.user')} error={fieldProblem('user')}>
-            <Input
-              id={`${id}-user`}
-              value={form.user}
-              onChange={(e) => change({ user: e.target.value })}
-              placeholder="ubuntu"
-              autoComplete="off"
-              autoCapitalize="none"
-              spellCheck={false}
-              aria-invalid={!!fieldProblem('user') || undefined}
-              disabled={busy}
-            />
-          </EditorField>
-        </div>
-        <div className="space-y-1">
-          <p id={`${id}-method`} className="text-[12px] font-medium text-muted-foreground">{t('cluster.tasks.install.setup.method')}</p>
-          <div role="radiogroup" aria-labelledby={`${id}-method`} className="flex flex-wrap gap-x-4 gap-y-1">
-            {METHODS.map((m) => (
-              <label key={m} className="flex items-center gap-2 min-h-9 text-[13px] cursor-pointer">
-                <input
-                  type="radio"
-                  name={`${id}-method`}
-                  checked={form.method === m}
-                  disabled={busy}
-                  onChange={() => {
-                    setPickNote(null)
-                    change({ method: m })
-                  }}
-                  className="accent-primary"
-                />
-                {methodLabel(m)}
-              </label>
-            ))}
-          </div>
-          {fieldProblem('method') && <p className="text-[12px] text-destructive">{fieldProblem('method')}</p>}
-        </div>
-
-        {form.method === 'password' && (
-          <div className="max-w-xs">
-            <SecretField
-              id={`${id}-password`}
-              label={t('cluster.tasks.install.setup.password')}
-              showLabel={t('cluster.tasks.install.setup.showPassword')}
-              hideLabel={t('cluster.tasks.install.setup.hidePassword')}
-              value={form.password}
-              onChange={(password) => change({ password })}
-              error={fieldProblem('password')}
-              disabled={busy}
-            />
-          </div>
-        )}
-        {form.method === 'key' && (
-          <KeyFields
-            id={id}
-            keyText={form.key}
-            passphrase={form.passphrase}
-            onKey={(key) => change({ key })}
-            onPassphrase={(passphrase) => change({ passphrase })}
-            keyError={fieldProblem('key')}
-            passphraseError={fieldProblem('passphrase')}
-            disabled={busy}
-          />
-        )}
-        {form.method === 'tailscale' && (
-          <p className="text-[12px] text-muted-foreground max-w-prose">{t('cluster.tasks.install.setup.tailscaleHint')}</p>
-        )}
-
-        {rootUser ? (
-          <p className="text-[12px] text-muted-foreground">{t('cluster.tasks.install.setup.sudoRoot')}</p>
+        {loginsError ? (
+          <p data-testid="install-logins-error" className="text-[12px] text-muted-foreground break-words max-w-prose">
+            {t('cluster.tasks.install.logins.loadFailed', { reason: loginsError })}
+          </p>
         ) : (
-          <div className="space-y-2">
-            {form.method === 'password' && (
-              <EditorCheck
-                id={`${id}-sudo-same`}
-                label={t('cluster.tasks.install.setup.sudoSame')}
-                checked={form.sudoSame}
-                onChange={(sudoSame) => change({ sudoSame })}
-                disabled={busy}
-              />
-            )}
-            {fieldProblem('sudo_same') && <p className="text-[12px] text-destructive">{fieldProblem('sudo_same')}</p>}
-            {(form.method !== 'password' || !form.sudoSame) && (
-              <div className="max-w-xs">
-                <SecretField
-                  id={`${id}-sudo`}
-                  label={t('cluster.tasks.install.setup.sudoPassword')}
-                  showLabel={t('cluster.tasks.install.setup.showSudo')}
-                  hideLabel={t('cluster.tasks.install.setup.hideSudo')}
-                  value={form.sudoPassword}
-                  onChange={(sudoPassword) => change({ sudoPassword })}
-                  hint={t('cluster.tasks.install.setup.sudoHint')}
-                  error={fieldProblem('sudo_password')}
+          <EditorField id={`${id}-login`} label={t('cluster.tasks.install.logins.label')}>
+            <div className="flex flex-wrap items-center gap-2">
+              <select
+                id={`${id}-login`}
+                value={selected ? selected.id : TYPED}
+                onChange={(e) => choose(e.target.value)}
+                disabled={busy || logins === null}
+                className={cn(SELECT, 'w-full max-w-full sm:w-auto')}
+              >
+                <option value={TYPED}>{t('cluster.tasks.install.logins.typed')}</option>
+                {(logins ?? []).map((l) => <option key={l.id} value={l.id}>{loginLabel(l, t)}</option>)}
+              </select>
+              {logins && logins.length > 0 && (
+                <Button type="button" variant="outline" size="sm" onClick={() => setManaging(true)} disabled={busy}>
+                  <Settings2 className="h-4 w-4" />
+                  {t('cluster.tasks.install.logins.manage')}
+                </Button>
+              )}
+            </div>
+          </EditorField>
+        )}
+        {managing && logins && <InstallLoginsDialog logins={logins} onChange={replaceLogins} onClose={() => setManaging(false)} />}
+        {selected ? (
+          <p data-testid="install-login-summary" className="text-[13px] break-words">{loginSummary(selected, t)}</p>
+        ) : (
+          <>
+            <AccountFields id={id} value={form} onChange={changeAccount} problem={fieldProblem} disabled={busy} />
+            {canSave && (
+              <div className="space-y-2">
+                <EditorCheck
+                  id={`${id}-save`}
+                  label={t('cluster.tasks.install.logins.save')}
+                  checked={save}
+                  onChange={(on) => {
+                    setSave(on)
+                    setNameRefused(null)
+                  }}
                   disabled={busy}
                 />
+                {save && (
+                  <div className="max-w-xs">
+                    <EditorField
+                      id={`${id}-login-name`}
+                      label={t('cluster.tasks.install.logins.name')}
+                      hint={t('cluster.tasks.install.logins.nameHint')}
+                      error={nameError}
+                    >
+                      <Input
+                        id={`${id}-login-name`}
+                        value={saveName}
+                        onChange={(e) => {
+                          setSaveName(e.target.value)
+                          setNameRefused(null)
+                        }}
+                        placeholder={t('cluster.tasks.install.logins.namePlaceholder')}
+                        autoComplete="off"
+                        spellCheck={false}
+                        aria-invalid={!!nameError || undefined}
+                        disabled={busy}
+                      />
+                    </EditorField>
+                  </div>
+                )}
               </div>
             )}
-          </div>
+          </>
         )}
       </section>
 
@@ -486,7 +567,7 @@ export function AgentInstallSetup() {
 
       <p className="flex items-start gap-2 rounded-xl bg-secondary/50 px-3 py-2 text-[12px] text-muted-foreground">
         <Lock className="h-4 w-4 mt-0.5 shrink-0" aria-hidden />
-        {t('cluster.tasks.install.setup.lock')}
+        {selected || saving ? t('cluster.tasks.install.logins.lock') : t('cluster.tasks.install.setup.lock')}
       </p>
 
       <div className="space-y-2">
@@ -503,7 +584,7 @@ export function AgentInstallSetup() {
         <p className="text-[12px] text-muted-foreground max-w-prose">{t('cluster.tasks.install.setup.previewHint')}</p>
       </div>
 
-      {(error || ownProblems.length > 0) && (
+      {(error || ownProblems.length > 0 || nameError) && (
         <div role="alert" data-testid="install-error" className="rounded-xl bg-destructive/10 px-3 py-2 text-[13px] text-destructive space-y-1">
           {error && <p className="break-words">{error}</p>}
           {unplaced && <p className="break-words">{unplaced}</p>}
@@ -511,123 +592,5 @@ export function AgentInstallSetup() {
         </div>
       )}
     </section>
-  )
-}
-
-// A secret typed in: masked unless the operator asks to see it, and kept out
-// of the browser's password manager.
-function SecretField({ id, label, showLabel, hideLabel, value, onChange, hint, error, disabled }: {
-  id: string
-  label: string
-  showLabel: string
-  hideLabel: string
-  value: string
-  onChange: (value: string) => void
-  hint?: string
-  error?: string
-  disabled?: boolean
-}) {
-  const [visible, setVisible] = useState(false)
-  return (
-    <EditorField id={id} label={label} hint={hint} error={error}>
-      <div className="relative">
-        <Input
-          id={id}
-          type={visible ? 'text' : 'password'}
-          value={value}
-          onChange={(e) => onChange(e.target.value)}
-          autoComplete="off"
-          autoCapitalize="none"
-          spellCheck={false}
-          aria-invalid={!!error || undefined}
-          disabled={disabled}
-          className="pr-10"
-        />
-        <button
-          type="button"
-          onClick={() => setVisible((v) => !v)}
-          className="absolute right-2 top-1/2 -translate-y-1/2 text-muted-foreground rounded-sm outline-none focus-visible:ring-2 focus-visible:ring-ring/40"
-          aria-label={visible ? hideLabel : showLabel}
-        >
-          {visible ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
-        </button>
-      </div>
-    </EditorField>
-  )
-}
-
-// The private key, pasted or read from a file, and its passphrase. A text
-// area cannot be masked; it is kept from spelling, correction and autofill.
-function KeyFields({ id, keyText, passphrase, onKey, onPassphrase, keyError, passphraseError, disabled }: {
-  id: string
-  keyText: string
-  passphrase: string
-  onKey: (key: string) => void
-  onPassphrase: (passphrase: string) => void
-  keyError?: string
-  passphraseError?: string
-  disabled?: boolean
-}) {
-  const { t } = useTranslation()
-  const file = useRef<HTMLInputElement>(null)
-  const [fileError, setFileError] = useState<string | null>(null)
-
-  const readFile = (e: ChangeEvent<HTMLInputElement>) => {
-    const chosen = e.target.files?.[0]
-    // Cleared, so the same file can be chosen again.
-    e.target.value = ''
-    if (!chosen) return
-    if (chosen.size > MAX_KEY_FILE_BYTES) {
-      setFileError(t('cluster.tasks.install.setup.keyFileTooLarge'))
-      return
-    }
-    const reader = new FileReader()
-    reader.onload = () => {
-      setFileError(null)
-      onKey(typeof reader.result === 'string' ? reader.result : '')
-    }
-    reader.onerror = () => setFileError(t('cluster.tasks.install.setup.keyFileError'))
-    reader.readAsText(chosen)
-  }
-
-  return (
-    <div className="space-y-3">
-      <EditorField id={`${id}-key`} label={t('cluster.tasks.install.setup.key')} error={keyError ?? fileError ?? undefined}>
-        <textarea
-          id={`${id}-key`}
-          value={keyText}
-          onChange={(e) => onKey(e.target.value)}
-          rows={5}
-          placeholder="-----BEGIN OPENSSH PRIVATE KEY-----"
-          spellCheck={false}
-          autoComplete="off"
-          autoCorrect="off"
-          autoCapitalize="none"
-          aria-invalid={!!keyError || undefined}
-          disabled={disabled}
-          className={TEXTAREA}
-        />
-      </EditorField>
-      <div>
-        <input ref={file} type="file" className="hidden" onChange={readFile} tabIndex={-1} aria-hidden />
-        <Button type="button" variant="outline" size="sm" onClick={() => file.current?.click()} disabled={disabled}>
-          <FileUp className="h-4 w-4" />
-          {t('cluster.tasks.install.setup.keyFile')}
-        </Button>
-      </div>
-      <div className="max-w-xs">
-        <SecretField
-          id={`${id}-passphrase`}
-          label={t('cluster.tasks.install.setup.passphrase')}
-          showLabel={t('cluster.tasks.install.setup.showPassphrase')}
-          hideLabel={t('cluster.tasks.install.setup.hidePassphrase')}
-          value={passphrase}
-          onChange={onPassphrase}
-          hint={t('cluster.tasks.install.setup.passphraseHint')}
-          error={passphraseError}
-          disabled={disabled}
-        />
-      </div>
-    </div>
   )
 }

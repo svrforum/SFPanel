@@ -1,5 +1,7 @@
 import type { TFunction } from 'i18next'
-import type { AgentInstallAccount, AgentInstallMethod, AgentInstallMode, AgentInstallRequest, AgentInstallServer } from '@/types/api'
+import type {
+  AgentInstallAccount, AgentInstallMethod, AgentInstallMode, AgentInstallRequest, AgentInstallSavedAccount, AgentInstallServer,
+} from '@/types/api'
 import { NODE_NAME_PATTERN } from '../../../joinCommands'
 
 // The agent install form, apart from its components. Its checks mirror the
@@ -21,7 +23,8 @@ export interface InstallServerRow {
 }
 
 // The whole form. The four secrets live in component state only and leave the
-// browser in the start's body alone (buildInstallRequest). sudoSame — the
+// browser in a body alone: the start's (buildInstallRequest), or a saved
+// login's when the operator saves them (installLogins.ts). sudoSame — the
 // login password is sudo's too — is the default, and means something for a
 // password login only.
 export interface InstallForm {
@@ -36,6 +39,9 @@ export interface InstallForm {
   mode: AgentInstallMode
   concurrency: number
 }
+
+// The account's fields, which a saved login's change has too.
+export type InstallAccountFields = Pick<InstallForm, 'user' | 'method' | 'password' | 'key' | 'passphrase' | 'sudoSame' | 'sudoPassword'>
 
 export function emptyServerRow(): InstallServerRow {
   return { host: '', port: String(DEFAULT_SSH_PORT), name: '', group: '' }
@@ -223,9 +229,11 @@ function sentRows(form: InstallForm): number[] {
  * Everything the leader would refuse in the form, in its order: the server
  * list, then each server, then the account, mode and concurrency. A secret is
  * looked at only for being there. What only the leader can know — whether a
- * name resolves, a login works — waits for the install.
+ * name resolves, a login works — waits for the install. With savedLogin the
+ * account is a saved login's, which the leader checked when it was saved:
+ * the account's fields are not looked at.
  */
-export function formProblems(form: InstallForm): FormProblem[] {
+export function formProblems(form: InstallForm, savedLogin = false): FormProblem[] {
   const rows = sentRows(form)
   if (rows.length === 0) return [{ field: 'servers' }]
   if (rows.length > MAX_SERVERS) return [{ field: 'servers', max: MAX_SERVERS }]
@@ -249,9 +257,11 @@ export function formProblems(form: InstallForm): FormProblem[] {
     else if (!validName(r.name.trim())) problems.push({ field: 'name', index })
     else if (!validGroup(r.group.trim())) problems.push({ field: 'group', index })
   }
-  if (!form.user.trim()) problems.push({ field: 'user' })
-  if (form.method === 'password' && form.password === '') problems.push({ field: 'password' })
-  if (form.method === 'key' && !form.key.trim()) problems.push({ field: 'key' })
+  if (!savedLogin) {
+    if (!form.user.trim()) problems.push({ field: 'user' })
+    if (form.method === 'password' && form.password === '') problems.push({ field: 'password' })
+    if (form.method === 'key' && !form.key.trim()) problems.push({ field: 'key' })
+  }
   if (!['auto', 'online', 'offline'].includes(form.mode)) problems.push({ field: 'mode' })
   if (!Number.isInteger(form.concurrency) || form.concurrency < 1 || form.concurrency > MAX_CONCURRENCY) {
     problems.push({ field: 'concurrency' })
@@ -288,6 +298,16 @@ export function formProblemText(p: FormProblem, t: TFunction): string {
   return fieldProblemText(p.field, t)
 }
 
+/** A login method's name; one this screen does not know, as sent. */
+export function methodText(method: string, t: TFunction): string {
+  switch (method) {
+    case 'password': return t('cluster.tasks.install.setup.methodPassword')
+    case 'key': return t('cluster.tasks.install.setup.methodKey')
+    case 'tailscale': return t('cluster.tasks.install.setup.methodTailscale')
+    default: return method
+  }
+}
+
 function fieldProblemText(field: string, t: TFunction): string {
   switch (field) {
     case 'host': return t('cluster.tasks.install.problem.host')
@@ -311,12 +331,11 @@ function fieldProblemText(field: string, t: TFunction): string {
 
 /**
  * The start's body. Each server is sent with its port (22 when left empty),
- * and a name and group only when given. The account carries the chosen
- * method's secrets and no other's, whatever the hidden fields still hold:
- * sudo_same only for a password login and never with sudo_password, and no
- * sudo secret at all for root, who needs none. Secrets go as typed, untrimmed.
+ * and a name and group only when given. login, a saved login's ID, is the
+ * whole account: it goes alone, whatever the account's fields hold. Without
+ * it, the account is the one typed (formAccount).
  */
-export function buildInstallRequest(form: InstallForm, review: boolean): AgentInstallRequest {
+export function buildInstallRequest(form: InstallForm, review: boolean, login?: string): AgentInstallRequest {
   const servers = sentRows(form).map((i): AgentInstallServer => {
     const r = form.servers[i]
     const s: AgentInstallServer = { host: r.host.trim(), port: Number(r.port.trim() || DEFAULT_SSH_PORT) }
@@ -324,6 +343,17 @@ export function buildInstallRequest(form: InstallForm, review: boolean): AgentIn
     if (r.group.trim()) s.group = r.group.trim()
     return s
   })
+  const account: AgentInstallAccount | AgentInstallSavedAccount = login ? { login } : formAccount(form)
+  return { servers, account, review, mode: form.mode, concurrency: form.concurrency }
+}
+
+/**
+ * The account as typed. It carries the chosen method's secrets and no
+ * other's, whatever the hidden fields still hold: sudo_same only for a
+ * password login and never with sudo_password, and no sudo secret at all for
+ * root, who needs none. Secrets go as typed, untrimmed.
+ */
+export function formAccount(form: InstallAccountFields): AgentInstallAccount {
   const user = form.user.trim()
   const account: AgentInstallAccount = { user, method: form.method }
   if (form.method === 'password') account.password = form.password
@@ -335,5 +365,5 @@ export function buildInstallRequest(form: InstallForm, review: boolean): AgentIn
     if (form.method === 'password' && form.sudoSame) account.sudo_same = true
     else if (form.sudoPassword) account.sudo_password = form.sudoPassword
   }
-  return { servers, account, review, mode: form.mode, concurrency: form.concurrency }
+  return account
 }

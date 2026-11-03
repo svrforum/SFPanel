@@ -19,7 +19,8 @@ interface InstallRunHeadProps {
 }
 
 // An install's head: what it is, how many servers it takes and how many at
-// once, how it stands, who started it, and why it ended when it says. An
+// once, how it stands, who started it and with which saved login when it
+// took one (its name, inputs.login), and why it ended when it says. An
 // install under way can be stopped (never forced: the leader cleans up each
 // server it stops); one that ended never runs again.
 export function InstallRunHead({ run, onHead }: InstallRunHeadProps) {
@@ -70,6 +71,12 @@ export function InstallRunHead({ run, onHead }: InstallRunHeadProps) {
           <dt>{t('cluster.tasks.run.startedBy')}</dt>
           <dd className="text-foreground break-all">{run.started_by}</dd>
         </div>
+        {run.inputs?.login && (
+          <div className="flex gap-1.5 min-w-0">
+            <dt className="shrink-0">{t('cluster.tasks.install.logins.label')}</dt>
+            <dd data-testid="install-run-login" className="text-foreground break-words min-w-0">{run.inputs.login}</dd>
+          </div>
+        )}
         <div className="flex gap-1.5">
           <dt>{t('cluster.tasks.run.startedAt')}</dt>
           <dd className="text-foreground">{formatDate(run.started_at)}</dd>
