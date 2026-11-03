@@ -6,6 +6,23 @@ The format is loosely based on [Keep a Changelog](https://keepachangelog.com/), 
 
 ---
 
+## [0.83.0] – 2026-11-03
+
+### Added
+
+- **Saved logins for the agent install.** The Agent install (SSH) form can save the account it logs in with under a name — the user, the method, the password or the private key and its passphrase, and the sudo password — and pick it again next time; the login last used is chosen when the form opens. **Manage** changes a saved login (a secret left empty keeps the stored one) or deletes it. The cluster keeps them in the managers' replicated state, so they outlive a change of leader; agents never hold them. No answer returns a saved secret — the form only learns whether each one is stored — and a run records the name of the login it used, never its secrets.
+  - A saved login's password, or its sudo password, goes only to servers at a private address or in the leader's tailnet. A server elsewhere fails before anything is sent to it, with a sentence that says which case it is, and an account typed in the form is not limited.
+  - Saved logins are plaintext in the managers' Raft data, as the JWT key is. Anyone with a panel session — which has a root terminal on every manager — can read them, so save only accounts the panel's administrators may use. On a cluster whose Raft traffic is not TLS (one initialised before Raft TLS existed), they cross the managers' network in the clear, as the JWT key does: type the account there instead.
+  - For API clients: `GET` and `POST /api/v1/cluster/agent-installs/logins`, `PUT` and `DELETE …/logins/:id` (a body of at most 64 KiB), and `account.login` on the start.
+
+### Fixed
+
+- **The tailnet picker fits a phone.** Device names and addresses stay whole, the buttons stay in view under a long list, and the devices that cannot be picked are dimmed.
+
+### Security
+
+- **The file manager no longer serves the cluster's Raft data.** `/var/lib/sfpanel/cluster/` — the Raft log and snapshots, which hold the JWT key, the cluster CA key, the agents' keys and now the saved logins — is refused to reads, as the panel database already was.
+
 ## [0.82.0] – 2026-11-02
 
 ### Added
