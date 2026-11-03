@@ -489,6 +489,13 @@ func NewRouter(database *sql.DB, auditWriter *sfdb.AsyncWriter, alertManager *fe
 		installBody := echoMw.BodyLimit("1MiB")
 		// The leader's tailnet, the devices the install form picks from.
 		clusterGroup.GET("/agent-installs/tailnet", installHandler.Tailnet)
+		// Saved logins the install form picks from, kept by the cluster:
+		// the leader's too, so a page reads its own write. No answer holds
+		// a saved secret.
+		clusterGroup.GET("/agent-installs/logins", installHandler.ListLogins)
+		clusterGroup.POST("/agent-installs/logins", installHandler.CreateLogin, installBody)
+		clusterGroup.PUT("/agent-installs/logins/:id", installHandler.UpdateLogin, installBody)
+		clusterGroup.DELETE("/agent-installs/logins/:id", installHandler.DeleteLogin)
 		clusterGroup.POST("/agent-installs", installHandler.Start, installBody)
 		clusterGroup.POST("/agent-installs/:id/servers/:key/host-key", installHandler.ApproveHostKey, installBody)
 		clusterGroup.POST("/agent-installs/:id/servers/:key/standalone", installHandler.ConfirmStandalone, installBody)

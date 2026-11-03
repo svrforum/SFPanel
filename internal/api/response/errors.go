@@ -585,9 +585,12 @@ const (
 	// ErrAgentInstallInvalid is returned (HTTP 400) for an install request,
 	// or an answer to one of its questions, that is not one: no servers or
 	// too many, a port, name or group out of bounds, a host given twice, a
-	// login method without its secret or with another method's. Details:
-	// field, the request's own name for what is wrong, and row (s1, s2 …,
-	// in the order the servers were given) when it is one server's.
+	// login method without its secret or with another method's, a saved
+	// login named beside other account fields. It is also a saved login's
+	// create or change that is not one: its name out of bounds, or its
+	// account as above. Details: field, the request's own name for what is
+	// wrong, and row (s1, s2 …, in the order the servers were given) when it
+	// is one server's.
 	ErrAgentInstallInvalid = "AGENT_INSTALL_INVALID"
 	// ErrAgentInstallTailnetFailed is returned (HTTP 500) when the leader's
 	// `tailscale status --json`, read for the install form's devices, fails
@@ -595,6 +598,17 @@ const (
 	// output, sanitized. A leader not on Tailscale is no failure: the
 	// answer says why (reason).
 	ErrAgentInstallTailnetFailed = "AGENT_INSTALL_TAILNET_FAILED"
+	// ErrAgentInstallLoginNotFound is returned (HTTP 404) for a saved login
+	// ID that names no login the cluster keeps: a change or a delete of
+	// one, or an install started with one (account.login).
+	ErrAgentInstallLoginNotFound = "AGENT_INSTALL_LOGIN_NOT_FOUND"
+	// ErrAgentInstallLoginExists is returned (HTTP 409) when a login is
+	// saved under the name of another, without regard to case. Details:
+	// field (name).
+	ErrAgentInstallLoginExists = "AGENT_INSTALL_LOGIN_EXISTS"
+	// ErrAgentInstallLoginLimit is returned (HTTP 409) when a login is saved
+	// while the cluster keeps as many as it may. Details: max.
+	ErrAgentInstallLoginLimit = "AGENT_INSTALL_LOGIN_LIMIT"
 )
 
 // Group task error codes: the task and task-run API on a manager.
@@ -745,6 +759,15 @@ const (
 	// whose group label could not be set: the node is in the cluster
 	// without it. Details: group, the label asked for.
 	ErrAgentInstallLabelFailed = "AGENT_INSTALL_LABEL_FAILED"
+	// ErrAgentInstallLoginOffNetwork is a server a saved login's secret may
+	// not go to: the install's account is a saved login that sends the
+	// server a password (a password login's, or a sudo password), and the
+	// row's address is neither private (10/8, 172.16/12, 192.168/16,
+	// fc00::/7) nor a Tailscale address the leader's tailnet lists on a
+	// peer, or the tailnet could not be read. Nothing reached the server,
+	// not even a request for its host key. A password typed in the form is
+	// not limited. Details: address, the row's IP.
+	ErrAgentInstallLoginOffNetwork = "AGENT_INSTALL_LOGIN_OFF_NETWORK"
 )
 
 // File manager error codes

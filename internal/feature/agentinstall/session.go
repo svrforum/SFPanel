@@ -45,6 +45,9 @@ type session struct {
 	archives string
 	mode     string
 	review   bool
+	// savedSecret says the account is a saved login that sends the servers
+	// a secret: its rows go only where row.savedLoginAllowed lets them.
+	savedSecret bool
 
 	// ctx ends when the install is stopped or its session dropped; every
 	// row and recheck runs under it.
@@ -93,7 +96,7 @@ func newSession(e *Engine, r Request, version, archives string) *session {
 	now := e.env.Now()
 	s := &session{
 		e: e, env: e.env, id: cluster.NewRunID(now), version: version, archives: archives,
-		mode: r.Mode, review: r.Review,
+		mode: r.Mode, review: r.Review, savedSecret: r.saved && r.Account.sendsSecret(),
 		ctx: ctx, cancel: cancel, slots: make(chan struct{}, r.Concurrency), gone: make(chan struct{}),
 		auth: sshexec.Auth{User: r.Account.User, Method: r.Account.Method,
 			Password: r.Account.Password, Key: r.Account.Key, Passphrase: r.Account.Passphrase},
@@ -128,9 +131,14 @@ func newSession(e *Engine, r Request, version, archives string) *session {
 	// Under way from the start, so a second install is refused before
 	// this one is recorded.
 	s.running = len(s.rows)
+	inputs := map[string]string{"mode": r.Mode, "review": strconv.FormatBool(r.Review), "version": version}
+	if r.saved {
+		// The saved login's name: the account itself stays in this memory.
+		inputs["login"] = r.Login
+	}
 	s.head = cluster.RunRecord{
 		ID: s.id, Kind: cluster.RunKindAgentInstall, TaskID: cluster.AgentInstallTaskID, TaskName: installTaskName,
-		Inputs: map[string]string{"mode": r.Mode, "review": strconv.FormatBool(r.Review), "version": version},
+		Inputs: inputs,
 		Nodes:  keys, Waves: [][]string{keys}, Batch: r.Concurrency,
 		Status: cluster.RunRunning, StartedBy: r.StartedBy, StartedAt: now,
 	}

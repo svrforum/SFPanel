@@ -153,7 +153,10 @@ type serverBody struct {
 	Group string `json:"group"`
 }
 
+// accountBody is the account to log in with: typed in the form, or Login,
+// the ID of a saved login, alone.
 type accountBody struct {
+	Login        string `json:"login"`
 	User         string `json:"user"`
 	Method       string `json:"method"`
 	Password     string `json:"password"`
@@ -167,15 +170,17 @@ type accountBody struct {
 var methods = map[string]string{"password": "password", "key": "key", "tailscale": "none"}
 
 // readStart reads a start's body into a Request whose secrets are byte
-// slices, and checks what only the body can say: the method's name and a
-// port given. The rest is normalise's. On a refusal the secrets are zeroed.
-func readStart(c echo.Context) (Request, error) {
+// slices, and checks what only the body can say: the method's name, or a
+// saved login named with no other account field, and a port given. The
+// rest is normalise's. On a refusal the secrets are zeroed. login is the
+// saved login's ID, for the leader to read (useLogin).
+func readStart(c echo.Context) (r Request, login string, err error) {
 	var b startBody
 	if err := readJSON(c, &b); err != nil {
-		return Request{}, err
+		return Request{}, "", err
 	}
 	a := &b.Account
-	r := Request{
+	r = Request{
 		Review: b.Review, Mode: b.Mode, Concurrency: b.Concurrency,
 		Account: Account{
 			User: a.User, SudoSame: a.SudoSame,
@@ -183,24 +188,34 @@ func readStart(c echo.Context) (Request, error) {
 		},
 	}
 	a.Password, a.Key, a.Passphrase, a.SudoPassword = "", "", "", ""
-	method, ok := methods[a.Method]
-	if !ok {
-		r.Account.wipe()
-		return Request{}, invalid("The login method is password, key or tailscale", "field", "method")
+	if a.Login != "" {
+		// A saved login is the whole account: a field beside it would
+		// leave which one counts to a guess.
+		ra := &r.Account
+		if a.User != "" || a.Method != "" || a.SudoSame || len(ra.Password)+len(ra.Key)+len(ra.Passphrase)+len(ra.SudoPassword) > 0 {
+			ra.wipe()
+			return Request{}, "", invalid("A saved login is the whole account: no other account field goes with it", "field", "login")
+		}
+	} else {
+		method, ok := methods[a.Method]
+		if !ok {
+			r.Account.wipe()
+			return Request{}, "", invalid("The login method is password, key or tailscale", "field", "method")
+		}
+		r.Account.Method = method
 	}
-	r.Account.Method = method
 	for i, s := range b.Servers {
 		port := 22
 		if s.Port != nil {
 			port = *s.Port
 			if port < 1 || port > 65535 {
 				r.Account.wipe()
-				return Request{}, invalid("A server's SSH port is 1 to 65535", "row", rowKey(i), "field", "port")
+				return Request{}, "", invalid("A server's SSH port is 1 to 65535", "row", rowKey(i), "field", "port")
 			}
 		}
 		r.Servers = append(r.Servers, Server{Host: s.Host, Port: port, Name: s.Name, Group: s.Group})
 	}
-	return r, nil
+	return r, a.Login, nil
 }
 
 // secret is s as bytes the engine can zero, nil for none.
@@ -237,12 +252,14 @@ func busyRefusal(b featurecluster.Busy) error {
 // and zeroed here when it never gets them. The start is audited by the
 // engine, without the body. Recording the run asks nothing slow of anyone,
 // so the start stays well inside the thirty seconds a follower's forward
-// of it gets.
+// of it gets. An account that is a saved login is read here, on the leader,
+// before the claim: a follower forwards the body as it came, and never
+// reads a saved secret.
 func (h *Handler) Start(c echo.Context) error {
 	if handled, err := h.forward(c); handled {
 		return err
 	}
-	req, err := readStart(c)
+	req, login, err := readStart(c)
 	if err != nil {
 		return answerErr(c, err)
 	}
@@ -253,6 +270,11 @@ func (h *Handler) Start(c echo.Context) error {
 			req.Account.wipe()
 		}
 	}()
+	if login != "" {
+		if err := h.engine.useLogin(&req, login); err != nil {
+			return answerErr(c, err)
+		}
+	}
 	// Checked before the gate, so a request that is not one is told so
 	// whatever is under way; Start checks again, finding it as it is.
 	if err := normalise(&req); err != nil {

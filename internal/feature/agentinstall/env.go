@@ -279,4 +279,36 @@ func (c *ClusterEnv) InstallScript() []byte { return scripts.InstallScript }
 
 func (c *ClusterEnv) Tailnet(ctx context.Context) (Tailnet, error) { return readTailnet(ctx, c.cmd) }
 
+func (c *ClusterEnv) InstallLogins() ([]cluster.InstallLogin, error) {
+	m, err := c.mgr()
+	if err != nil {
+		return nil, err
+	}
+	return m.InstallLogins()
+}
+
+func (c *ClusterEnv) InstallLogin(id string) (cluster.InstallLogin, error) {
+	m, err := c.mgr()
+	if err != nil {
+		return cluster.InstallLogin{}, err
+	}
+	return m.InstallLogin(id)
+}
+
+func (c *ClusterEnv) PutInstallLogin(l cluster.InstallLogin) (cluster.InstallLogin, error) {
+	m, err := c.mgr()
+	if err != nil {
+		return cluster.InstallLogin{}, err
+	}
+	return m.PutInstallLogin(l)
+}
+
+func (c *ClusterEnv) DeleteInstallLogin(id string) error {
+	m, err := c.mgr()
+	if err != nil {
+		return err
+	}
+	return m.DeleteInstallLogin(id)
+}
+
 func (c *ClusterEnv) Now() time.Time { return time.Now() }

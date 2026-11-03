@@ -75,6 +75,12 @@ type fakeEnv struct {
 	unownedPuts int
 	// beforeNodes, when set, runs before the nodes are listed.
 	beforeNodes func()
+
+	// logins are the saved logins, kept as the cluster's store keeps them;
+	// loginReads counts the reads of them.
+	logins     map[string]cluster.InstallLogin
+	loginSeq   int
+	loginReads int
 }
 
 type mintedToken struct {
@@ -285,6 +291,92 @@ func (f *fakeEnv) tailnetReadCount() int {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	return f.tailnetReads
+}
+
+// The saved logins, as cluster.Manager keeps them: by name without regard
+// to case, a name no two share, 32 at most, and a replace that keeps when
+// the login was created.
+func (f *fakeEnv) InstallLogins() ([]cluster.InstallLogin, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.loginReads++
+	var out []cluster.InstallLogin
+	for _, l := range f.logins {
+		out = append(out, l)
+	}
+	slices.SortFunc(out, func(a, b cluster.InstallLogin) int {
+		return strings.Compare(strings.ToLower(a.Name), strings.ToLower(b.Name))
+	})
+	return out, nil
+}
+
+func (f *fakeEnv) InstallLogin(id string) (cluster.InstallLogin, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.loginReads++
+	l, ok := f.logins[id]
+	if !ok {
+		return cluster.InstallLogin{}, cluster.ErrInstallLoginNotFound
+	}
+	return l, nil
+}
+
+func (f *fakeEnv) PutInstallLogin(l cluster.InstallLogin) (cluster.InstallLogin, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if f.notLeader {
+		return cluster.InstallLogin{}, cluster.ErrNotLeader
+	}
+	if l.ID == "" {
+		if len(f.logins) >= cluster.MaxInstallLogins {
+			return cluster.InstallLogin{}, cluster.ErrInstallLoginLimit
+		}
+		f.loginSeq++
+		l.ID, l.CreatedAt = fmt.Sprintf("login%02d", f.loginSeq), f.now
+	} else {
+		old, ok := f.logins[l.ID]
+		if !ok {
+			return cluster.InstallLogin{}, cluster.ErrInstallLoginNotFound
+		}
+		l.CreatedAt = old.CreatedAt
+	}
+	for _, o := range f.logins {
+		if o.ID != l.ID && strings.EqualFold(o.Name, l.Name) {
+			return cluster.InstallLogin{}, cluster.ErrInstallLoginNameTaken
+		}
+	}
+	l.UpdatedAt = f.now
+	if f.logins == nil {
+		f.logins = map[string]cluster.InstallLogin{}
+	}
+	f.logins[l.ID] = l
+	return l, nil
+}
+
+func (f *fakeEnv) DeleteInstallLogin(id string) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if f.notLeader {
+		return cluster.ErrNotLeader
+	}
+	if _, ok := f.logins[id]; !ok {
+		return cluster.ErrInstallLoginNotFound
+	}
+	delete(f.logins, id)
+	return nil
+}
+
+// storedLogin is saved login id as the store holds it, secrets and all.
+func (f *fakeEnv) storedLogin(id string) cluster.InstallLogin {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return f.logins[id]
+}
+
+func (f *fakeEnv) loginReadCount() int {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return f.loginReads
 }
 
 func (f *fakeEnv) Now() time.Time {
@@ -682,13 +774,17 @@ func (s *fakeServer) uploaded(path string) (fakeUpload, bool) {
 	return u, ok
 }
 
-// fakeDialer reaches fake servers and counts the connections open at once.
+// fakeDialer reaches fake servers and counts the connections open at once,
+// and the host keys fetched. logins are copies of the logins Dial was given,
+// as they were when it was.
 type fakeDialer struct {
 	mu      sync.Mutex
 	servers map[string]*fakeServer
+	fetches int
 	dials   int
 	open    int
 	peak    int
+	logins  []sshexec.Auth
 }
 
 func newFakeDialer(servers ...*fakeServer) *fakeDialer {
@@ -700,6 +796,9 @@ func newFakeDialer(servers ...*fakeServer) *fakeDialer {
 }
 
 func (d *fakeDialer) FetchHostKey(_ context.Context, addr, _ string) (sshexec.HostKey, error) {
+	d.mu.Lock()
+	d.fetches++
+	d.mu.Unlock()
 	s := d.servers[addr]
 	if s == nil {
 		return sshexec.HostKey{}, errors.New("connection refused")
@@ -708,6 +807,10 @@ func (d *fakeDialer) FetchHostKey(_ context.Context, addr, _ string) (sshexec.Ho
 }
 
 func (d *fakeDialer) Dial(_ context.Context, addr string, a sshexec.Auth, key sshexec.HostKey, _ func(string)) (Target, error) {
+	d.mu.Lock()
+	d.logins = append(d.logins, sshexec.Auth{User: a.User, Method: a.Method,
+		Password: slices.Clone(a.Password), Key: slices.Clone(a.Key), Passphrase: slices.Clone(a.Passphrase)})
+	d.mu.Unlock()
 	s := d.servers[addr]
 	switch {
 	case s == nil:
@@ -731,6 +834,21 @@ func (d *fakeDialer) counts() (dials, open, peak int) {
 	d.mu.Lock()
 	defer d.mu.Unlock()
 	return d.dials, d.open, d.peak
+}
+
+// reached is how many times a host key was fetched and a login tried: what
+// reached any server at all.
+func (d *fakeDialer) reached() (fetches, logins int) {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	return d.fetches, len(d.logins)
+}
+
+// loginsGiven are the logins Dial was given, in order.
+func (d *fakeDialer) loginsGiven() []sshexec.Auth {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	return slices.Clone(d.logins)
 }
 
 type fakeTarget struct {

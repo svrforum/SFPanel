@@ -235,9 +235,9 @@ func stopRecord(rec *cluster.RunNodeRecord) {
 	}
 }
 
-// connect is phase 0: the server's address, its host key approved by the
-// operator before anything is sent to it, the login, and what the login can
-// do.
+// connect is phase 0: the server's address, where a saved login may go, its
+// host key approved by the operator before anything is sent to it, the
+// login, and what the login can do.
 func (r *row) connect(ctx context.Context) error {
 	s, log := r.s, r.logs[phaseConnect]
 	ip, err := s.e.resolve(ctx, r.srv.Host)
@@ -247,6 +247,11 @@ func (r *row) connect(ctx context.Context) error {
 	r.ip = ip
 	r.addr = net.JoinHostPort(ip.String(), strconv.Itoa(r.srv.Port))
 	r.update(func(rec *cluster.RunNodeRecord) { rec.IP = ip.String() })
+	// Before the host key is fetched: nothing reaches a server a saved
+	// login's secret may not go to.
+	if err := r.savedLoginAllowed(ctx, log); err != nil {
+		return err
+	}
 	if other := s.claim(s.ips, ipKey(ip), r.key); other != "" {
 		return fail(response.ErrAgentInstallIdentityTaken, "another server of this install has the same address", "ip", ip.String(), "row", other)
 	}

@@ -36,6 +36,11 @@ type Request struct {
 	// when 0.
 	Concurrency int
 	StartedBy   string
+	// Login is the name of the saved login the account was read from
+	// (useLogin), which the run records; saved says the account is one. A
+	// saved login's secrets go only where row.savedLoginAllowed lets them.
+	Login string
+	saved bool
 }
 
 // Server is one server to install: Host as the operator typed it (an IP or
@@ -118,6 +123,13 @@ type Env interface {
 	// seconds: errNoTailscale without the command, a *TailnetError when it
 	// fails.
 	Tailnet(ctx context.Context) (Tailnet, error)
+	// InstallLogins, InstallLogin, PutInstallLogin and DeleteInstallLogin
+	// are the saved logins, the cluster manager's store of them: writes the
+	// leader's, reads from this manager's own replicated state.
+	InstallLogins() ([]cluster.InstallLogin, error)
+	InstallLogin(id string) (cluster.InstallLogin, error)
+	PutInstallLogin(l cluster.InstallLogin) (cluster.InstallLogin, error)
+	DeleteInstallLogin(id string) error
 	Now() time.Time
 }
 
