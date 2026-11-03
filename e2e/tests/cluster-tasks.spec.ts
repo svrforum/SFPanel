@@ -2626,7 +2626,12 @@ test.describe('agent install', () => {
       const { calls } = await mock(page, {
         replies: {
           [LOGINS]: listed(BASIC, OPS),
-          [`PUT /cluster/agent-installs/logins/${BASIC.id}`]: ok({ login: CHANGED }),
+          [`PUT /cluster/agent-installs/logins/${BASIC.id}`]: [
+            fail(409, 'AGENT_INSTALL_LOGIN_EXISTS', 'Another saved login has this name', { field: 'name' }),
+            fail(400, 'AGENT_INSTALL_INVALID', 'The account needs a user', { field: 'user' }),
+            fail(400, 'AGENT_INSTALL_INVALID', 'unknown field "x"', { field: 'body' }),
+            ok({ login: CHANGED }),
+          ],
           [`DELETE /cluster/agent-installs/logins/${BASIC.id}`]: ok({ id: BASIC.id }),
         },
       })
@@ -2648,13 +2653,24 @@ test.describe('agent install', () => {
       await expect(edit.getByLabel('Login password', { exact: true })).toHaveValue('')
       await expect(edit).toContainText('Leave it empty to keep the saved password.')
       await edit.getByRole('textbox', { name: 'User' }).fill('admin')
-      await edit.getByRole('button', { name: 'Save' }).click()
-      await expect.poll(() => calls.length).toBe(1)
-      expect(calls[0]).toEqual({
+      const saveChange = () => edit.getByRole('button', { name: 'Save' }).click()
+      // Refusals sit on the field they name; one the form does not show is the dialog's.
+      await saveChange()
+      await expect(edit.getByRole('textbox', { name: 'Login name' })).toHaveAttribute('aria-invalid', 'true')
+      await expect(edit).toContainText('Another saved login already has this name.')
+      await saveChange()
+      await expect(edit.getByRole('textbox', { name: 'User' })).toHaveAttribute('aria-invalid', 'true')
+      await expect(edit).toContainText('Enter the SSH user.')
+      await expect(edit).not.toContainText('Another saved login already has this name.')
+      await saveChange()
+      await expect(edit.getByRole('alert')).toHaveText('The panel refused the request: reload the page and try again.')
+      await saveChange()
+      await expect.poll(() => calls.length).toBe(4)
+      expect(calls).toEqual(Array(4).fill({
         method: 'PUT',
         path: `/cluster/agent-installs/logins/${BASIC.id}`,
         body: { name: '기본 계정', user: 'admin', method: 'password', sudo_same: true },
-      })
+      }))
       await expect(d.getByTestId(`install-login-${BASIC.id}`)).toContainText('admin · Password')
       await expect(chooser(page).locator('option', { hasText: '기본 계정' })).toHaveText('기본 계정 (admin · Password)')
 
@@ -2662,11 +2678,11 @@ test.describe('agent install', () => {
       await d.getByRole('button', { name: 'Delete 기본 계정' }).click()
       const ask = page.getByRole('dialog', { name: 'Delete the saved login 기본 계정?' })
       await ask.getByRole('button', { name: 'Cancel' }).click()
-      expect(calls).toHaveLength(1)
+      expect(calls).toHaveLength(4)
       await d.getByRole('button', { name: 'Delete 기본 계정' }).click()
       await ask.getByRole('button', { name: 'Delete' }).click()
-      await expect.poll(() => calls.length).toBe(2)
-      expect(calls[1]).toEqual({ method: 'DELETE', path: `/cluster/agent-installs/logins/${BASIC.id}`, body: null })
+      await expect.poll(() => calls.length).toBe(5)
+      expect(calls[4]).toEqual({ method: 'DELETE', path: `/cluster/agent-installs/logins/${BASIC.id}`, body: null })
       await expect(d.getByTestId('install-logins').getByRole('listitem')).toHaveCount(1)
       await d.locator('[data-slot="dialog-footer"]').getByRole('button', { name: 'Close' }).click()
       await expect(chooser(page)).toHaveValue(OPS.id)
@@ -2695,6 +2711,43 @@ test.describe('agent install', () => {
       await expect(chooser(page).locator('option')).toHaveCount(2)
       await expect(page).toHaveURL(new RegExp(`${INSTALL_PATH}$`))
       expect(calls.map((c) => (c.body as { account: unknown }).account)).toEqual([{ login: BASIC.id }])
+    })
+
+    test('an account typed before the list came stays typed: it is not swapped for a saved login', async ({ page }) => {
+      await mock(page)
+      // The leader answers late, as during an election.
+      let answer!: () => void
+      const late = new Promise<void>((resolve) => { answer = resolve })
+      await page.route('**/api/v1/cluster/agent-installs/logins', async (route) => {
+        await late
+        await route.fulfill({ json: { success: true, data: { logins: [BASIC] } } })
+      })
+      await page.goto(INSTALL_PATH)
+      await account(page).getByRole('textbox', { name: 'User' }).fill('ops')
+      answer()
+      await expect(chooser(page).locator('option')).toHaveCount(2)
+      await expect(chooser(page)).toHaveValue('')
+      await expect(account(page).getByRole('textbox', { name: 'User' })).toHaveValue('ops')
+      await expect(account(page).getByTestId('install-login-summary')).toHaveCount(0)
+    })
+
+    test('a pick that turned the login to Tailscale SSH before the list came keeps it, and its note stays true', async ({ page }) => {
+      await mock(page, { replies: { [TAILNET]: tailnet(PEERS) } })
+      let answer!: () => void
+      const late = new Promise<void>((resolve) => { answer = resolve })
+      await page.route('**/api/v1/cluster/agent-installs/logins', async (route) => {
+        await late
+        await route.fulfill({ json: { success: true, data: { logins: [BASIC] } } })
+      })
+      await page.goto(INSTALL_PATH)
+      await pane(page).getByRole('button', { name: 'Pick from Tailscale' }).click()
+      await picker(page).getByRole('checkbox', { name: 'web-01' }).check()
+      await picker(page).getByRole('button', { name: 'Add 1 server' }).click()
+      await expect(pane(page).getByTestId('install-tailnet-note')).toHaveText('Every server added runs Tailscale SSH, so the login is now Tailscale SSH.')
+      answer()
+      await expect(chooser(page).locator('option')).toHaveCount(2)
+      await expect(chooser(page)).toHaveValue('')
+      await expect(account(page).getByRole('radio', { name: 'Tailscale SSH' })).toBeChecked()
     })
 
     test('a list that cannot be read leaves the account to type, and says why', async ({ page }) => {

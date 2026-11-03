@@ -1,4 +1,4 @@
-import { useEffect, useId, useState } from 'react'
+import { useEffect, useId, useRef, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useTranslation } from 'react-i18next'
 import { ClipboardPaste, Eye, Loader2, Lock, Network, Play, Plus, Settings2, X } from 'lucide-react'
@@ -105,16 +105,20 @@ export function AgentInstallSetup() {
   const [saveName, setSaveName] = useState('')
   const [nameRefused, setNameRefused] = useState<string | null>(null)
   const [managing, setManaging] = useState(false)
+  // Whether the account was typed in, or its method changed by a pick,
+  // before the saved logins came: it is not swapped for a saved one then.
+  const accountTouched = useRef(false)
 
   // Read as the pane opens. It starts on the login the last install took,
-  // else the first saved; a list that cannot be read leaves typing alone.
+  // else the first saved; a list that cannot be read leaves typing alone,
+  // and so does an account typed while the list was on its way.
   useEffect(() => {
     let live = true
     api.agentInstallLogins().then(
       (list) => {
         if (!live) return
         setLogins(list)
-        setChosen(defaultLogin(list, readLastLogin()))
+        if (!accountTouched.current) setChosen(defaultLogin(list, readLastLogin()))
       },
       (err) => { if (live) setLoginsError(taskErrorMessage(err, t)) },
     )
@@ -127,6 +131,7 @@ export function AgentInstallSetup() {
   const change = (patch: Partial<InstallForm>) => setForm((f) => ({ ...f, ...patch }))
   // The login changed by hand: what a pick said of it no longer holds.
   const changeAccount = (patch: Partial<InstallForm>) => {
+    accountTouched.current = true
     if (patch.method !== undefined) setPickNote(null)
     change(patch)
   }
@@ -206,6 +211,7 @@ export function AgentInstallSetup() {
       return
     }
     const after = methodAfterPicks(form.method, added)
+    if (after.switched) accountTouched.current = true
     change({ servers, method: after.method })
     setPickNote(after.switched || after.withoutSsh.length > 0 ? after : null)
   }
@@ -275,6 +281,7 @@ export function AgentInstallSetup() {
       if (mounted.current) setBusy(false)
     }
   }
+
   const modeLabel = (m: AgentInstallMode) => {
     switch (m) {
       case 'auto': return t('cluster.tasks.install.setup.modeAuto')

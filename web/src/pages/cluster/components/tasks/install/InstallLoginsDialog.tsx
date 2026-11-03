@@ -94,6 +94,10 @@ export function InstallLoginsDialog({ logins, onChange, onClose }: InstallLogins
         setRefusedName(onName)
       } else if (code === 'AGENT_INSTALL_INVALID' && details?.field && ACCOUNT_FIELDS.has(details.field)) {
         setRefusedField(details.field)
+      } else if (code === 'AGENT_INSTALL_INVALID') {
+        // A field this form does not show: its sentence would speak of an
+        // install, which a change is not.
+        setError(formProblemText({ field: details?.field ?? 'body' }, t))
       } else if (code === 'AGENT_INSTALL_LOGIN_NOT_FOUND') {
         // Deleted meanwhile: it leaves the list, and the dialog says why.
         onChange(logins.filter((l) => l.id !== editing.id))
