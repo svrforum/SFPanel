@@ -178,6 +178,10 @@ type Manager struct {
 	// (tasks_store.go).
 	taskMu         sync.Mutex
 	taskRevWritten map[string]time.Time
+	// installLoginMu orders the saved logins' checks against their writes on
+	// this leader: a name against another login being saved, the last free
+	// place against two creates (install_logins.go).
+	installLoginMu sync.Mutex
 }
 
 // SetVersion sets the panel version for heartbeat reporting.
