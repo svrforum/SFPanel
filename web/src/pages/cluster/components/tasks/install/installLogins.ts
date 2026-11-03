@@ -6,9 +6,9 @@ import { formAccount, methodText, type InstallAccountFields } from './installFor
 // Saved logins (/cluster/agent-installs/logins), apart from the install pane
 // and the dialog that show them. The cluster keeps them and answers whether
 // each secret is stored, never the secret. This browser keeps the ID of the
-// login the last install started with, and nothing else of them.
+// login the last install started with or saved, and nothing else of them.
 
-/** localStorage: the ID of the saved login the last install started with. Never a secret. */
+/** localStorage: the ID of the saved login the last install started with or saved. Never a secret. */
 export const LAST_LOGIN_KEY = 'sfpanel_install_login'
 
 /** The login select's value for an account typed in the form. */

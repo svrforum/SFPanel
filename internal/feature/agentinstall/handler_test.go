@@ -235,6 +235,11 @@ func TestTheInstallRequestIsValidated(t *testing.T) {
 		if head.Batch != 5 || head.Inputs["mode"] != ModeOnline || head.Inputs["review"] != "true" || head.StartedBy != "operator" {
 			t.Fatalf("head %+v, want the request's concurrency, mode, review and operator", head)
 		}
+		// A typed account names no saved login, as the pane's start does
+		// with the account it has just saved.
+		if login, ok := head.Inputs["login"]; ok {
+			t.Fatalf("the run's inputs name the login %q, want none: the account was typed", login)
+		}
 		r1 := f.env.row(ans.Data.RunID, "s1")
 		if r1.Host != "192.0.2.11" || r1.Name != "web-1" || r1.Group != "web" {
 			t.Fatalf("s1 = %+v", r1)

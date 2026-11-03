@@ -2525,7 +2525,7 @@ test.describe('agent install', () => {
       }])
     })
 
-    test('a typed account saved as a login is saved first, then the install starts with it; the browser keeps its ID alone', async ({ page }) => {
+    test('a typed account saved as a login is saved first, then the install starts with the account as typed; the browser keeps the new ID alone', async ({ page }) => {
       const NEW = savedLogin('9c8b7a6f5e4d3c21', '기본 계정')
       const kept: unknown[] = []
       const { calls } = await mock(page, {
@@ -2556,18 +2556,16 @@ test.describe('agent install', () => {
       await pane(page).getByRole('button', { name: 'Start install' }).click()
 
       await expect(page).toHaveURL(/\/cluster\/tasks\/runs\/i-1$/)
+      const typed = { user: 'ubuntu', method: 'password', password: PASSWORD, sudo_same: true }
       expect(calls).toEqual([
-        {
-          method: 'POST',
-          path: '/cluster/agent-installs/logins',
-          body: { name: '기본 계정', user: 'ubuntu', method: 'password', password: PASSWORD, sudo_same: true },
-        },
-        {
-          method: 'POST',
-          path: '/cluster/agent-installs',
-          body: { servers: [{ host: '192.0.2.21', port: 22 }], account: { login: NEW.id }, review: false, mode: 'auto', concurrency: 3 },
-        },
+        { method: 'POST', path: '/cluster/agent-installs/logins', body: { name: '기본 계정', ...typed } },
+        // The account as typed, which the leader does not limit as it limits
+        // a saved login's run.
+        { method: 'POST', path: '/cluster/agent-installs', body: { servers: [{ host: '192.0.2.21', port: 22 }], account: typed, review: false, mode: 'auto', concurrency: 3 } },
       ])
+      // No login named, so the run's inputs carry none (the leader records
+      // inputs.login from account.login alone).
+      expect((calls[1].body as { account: Record<string, unknown> }).account).not.toHaveProperty('login')
       expect(await page.evaluate((key) => localStorage.getItem(key), LAST)).toBe(NEW.id)
       const stored = await page.evaluate(() => JSON.stringify({ ...localStorage }) + JSON.stringify({ ...sessionStorage }) + location.href)
       expect(stored).not.toContain(PASSWORD)
@@ -2576,6 +2574,55 @@ test.describe('agent install', () => {
       await section(page, 'Built-in').getByRole('link', { name: 'Agent install (SSH)' }).click()
       await expect(chooser(page)).toHaveValue(NEW.id)
       await expect(account(page).getByTestId('install-login-summary')).toHaveText('ubuntu · Password · sudo takes the login password')
+    })
+
+    test('a start refused after the save keeps the account typed with its secrets, the box unticked: starting again saves nothing more', async ({ page }) => {
+      const NEW = savedLogin('9c8b7a6f5e4d3c21', '기본 계정')
+      const kept: unknown[] = []
+      const { calls } = await mock(page, {
+        replies: {
+          [LOGINS]: () => listed(...kept),
+          'POST /cluster/agent-installs/logins': () => {
+            kept.push(NEW)
+            return { status: 201, body: { success: true, data: { login: NEW } } }
+          },
+          'POST /cluster/agent-installs': [fail(409, 'AGENT_INSTALL_ACTIVE', 'An agent install is under way'), started()],
+        },
+      })
+      await page.goto(INSTALL_PATH)
+      await expect(chooser(page)).toHaveValue('')
+      await host(page, 1).fill('192.0.2.21')
+      await account(page).getByRole('textbox', { name: 'User' }).fill('ubuntu')
+      const password = account(page).getByLabel('Login password', { exact: true })
+      await password.fill(PASSWORD)
+      const save = account(page).getByRole('checkbox', { name: 'Save this login' })
+      await save.check()
+      await account(page).getByRole('textbox', { name: 'Login name' }).fill('기본 계정')
+      const start = pane(page).getByRole('button', { name: 'Start install' })
+      await start.click()
+
+      // Saved, then refused: listed, but the account stays as typed, secrets and all.
+      await expect(pane(page).getByTestId('install-error')).toContainText('An agent install is under way.')
+      await expect(chooser(page).locator('option')).toHaveText(['Type it in', '기본 계정 (ubuntu · Password)'])
+      await expect(chooser(page)).toHaveValue('')
+      await expect(password).toHaveValue(PASSWORD)
+      await expect(save).not.toBeChecked()
+      await expect(account(page).getByRole('textbox', { name: 'Login name' })).toHaveCount(0)
+      await expect(page).toHaveURL(new RegExp(`${INSTALL_PATH}$`))
+      expect(await page.evaluate((key) => localStorage.getItem(key), LAST)).toBeNull()
+
+      // Started again: no second save, the same typed account.
+      await start.click()
+      await expect(page).toHaveURL(/\/cluster\/tasks\/runs\/i-1$/)
+      const typed = { user: 'ubuntu', method: 'password', password: PASSWORD, sudo_same: true }
+      const body = { servers: [{ host: '192.0.2.21', port: 22 }], account: typed, review: false, mode: 'auto', concurrency: 3 }
+      expect(calls).toEqual([
+        { method: 'POST', path: '/cluster/agent-installs/logins', body: { name: '기본 계정', ...typed } },
+        { method: 'POST', path: '/cluster/agent-installs', body },
+        { method: 'POST', path: '/cluster/agent-installs', body },
+      ])
+      // The login it saved is the one the next visit starts on.
+      expect(await page.evaluate((key) => localStorage.getItem(key), LAST)).toBe(NEW.id)
     })
 
     test('a save refused starts nothing: a name on the name, anything else as the form\'s error, and the secrets stay', async ({ page }) => {

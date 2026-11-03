@@ -64,12 +64,12 @@ const withoutSecrets = (f: InstallForm): InstallForm => ({ ...f, password: '', k
 // ticks [Save this login]. Never in an address, a storage or a draft. A saved
 // login's secrets never come back to the browser: the pane knows whether each
 // is stored, and a start names the login by its ID alone. That ID, of the
-// login the last install started with, is all this browser keeps. A start
-// the leader refuses, or one that never reached it, keeps the typed secrets,
-// so the operator puts the cause right and starts again without typing them
-// twice. A start the leader took clears them, as does a save, after which
-// the saved login is the account; and they go with the state when the pane
-// is left.
+// login the last install started with or saved, is all this browser keeps. A
+// start the leader refuses, or one that never reached it, keeps the typed
+// secrets, so the operator puts the cause right and starts again without
+// typing them twice. A start the leader took clears them. A save does not:
+// the install still starts with the account as typed. And they go with the
+// state when the pane is left.
 export function AgentInstallSetup() {
   const { t } = useTranslation()
   const navigate = useNavigate()
@@ -108,10 +108,14 @@ export function AgentInstallSetup() {
   // Whether the account was typed in, or its method changed by a pick,
   // before the saved logins came: it is not swapped for a saved one then.
   const accountTouched = useRef(false)
+  // The login the typed account was saved as, which the next visit starts
+  // on once an install starts: a start refused after the save leaves the
+  // account typed, and the next one saves nothing.
+  const savedAs = useRef<string | null>(null)
 
-  // Read as the pane opens. It starts on the login the last install took,
-  // else the first saved; a list that cannot be read leaves typing alone,
-  // and so does an account typed while the list was on its way.
+  // Read as the pane opens. It starts on the login the last install took or
+  // saved, else the first saved; a list that cannot be read leaves typing
+  // alone, and so does an account typed while the list was on its way.
   useEffect(() => {
     let live = true
     api.agentInstallLogins().then(
@@ -221,8 +225,10 @@ export function AgentInstallSetup() {
     changeServers(rest.length > 0 ? rest : [emptyServerRow()])
   }
 
-  // With [Save this login] ticked the account is saved first, and the
-  // install starts with the saved login; a save refused starts nothing.
+  // With [Save this login] ticked the account is saved first, and a save
+  // refused starts nothing. The install then starts with the account as
+  // typed, not the saved login: the leader limits where a saved login's run
+  // may go, and the operator typed this one for these servers.
   const submit = async (review: boolean) => {
     setAttempted(true)
     setRefused(null)
@@ -231,7 +237,7 @@ export function AgentInstallSetup() {
     if (formProblems(form, Boolean(selected)).length > 0) return
     if (saving && loginNameProblem(saveName, logins ?? [])) return
     const sent = form
-    let login = selected?.id
+    const login = selected?.id
     setBusy(true)
     try {
       if (saving) {
@@ -251,18 +257,17 @@ export function AgentInstallSetup() {
           return
         }
         if (!mounted.current) return
-        // The cluster keeps the account now: the pane takes the saved
-        // login, and the form forgets what was typed.
+        // The cluster keeps it now: listed, and the box unticked, so a
+        // second start does not save it again. The account stays as typed.
         setLogins((list) => withLogin(list ?? [], saved))
-        setChosen(saved.id)
         setSave(false)
         setSaveName('')
-        setForm(withoutSecrets)
-        login = saved.id
+        savedAs.current = saved.id
       }
       const { run_id } = await api.startAgentInstall(buildInstallRequest(sent, review, login))
       if (!mounted.current) return
-      if (login) rememberLogin(login)
+      const last = login ?? savedAs.current
+      if (last) rememberLogin(last)
       // The leader holds them now: the form forgets them.
       setForm(withoutSecrets)
       navigate(`/cluster/tasks/runs/${encodeURIComponent(run_id)}`)
