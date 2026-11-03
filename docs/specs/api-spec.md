@@ -6444,7 +6444,7 @@ GitHub 폴더의 작업 파일을 보여 줍니다(리더, 아무것도 쓰지 �
 - 모든 라우트는 본문이 1 MiB를 넘으면 핸들러 전에 `413`(Echo의 `{"message":"Request Entity Too Large"}`, 응답 봉투가 아님)
 - 시작은 실행을 기록하고 바로 답하므로 전달의 기본 30초 안에 끝납니다. 서버 작업은 요청·브라우저와 떨어져 리더에서 돕니다
 - **`401`로 답하지 않습니다.** 서버가 SSH 로그인을 거부하면 그 행의 이유(`AGENT_INSTALL_AUTH_FAILED`)가 될 뿐 HTTP 응답이 아닙니다 — 브라우저는 `401`을 자기 세션 만료로 읽고 로그아웃합니다
-- **비밀은 저장하지도 돌려주지도 않습니다.** SSH 비밀번호·개인 키·키 암호문·sudo 비밀번호는 시작 요청의 본문에만 실려 오고, 리더는 메모리에 바이트로만 들고 있다가 0으로 덮어 지웁니다. 실행 기록(모든 매니저에 복제됨)·감사 로그·패널 로그·어떤 응답·오류 문장에도 넣지 않고, 대상 서버의 명령 인자에도 넣지 않습니다: sudo 비밀번호는 `sudo -S`의 표준 입력으로, 가입 토큰은 SSH 표준 입력으로 쓴 0600 임시 파일(`install.sh --token-file`)로 넘기고 끝나면 지웁니다. 가입 토큰은 행의 IP에만 묶인 1회용이며(30분) 행이 끝나면 그 토큰을 만든 리더의 토큰 저장소에서 회수됩니다(그사이 리더 자리를 잃었어도). 리더가 재시작했으면 30분 안에 만료됩니다. 감사 로그와 요청 로그에는 메서드와 경로만 남습니다
+- **비밀은 돌려주지 않고, 저장된 로그인 말고는 저장하지도 않습니다.** SSH 비밀번호·개인 키·키 암호문·sudo 비밀번호는 시작 요청의 본문에 실려 오거나, 운영자가 저장해 둔 로그인(아래 "저장된 로그인")에서 리더가 읽습니다. 리더는 그 설치만의 사본을 메모리에 바이트로만 들고 있다가 0으로 덮어 지웁니다. 실행 기록(모든 매니저에 복제됨)·감사 로그·패널 로그·어떤 응답·오류 문장에도 넣지 않고, 대상 서버의 명령 인자에도 넣지 않습니다: sudo 비밀번호는 `sudo -S`의 표준 입력으로, 가입 토큰은 SSH 표준 입력으로 쓴 0600 임시 파일(`install.sh --token-file`)로 넘기고 끝나면 지웁니다. 가입 토큰은 행의 IP에만 묶인 1회용이며(30분) 행이 끝나면 그 토큰을 만든 리더의 토큰 저장소에서 회수됩니다(그사이 리더 자리를 잃었어도). 리더가 재시작했으면 30분 안에 만료됩니다. 감사 로그와 요청 로그에는 메서드와 경로만 남습니다
 - **인증 정보는 쓸 일이 없어지면 지웁니다**: 모든 행이 성공하면 끝나자마자, 등록된 행이 실패했으면 [다시 확인]·[되돌리기]를 위해 끝난 뒤 10분(`run.credentials_until`)까지 또는 그 행들을 모두 되돌릴 때까지, 중지하면 바로. 리더가 바뀌면 옛 리더의 메모리와 함께 사라지고, 새 리더는 끝난 설치의 `credentials_until`을 지웁니다
 - **한 번에 하나**: 설치가 진행 중이면 다른 설치, 그룹 작업 실행의 시작·다시 실행, 수동 리더 이전(`POST /cluster/leader-transfer`)이 `409 AGENT_INSTALL_ACTIVE`이고, 리더는 선호 리더로 옮기지 않고 자리를 지킵니다. 설치는 진행 중인 실행으로 보이므로 클러스터 업데이트·CA 교체·전환·승격은 `409 TASK_RUN_ACTIVE`로 기다립니다
 
@@ -6484,6 +6484,7 @@ GitHub 폴더의 작업 파일을 보여 줍니다(리더, 아무것도 쓰지 �
 | `account.passphrase` | 개인 키의 암호문. `key` 방식에만, 선택 |
 | `account.sudo_password` | root가 아닌 로그인의 sudo 비밀번호. 없으면 비밀번호 없는 sudo(`sudo -n`)만 됨 |
 | `account.sudo_same` | sudo 비밀번호가 접속 비밀번호와 같음. `password` 방식에만, `sudo_password`와 함께 쓸 수 없음 |
+| `account.login` | 저장된 로그인의 `id`(아래 "저장된 로그인"). 이것만 넣으면 그 로그인이 계정이 됨 — 계정의 다른 필드는 모두 비우거나 `false`. 리더가 시작할 때 읽어 이 설치만의 사본을 만들고(전달한 매니저는 읽지 않음), 실행 기록에는 그 이름만 남김(`run.inputs.login`). 저장된 로그인이 서버에 비밀을 보내면 사설 주소나 리더의 tailnet 주소인 서버로만 감 — 그 밖의 서버는 행 이유 `AGENT_INSTALL_LOGIN_OFF_NETWORK` |
 | `review` | `true`면 모든 서버가 호스트 키 승인과 사전 점검까지만 하고 `awaiting: "review"`에서 멈춤. `POST …/proceed` 한 번으로 통과한 서버만 설치 |
 | `mode` | `auto`(기본: 사전 점검에서 서버가 `https://github.com`에 닿으면 온라인) · `online`(서버가 그 버전의 릴리스 아카이브를 GitHub에서 받아 리더가 서명 확인한 `checksums.txt`로 확인) · `offline`(리더가 서버 CPU의 아카이브를 받아 서명 확인 뒤 SSH로 올림) |
 | `concurrency` | 동시에 작업할 서버 수 1~5. 생략하면 3 |
@@ -6499,7 +6500,8 @@ GitHub 폴더의 작업 파일을 보여 줍니다(리더, 아무것도 쓰지 �
 **에러 응답:**
 | 코드 | HTTP 상태 | 조건 |
 |------|-----------|------|
-| `AGENT_INSTALL_INVALID` | 400 | 설치 요청이 아님. `details.field`가 무엇이 잘못됐는지를 본문의 이름으로 말함: `body`(JSON이 아니거나 없는 필드), `servers`(0대 또는 50대 초과, `details.max`: `"50"`), `user`, `method`, `password`·`key`·`passphrase`(방식에 필요한 비밀이 없거나 다른 방식의 비밀이 있음 — Tailscale SSH는 비밀을 받지 않음), `sudo_same`, `sudo_password`, `mode`, `concurrency`, 그리고 한 서버의 것이면 `details.row`(`s1` …)와 `host`·`port`·`name`·`group`. 같은 서버를 두 번 넣었으면 `field: host`와 `details.same_as`(먼저 나온 행) |
+| `AGENT_INSTALL_INVALID` | 400 | 설치 요청이 아님. `details.field`가 무엇이 잘못됐는지를 본문의 이름으로 말함: `body`(JSON이 아니거나 없는 필드), `servers`(0대 또는 50대 초과, `details.max`: `"50"`), `user`, `method`, `password`·`key`·`passphrase`(방식에 필요한 비밀이 없거나 다른 방식의 비밀이 있음 — Tailscale SSH는 비밀을 받지 않음), `sudo_same`, `sudo_password`, `login`(저장된 로그인과 다른 계정 필드를 함께 보냄), `mode`, `concurrency`, 그리고 한 서버의 것이면 `details.row`(`s1` …)와 `host`·`port`·`name`·`group`. 같은 서버를 두 번 넣었으면 `field: host`와 `details.same_as`(먼저 나온 행) |
+| `AGENT_INSTALL_LOGIN_NOT_FOUND` | 404 | `account.login`이 클러스터에 없는 로그인 |
 | `AGENT_INSTALL_ACTIVE` | 409 | 다른 설치가 진행 중 (`details.run_id`) |
 | `TASK_RUN_ACTIVE` | 409 | 그룹 작업 실행이 진행 중 (`details.run_id`) |
 | `AGENT_INSTALL_MIXED_VERSIONS` | 409 | 매니저들의 버전이 다름: 설치는 리더의 버전으로 고정하므로 클러스터를 먼저 업데이트 (`details.version`: 리더의 버전, `details.managers`: `이름 (버전), …`). 아직 하트비트가 없는 매니저는 셈하지 않음 |
@@ -6545,6 +6547,59 @@ GitHub 폴더의 작업 파일을 보여 줍니다(리더, 아무것도 쓰지 �
 
 ---
 
+### 저장된 로그인 (`/api/v1/cluster/agent-installs/logins`)
+설치 창이 고르는, 이름을 붙여 저장한 SSH 로그인입니다. 설치할 서버들이 같은 초기 계정을 쓸 때 계정을 매번 입력하지 않도록 클러스터가 보관합니다. 네 라우트 모두 리더가 처리하고(다른 매니저는 본문 그대로 전달) 리더의 복제 상태로 답하므로, 저장한 직후의 목록에 바로 보입니다. 클러스터가 아니면 `400`, 막 뽑힌 리더는 `503`, POST·PUT의 본문이 1 MiB를 넘으면 `413`인 것은 위와 같습니다. 감사 로그와 요청 로그에는 메서드와 경로만 남습니다.
+
+- **보관 위치**: 복제 설정 맵의 `installlogin/<id>`(JSON). 비밀(비밀번호·개인 키·키 암호문·sudo 비밀번호)은 `jwt_secret`·클러스터 CA 키처럼 평문으로, 모든 매니저의 Raft 로그와 스냅숏(`/var/lib/sfpanel/cluster`, root만 읽음)에 남습니다. 에이전트는 Raft가 없으므로 갖지 않습니다. 운영자가 저장을 고른 예외이며, 그 밖의 규칙(실행 기록·감사 로그·패널 로그·응답·오류 문장·명령 인자에 비밀 없음)은 그대로입니다
+- **쓰기 전용**: 어떤 응답도 저장된 비밀을 돌려주지 않습니다. 비밀 대신 `has_password`·`has_key`·`has_passphrase`·`has_sudo_password`로 있는지만 답합니다
+- 클러스터마다 32개까지. 이름은 앞뒤 공백을 뺀 1~64자에 제어 문자가 없고, 대소문자를 무시하고 겹치지 않음
+- 설치는 시작할 때 로그인을 읽어 자기 사본을 만듭니다. 그 뒤에 로그인을 바꾸거나 지워도 진행 중인 설치는 그 사본으로 끝까지 갑니다
+
+**로그인 뷰** — 네 라우트가 로그인을 답하는 유일한 모양:
+```json
+{ "id": "3f9a1c0b7d2e4a61", "name": "기본 계정", "user": "ubuntu", "method": "password",
+  "has_password": true, "has_key": false, "has_passphrase": false,
+  "sudo_same": true, "has_sudo_password": false,
+  "created_at": "2026-11-03T09:00:00Z", "updated_at": "2026-11-03T09:00:00Z", "updated_by": "admin" }
+```
+
+| 필드 | 설명 |
+|------|------|
+| `id` | 리더가 만든 16자리 16진수 |
+| `name` | 앞뒤 공백을 뺀 이름 |
+| `method` | `password` · `key` · `tailscale`(시작 본문의 `account.method`와 같은 이름) |
+| `has_password`, `has_key`, `has_passphrase`, `has_sudo_password` | 그 비밀이 저장돼 있는지 |
+| `sudo_same` | sudo 비밀번호가 접속 비밀번호와 같음 |
+| `created_at`, `updated_at` | 처음 저장한 시각, 마지막으로 저장한 시각 |
+| `updated_by` | 마지막으로 저장한 세션의 사용자 |
+
+| 메서드 | 경로 | 본문 | 응답 |
+|--------|------|------|------|
+| GET | `/api/v1/cluster/agent-installs/logins` | 없음 | `200 { "logins": [뷰, …] }`, 이름순(대소문자 무시). 없으면 `[]` |
+| POST | `/api/v1/cluster/agent-installs/logins` | 아래 | `201 { "login": 뷰 }` |
+| PUT | `/api/v1/cluster/agent-installs/logins/:id` | 아래 | `200 { "login": 뷰 }` |
+| DELETE | `/api/v1/cluster/agent-installs/logins/:id` | 없음 | `200 { "id": "…" }` (작업 삭제와 같은 모양) |
+
+**Request Body (POST, PUT):**
+```json
+{ "name": "기본 계정", "user": "ubuntu", "method": "password",
+  "password": "…", "key": "", "passphrase": "", "sudo_same": true, "sudo_password": "" }
+```
+
+`name` 말고는 시작 본문의 `account`와 같은 필드, 같은 규칙입니다(방식마다 받는 비밀이 정해져 있고, `sudo_same`은 `password` 방식에만). 없는 필드는 거부합니다.
+
+**PUT은 저장된 것과 합칩니다.** 비워 둔 비밀은 새 방식이 그 비밀을 쓰면 저장된 것을 그대로 둡니다. 새 개인 키를 보내면 암호문은 본문의 것으로 바뀝니다(비우면 암호문 없음). 키를 비워 두면 저장된 키와 함께 저장된 암호문도 남습니다(본문에 암호문이 있으면 그것으로 바뀜). `sudo_same: true`면 저장된 sudo 비밀번호를 지웁니다. 새 방식이 쓰지 않는 저장된 비밀은 지워집니다 — 예를 들어 `password`에서 `key`로 바꾸면 비밀번호가 사라지고, 다시 `password`로 바꿀 때는 비밀번호를 보내야 합니다. 합친 결과를 시작과 같은 규칙으로 검사합니다. `key`·`tailscale` 방식에서 저장된 sudo 비밀번호를 비밀번호 없는 sudo로 되돌리는 방법은 없습니다(비우면 남음): 로그인을 지우고 다시 저장합니다.
+
+**에러 응답:**
+| 코드 | HTTP 상태 | 조건 |
+|------|-----------|------|
+| `AGENT_INSTALL_INVALID` | 400 | `details.field`: `body`(JSON이 아니거나 없는 필드), `name`(앞뒤 공백을 뺀 1~64자가 아니거나 제어 문자가 있음, `details.max`: `"64"`), `user`, `method`, `password`·`key`·`passphrase`, `sudo_same`, `sudo_password`(시작의 계정과 같은 규칙. PUT은 합친 결과로) |
+| `AGENT_INSTALL_LOGIN_NOT_FOUND` | 404 | PUT·DELETE의 `:id`가 없는 로그인 |
+| `AGENT_INSTALL_LOGIN_EXISTS` | 409 | 다른 로그인이 같은 이름(대소문자 무시)을 씀 (`details.field`: `name`) |
+| `AGENT_INSTALL_LOGIN_LIMIT` | 409 | 이미 32개를 저장함 (`details.max`: `"32"`) |
+
+---
+
 ### 행의 질문에 답하기
 리더가 처리합니다(다른 매니저는 전달). `:id`는 실행 ID, `:key`는 행 키(`s1` …). 성공하면 `200 { "success": true, "data": null }`이고, 그 결과는 실행 기록과 스트림으로 봅니다.
 
@@ -6573,7 +6628,7 @@ GitHub 폴더의 작업 파일을 보여 줍니다(리더, 아무것도 쓰지 �
 |------|------|
 | `run.kind` | `"agent-install"`. 작업 실행에는 없음 |
 | `run.task_id`, `run.task_name` | `builtin/agent-install`, `에이전트 설치 (SSH)`(화면은 i18n으로 이름을 붙임) |
-| `run.inputs` | `{ "mode", "review", "version" }`만 — `version`은 설치하는 버전 |
+| `run.inputs` | `{ "mode", "review", "version" }`만, 저장된 로그인으로 시작했으면 그 이름인 `login`도 — `version`은 설치하는 버전. 계정과 비밀은 없음 |
 | `run.nodes`, `run.waves` | 행 키(`s1` …). 노드 ID가 아님 |
 | `run.batch` | `concurrency` |
 | `run.status` | `running` → `succeeded`(실패한 행이 없음) · `failed`(실패한 행이 있음) · `stopped`(중지). 리더가 바뀌면 새 리더가 진행 중인 설치를 이어받지 않고 `failed`, `reason: "AGENT_INSTALL_LEADER_CHANGED"`로 끝냄(등록 안 된 행과 진행 중이던 행은 그 이유로 실패, 등록된 행은 `node_id`를 지님) |
@@ -6633,6 +6688,7 @@ GitHub 폴더의 작업 파일을 보여 줍니다(리더, 아무것도 쓰지 �
 | `AGENT_INSTALL_LEADER_CHANGED` | — | 설치 도중 리더가 바뀜: 인증 정보와 토큰이 옛 리더에만 있었음. `node_id`가 있으면 에이전트로 등록됨 — 노드 화면에서 확인 |
 | `AGENT_INSTALL_CREDENTIALS_GONE` | `reverted` | 인증 정보가 지워진 뒤에 되돌림: 노드는 제거했고 서버의 정리는 운영자 몫, 또는 인증 정보가 사라진 뒤 그 행이 접속하려 함 |
 | `AGENT_INSTALL_LABEL_FAILED` | `group` | 성공한 행(`status: "succeeded"`, `node_id` 있음): 에이전트는 연결 확인을 통과했으나 `group` 라벨을 붙이지 못함. 실행은 이 때문에 실패하지 않고 인증 정보도 남기지 않음 — 노드 화면에서 라벨을 붙임 |
+| `AGENT_INSTALL_LOGIN_OFF_NETWORK` | `address` | 저장된 로그인이 서버에 비밀(`password` 방식의 비밀번호, 또는 sudo 비밀번호 — `sudo_same`이면 접속 비밀번호)을 보내는데, 행의 주소(`address`: 행의 IP)가 사설 주소(10/8·172.16/12·192.168/16·fc00::/7)도 아니고 리더의 tailnet이 피어로 올린 Tailscale 주소도 아님. 리더가 tailnet을 읽지 못해도(`tailscale`이 없거나 tailscaled가 응답하지 않거나 `BackendState`가 `Running`이 아님) 거부하고, 접속 국면 출력에 이유를 남김. 호스트 키를 받기 전에 멈추므로 서버에는 아무것도 가지 않음. 저장된 로그인을 손에 넣은 세션이 자기 SSH 서버로 비밀번호를 빼내지 못하게 하는 제한 — 창에서 직접 입력한 계정과, sudo 비밀번호가 없는 `key` 방식(공개 키 인증은 키를 보내지 않음)은 제한이 없음 |
 | `AGENT_INSTALL_STOPPED` | `registered` | 에이전트가 등록된 뒤 운영자가 설치(또는 다시 확인)를 중지함(`registered: "1"`, `status: "stopped"`, `node_id` 있음). 노드는 되돌릴 때까지 클러스터에 남음. [되돌리기]만 — 다시 확인은 없음 |
 
 어느 행이든 되돌리면 `reason_details.reverted`(`removing` · `purged` · `cleanup_failed` · `removed`)가, 원래 SFPanel이 있던 서버면 `standalone: "1"`이 더해집니다. 원래 SFPanel이 있던 서버에서 설치가 등록 없이 끝나면, 사전 점검 때 돌고 있던 패널을 다시 켜고 `reason_details.panel`(`restarted` · `restart_failed`)을 더합니다.
@@ -7369,14 +7425,18 @@ WireGuard 키페어 생성 (`wg genkey` + `wg pubkey`).
 | GET | `/api/v1/task-jobs/:id` | 내부 | 잡 상태와 출력 조각 (`?skip=`) |
 | POST | `/api/v1/task-jobs/:id/cancel` | 내부 | 잡 취소 (`force`일 때만) |
 
-### 에이전트 설치 (7개)
+### 에이전트 설치 (11개)
 
 매니저 전용. 모두 리더가 처리한다(팔로워는 전달). 진행·기록·출력·중지는 그룹 작업의 실행 라우트. 상세는 위의 "에이전트 설치 API".
 
 | 메서드 | 경로 | 인증 | 설명 |
 |--------|------|------|------|
 | GET | `/api/v1/cluster/agent-installs/tailnet` | O | 리더의 tailnet에서 설치할 수 있는 Linux 기기 (리더가 `tailscale status --json`을 읽음) |
-| POST | `/api/v1/cluster/agent-installs` | O | SSH로 에이전트 설치 시작 (202, 리더, 서버 목록과 계정 — 비밀은 이 본문에만) |
+| GET | `/api/v1/cluster/agent-installs/logins` | O | 저장된 로그인 목록 (비밀 없이, 있는지만) |
+| POST | `/api/v1/cluster/agent-installs/logins` | O | 로그인 저장 (201) |
+| PUT | `/api/v1/cluster/agent-installs/logins/:id` | O | 저장된 로그인 수정 (비워 둔 비밀은 유지) |
+| DELETE | `/api/v1/cluster/agent-installs/logins/:id` | O | 저장된 로그인 삭제 |
+| POST | `/api/v1/cluster/agent-installs` | O | SSH로 에이전트 설치 시작 (202, 리더, 서버 목록과 계정 — 비밀은 이 본문에만, 또는 저장된 로그인의 `id`) |
 | POST | `/api/v1/cluster/agent-installs/:id/servers/:key/host-key` | O | 호스트 키 지문 승인·거절 (`{fingerprint, accept}`) |
 | POST | `/api/v1/cluster/agent-installs/:id/servers/:key/standalone` | O | 단독 패널의 전환 확인·거절 (`{accept}`) |
 | POST | `/api/v1/cluster/agent-installs/:id/proceed` | O | 검토로 멈춘 서버들의 설치 계속 |

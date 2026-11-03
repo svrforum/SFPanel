@@ -713,6 +713,56 @@ There are three methods. One is chosen for every server.
     host beside the link.
   - A non-root user still needs sudo, as above.
 
+**Saved logins**
+
+The servers an install reaches often share one initial account. The form
+can save an account under a name, and a later install picks it instead of
+typing it again. The API is `/api/v1/cluster/agent-installs/logins`,
+described in `api-spec.md` ("저장된 로그인"); the install names one in its
+start as `account.login`.
+
+- **What one is.** A name and an account, as the form takes one: the user,
+  the method, the secrets that method uses (a password, or a private key and
+  its passphrase), and the sudo password or "the same as the login
+  password". It is checked as an install's account is. A name is 1 to 64
+  characters once trimmed, with no control character, and no two logins
+  share one, whatever its case. A cluster keeps at most 32.
+- **Where it is kept.** In the replicated config map
+  (`installlogin/<id>`), so any manager can start an install with it. Its
+  secrets are plaintext there, as the cluster's JWT key and CA key are: in
+  every manager's Raft log and snapshots under `/var/lib/sfpanel/cluster`,
+  which only root reads. Encrypting them would need a key kept beside them,
+  which would protect nothing. Agents hold no Raft, so no agent has them. A
+  panel backup holds the database, `config.yaml` and the compose files, not
+  the Raft data, so it does not carry them.
+- **Write-only.** No route answers a saved secret. A login is listed with
+  `has_password`, `has_key`, `has_passphrase` and `has_sudo_password` in
+  their place, and a change that leaves a secret empty keeps the stored one.
+  An install's run record names the login it used (`inputs.login`), never
+  its secrets.
+- **Where a saved secret may go.** A saved login lets anyone with a panel
+  session start an install with it. A stolen session could aim it at an
+  SSH server of its own and read the password as it arrives. So when an
+  install uses a saved login that sends the server a secret (a password
+  login, or any sudo password, the login password included when sudo shares
+  it), each server's address must be one of:
+  - private: 10.0.0.0/8, 172.16.0.0/12, 192.168.0.0/16 or fc00::/7;
+  - a Tailscale address the leader's tailnet lists on one of its peers.
+
+  Any other server's row fails `AGENT_INSTALL_LOGIN_OFF_NETWORK` before
+  anything is sent to it, the request for its host key included. A tailnet
+  the leader cannot read (no `tailscale`, no `tailscaled` answering,
+  Tailscale not running) refuses too, and the connect phase's output says why.
+  A key login without a sudo password sends no secret, as public-key
+  authentication never sends the key, and is not limited. Neither is an
+  account typed in the form: the operator typed it for those servers. For a
+  server on a public address, type the password in the form.
+- **An install keeps its own copy.** The leader reads the saved login when
+  the install starts, and the install holds its own copy, which it zeroes
+  when it drops its credentials. Changing or deleting the login meanwhile
+  changes nothing for that install; the next one reads the login as it
+  then is.
+
 **Addresses**
 
 A host is an IP or a name the leader resolves (a Tailscale MagicDNS name
@@ -946,9 +996,12 @@ node's page.
 
   Revert never leaves a panel without an administrator.
 - **Credentials.** The SSH password, private key, passphrase and sudo
-  password are never stored anywhere: not on disk, in Raft, in a run
-  record, a log, an audit row or a response. They live only in the leader's
-  memory, as bytes that are zeroed when they go.
+  password typed for an install are never stored anywhere: not on disk, in
+  Raft, in a run record, a log, an audit row or a response. A saved login
+  (above) is the one exception, made by the operator: it is kept in Raft,
+  and still never in a run record, a log, an audit row or a response. An
+  install holds its account, typed or saved, only in the leader's memory,
+  as bytes that are zeroed when they go.
   - They go as soon as an install succeeds.
   - When a registered server fails, they stay for 10 minutes after the
     install ends, so Revert can still purge it. `credentials_until` in the
