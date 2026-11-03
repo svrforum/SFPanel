@@ -2668,6 +2668,43 @@ test.describe('agent install', () => {
       await expect(password).toHaveValue(PASSWORD)
     })
 
+    test('a name the leader refused goes when a saved login is chosen or the box is unticked: no alert stays for a field not shown', async ({ page }) => {
+      const { calls } = await mock(page, {
+        replies: {
+          [LOGINS]: listed(BASIC),
+          'POST /cluster/agent-installs/logins': fail(409, 'AGENT_INSTALL_LOGIN_EXISTS', 'Another saved login has this name', { field: 'name' }),
+        },
+      })
+      await page.goto(INSTALL_PATH)
+      await chooser(page).selectOption('')
+      await host(page, 1).fill('192.0.2.21')
+      await account(page).getByRole('textbox', { name: 'User' }).fill('ubuntu')
+      await account(page).getByLabel('Login password', { exact: true }).fill(PASSWORD)
+      const save = account(page).getByRole('checkbox', { name: 'Save this login' })
+      await save.check()
+      await account(page).getByRole('textbox', { name: 'Login name' }).fill('ops')
+      const start = pane(page).getByRole('button', { name: 'Start install' })
+      await start.click()
+      await expect(account(page)).toContainText('Another saved login already has this name.')
+      await expect(pane(page).getByTestId('install-error')).toHaveText('Correct the fields marked above.')
+
+      // A saved login chosen: the name is not shown, nor is its refusal.
+      await chooser(page).selectOption(BASIC.id)
+      await expect(pane(page).getByTestId('install-error')).toHaveCount(0)
+      // Typed again, the box still ticked: the refusal went with the choice.
+      await chooser(page).selectOption('')
+      await expect(save).toBeChecked()
+      await expect(account(page)).not.toContainText('Another saved login already has this name.')
+      await expect(pane(page).getByTestId('install-error')).toHaveCount(0)
+
+      // Refused again, then the box unticked.
+      await start.click()
+      await expect(pane(page).getByTestId('install-error')).toHaveText('Correct the fields marked above.')
+      await save.uncheck()
+      await expect(pane(page).getByTestId('install-error')).toHaveCount(0)
+      expect(calls.map((c) => c.path)).toEqual(Array(2).fill('/cluster/agent-installs/logins'))
+    })
+
     test('Manage changes a login, a secret left empty kept, and deletes one after asking; the pane follows', async ({ page }) => {
       const CHANGED = { ...BASIC, user: 'admin' }
       const { calls } = await mock(page, {
@@ -2720,6 +2757,8 @@ test.describe('agent install', () => {
       }))
       await expect(d.getByTestId(`install-login-${BASIC.id}`)).toContainText('admin · Password')
       await expect(chooser(page).locator('option', { hasText: '기본 계정' })).toHaveText('기본 계정 (admin · Password)')
+      // The login changed is still the one chosen.
+      await expect(chooser(page)).toHaveValue(BASIC.id)
 
       // Deleted after asking: the login chosen goes, and the pane takes the default.
       await d.getByRole('button', { name: 'Delete 기본 계정' }).click()
@@ -2734,6 +2773,41 @@ test.describe('agent install', () => {
       await d.locator('[data-slot="dialog-footer"]').getByRole('button', { name: 'Close' }).click()
       await expect(chooser(page)).toHaveValue(OPS.id)
       await expect(account(page).getByTestId('install-login-summary')).toHaveText('ops · Private key · sudo password saved')
+    })
+
+    test('a change and a delete in Manage leave an account being typed as it is', async ({ page }) => {
+      const CHANGED = { ...OPS, user: 'admin' }
+      const { calls } = await mock(page, {
+        replies: {
+          [LOGINS]: listed(BASIC, OPS),
+          [`PUT /cluster/agent-installs/logins/${OPS.id}`]: ok({ login: CHANGED }),
+          [`DELETE /cluster/agent-installs/logins/${BASIC.id}`]: ok({ id: BASIC.id }),
+        },
+      })
+      await page.goto(INSTALL_PATH)
+      await expect(chooser(page)).toHaveValue(BASIC.id)
+      await chooser(page).selectOption('')
+      await account(page).getByRole('textbox', { name: 'User' }).fill('ops')
+      await account(page).getByRole('button', { name: 'Manage' }).click()
+      const d = page.getByRole('dialog', { name: 'Saved logins' })
+      await d.getByRole('button', { name: 'Edit ops key' }).click()
+      const edit = page.getByRole('dialog', { name: 'Edit saved login' })
+      await edit.getByRole('textbox', { name: 'User' }).fill('admin')
+      await edit.getByRole('button', { name: 'Save' }).click()
+      await expect(d.getByTestId(`install-login-${OPS.id}`)).toContainText('admin · Private key')
+      await expect(chooser(page)).toHaveValue('')
+
+      await d.getByRole('button', { name: 'Delete 기본 계정' }).click()
+      await page.getByRole('dialog', { name: 'Delete the saved login 기본 계정?' }).getByRole('button', { name: 'Delete' }).click()
+      await expect(d.getByTestId('install-logins').getByRole('listitem')).toHaveCount(1)
+      await expect(chooser(page)).toHaveValue('')
+      await d.locator('[data-slot="dialog-footer"]').getByRole('button', { name: 'Close' }).click()
+      await expect(chooser(page)).toHaveValue('')
+      await expect(account(page).getByRole('textbox', { name: 'User' })).toHaveValue('ops')
+      expect(calls.map((c) => `${c.method} ${c.path}`)).toEqual([
+        `PUT /cluster/agent-installs/logins/${OPS.id}`,
+        `DELETE /cluster/agent-installs/logins/${BASIC.id}`,
+      ])
     })
 
     test('a saved login deleted since the list was read: the start says so, and the list is read again', async ({ page }) => {
@@ -2795,6 +2869,41 @@ test.describe('agent install', () => {
       await expect(chooser(page).locator('option')).toHaveCount(2)
       await expect(chooser(page)).toHaveValue('')
       await expect(account(page).getByRole('radio', { name: 'Tailscale SSH' })).toBeChecked()
+    })
+
+    test('a pick with a saved Tailscale SSH login chosen names the devices without it, the login unchanged; a saved password login hears nothing', async ({ page }) => {
+      const TS = savedLogin('7d6c5b4a39281706', 'tailnet root', { user: 'root', method: 'tailscale', has_password: false, sudo_same: false })
+      await page.addInitScript(([key, id]) => localStorage.setItem(key, id), [LAST, TS.id])
+      const peers = [
+        device('web-01', '100.64.0.11'),
+        device('web-03', '100.64.0.13', { ssh: false }),
+        device('web-04', '100.64.0.14', { ssh: false }),
+        device('web-05', '100.64.0.15'),
+      ]
+      await mock(page, { replies: { [LOGINS]: listed(BASIC, TS), [TAILNET]: tailnet(peers) } })
+      await page.goto(INSTALL_PATH)
+      await expect(chooser(page)).toHaveValue(TS.id)
+      await pane(page).getByRole('button', { name: 'Pick from Tailscale' }).click()
+      await picker(page).getByRole('checkbox', { name: 'web-01' }).check()
+      await picker(page).getByRole('checkbox', { name: 'web-03' }).check()
+      await picker(page).getByRole('button', { name: 'Add 2 servers' }).click()
+      await expect(pane(page).getByTestId('install-tailnet-note')).toHaveText(
+        'Not every server added runs Tailscale SSH, so the login was left as it is. Without it: web-03',
+      )
+      // The saved login stays chosen, its method its own.
+      await expect(chooser(page)).toHaveValue(TS.id)
+      await expect(account(page).getByTestId('install-login-summary')).toHaveText('root · Tailscale SSH · root needs no sudo')
+
+      // A saved password login needs no Tailscale SSH: no note.
+      await chooser(page).selectOption(BASIC.id)
+      await expect(pane(page).getByTestId('install-tailnet-note')).toHaveCount(0)
+      await pane(page).getByRole('button', { name: 'Pick from Tailscale' }).click()
+      await picker(page).getByRole('checkbox', { name: 'web-04' }).check()
+      await picker(page).getByRole('checkbox', { name: 'web-05' }).check()
+      await picker(page).getByRole('button', { name: 'Add 2 servers' }).click()
+      await expect(pane(page).locator('[data-testid^="install-server-"]')).toHaveCount(4)
+      await expect(pane(page).getByTestId('install-tailnet-note')).toHaveCount(0)
+      await expect(chooser(page)).toHaveValue(BASIC.id)
     })
 
     test('a list that cannot be read leaves the account to type, and says why', async ({ page }) => {

@@ -143,9 +143,12 @@ export function AgentInstallSetup() {
   const selected = chosen === TYPED ? undefined : logins?.find((l) => l.id === chosen)
   const canSave = logins !== null && !loginsError
   const saving = !selected && save && canSave
+  // A name the leader refused goes with the choice, as it goes when the
+  // box is unticked: a saved login chosen shows neither the name nor it.
   const choose = (value: string) => {
     setChosen(value)
     setPickNote(null)
+    setNameRefused(null)
   }
   // The list as the dialog left it: a login chosen that it no longer has
   // gives way to the default.
@@ -203,7 +206,8 @@ export function AgentInstallSetup() {
 
   // Devices picked from the leader's tailnet: a row each, and Tailscale SSH
   // as the typed login when every one added runs it. A saved login chosen
-  // stays the account.
+  // stays the account, its method its own; a Tailscale SSH one still names
+  // the devices added that do not run it.
   const addTailnet = (picks: AgentInstallTailnetPeer[]) => {
     setPicking(null)
     const { servers, added } = addPicks(form.servers, picks)
@@ -211,7 +215,8 @@ export function AgentInstallSetup() {
     setRefused(null)
     if (selected) {
       change({ servers })
-      setPickNote(null)
+      const withoutSsh = selected.method === 'tailscale' ? methodAfterPicks('tailscale', added).withoutSsh : []
+      setPickNote(withoutSsh.length > 0 ? { switched: false, withoutSsh } : null)
       return
     }
     const after = methodAfterPicks(form.method, added)
