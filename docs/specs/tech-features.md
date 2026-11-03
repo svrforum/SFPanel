@@ -152,7 +152,7 @@
   - 파일 읽기 (최대 5MB, Monaco 에디터; 초과 시 다운로드로 안내), 쓰기 최대 10MB, 다운로드 최대 2GB
   - 파일 생성/쓰기/저장 (`.bak` 백업은 스트리밍 복사)
   - 디렉토리 생성 (중첩 경로 자동 생성)
-  - 파일/디렉토리 삭제 (시스템 중요 경로 17개 보호: /, /etc, /usr, /bin, /sbin, /var, /boot, /proc, /sys, /dev, /home, /root, /lib, /lib64, /opt, /run, /srv)
+  - 파일/디렉토리 삭제 (지우면 시스템이 바로 멈추는 경로 14개는 정확히 그 경로일 때 삭제·옮기기를 거부: /, /bin, /sbin, /lib, /lib64, /boot, /proc, /sys, /dev, /run, /usr, /usr/bin, /usr/lib, /usr/sbin — 보안 장치가 아니라 잘못 누름 방지이며, 운영자가 일하는 /etc·/opt·/home·/var·/srv·/root는 넣지 않음)
   - **읽기 차단 경로(read-protected)**: /root/.ssh, 사용자 홈의 SSH 키/authorized_keys/known_hosts, 클러스터의 Raft 로그·스냅숏(`/var/lib/sfpanel/cluster/` — JWT 비밀·CA 키·에이전트 키·저장된 로그인이 평문) 등 → 403
   - **업로드 정책**: 웹 서빙 디렉토리(/var/www 등)에는 실행 확장자(.php/.sh/.cgi/.jsp 등) 및 .htaccess/.htpasswd/web.config 업로드 차단
   - 파일/디렉토리 이름 변경 (이동), 다운로드

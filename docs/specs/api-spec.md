@@ -5001,9 +5001,7 @@ data: {"phase":"ready","session":"5f0c…e9a1","sha256":"9b2d…","bytes":214748
 ```json
 {
   "name": "sfpanel",
-  "advertise_address": "192.168.1.10",
-  "grpc_port": 3629,
-  "raft_tls": true
+  "advertise_address": "192.168.1.10"
 }
 ```
 
@@ -5011,8 +5009,8 @@ data: {"phase":"ready","session":"5f0c…e9a1","sha256":"9b2d…","bytes":214748
 |------|------|------|------|
 | `name` | string | 아니오 | 클러스터 이름 (기본값: "sfpanel") |
 | `advertise_address` | string | 아니오 | Advertise 주소. 미지정 시 자동 감지 |
-| `grpc_port` | number | 아니오 | gRPC 포트 (기본값: API 포트 + 1) |
-| `raft_tls` | boolean | 아니오 | Raft TLS 사용 여부 (기본값: true) |
+
+gRPC 포트는 요청으로 정하지 않습니다: 이 서버 `config.yaml`의 `cluster.grpc_port`(없으면 API 포트 + 1)를 씁니다. 새 클러스터의 Raft는 항상 TLS입니다.
 
 **Response (200):**
 ```json
@@ -5054,9 +5052,7 @@ data: {"phase":"ready","session":"5f0c…e9a1","sha256":"9b2d…","bytes":214748
   "leader_address": "192.168.1.5:3629",
   "token": "join-token-string",
   "ca_pin": "sha256:3f1c…",
-  "advertise_address": "192.168.1.10",
-  "grpc_port": 3629,
-  "node_name": "worker-01"
+  "advertise_address": "192.168.1.10"
 }
 ```
 
@@ -5066,8 +5062,8 @@ data: {"phase":"ready","session":"5f0c…e9a1","sha256":"9b2d…","bytes":214748
 | `token` | string | 예 | 참가 토큰 |
 | `ca_pin` | string | 예 | 클러스터 CA 공개키(SPKI)의 sha256, `sha256:<hex>`. 리더의 토큰 화면과 `sfpanel cluster token`이 주는 값으로, 가입하는 노드는 이 값으로 리더 인증서를 검증합니다 |
 | `advertise_address` | string | 아니오 | Advertise 주소. 미지정 시 리더 네트워크 기반 자동 감지 |
-| `grpc_port` | number | 아니오 | gRPC 포트 (기본값: API 포트 + 1) |
-| `node_name` | string | 아니오 | 노드 표시 이름 |
+
+gRPC 포트는 init과 같이 이 서버 `config.yaml`의 `cluster.grpc_port`(없으면 API 포트 + 1)를 쓰고, 노드 이름은 이 서버의 호스트 이름입니다.
 
 **Response (200):**
 ```json
