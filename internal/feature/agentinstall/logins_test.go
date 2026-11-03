@@ -584,25 +584,28 @@ func TestASavedSecretGoesOnlyToPrivateAndTailnetAddresses(t *testing.T) {
 		tailnet                func(*fakeEnv)
 		// passwordless is a server whose sudo asks no password.
 		passwordless, refused bool
-		// log is what the connect phase's output says of the tailnet.
-		log string
+		// log is what the connect phase's output says of the tailnet, and
+		// detail the refusal's tailnet detail: unknown (not read, or not
+		// Running) or not_listed, for a Tailscale address only.
+		log, detail string
 	}{
 		{name: "a saved password to a public address", ip: "192.0.2.11", login: passwordLogin, refused: true},
 		{name: "a saved password to 192.168/16", ip: "192.168.1.11", login: passwordLogin},
 		{name: "a saved password to 10/8", ip: "10.0.0.11", login: passwordLogin},
 		{name: "a saved password to a Tailscale address the tailnet lists", ip: "100.64.0.31", login: passwordLogin, tailnet: listing("100.64.0.31")},
-		{name: "a saved password to a Tailscale address the tailnet does not list", ip: "100.64.0.31", login: passwordLogin, tailnet: listing("100.64.0.32"), refused: true},
+		{name: "a saved password to a Tailscale address the tailnet does not list", ip: "100.64.0.31", login: passwordLogin, tailnet: listing("100.64.0.32"), refused: true,
+			detail: "not_listed"},
 		{name: "a saved password to a Tailscale address, the tailnet unreadable", ip: "100.64.0.31", login: passwordLogin, refused: true,
 			tailnet: func(env *fakeEnv) {
 				env.tailscale.SetOutput("exists:tailscale", "", nil)
 				env.tailscale.SetOutput("tailscale", "failed to connect to local tailscaled\n", errors.New("exit status 1"))
-			}, log: "the tailnet could not be read (tailscaled is not running)"},
+			}, log: "the tailnet could not be read (tailscaled is not running)", detail: "unknown"},
 		{name: "a saved password to a Tailscale address, no tailscale on the leader", ip: "100.64.0.31", login: passwordLogin, refused: true,
-			log: "the tailnet could not be read (tailscale is not installed)"},
+			log: "the tailnet could not be read (tailscale is not installed)", detail: "unknown"},
 		{name: "a saved password to a Tailscale address, Tailscale stopped", ip: "100.64.0.31", login: passwordLogin, refused: true,
 			tailnet: func(env *fakeEnv) {
 				env.onTailnet(strings.Replace(statusWith(map[string][]string{"100.64.0.31": nil}), `"BackendState":"Running"`, `"BackendState":"Stopped"`, 1))
-			}, log: "Tailscale on this leader is Stopped"},
+			}, log: "Tailscale on this leader is Stopped", detail: "unknown"},
 		{name: "a saved key login without a sudo password to a public address", ip: "192.0.2.11", login: keyLogin, passwordless: true},
 		{name: "a saved key login with a sudo password to a public address", ip: "192.0.2.11", login: keySudoLogin, refused: true},
 		{name: "a typed password to a public address", ip: "192.0.2.11", typed: typed},
@@ -641,8 +644,12 @@ func TestASavedSecretGoesOnlyToPrivateAndTailnetAddresses(t *testing.T) {
 				}
 				return
 			}
-			if r.Reason != response.ErrAgentInstallLoginOffNetwork || !maps.Equal(r.ReasonDetails, map[string]string{"address": tc.ip}) {
-				t.Fatalf("s1 awaits %q, failed %q %v; want failed %s {address: %s}", r.Awaiting, r.Reason, r.ReasonDetails, response.ErrAgentInstallLoginOffNetwork, tc.ip)
+			want := map[string]string{"address": tc.ip}
+			if tc.detail != "" {
+				want["tailnet"] = tc.detail
+			}
+			if r.Reason != response.ErrAgentInstallLoginOffNetwork || !maps.Equal(r.ReasonDetails, want) {
+				t.Fatalf("s1 awaits %q, failed %q %v; want failed %s %v", r.Awaiting, r.Reason, r.ReasonDetails, response.ErrAgentInstallLoginOffNetwork, want)
 			}
 			if h := env.waitEnded(t, id); h.Status != cluster.RunFailed {
 				t.Fatalf("run %s, want failed", h.Status)

@@ -766,7 +766,9 @@ const (
 	// fc00::/7) nor a Tailscale address the leader's tailnet lists on a
 	// peer, or the tailnet could not be read. Nothing reached the server,
 	// not even a request for its host key. A password typed in the form is
-	// not limited. Details: address, the row's IP.
+	// not limited. Details: address, the row's IP; for a Tailscale address,
+	// tailnet: unknown (the tailnet could not be read, or Tailscale on the
+	// leader is not Running) or not_listed (no peer of it holds the IP).
 	ErrAgentInstallLoginOffNetwork = "AGENT_INSTALL_LOGIN_OFF_NETWORK"
 )
 

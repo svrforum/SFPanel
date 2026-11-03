@@ -283,12 +283,15 @@ func (a *Account) sendsSecret() bool {
 // session could otherwise aim a saved password at a server of its own. A
 // tailnet that cannot be read refuses, and the connect log says why. An
 // account typed in the form is not limited: the operator typed it for these
-// servers.
+// servers. The refusal names the row's address and, for a Tailscale one,
+// what the tailnet said (tailnet): unknown when it could not be read or
+// Tailscale on the leader is not Running, not_listed when no peer holds it.
 func (r *row) savedLoginAllowed(ctx context.Context, log *phaseLog) error {
 	s := r.s
 	if !s.savedSecret || r.ip.IsPrivate() {
 		return nil
 	}
+	tailnet := ""
 	if cluster.IsTailscaleIP(r.ip) {
 		t, err := s.env.Tailnet(ctx)
 		switch {
@@ -297,17 +300,24 @@ func (r *row) savedLoginAllowed(ctx context.Context, log *phaseLog) error {
 				return ctx.Err()
 			}
 			log.printf("the saved login is not sent to %s: the tailnet could not be read (%s)", r.ip, err)
+			tailnet = "unknown"
 		case t.BackendState != "Running":
 			log.printf("the saved login is not sent to %s: Tailscale on this leader is %s", r.ip, t.BackendState)
+			tailnet = "unknown"
 		default:
 			for _, p := range t.Peer {
 				if p != nil && p.holds(r.ip) {
 					return nil
 				}
 			}
+			tailnet = "not_listed"
 		}
+	}
+	details := []string{"address", r.ip.String()}
+	if tailnet != "" {
+		details = append(details, "tailnet", tailnet)
 	}
 	return fail(response.ErrAgentInstallLoginOffNetwork,
 		"a saved login's password goes only to servers on a private network or in the leader's tailnet; a password typed in the pane is not limited",
-		"address", r.ip.String())
+		details...)
 }
