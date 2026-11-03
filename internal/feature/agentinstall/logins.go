@@ -209,7 +209,8 @@ func (h *Handler) CreateLogin(c echo.Context) error {
 // UpdateLogin answers PUT /cluster/agent-installs/logins/:id (leader):
 // {login}, changed. A secret left empty keeps the stored one where the
 // login's method uses it (keepStored), and the account that comes of it is
-// checked as an install's is.
+// checked as an install's is. Changes are made one at a time (loginMu), so
+// each keeps what the one before it wrote.
 func (h *Handler) UpdateLogin(c echo.Context) error {
 	if handled, err := h.forward(c); handled {
 		return err
@@ -219,6 +220,8 @@ func (h *Handler) UpdateLogin(c echo.Context) error {
 		return answerErr(c, err)
 	}
 	defer a.wipe()
+	h.loginMu.Lock()
+	defer h.loginMu.Unlock()
 	old, err := h.engine.env.InstallLogin(c.Param("id"))
 	if err != nil {
 		return answerErr(c, loginErr(err))

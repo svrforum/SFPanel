@@ -77,10 +77,12 @@ type fakeEnv struct {
 	beforeNodes func()
 
 	// logins are the saved logins, kept as the cluster's store keeps them;
-	// loginReads counts the reads of them.
-	logins     map[string]cluster.InstallLogin
-	loginSeq   int
-	loginReads int
+	// loginReads counts the reads of them. afterLoginRead, when set, runs
+	// once one login has been read, before InstallLogin returns it.
+	logins         map[string]cluster.InstallLogin
+	loginSeq       int
+	loginReads     int
+	afterLoginRead func()
 }
 
 type mintedToken struct {
@@ -312,11 +314,15 @@ func (f *fakeEnv) InstallLogins() ([]cluster.InstallLogin, error) {
 
 func (f *fakeEnv) InstallLogin(id string) (cluster.InstallLogin, error) {
 	f.mu.Lock()
-	defer f.mu.Unlock()
 	f.loginReads++
 	l, ok := f.logins[id]
+	hook := f.afterLoginRead
+	f.mu.Unlock()
 	if !ok {
 		return cluster.InstallLogin{}, cluster.ErrInstallLoginNotFound
+	}
+	if hook != nil {
+		hook()
 	}
 	return l, nil
 }

@@ -6,6 +6,7 @@ import (
 	"errors"
 	"io"
 	"net/http"
+	"sync"
 	"time"
 
 	"github.com/labstack/echo/v4"
@@ -37,6 +38,11 @@ type Handler struct {
 	// tests.
 	startGate func(claim func(featurecluster.Busy) error) error
 	toLeader  func(c echo.Context) (handled bool, err error)
+	// loginMu orders a saved login's changes on this leader, each from the
+	// read its merge starts from to its write: one merged from a login
+	// another change has since rewritten would write back the secrets that
+	// change replaced (UpdateLogin).
+	loginMu sync.Mutex
 }
 
 // place is where a manager stands: in a cluster or not, its leader or not,

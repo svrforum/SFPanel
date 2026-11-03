@@ -10,6 +10,7 @@ import (
 	"net/http"
 	"slices"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -369,6 +370,46 @@ func TestAChangeKeepsTheSecretsLeftEmpty(t *testing.T) {
 	wantRefusal(t, "a password login again, its password left empty", st, ans, http.StatusBadRequest, response.ErrAgentInstallInvalid, "password")
 	st, ans = f.loginCall(http.MethodPut, "/"+l.ID, `{"name":"ops","user":"ops","method":"key"}`)
 	wantRefusal(t, "a key login again, its key left empty", st, ans, http.StatusBadRequest, response.ErrAgentInstallInvalid, "key")
+}
+
+// A change keeps what it leaves empty from the login as last written. B,
+// keeping the password, has read the login when A replaces the password:
+// B must wait for A, or it writes back the password A replaced and A's
+// change is lost without a word.
+func TestAChangeKeepsWhatTheChangeBeforeItWrote(t *testing.T) {
+	f := newAPIFixture(t)
+	l := f.saveLogin(`{"name":"ops","user":"ops","method":"password","password":"pw-1"}`)
+	var fired atomic.Bool
+	aStatus := make(chan int, 1)
+	f.env.afterLoginRead = func() {
+		if !fired.CompareAndSwap(false, true) {
+			return // A's own read
+		}
+		go func() {
+			st, _ := f.do(http.MethodPut, loginsPath+"/"+l.ID, `{"name":"ops","user":"ops","method":"password","password":"pw-A"}`)
+			aStatus <- st
+		}()
+		// Without an order between the two, A is written in this window.
+		select {
+		case st := <-aStatus:
+			aStatus <- st
+		case <-time.After(100 * time.Millisecond):
+		}
+	}
+	if st, ans := f.loginCall(http.MethodPut, "/"+l.ID, `{"name":"ops","user":"root","method":"password"}`); st != http.StatusOK {
+		t.Fatalf("B = %d %+v, want 200", st, ans.Error)
+	}
+	select {
+	case st := <-aStatus:
+		if st != http.StatusOK {
+			t.Fatalf("A = %d, want 200", st)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("A never ended")
+	}
+	if got := f.env.storedLogin(l.ID); got.Password != "pw-A" {
+		t.Fatalf("stored password %q (user %s), want A's pw-A: B kept the one A replaced", got.Password, got.User)
+	}
 }
 
 // A name another login has, in any case, is 409 AGENT_INSTALL_LOGIN_EXISTS;
