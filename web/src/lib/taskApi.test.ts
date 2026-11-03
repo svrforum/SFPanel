@@ -196,6 +196,48 @@ describe('agent install routes', () => {
       for (const s of SECRETS) expect(outside, s).not.toContain(s)
     }
   })
+
+  // Saved logins: the leader's, as the start is. Their secrets go in the
+  // POST and PUT bodies alone; the ID goes in the path, escaped once.
+  const LOGIN = {
+    id: '3f9a1c0b7d2e4a61', name: '기본 계정', user: 'ubuntu', method: 'password',
+    has_password: true, has_key: false, has_passphrase: false, sudo_same: true, has_sudo_password: false,
+    created_at: '2026-11-03T00:00:00Z', updated_at: '2026-11-03T00:00:00Z', updated_by: 'admin',
+  }
+  const answering = (data: unknown): Answer => () =>
+    Promise.resolve(new Response(JSON.stringify({ success: true, data }), { status: 200, headers: { 'Content-Type': 'application/json' } }))
+
+  it('sends the saved logins to the browser\'s manager, where and how the server takes them', async () => {
+    const { api, calls } = await freshApi(answering({ logins: [LOGIN], login: LOGIN, id: LOGIN.id }))
+    const body = { name: '기본 계정', user: 'ubuntu', method: 'password' as const, password: SECRETS[0], sudo_same: true }
+    expect(await api.agentInstallLogins()).toEqual([LOGIN])
+    expect(await api.createAgentInstallLogin(body)).toEqual(LOGIN)
+    expect(await api.updateAgentInstallLogin(LOGIN.id, { ...body, password: undefined })).toEqual(LOGIN)
+    await api.deleteAgentInstallLogin(LOGIN.id)
+    await api.startAgentInstall({ ...req, account: { login: LOGIN.id } })
+    const seen = calls.map((c) => [c.init?.method ?? 'GET', c.url, c.init?.body ?? null])
+    expect(seen).toEqual([
+      ['GET', '/api/v1/cluster/agent-installs/logins', null],
+      ['POST', '/api/v1/cluster/agent-installs/logins', JSON.stringify(body)],
+      ['PUT', `/api/v1/cluster/agent-installs/logins/${LOGIN.id}`, '{"name":"기본 계정","user":"ubuntu","method":"password","sudo_same":true}'],
+      ['DELETE', `/api/v1/cluster/agent-installs/logins/${LOGIN.id}`, null],
+      ['POST', '/api/v1/cluster/agent-installs', JSON.stringify({ ...req, account: { login: LOGIN.id } })],
+    ])
+    for (const { url, init } of calls) {
+      expect([url, JSON.stringify(init?.headers ?? {})].join('\n')).not.toContain(SECRETS[0])
+    }
+  })
+
+  it("escapes a login's ID once in the path, and reads no list as an empty one", async () => {
+    const { api, calls } = await freshApi(answering({}))
+    await api.updateAgentInstallLogin('a/b?c', { name: 'x', user: 'ops', method: 'tailscale' })
+    await api.deleteAgentInstallLogin('a b#')
+    expect(calls.map((c) => c.url)).toEqual([
+      '/api/v1/cluster/agent-installs/logins/a%2Fb%3Fc',
+      '/api/v1/cluster/agent-installs/logins/a%20b%23',
+    ])
+    expect(await api.agentInstallLogins()).toEqual([])
+  })
 })
 
 describe('slow task calls', () => {

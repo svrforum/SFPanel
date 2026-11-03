@@ -91,6 +91,8 @@ import type {
   TaskImportResult,
   AgentInstallRequest,
   AgentInstallTailnet,
+  AgentInstallLogin,
+  AgentInstallLoginBody,
 } from '@/types/api'
 import type { TFunction } from 'i18next'
 import { CODE_DEFAULTS, CODE_DETAIL_FORMATS, CODE_MESSAGES } from './codeMessages'
@@ -2824,9 +2826,9 @@ class ApiClient {
   // ---- Agent install over SSH ----
   // Every route is the leader's: the browser's manager forwards it there
   // (request() sends no ?node= with /cluster/ paths). The SSH secrets ride in
-  // the start's body alone, never in a path or a query, and the client keeps
-  // no copy. An SSH login the server refused is a row's reason, never a 401,
-  // which would sign the operator out.
+  // a body alone, the start's or a saved login's, never in a path or a query,
+  // and the client keeps no copy. An SSH login the server refused is a row's
+  // reason, never a 401, which would sign the operator out.
 
   // 202 once the run is recorded; its progress is the task run's stream.
   startAgentInstall(req: AgentInstallRequest) {
@@ -2837,6 +2839,34 @@ class ApiClient {
   // cannot read it answers 500 AGENT_INSTALL_TAILNET_FAILED.
   agentInstallTailnet() {
     return this.request<AgentInstallTailnet>('/cluster/agent-installs/tailnet')
+  }
+
+  // Saved logins, kept by the cluster for the form to pick from. The leader
+  // answers from its own state, so a page reads its own write. No answer
+  // holds a secret, only whether each is stored; the secrets go in the POST
+  // and PUT bodies alone, as the start's do.
+  async agentInstallLogins() {
+    const data = await this.request<{ logins?: AgentInstallLogin[] | null } | null>('/cluster/agent-installs/logins')
+    return data?.logins ?? []
+  }
+
+  // 201 with the login as saved, under a new ID. 409 AGENT_INSTALL_LOGIN_EXISTS
+  // for a name another login has (case aside), AGENT_INSTALL_LOGIN_LIMIT at 32.
+  // This and the PUT take a body up to 64 KiB; over it, a 413 with no code.
+  async createAgentInstallLogin(body: AgentInstallLoginBody) {
+    const data = await this.request<{ login: AgentInstallLogin }>('/cluster/agent-installs/logins', { method: 'POST', body: JSON.stringify(body) })
+    return data.login
+  }
+
+  // A secret left out of the body keeps the stored one where the method uses it.
+  async updateAgentInstallLogin(id: string, body: AgentInstallLoginBody) {
+    const data = await this.request<{ login: AgentInstallLogin }>(`/cluster/agent-installs/logins/${encodeURIComponent(id)}`, { method: 'PUT', body: JSON.stringify(body) })
+    return data.login
+  }
+
+  // An install under way with the login keeps its own copy of it.
+  deleteAgentInstallLogin(id: string) {
+    return this.request<{ id: string }>(`/cluster/agent-installs/logins/${encodeURIComponent(id)}`, { method: 'DELETE' })
   }
 
   // fingerprint is the row's host_key as shown. Refusing it stops that server.

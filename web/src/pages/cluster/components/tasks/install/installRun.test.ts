@@ -241,6 +241,8 @@ const REASONS: [string, Record<string, string> | undefined][] = [
   ['AGENT_INSTALL_STOPPED', { registered: '1' }],
   ['AGENT_INSTALL_STOPPED', { registered: '1', reverted: 'removed', standalone: '1' }],
   ['AGENT_INSTALL_LABEL_FAILED', { group: 'web' }],
+  ['AGENT_INSTALL_LOGIN_OFF_NETWORK', { address: '203.0.113.9' }],
+  ['AGENT_INSTALL_LOGIN_OFF_NETWORK', { address: '' }],
   ['AGENT_INSTALL_FAILED', { step: 'install', exit: '1', panel: 'restarted' }],
   ['AGENT_INSTALL_FAILED', { step: 'install', exit: '1', panel: 'restart_failed' }],
   // A reverted row keeps its reason and gains reverted.
@@ -311,6 +313,19 @@ describe('installReasonText', () => {
         ko,
       ),
     ).toBe('100.64.0.31:22은(는) Tailscale 주소인데 리더가 Tailscale에 없습니다. 노드 화면에서 Tailscale에 있는 매니저(m2, m3)로 리더십을 이전한 뒤 다시 설치하세요.')
+  })
+
+  it("says a saved login's password goes only to private and tailnet servers, and to type the account for this one", async () => {
+    const t = await translator('en')
+    const off = (details: Record<string, string>) => installReasonText({ status: 'failed', reason: 'AGENT_INSTALL_LOGIN_OFF_NETWORK', reason_details: details }, t)
+    expect(off({ address: '203.0.113.9' })).toBe(
+      "A saved login's password goes only to servers on a private network or in the leader's tailnet, and 203.0.113.9 is on neither. Install this server with the account typed in.",
+    )
+    expect(off({ address: '' })).toContain('and the server is on neither')
+    const ko = await translator('ko')
+    expect(installReasonText({ status: 'failed', reason: 'AGENT_INSTALL_LOGIN_OFF_NETWORK', reason_details: { address: '203.0.113.9' } }, ko)).toBe(
+      '저장된 로그인의 비밀번호는 사설망이나 리더의 tailnet에 있는 서버에만 보냅니다. 이 서버는 계정을 직접 입력해 설치하세요.',
+    )
   })
 
   it('reads in Korean with the particles written for both endings', async () => {

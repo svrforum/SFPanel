@@ -95,6 +95,11 @@ export const CODE_MESSAGES: Record<string, string> = {
   AGENT_INSTALL_NOT_RERUNNABLE: 'cluster.tasks.install.errors.notRerunnable',
   AGENT_INSTALL_LOG_GONE: 'cluster.tasks.install.errors.logGone',
   AGENT_INSTALL_TAILNET_FAILED: 'cluster.tasks.install.errors.tailnetFailed',
+  // Saved logins (/cluster/agent-installs/logins). LOGIN_NOT_FOUND also
+  // refuses a start whose account names a login that is gone.
+  AGENT_INSTALL_LOGIN_NOT_FOUND: 'cluster.tasks.install.errors.loginNotFound',
+  AGENT_INSTALL_LOGIN_EXISTS: 'cluster.tasks.install.errors.loginExists',
+  AGENT_INSTALL_LOGIN_LIMIT: 'cluster.tasks.install.errors.loginLimit',
   // An install row's reason, worded with its reason_details by
   // installReasonText (pages/cluster/components/tasks/install/installRun.ts),
   // which picks a closer sentence where the details call for one. Each says
@@ -129,6 +134,9 @@ export const CODE_MESSAGES: Record<string, string> = {
   AGENT_INSTALL_STOPPED: 'cluster.tasks.install.reason.stopped',
   // On a succeeded row: the agent is online, without its group label.
   AGENT_INSTALL_LABEL_FAILED: 'cluster.tasks.install.reason.labelFailed',
+  // A saved login's password is not sent to a server outside the private
+  // networks and the leader's tailnet: such a server takes a typed account.
+  AGENT_INSTALL_LOGIN_OFF_NETWORK: 'cluster.tasks.install.reason.loginOffNetwork',
 
   // GitHub, for the task import and the compose import alike.
   GIT_AUTH_FAILED: 'common.git.authFailed',
@@ -153,6 +161,7 @@ export const CODE_DEFAULTS: Record<string, Record<string, string>> = {
   // server with no os-release, a port owner it could not name ('?'), an
   // SFPanel version it could not read.
   AGENT_INSTALL_UNREACHABLE: { address: 'cluster.tasks.install.detail.theServer' },
+  AGENT_INSTALL_LOGIN_OFF_NETWORK: { address: 'cluster.tasks.install.detail.theServer' },
   AGENT_INSTALL_NOT_ROOT: { sudo: 'cluster.tasks.install.detail.sudo.unknown' },
   AGENT_INSTALL_OS: { os_id: 'cluster.tasks.install.detail.otherOs' },
   AGENT_INSTALL_ARCH: { arch: 'cluster.tasks.install.detail.unknownCpu' },

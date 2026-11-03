@@ -1602,11 +1602,13 @@ export interface AgentInstallServer {
   group?: string
 }
 
-// The one login every server of an install takes. Each method carries its own
-// secret and no other's: password the password, key the private key (and its
-// passphrase), tailscale none. sudo_same (the login password is sudo's too)
-// is for a password login only, and never with sudo_password. These are sent
-// in the start's body and nowhere else: the leader holds them in memory only.
+// The one login every server of an install takes, typed in the form. Each
+// method carries its own secret and no other's: password the password, key
+// the private key (and its passphrase), tailscale none. sudo_same (the login
+// password is sudo's too) is for a password login only, and never with
+// sudo_password. These are sent in a body and nowhere else: the start's, and
+// the leader holds them in memory only, or a saved login's (below), which the
+// cluster keeps.
 export interface AgentInstallAccount {
   user: string
   method: AgentInstallMethod
@@ -1617,14 +1619,54 @@ export interface AgentInstallAccount {
   sudo_same?: boolean
 }
 
+// The account of an install that uses a saved login: its ID alone, no other
+// account key. The leader reads the login when the install starts, and the
+// run records its name (inputs.login), never its secrets.
+export interface AgentInstallSavedAccount {
+  login: string
+}
+
 // POST /cluster/agent-installs. review stops every server after its pre-flight
 // check until POST …/proceed. concurrency is 1 to 5 (3 when left out).
 export interface AgentInstallRequest {
   servers: AgentInstallServer[]
-  account: AgentInstallAccount
+  account: AgentInstallAccount | AgentInstallSavedAccount
   review?: boolean
   mode?: AgentInstallMode
   concurrency?: number
+}
+
+// A saved login as every /cluster/agent-installs/logins route answers it:
+// whether each secret is stored, never the secret. The cluster's managers
+// keep it; updated_by is the user that saved it last.
+export interface AgentInstallLogin {
+  id: string
+  name: string
+  user: string
+  method: AgentInstallMethod
+  has_password: boolean
+  has_key: boolean
+  has_passphrase: boolean
+  sudo_same: boolean
+  has_sudo_password: boolean
+  created_at: string
+  updated_at: string
+  updated_by: string
+}
+
+// POST /cluster/agent-installs/logins and PUT …/logins/:id: a name (1 to 64
+// characters, trimmed) and the account, by the start's rules. On a PUT, a
+// secret left out keeps the stored one where the method uses it; a new key
+// takes the passphrase sent with it, or none.
+export interface AgentInstallLoginBody {
+  name: string
+  user: string
+  method: AgentInstallMethod
+  password?: string
+  key?: string
+  passphrase?: string
+  sudo_same?: boolean
+  sudo_password?: string
 }
 
 // GET /cluster/agent-installs/tailnet: the leader's tailnet, for the install
