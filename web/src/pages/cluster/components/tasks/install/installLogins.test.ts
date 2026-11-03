@@ -90,6 +90,13 @@ describe('loginNameProblem', () => {
     expect(loginNameProblem('🔑'.repeat(65), list)).toBe('long')
   })
 
+  it("trims as the leader's strings.TrimSpace does, not as String.trim", () => {
+    // U+0085 is space to Go, trimmed before the control check; U+FEFF is not.
+    expect(loginNameProblem('\u0085ops-2\u0085', list)).toBeNull()
+    expect(loginNameProblem('﻿', list)).toBeNull()
+    expect(loginBody('\u0085 ops-2 ﻿', account()).name).toBe('ops-2 ﻿')
+  })
+
   it('refuses a control character, as the leader reads one', () => {
     expect(loginNameProblem('web\tlogin', list)).toBe('control')
     expect(loginNameProblem('web\u007flogin', list)).toBe('control')
