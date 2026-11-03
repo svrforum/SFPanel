@@ -235,17 +235,23 @@ jobs:
           mkdir -p web/dist && echo '<!doctype html><title>ci-stub</title>' > web/dist/index.html
           out=$("$(go env GOPATH)/bin/govulncheck" -show verbose ./cmd/... ./internal/... || true)
           echo "$out"
-          # Gate on fixability, not on a module allowlist: advisories with no
-          # upstream fix ("Fixed in: N/A" — the docker/docker set, x/crypto's
-          # openpgp deprecation) are unactionable and acknowledged; any advisory
-          # that HAS a fix fails the gate whatever the module, so a future
-          # docker/docker fix can no longer slip through the old name-based grep.
-          fixable=$(echo "$out" | awk '/^[[:space:]]*Module:/{m=$2} /^[[:space:]]*Fixed in:/{if ($NF != "N/A") print m}' | sort -u)
+          # Gate on fixability, not on a module allowlist, for the code the
+          # build imports: govulncheck's Symbol and Package results. Advisories
+          # with no upstream fix ("Fixed in: N/A" — the docker/docker set) are
+          # unactionable and acknowledged; any advisory there that HAS a fix
+          # fails the gate whatever the module, so a future docker/docker fix
+          # can no longer slip through the old name-based grep. Module results
+          # — a required module whose affected packages no code imports, such
+          # as x/crypto's openpgp deprecation, "fixed" by deleting the package —
+          # are listed above but do not fail it. Output without the sections
+          # fails rather than passing unread.
+          echo "$out" | grep -q '^=== Symbol Results ===' || { echo "::error::govulncheck printed no Symbol Results section: the gate cannot read its output"; exit 1; }
+          fixable=$(echo "$out" | awk '/^=== (Symbol|Package) Results ===/{s=1} /^=== Module Results ===/{s=0} s && /^[[:space:]]*Module:/{m=$2} s && /^[[:space:]]*Fixed in:/{if ($NF != "N/A") print m}' | sort -u)
           if [ -n "$fixable" ]; then
             echo "::error::govulncheck found fixable vulnerabilities in: $(echo "$fixable" | tr '\n' ' ')"
             exit 1
           fi
-          echo "OK: only advisories with no upstream fix remain."
+          echo "OK: no advisory with an upstream fix in the code the build imports."
       - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version-file: .nvmrc
