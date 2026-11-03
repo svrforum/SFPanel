@@ -363,6 +363,15 @@ const VARIANTS: Record<string, (d: Details, record: RunNodeRecord) => Words | nu
     }
   },
   AGENT_INSTALL_CREDENTIALS_GONE: (d) => (d.reverted ? (t) => t('cluster.tasks.install.reason.credentialsGoneReverted') : null),
+  // A Tailscale address says what the leader's tailnet said of it: no
+  // device there holds it, or the tailnet could not be checked at all.
+  AGENT_INSTALL_LOGIN_OFF_NETWORK: (d) => {
+    switch (d.tailnet) {
+      case 'not_listed': return (t, p) => t('cluster.tasks.install.reason.loginOffNetworkNotListed', p)
+      case 'unknown': return (t, p) => t('cluster.tasks.install.reason.loginOffNetworkUnknown', p)
+      default: return null
+    }
+  },
 }
 
 // How far a revert went, said after the reason it kept.

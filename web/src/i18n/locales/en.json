@@ -1717,6 +1717,8 @@
           "failedRegister": "install.sh finished, but no agent registered at {{ip}}. The Install phase's log shows why: fix the cause, then install again.",
           "labelFailed": "The agent is online, but the group {{group}} could not be set on it. Set the group on its node page.",
           "loginOffNetwork": "A saved login's password goes only to servers on a private network or in the leader's tailnet, and {{address}} is on neither. Install this server with the account typed in.",
+          "loginOffNetworkNotListed": "A saved login's password goes only to servers on a private network or in the leader's tailnet. The leader's tailnet has no device at {{address}}. Check the address, or install this server with the account typed in.",
+          "loginOffNetworkUnknown": "The leader could not check its tailnet (Tailscale is off or not answering), so the saved login was not sent to {{address}}. Transfer the leadership to a manager with Tailscale on, then install again.",
           "failedNoAnswer": "No answer came within 30 minutes ({{no_answer}}), so this server stopped there. Install it again when you can answer.",
           "failedError": "The install failed: {{error}}. Fix the cause, then install again.",
           "offline": "The agent registered but did not come online within 3 minutes. Check that its service runs on the server (systemctl status sfpanel).",

@@ -243,6 +243,8 @@ const REASONS: [string, Record<string, string> | undefined][] = [
   ['AGENT_INSTALL_LABEL_FAILED', { group: 'web' }],
   ['AGENT_INSTALL_LOGIN_OFF_NETWORK', { address: '203.0.113.9' }],
   ['AGENT_INSTALL_LOGIN_OFF_NETWORK', { address: '' }],
+  ['AGENT_INSTALL_LOGIN_OFF_NETWORK', { address: '100.64.0.31', tailnet: 'not_listed' }],
+  ['AGENT_INSTALL_LOGIN_OFF_NETWORK', { address: '100.64.0.31', tailnet: 'unknown' }],
   ['AGENT_INSTALL_FAILED', { step: 'install', exit: '1', panel: 'restarted' }],
   ['AGENT_INSTALL_FAILED', { step: 'install', exit: '1', panel: 'restart_failed' }],
   // A reverted row keeps its reason and gains reverted.
@@ -324,7 +326,31 @@ describe('installReasonText', () => {
     expect(off({ address: '' })).toContain('and the server is on neither')
     const ko = await translator('ko')
     expect(installReasonText({ status: 'failed', reason: 'AGENT_INSTALL_LOGIN_OFF_NETWORK', reason_details: { address: '203.0.113.9' } }, ko)).toBe(
-      '저장된 로그인의 비밀번호는 사설망이나 리더의 tailnet에 있는 서버에만 보냅니다. 이 서버는 계정을 직접 입력해 설치하세요.',
+      '저장된 로그인의 비밀번호는 사설망이나 리더의 tailnet에 있는 서버에만 보냅니다. 이 서버(203.0.113.9)는 둘 다 아니니 계정을 직접 입력해 설치하세요.',
+    )
+  })
+
+  // A Tailscale address says what the leader's tailnet said of it.
+  it("says a Tailscale address the leader's tailnet does not list, and one it could not check, each with its address", async () => {
+    const off = (t: TFunction, tailnet: string) =>
+      installReasonText({ status: 'failed', reason: 'AGENT_INSTALL_LOGIN_OFF_NETWORK', reason_details: { address: '100.64.0.31', tailnet } }, t)
+    const en = await translator('en')
+    expect(off(en, 'not_listed')).toBe(
+      "A saved login's password goes only to servers on a private network or in the leader's tailnet. The leader's tailnet has no device at 100.64.0.31. Check the address, or install this server with the account typed in.",
+    )
+    expect(off(en, 'unknown')).toBe(
+      'The leader could not check its tailnet (Tailscale is off or not answering), so the saved login was not sent to 100.64.0.31. Transfer the leadership to a manager with Tailscale on, then install again.',
+    )
+    // A value a newer leader may send reads as the code's own sentence.
+    expect(off(en, 'sideways')).toBe(
+      "A saved login's password goes only to servers on a private network or in the leader's tailnet, and 100.64.0.31 is on neither. Install this server with the account typed in.",
+    )
+    const ko = await translator('ko')
+    expect(off(ko, 'not_listed')).toBe(
+      '저장된 로그인의 비밀번호는 사설망이나 리더의 tailnet에 있는 서버에만 보냅니다. 리더의 tailnet에는 100.64.0.31인 기기가 없습니다. 주소를 확인하거나 계정을 직접 입력해 설치하세요.',
+    )
+    expect(off(ko, 'unknown')).toBe(
+      '리더가 자기 tailnet을 확인하지 못해(Tailscale이 꺼져 있거나 응답하지 않음) 저장된 로그인을 100.64.0.31에 보내지 않았습니다. Tailscale이 켜진 매니저로 리더를 옮긴 뒤 다시 설치하세요.',
     )
   })
 
