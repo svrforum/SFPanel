@@ -153,7 +153,7 @@
   - 파일 생성/쓰기/저장 (`.bak` 백업은 스트리밍 복사)
   - 디렉토리 생성 (중첩 경로 자동 생성)
   - 파일/디렉토리 삭제 (시스템 중요 경로 17개 보호: /, /etc, /usr, /bin, /sbin, /var, /boot, /proc, /sys, /dev, /home, /root, /lib, /lib64, /opt, /run, /srv)
-  - **읽기 차단 경로(read-protected)**: /root/.ssh, 사용자 홈의 SSH 키/authorized_keys/known_hosts 등 → 403
+  - **읽기 차단 경로(read-protected)**: /root/.ssh, 사용자 홈의 SSH 키/authorized_keys/known_hosts, 클러스터의 Raft 로그·스냅숏(`/var/lib/sfpanel/cluster/` — JWT 비밀·CA 키·에이전트 키·저장된 로그인이 평문) 등 → 403
   - **업로드 정책**: 웹 서빙 디렉토리(/var/www 등)에는 실행 확장자(.php/.sh/.cgi/.jsp 등) 및 .htaccess/.htpasswd/web.config 업로드 차단
   - 파일/디렉토리 이름 변경 (이동), 다운로드
   - **재귀 이름 검색** (`GET /files/search`): 현재 디렉토리 하위를 이름으로 재귀 탐색, 결과 수 상한 + 벽시계 데드라인으로 제한 (잘림 여부를 응답에 플래그)

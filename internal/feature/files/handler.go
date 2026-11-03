@@ -291,9 +291,10 @@ var readProtectedPaths = map[string]bool{
 // Use when the protection applies to a whole subtree (TLS certs, sudoers
 // fragments, root's home directory).
 var readProtectedPrefixes = []string{
-	"/etc/sfpanel/cluster/", // TLS CA + node certs and keys
-	"/etc/sudoers.d/",       // sudoers fragments — same impact as /etc/sudoers
-	"/root/.ssh/",           // root's SSH keys + authorized_keys
+	"/etc/sfpanel/cluster/",     // TLS CA + node certs and keys
+	"/etc/sudoers.d/",           // sudoers fragments — same impact as /etc/sudoers
+	"/root/.ssh/",               // root's SSH keys + authorized_keys
+	"/var/lib/sfpanel/cluster/", // Raft log + snapshots: the replicated state — JWT secret, CA key, agents' keys, saved logins
 }
 
 // isReadProtectedPath returns true if the (symlink-resolved) path is one we

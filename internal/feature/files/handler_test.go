@@ -109,6 +109,10 @@ func TestIsReadProtectedPath_KnownSensitiveFiles(t *testing.T) {
 		{"/var/lib/sfpanel/sfpanel.db", true},     // new — SQLite live DB
 		{"/var/lib/sfpanel/sfpanel.db-wal", true}, // new
 		{"/var/lib/sfpanel/sfpanel.db-shm", true}, // new
+		// The cluster's Raft log and snapshots: the replicated state.
+		{"/var/lib/sfpanel/cluster/raft-log.db", true},
+		{"/var/lib/sfpanel/cluster/snapshots/2-100-1730000000000/state.bin", true},
+		{"/var/lib/sfpanel/trash/x", false},
 		{"/etc/sfpanel/config.yaml", true},
 		{"/etc/sfpanel/cluster/ca.key", true},
 		{"/etc/sfpanel/cluster/node.key", true},
