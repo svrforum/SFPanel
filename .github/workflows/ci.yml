@@ -113,6 +113,9 @@ jobs:
       # Vitest over the pure-logic modules only (node environment, no jsdom).
       - run: cd web && npm test
       - run: cd web && npm run build
+      # A Monaco chunk a dependency renames slips past the SW precache ignores
+      # with no error; the budget catches the size it adds.
+      - run: cd web && node scripts/check-precache.mjs
 
   # Boots a throwaway panel (temp-dir DB, default port 3628) and runs the
   # single-node Playwright specs against it. The 2-node cluster specs and the
@@ -200,6 +203,7 @@ jobs:
             tests/cluster-security.spec.ts \
             tests/mobile-node-picker.spec.ts \
             tests/bottom-nav.spec.ts \
+            tests/docker-workflows.spec.ts \
             tests/cluster-tree.spec.ts \
             tests/cluster-follower-actions.spec.ts \
             tests/alert-settings.spec.ts \
