@@ -48,7 +48,7 @@
 | uplot | 1.6.32 | 시스템 메트릭 시계열 차트 (CPU/메모리 24시간 히스토리) |
 | xterm.js | 6.0.0 (`@xterm/xterm`) | 웹 기반 터미널 에뮬레이터 |
 | xterm Addons | fit 0.11.0, search 0.16.0, web-links 0.12.0 | 터미널 자동 크기 조절, 검색, 링크 감지 |
-| Monaco Editor | `@monaco-editor/react` 4.7.0 + monaco-editor 0.55.1 — `editor.api` 슬림 임포트 (v0.49.0) | 파일 편집기 / Compose YAML 편집 (구문 강조, 자동 완성) |
+| Monaco Editor | `@monaco-editor/react` 4.7.0 + monaco-editor 0.57.0 — `monaco-editor/editor` 슬림 임포트 (v0.49.0, 0.57에서 공식 진입점으로) | 파일 편집기 / Compose YAML 편집 (구문 강조, 자동 완성) |
 | i18next | 26.3.1 | 다국어 지원 프레임워크 |
 | react-i18next | 17.0.8 | React용 i18n 바인딩 |
 | i18next-browser-languagedetector | 8.2.1 | 브라우저 언어 자동 감지 |

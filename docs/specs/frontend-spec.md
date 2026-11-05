@@ -1263,8 +1263,8 @@ interface InstalledApp {
   - `uplot` — 시계열 차트
   - **monaco는 의도적으로 수동 청크에서 제외** (v0.55.0): 명명 청크로 강제하면 rolldown이 공유 심볼을 eager entry로 끌어와 3.6MB 에디터가 첫 페인트에 포함됨. 기본 청킹에 맡겨 lazy Files/DockerStacks 청크에 편승
 - 경고 한계: 1000KB
-- **Monaco 슬림 임포트** (v0.49.0): `web/src/lib/monaco.ts`가 `monaco-editor` 배럴 대신 `esm/vs/editor/editor.api` + 언어 allowlist만 로드 (TS 언어 서비스의 ~6.9MB ts.worker 제거). **(v0.54.0)** 로그인 페이지 entry에서도 Monaco 제외.
-- **PWA**: 서비스워커 자동 생성(autoUpdate, skipWaiting/clientsClaim). **(v0.54.0)** `manifest: false` — 수기 `public/manifest.json` 단일 매니페스트만 배포(자동 생성 `manifest.webmanifest` 비활성). 캐시 포함 — `*.css/html/ico/png/svg/woff2`, `assets/*.js`. 캐시 제외(globIgnores) — Monaco/xterm/언어 워커류는 네트워크 전용이며, **(v0.55.0)** rolldown ≥1.1의 청크 개명(`monaco-*` → `editor.api2-*`)도 ignore 패턴에 반영
+- **Monaco 슬림 임포트** (v0.49.0): `web/src/lib/monaco.ts`가 `monaco-editor` 배럴 대신 편집기 API + 언어 allowlist만 로드 (TS 언어 서비스의 ~6.9MB ts.worker 제거). monaco-editor 0.56부터 `exports` 맵이 예전 `esm/vs/...` 경로를 막아, 0.56이 공식으로 낸 진입점을 쓴다 — `monaco-editor/editor`, 편집기 기능 전부 `monaco-editor/features/register.all`(JSON 서비스가 더는 함께 싣지 않아, 없으면 YAML·셸 편집기에 찾기·접기·주석·문맥 메뉴가 없다), JSON·CSS·HTML 서비스 `languages/features/<언어>/register`, 구문 강조 `languages/definitions/<언어>/register`, 작업자는 `languages/features/<언어>/<언어>.worker.js`와 `editor/editor.worker.js`. **(v0.54.0)** 로그인 페이지 entry에서도 Monaco 제외.
+- **PWA**: 서비스워커 자동 생성(autoUpdate, skipWaiting/clientsClaim). **(v0.54.0)** `manifest: false` — 수기 `public/manifest.json` 단일 매니페스트만 배포(자동 생성 `manifest.webmanifest` 비활성). 캐시 포함 — `*.css/html/ico/png/svg/woff2`, `assets/*.js`. 캐시 제외(globIgnores) — Monaco/xterm/언어 워커류는 네트워크 전용이며, **(v0.55.0)** rolldown ≥1.1의 청크 개명(`monaco-*` → `editor.api2-*`)도 ignore 패턴에 반영, monaco-editor 0.57의 `editor.api-*`도 같은 패턴(`editor.api*-*`)으로. 청크 이름이 또 바뀌어 편집기가 캐시에 들어가면 빌드 뒤 `web/scripts/check-precache.mjs`(CI)가 미리 캐시 3.5 MiB 예산으로 실패한다
 
 ### 빌드 출력
 
