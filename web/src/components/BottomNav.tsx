@@ -22,9 +22,11 @@ export default function BottomNav({ onMorePress }: BottomNavProps) {
     label: t(i.mobileLabelKey ?? i.labelKey),
   }))
 
+  // The home-indicator inset pads the bar, under its 56px row: inside the row
+  // it left an iPhone 22px for each icon and its label, and the icons shrank.
   return (
-    <nav className="fixed bottom-0 left-0 right-0 z-50 border-t border-border bg-card md:hidden">
-      <div className="flex items-center justify-around h-14 pb-safe">
+    <nav className="fixed bottom-0 left-0 right-0 z-50 border-t border-border bg-card pb-safe md:hidden">
+      <div className="flex items-center justify-around h-14">
         {navItems.map((tab) => (
           <NavLink
             key={tab.to}
