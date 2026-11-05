@@ -289,8 +289,8 @@ sfpanel cluster token [--ttl DURATION] [--agent]       # 조인 토큰 생성 (�
 sfpanel cluster join ADDR:PORT TOKEN --ca FINGERPRINT [--advertise IP]  # 클러스터 참여 (ADDR = 리더, PORT = 3629, FINGERPRINT = 토큰 화면의 CA 지문)
 sfpanel cluster status                                 # 클러스터 상태 확인
 sfpanel cluster list                                   # 노드 목록
-sfpanel cluster remove NODE_ID                         # 노드 제거
-sfpanel cluster leave                                  # 클러스터 탈퇴
+sfpanel cluster remove NODE_ID [--force]               # 노드 제거 (--force: 마지막 두 투표자 중 하나도, 투표자 하나만 남아도)
+sfpanel cluster leave [--force]                        # 클러스터 탈퇴 (--force: 남는 매니저가 쿼럼을 못 이뤄도)
 sfpanel cluster leader-transfer NODE_ID                # 리더 넘기기
 sfpanel cluster reissue-cert                           # 이 노드의 인증서 재발급
 ```
@@ -482,7 +482,7 @@ EOF
 sudo systemctl restart sfpanel
 ```
 
-부팅 시 Raft가 파일을 감지해 `RecoverCluster()`로 로컬 구성을 재작성하고, 다음 부팅에서 재적용되지 않도록 `peers.info`로 이름을 바꿉니다. 정상적인 노드 제거에는 `sudo sfpanel cluster remove <node-id>`를 사용하세요.
+부팅 시 Raft가 파일을 감지해 `RecoverCluster()`로 로컬 구성을 재작성하고, 다음 부팅에서 재적용되지 않도록 `peers.info`로 이름을 바꿉니다. 목록에 남은, 뺀 노드의 기록은 리더에서 `sudo sfpanel cluster remove <node-id>`로 지웁니다(Raft 구성에 없는 기록이라 쿼럼 검사에 걸리지 않습니다). 정상적인 노드 제거에도 `sudo sfpanel cluster remove <node-id>`를 사용하세요.
 
 peers.json 은 쿼럼 손실 외에 **운영 중 클러스터의 Raft 전송 포트 변경**에도 사용됩니다 (`grpc_port` 를 옮기면 Raft 포트가 `grpc_port + 1` 로 자동 따라가는데, 기존 멤버십에 박힌 peer 주소를 새 포트로 재작성해야 함). 두 가지 다 잘못 쓰면 멤버십이 깨질 수 있으니 [docs/specs/cluster-partition-runbook.md](docs/specs/cluster-partition-runbook.md) 의 "Port migration on a live cluster" 절차를 따라 진행하세요.
 

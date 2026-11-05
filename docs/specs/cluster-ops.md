@@ -485,6 +485,18 @@ update counts as a failure and stops on (see above).
   for a few minutes there. `sudo sfpanel cluster leave --force` (the API's
   `?force=true`, which the UI offers after the refusal) leaves anyway. A
   leave with the service stopped has no such check.
+- A remove through the running service (`sudo sfpanel cluster remove
+  <node-id>`, `DELETE /cluster/nodes/:id`) is refused (`409`, `removing
+  voter "<id>" would drop the cluster below quorum (1/2 voters; quorum 2)`)
+  when it would take one of the Raft configuration's two voters and leave a
+  lone voter. The count is the configuration's, not the node list's: a node
+  it holds as no voter — a non-voter, an agent, or the record of a voter a
+  peers.json recovery left out — is not refused. Heartbeats do not decide
+  it: a voter whose stream just ended is still up as far as anyone can tell,
+  and one that is really down cannot be removed while it counts, because of
+  two voters the leader steps down without it (recover with peers.json, then
+  remove the record). `--force` (the API's `?force=true`) removes one of two
+  anyway. A remove with the service stopped has no such check.
 - A leave removes the cluster's data and certificate directories before it
   saves the config as standalone. One it cannot remove ends the leave with
   the config still naming the cluster: remove it by hand and leave again.

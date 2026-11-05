@@ -7363,7 +7363,7 @@ WireGuard 키페어 생성 (`wg genkey` + `wg pubkey`).
 | POST | `/api/v1/cluster/token` | O | 참가 토큰 생성 (TTL, `kind`: `manager`(기본)·`agent` 지정 가능). 응답: `token`, `kind`, `expires_at`, `grpc_port`, `advertise_address`, `ca_pin`(가입 명령의 `--ca`) |
 | GET | `/api/v1/cluster/tokens` | O | 대기 중 참가 토큰 목록 (마스킹, `kind`, v0.19.0+) |
 | DELETE | `/api/v1/cluster/tokens/:id` | O | 참가 토큰 폐기 (v0.19.0+, 없는 토큰은 404) |
-| DELETE | `/api/v1/cluster/nodes/:id` | O | 노드 제거 (팔로워 요청은 리더로 전달, 리더 자신은 불가, `?force=`) |
+| DELETE | `/api/v1/cluster/nodes/:id` | O | 노드 제거 (팔로워 요청은 리더로 전달, 리더 자신은 불가. Raft 구성의 투표자 둘 중 하나를 빼면 409 — `?force=true`로 확인. 구성이 투표자로 두지 않은 노드(비투표자·에이전트·peers.json 복구가 남긴 기록)는 거부하지 않음) |
 | PATCH | `/api/v1/cluster/nodes/:id/labels` | O | 노드 라벨 수정 |
 | PUT | `/api/v1/cluster/name` | O | 클러스터 이름 변경 (v0.78.6+) |
 | PATCH | `/api/v1/cluster/nodes/:id/address` | O | 노드 주소 수정 |

@@ -291,8 +291,8 @@ sfpanel cluster token [--ttl DURATION] [--agent]       # generate a join token (
 sfpanel cluster join ADDR:PORT TOKEN --ca FINGERPRINT [--advertise IP]  # join a cluster (ADDR = the leader, PORT = 3629, FINGERPRINT = the CA fingerprint on the token page)
 sfpanel cluster status                                 # check cluster status
 sfpanel cluster list                                   # list nodes
-sfpanel cluster remove NODE_ID                         # remove a node
-sfpanel cluster leave                                  # leave the cluster
+sfpanel cluster remove NODE_ID [--force]               # remove a node (--force: one of the last two voters, leaving a lone voter)
+sfpanel cluster leave [--force]                        # leave the cluster (--force: even when the managers left could not form a quorum)
 sfpanel cluster leader-transfer NODE_ID                # hand leadership to another node
 sfpanel cluster reissue-cert                           # reissue this node's certificate
 ```
@@ -484,7 +484,7 @@ EOF
 sudo systemctl restart sfpanel
 ```
 
-On boot, Raft detects the file, rewrites the local configuration via `RecoverCluster()`, and renames it to `peers.info` so it isn't re-applied on the next boot. For normal node removal, use `sudo sfpanel cluster remove <node-id>`.
+On boot, Raft detects the file, rewrites the local configuration via `RecoverCluster()`, and renames it to `peers.info` so it isn't re-applied on the next boot. The record of a node you left out stays in the node list: remove it on the leader with `sudo sfpanel cluster remove <node-id>` (a record the Raft configuration no longer holds passes the quorum check). For normal node removal, use `sudo sfpanel cluster remove <node-id>` too.
 
 peers.json is also used — beyond quorum loss — for **changing the Raft transport port on a live cluster** (moving `grpc_port` makes the Raft port follow as `grpc_port + 1`, so the peer addresses baked into the existing membership must be rewritten to the new port). Both can break membership if done wrong, so follow the "Port migration on a live cluster" procedure in [docs/specs/cluster-partition-runbook.md](docs/specs/cluster-partition-runbook.md).
 
