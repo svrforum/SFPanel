@@ -295,3 +295,24 @@ test('keeps the disband warning when the page sees the node standalone', async (
   await expect(dialog(page)).toContainText('The cluster is disbanded, with one thing left to do')
   await expect(dialog(page)).toContainText('agent-03')
 })
+
+// A phone laid each node out on the desktop's one line: the name, three
+// 100px metric bars and the buttons side by side, some 700px in a 400px card
+// that clips. The metrics and the edit and leave buttons were cut off, with no
+// way to scroll to them. The row now puts the metrics under the name.
+test.describe('on a phone', () => {
+  test.use({ viewport: { width: 440, height: 2200 }, hasTouch: true })
+
+  test('shows every node whole: its metrics and its edit and leave buttons', async ({ page }) => {
+    await mock(page)
+    await page.goto('/cluster/overview')
+    const edits = page.getByRole('button', { name: 'Edit address' })
+    await expect(edits).toHaveCount(2)
+    for (const edit of await edits.all()) await expect(edit).toBeInViewport({ ratio: 1 })
+    await expect(page.getByRole('button', { name: 'Leave cluster' })).toBeInViewport({ ratio: 1 })
+    // All six nodes have metrics here; each shows its last bar.
+    const disks = page.getByText('Disk', { exact: true })
+    await expect(disks).toHaveCount(6)
+    for (const disk of await disks.all()) await expect(disk).toBeInViewport({ ratio: 1 })
+  })
+})

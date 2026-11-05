@@ -473,22 +473,24 @@ export default function ClusterOverview() {
           {nodes.map((node) => {
             const nodeMetrics = metrics.find(m => m.node_id === node.id)
 
+            // Below lg the metrics take a line of their own under the name: on
+            // one line the row needs some 700px, and this card clips it.
             return (
-              <div key={node.id} className="px-5 py-4 flex items-center gap-4">
-                <div className="flex items-center gap-3 min-w-[200px]">
-                  <span className={cn('h-2.5 w-2.5 rounded-full', nodeStatusColor(node.status))} />
-                  <div>
-                    <div className="flex items-center gap-2">
-                      <span className="text-[13px] font-medium">{node.name}</span>
+              <div key={node.id} className="px-5 py-4 flex flex-wrap lg:flex-nowrap items-center gap-x-4 gap-y-3">
+                <div className="flex items-center gap-3 flex-1 min-w-0 lg:flex-initial lg:min-w-[200px]">
+                  <span className={cn('h-2.5 w-2.5 rounded-full shrink-0', nodeStatusColor(node.status))} />
+                  <div className="min-w-0">
+                    <div className="flex flex-wrap items-center gap-x-2 gap-y-0.5">
+                      <span className="text-[13px] font-medium break-all">{node.name}</span>
                       <KindBadge kind={nodeRoleKind(node, leaderId)} />
                       {node.id === status.local_id && (
                         <span className="text-[10px] text-muted-foreground">({t('layout.cluster.localNode')})</span>
                       )}
                     </div>
-                    <div className="flex items-center gap-2">
-                      <span className="text-[11px] text-muted-foreground">{node.api_address}</span>
+                    <div className="flex flex-wrap items-center gap-x-2 gap-y-0.5">
+                      <span className="text-[11px] text-muted-foreground break-all">{node.api_address}</span>
                       {node.labels && Object.keys(node.labels).length > 0 && (
-                        <div className="flex gap-1">
+                        <div className="flex flex-wrap gap-1">
                           {Object.entries(node.labels).map(([k, v]) => (
                             <span key={k} className="inline-flex items-center px-1.5 py-0 rounded text-[9px] font-medium bg-secondary text-muted-foreground">
                               {k}={v}
@@ -501,7 +503,7 @@ export default function ClusterOverview() {
                 </div>
 
                 {nodeMetrics ? (
-                  <div className="flex items-center gap-6 flex-1">
+                  <div className="order-last w-full flex items-center gap-3 lg:order-none lg:w-auto lg:flex-1 lg:gap-6">
                     <MetricBar label="CPU" value={nodeMetrics.cpu_percent} />
                     <MetricBar label={t('cluster.overview.memory')} value={nodeMetrics.memory_percent} />
                     <MetricBar label={t('cluster.overview.disk')} value={nodeMetrics.disk_percent} />
@@ -511,7 +513,7 @@ export default function ClusterOverview() {
                     </div>
                   </div>
                 ) : (
-                  <div className="flex-1 text-[13px] text-muted-foreground italic">
+                  <div className="order-last w-full lg:order-none lg:w-auto lg:flex-1 text-[13px] text-muted-foreground italic">
                     {node.status === 'offline' ? t('cluster.overview.noMetrics') : t('cluster.overview.metricsLoading')}
                   </div>
                 )}
@@ -604,7 +606,7 @@ export default function ClusterOverview() {
 function MetricBar({ label, value }: { label: string; value: number }) {
   const color = value > 80 ? 'var(--destructive)' : value > 50 ? 'var(--warning)' : 'var(--primary)'
   return (
-    <div className="min-w-[100px]">
+    <div className="min-w-0 flex-1 lg:flex-initial lg:min-w-[100px]">
       <div className="flex justify-between text-[11px] mb-1">
         <span className="text-muted-foreground">{label}</span>
         <span className="font-medium" style={{ color }}>{value.toFixed(1)}%</span>
