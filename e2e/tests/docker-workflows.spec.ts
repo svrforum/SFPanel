@@ -63,6 +63,19 @@ test('stack requests cannot overwrite another stack; validation sends the draft'
  expect(state.requests.filter(r => r.method === 'PUT')).toHaveLength(0)
 })
 
+// A YAML editor has the editor's own features. monaco-editor 0.56 stopped
+// loading them with the JSON service's contribution, so they came only once a
+// JSON, CSS or HTML file was open: no find, folding, comments or context menu.
+test('the compose editor has the editor features: find opens', async ({ page, context }) => {
+ await fixture(context)
+ await page.goto('/docker/stacks/alpha')
+ await page.getByRole('tab', {name:'Editor', exact:true}).click()
+ await expect(page.locator('.view-lines')).toContainText('alpha:')
+ await page.locator('.monaco-editor').click()
+ await page.keyboard.press('Control+f')
+ await expect(page.locator('.monaco-editor .find-widget.visible')).toBeVisible()
+})
+
 test('stop preserves containers; teardown requires a separate confirmation', async ({ page, context }) => {
  const state = await fixture(context)
  await page.goto('/docker/stacks/alpha')
