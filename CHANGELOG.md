@@ -6,6 +6,13 @@ The format is loosely based on [Keep a Changelog](https://keepachangelog.com/), 
 
 ---
 
+## [0.83.1] – 2026-11-06
+
+### Fixed
+
+- **The bottom bar's icons keep their size on an iPhone.** The bar took the space the home indicator needs inside its row, which left each tab some 22px for its icon and its label, and the icons shrank to a few pixels. That space now sits under the row. (#152)
+- **The cluster overview's node list fits a phone.** A node's name, metric bars and buttons sat on one line some 700px wide, and the card cut off the memory and disk bars and the edit and leave buttons, with no way to scroll to them; a tablet lost the end of the line too. Below 1024px the metrics now take a line of their own under the name. (#153)
+
 ## [0.83.0] – 2026-11-03
 
 ### Added
