@@ -1,13 +1,16 @@
 package cluster
 
-import "fmt"
+import (
+	"fmt"
+	"slices"
+)
 
 // wouldDropBelowQuorumOnLeave is the pure quorum-on-leave decision, split out
 // so the boundary cases are unit-testable without standing up a live Manager
 // with Raft + heartbeat state (there is no harness for that today).
 //
-// Unlike checkQuorumAfterRemoval in the cluster feature handler — which is a
-// pure voter-count check used by RemoveNode — this guard is driven by *live
+// Unlike wouldDropBelowQuorumOnRemove below — a count of the Raft
+// configuration's voters — this guard is driven by *live
 // heartbeat health*: it counts how many of the surviving voters are actually
 // reachable right now, not just how many exist in the FSM configuration. That
 // distinction is what catches the orphan case: a 2-voter cluster whose peer is
@@ -85,4 +88,45 @@ func (m *Manager) WouldDropBelowQuorumOnLeave() (string, bool) {
 		voters[id] = status
 	}
 	return wouldDropBelowQuorumOnLeave(m.nodeID, voters)
+}
+
+// wouldDropBelowQuorumOnRemove is the pure math behind the remove guard,
+// split out so the boundary cases (1, 2, 3, 5 voters) are testable without a
+// live Manager. Returns true when removing one voter from a cluster of
+// `voters` total would leave fewer than N/2+1 voters remaining.
+func wouldDropBelowQuorumOnRemove(targetID string, voters int) (string, bool) {
+	if voters <= 0 {
+		return "", false
+	}
+	postRemoval := voters - 1
+	quorum := voters/2 + 1
+	if postRemoval < quorum {
+		return fmt.Sprintf(
+			"removing voter %q would drop the cluster below quorum (%d/%d voters; quorum %d)",
+			targetID, postRemoval, voters, quorum), true
+	}
+	return "", false
+}
+
+// WouldDropBelowQuorumOnRemove returns a human-readable reason + true when
+// removing the named voter would leave the cluster with fewer voters than the
+// current Raft quorum (N/2 + 1). Both come from the Raft configuration, which
+// a quorum is counted from, not from the node records: a node it holds as no
+// voter — a non-voter, an agent, or the record of a voter a peers.json
+// recovery left out — takes no vote with it, and its removal is always safe.
+// Nothing is judged by heartbeats: a voter whose stream ended a moment ago is
+// up as far as anyone can tell, and one that is really down cannot be removed
+// at all while it counts, as the leader steps down without it.
+func (m *Manager) WouldDropBelowQuorumOnRemove(nodeID string) (string, bool) {
+	if m.raft == nil {
+		return "", false
+	}
+	voters, err := m.raft.Voters()
+	if err != nil {
+		return fmt.Sprintf("the Raft configuration could not be read to count the voters: %v", err), true
+	}
+	if !slices.Contains(voters, nodeID) {
+		return "", false
+	}
+	return wouldDropBelowQuorumOnRemove(nodeID, len(voters))
 }

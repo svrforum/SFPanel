@@ -912,11 +912,28 @@ func sudoPrefix() string {
 
 func clusterRemove(args []string) {
 	cfgPath, rest := parseCfgFlag(args)
-	if len(rest) < 1 {
-		fmt.Println("Usage: sfpanel cluster remove <node-id> [--config PATH]")
+	// --force passes the running service's quorum guard, as 'cluster leave
+	// --force' does, on either side of the ID. A stopped service's remove has
+	// no guard to pass. Any other flag is refused, not taken for the ID: the
+	// server answers an unknown ID's removal as done, and the node stays.
+	force := false
+	var ids []string
+	for _, a := range rest {
+		if a == "--force" {
+			force = true
+		} else {
+			ids = append(ids, a)
+		}
+	}
+	if len(ids) != 1 || strings.HasPrefix(ids[0], "-") {
+		fmt.Println("Usage: sfpanel cluster remove <node-id> [--force] [--config PATH]")
 		os.Exit(1)
 	}
-	nodeID := rest[0]
+	nodeID := ids[0]
+	removePath := "/api/v1/cluster/nodes/" + nodeID
+	if force {
+		removePath += "?force=true"
+	}
 
 	cfg := loadCfgForCLI(cfgPath)
 	if !cfg.Cluster.Enabled {
@@ -926,7 +943,7 @@ func clusterRemove(args []string) {
 	// Delegate to running server to avoid Raft port conflict
 	if isServerRunning(cfg.Server.Port) {
 		fmt.Println("Server is running — delegating remove to live server...")
-		raw, err := callLocalAPI(cfg, "DELETE", "/api/v1/cluster/nodes/"+nodeID, nil)
+		raw, err := callLocalAPI(cfg, "DELETE", removePath, nil)
 		if err != nil {
 			log.Fatalf("Remove via server failed: %v", err)
 		}
@@ -1116,7 +1133,8 @@ func printClusterHelp() {
 	fmt.Println("  sfpanel cluster status                    Show cluster status (live role + leader if server running)")
 	fmt.Println("  sfpanel cluster list                      List all cluster members with role + health")
 	fmt.Println("  sfpanel cluster leader-transfer NODE_ID   Hand off leadership to NODE_ID (for graceful drains)")
-	fmt.Println("  sfpanel cluster remove NODE_ID            Remove a node")
+	fmt.Println("  sfpanel cluster remove NODE_ID [--force]  Remove a node; --force removes one of the last two")
+	fmt.Println("                                            voters, which leaves a lone voter")
 	fmt.Println("  sfpanel cluster convert NODE_ID           Turn a manager into an agent, keeping its ID and labels")
 	fmt.Println("  sfpanel cluster promote NODE_ID           Turn an agent into a manager, keeping its ID and labels")
 	fmt.Println("  sfpanel cluster leave [--force]           Leave the cluster; --force leaves even when the")

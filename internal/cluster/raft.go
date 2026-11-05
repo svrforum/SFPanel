@@ -388,6 +388,22 @@ func (rn *RaftNode) Suffrage(id string) (raft.ServerSuffrage, bool, error) {
 	return 0, false, nil
 }
 
+// Voters lists the IDs the Raft configuration holds as voters: the
+// membership a quorum is counted from.
+func (rn *RaftNode) Voters() ([]string, error) {
+	f := rn.raft.GetConfiguration()
+	if err := f.Error(); err != nil {
+		return nil, err
+	}
+	var ids []string
+	for _, s := range f.Configuration().Servers {
+		if s.Suffrage == raft.Voter {
+			ids = append(ids, string(s.ID))
+		}
+	}
+	return ids, nil
+}
+
 // isLeader reports leadership, treating a RaftNode with no underlying Raft as
 // "not the leader" rather than dereferencing nil.
 //
