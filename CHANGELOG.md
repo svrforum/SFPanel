@@ -6,6 +6,13 @@ The format is loosely based on [Keep a Changelog](https://keepachangelog.com/), 
 
 ---
 
+## [0.83.2] – 2026-11-06
+
+### Fixed
+
+- **The record of a voter a peers.json recovery left out can be removed, and the check on removing a voter counts the voters that make the quorum.** It counted the voters in the node list, which after a peers.json recovery still holds the voter left out: with one survivor that record could not be removed (`would drop the cluster below quorum (1/2 voters; quorum 2)`), and with two, removing a survivor passed as one of three and left a lone voter. It now counts the voters of the Raft configuration, so a record the configuration does not hold is removed, and one of its last two voters is not removed without `--force`. (#137)
+- **`sudo sfpanel cluster remove <node-id> --force`** passes that check, as `cluster leave --force` does; the API's `?force=true` had no CLI counterpart. Any other flag is refused rather than taken for the node's ID, which the panel answered as removed while the node stayed. (#137)
+
 ## [0.83.1] – 2026-11-06
 
 ### Fixed
