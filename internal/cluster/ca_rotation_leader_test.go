@@ -3,6 +3,7 @@ package cluster
 import (
 	"bytes"
 	"context"
+	"crypto/tls"
 	"errors"
 	"net"
 	"strconv"
@@ -492,7 +493,23 @@ func TestAConnectionMadeUnderTheOldCAEndsWithIt(t *testing.T) {
 	advanceTo(t, mgr, now, CAPhaseDone)
 
 	waitFor(t, "the connection made under the old CA to end", func() bool {
-		err := proxy()
-		return status.Code(err) == codes.Unavailable && strings.Contains(err.Error(), "unknown certificate authority")
+		return status.Code(proxy()) == codes.Unavailable
 	})
+	// And one made again is refused for its certificate. Asked through gRPC,
+	// which writes its preface as soon as its half of a TLS 1.3 handshake is
+	// done, the refusal could come back as the reset the server's close over
+	// that unread preface sends ("write: broken pipe") instead of the alert,
+	// one run in ten. A handshake that only reads gets the alert.
+	cfg, err := kept.ClientTLSConfig()
+	if err != nil {
+		t.Fatal(err)
+	}
+	again, err := tls.Dial("tcp", addr, cfg)
+	if err == nil {
+		_, err = again.Read(make([]byte, 1))
+		_ = again.Close()
+	}
+	if err == nil || !strings.Contains(err.Error(), "unknown certificate authority") {
+		t.Fatalf("a connection made again with the old CA's certificate: %v", err)
+	}
 }
