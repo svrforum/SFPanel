@@ -6,6 +6,12 @@ The format is loosely based on [Keep a Changelog](https://keepachangelog.com/), 
 
 ---
 
+## [0.83.3] – 2026-11-06
+
+### Changed
+
+- **Dependencies.** monaco-editor 0.57, the code editor's own update, which the panel now loads through the entry points monaco-editor made the supported ones, with every editor feature as before; gRPC 1.85; SQLite (modernc) 1.61.1; sonner 2.0.8; Tauri CLI 2.12.4; setup-java 6.1 and rust-cache for the app builds. minimatch 11 and glob 14 under the build and lint tools close GHSA-g3hv-75wg-m249 and GHSA-3g3m-2fjr-6pw4. (#140–#143, #147–#149)
+
 ## [0.83.2] – 2026-11-06
 
 ### Fixed
