@@ -16,7 +16,7 @@ require (
 	github.com/hashicorp/raft-boltdb/v2 v2.4.2
 	github.com/labstack/echo/v4 v4.16.3
 	github.com/pquerna/otp v1.5.0
-	github.com/shirou/gopsutil/v4 v4.26.9
+	github.com/shirou/gopsutil/v4 v4.26.10
 	github.com/stretchr/testify v1.12.1
 	golang.org/x/crypto v0.58.0
 	google.golang.org/grpc v1.85.0
@@ -35,7 +35,7 @@ require (
 	github.com/containerd/log v0.1.0 // indirect
 	github.com/docker/go-units v0.5.0 // indirect
 	github.com/dustin/go-humanize v1.1.0 // indirect
-	github.com/ebitengine/purego v0.11.1 // indirect
+	github.com/ebitengine/purego v0.11.2 // indirect
 	github.com/fatih/color v1.19.0 // indirect
 	github.com/felixge/httpsnoop v1.1.0 // indirect
 	github.com/go-logr/logr v1.4.4 // indirect
