@@ -4057,7 +4057,8 @@ Claude Code · Codex · Gemini CLI를 패널이 관리하는 tmux 세션으로 �
       "codex":  { "installed": true, "version": "codex-cli 0.141.0", "path": "/usr/bin/codex", "latest": "0.154.0", "update_available": true, "logged_in": false },
       "gemini": { "installed": false, "version": "", "path": "", "latest": "0.59.0", "update_available": false, "logged_in": false }
     },
-    "touch_scroll": true
+    "touch_scroll": true,
+    "touch_history": true
   }
 }
 ```
@@ -4070,6 +4071,7 @@ Claude Code · Codex · Gemini CLI를 패널이 관리하는 tmux 세션으로 �
 | `tmux.supported` | `tmux -V`가 `min_version`(3.2) 이상인지. 설치돼 있으나 낮으면 세션 생성/재시작이 `TMUX_MISSING`(503)으로 거절되고 배너가 업그레이드를 안내한다. 버전을 읽지 못하면 `true`(막지 않음). `tmux -V` 결과는 10분 캐시 |
 | `systemd_run` | 다음 spawn이 서버 폼(transient 서비스)을 쓸 수 있는지 = 패널이 root **그리고** 호스트에 `systemd-run`이 있음. 세션의 `persistence`와 같은 판정이며, `false`면 페이지 배너가 탭의 `process` 표시를 설명한다 |
 | `touch_scroll` | attach가 tmux에 터치 스크롤을 묶는지(websocket-spec §7 터치 스크롤). 페이지는 `true`일 때만 손가락이 지난 줄마다 `Shift 휠 보고 + 휠 보고` 쌍을 보낸다 — 묶지 않는 예전 패널에서는 프로그램이 한 줄에 휠 보고 두 개를 받는다 |
+| `touch_history` | `GET /ai/sessions/:id/scrollback`이 있는지. 폰의 기록 보기는 `touch_scroll`과 이것이 모두 `true`일 때만 사본을 요청하고, 아니면 손가락을 줄 단위로 tmux에 보낸다 |
 
 | 코드 | HTTP | 조건 |
 |------|------|------|
@@ -4248,6 +4250,8 @@ Codex/Gemini가 쓰는 npm:
 | `model` | string | `--model <값>` | `-m <값>` |
 | `extra` | string[] | 검증한 뒤 그대로 맨 뒤에 붙는다 | 같음 |
 
+Codex는 고른 값과 별개로 **인라인**으로 띄운다: argv 맨 앞, 어떤 서브커맨드보다 앞에 `-c tui.alternate_screen=never`. 대화가 Codex의 대체 화면 안이 아니라 tmux 기록에 쌓여야 폰의 기록 보기(`GET /ai/sessions/:id/scrollback`)가 그것을 매끄럽게 스크롤할 수 있다 — 대체 화면의 Codex는 Codex만 스크롤할 수 있고, 폰에서는 휠 보고 하나·왕복 한 번에 한 행씩이었다. `--no-alt-screen` 플래그가 아니라 설정 덮어쓰기인 이유: 그 플래그는 Codex 0.81.0(openai/codex#8555)부터라 옛 Codex는 모르는 플래그에 바로 죽고, 0.81~0.148은 `resume` 뒤에 둔 그 플래그를 버린다. 설정 키는 옛 Codex가 모르는 키로 지나치고(0.80의 설정 구조체에 `deny_unknown_fields`가 없다), 루트의 `-c`는 `resume`에도 전달되므로 버전을 조사하지 않고 모든 버전에 붙인다. `extra`의 `-c tui.alternate_screen=always`는 그 뒤에 오므로 그것이 이긴다 — 데스크톱에서 대체 화면을 원하는 운영자의 길이다. `create`·`restart`·`rerun` 모두 같고, 이미 떠 있는 Codex는 다시 시작해야 인라인이 된다.
+
 `model`은 `^[A-Za-z0-9][A-Za-z0-9._:-]{0,63}$`, `extra`는 최대 8개·각 64자·`^-{0,2}[A-Za-z0-9][A-Za-z0-9=._,:/@-]*$`이다. 문자 집합에 공백이 없으므로 따옴표가 필요한 값은 애초에 표현할 수 없다. 거절 메시지는 어긋난 규칙(`model`·`argument` …)을 지목하되 짧다 — 대화상자가 같은 규칙을 먼저 검사해 필드 옆에 그 언어의 문장을 띄우므로, 서버 문장은 로그 줄이자 최후의 대체 텍스트다. 옵션은 `bash -lic '<~/.local/bin을 PATH 맨 앞에>; command "$0" "$@"; exec bash -l' <도구> <인자…>`의 `"$@"`로 **한 원소당 한 단어씩** 전달되어 셸이 다시 파싱하지 않는다 — 이것이 `extra`를 받을 수 있는 근거이므로, 래퍼를 하나의 문자열로 "단순화"하면 안 된다. 행에는 argv가 아니라 **고른 값**이 JSON으로 남는다(마이그레이션 38).
 
 검증은 도구 → 계정 → 프로파일 → **실행 옵션** → `cwd` 순서다: 거절된 옵션 집합이 이미 세션을 띄운 뒤여서는 안 된다.
@@ -4278,6 +4282,9 @@ Codex/Gemini가 쓰는 npm:
 
 ### DELETE /api/v1/ai/sessions/:id
 살아있으면 `kill-session`, 행 삭제. `AI_SESSION_NOT_FOUND`(404). **Response:** `{ "deleted": "<id>" }`
+
+### GET /api/v1/ai/sessions/:id/scrollback
+폰의 "기록 보기"가 스크롤하는 사본. tmux는 브라우저 터미널의 대체 화면에 그려 브라우저에는 한 화면만 있으므로, tmux를 통해 기록을 스크롤하면 한 줄마다 왕복이 필요했다 — 페이지는 이 사본을 받아 픽셀 단위로 직접 스크롤한다. 먼저 `display-message -p '#{alternate_on} #{pane_in_mode} #{pane_width} #{pane_height}'`로 pane의 상태와 크기를 읽는다. 대체 화면이거나(`alternate`) 복사 모드면(`copy_mode`) 사본 없이(`text: ""`) 그 상태만 돌려준다: 대체 화면의 프로그램(vim·대체 화면으로 띄운 Codex 등)은 기록을 자기 안에 갖고 있고 capture-pane은 그 프로그램이 시작하기 전 셸의 화면을 돌려주며, 복사 모드의 pane은 기록의 어느 지점을 보여주고 있어 사본의 맨 아래가 보이는 화면이 아니다. 페이지는 이때, 그리고 `cols`·`rows`가 자기 크기와 다를 때(크기를 바꾸는 중) tmux로 줄 단위 스크롤한다. 아니면 `capture-pane -p -e -J -S -2000` — `-e` 색, `-J` 이어 붙인 줄(첨부 시 replay와 같음), 화면 마지막 행까지 **빈 행 포함**, 마지막 개행만 뺀다: 사본의 맨 아래가 페이지가 보여주는 화면과 행 단위로 같아야 기록 보기가 보던 화면에서 바로 열린다. `AI_SESSION_NOT_FOUND`(404, 잘못된 id이거나 끝난 세션) · `INVALID_ACCOUNT`(400, 세션 계정이 사라짐). **Response:** `{ "alternate": false, "copy_mode": false, "cols": 47, "rows": 44, "text": "..." }`
 
 ### GET /api/v1/ai/sessions/:id/text
 세션의 기록과 현재 화면을 평문으로 돌려준다 — 터미널 페이지의 "텍스트 선택" 창이 쓴다. tmux는 브라우저 터미널의 대체 화면에 그리므로 브라우저에는 한 화면만 있고 나머지 기록은 tmux에 있다. `capture-pane -p -J -S -2000`: `-J`가 pane 폭에서 줄바꿈된 줄을 이어 붙여 복사한 명령·경로가 끊기지 않는다. 줄 끝 공백과 마지막 출력 아래 빈 줄은 뺀다. `AI_SESSION_NOT_FOUND`(404, 잘못된 id이거나 끝난 세션) · `INVALID_ACCOUNT`(400, 세션 계정이 사라짐). **Response:** `{ "text": "..." }`
@@ -7247,6 +7254,7 @@ WireGuard 키페어 생성 (`wg genkey` + `wg pubkey`).
 | POST | `/api/v1/ai/sessions/:id/restart` | O | 종료된 세션 다시 시작 |
 | DELETE | `/api/v1/ai/sessions/:id` | O | 세션 종료 |
 | GET | `/api/v1/ai/sessions/:id/text` | O | 세션 기록을 평문으로 |
+| GET | `/api/v1/ai/sessions/:id/scrollback` | O | 기록 보기용 사본(색 포함, pane 상태·크기) |
 
 ### Docker - 컨테이너 (11개)
 

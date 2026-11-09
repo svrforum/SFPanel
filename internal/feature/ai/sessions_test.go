@@ -1070,8 +1070,9 @@ func TestRestart_ReusesTheRowsLaunch(t *testing.T) {
 	if rec.Code != http.StatusOK {
 		t.Fatalf("restart: %s", rec.Body.String())
 	}
-	// `resume --last` first, as the subcommand it is, then the sandbox.
-	assertSpawnCarries(t, m, ToolCodex, []string{"resume", "--last", "--sandbox", "read-only"})
+	// Inline first (a root option), then `resume --last` as the subcommand it
+	// is, then the sandbox.
+	assertSpawnCarries(t, m, ToolCodex, []string{"-c", "tui.alternate_screen=never", "resume", "--last", "--sandbox", "read-only"})
 }
 
 // 다시 실행 types the tool into a pane that has dropped back to its shell, so
@@ -1239,5 +1240,96 @@ func TestSessionText_RefusesABadIDAndAnEndedSession(t *testing.T) {
 	}
 	if code, _ := failCode(t, call(t, h.SessionText, http.MethodGet, "", "bbbbbbbbbbbb", "")); code != response.ErrAISessionNotFound {
 		t.Errorf("ended session: got %s, want AI_SESSION_NOT_FOUND", code)
+	}
+}
+
+// The history view's copy keeps what the text view trims: colours, and the
+// screen's blank rows at the bottom. The page writes it into a terminal of the
+// screen's size and opens on its last rows, so a trimmed bottom would open the
+// view rows away from the screen the operator was looking at.
+func TestSessionScrollback_KeepsColoursAndTheScreensBlankRows(t *testing.T) {
+	out := "line one   \n\x1b[31m$ ls\x1b[0m\n\n\n"
+	m := tmuxMock(out)
+	h := newTestHandler(t, m)
+	h.DB = openTestDB(t)
+	_ = insertSession(h.DB, sessionRow{ID: "aaaaaaaaaaaa", Tool: ToolCodex, Title: "a", RunAs: "root", CWD: "/"})
+
+	rec := call(t, h.SessionScrollback, http.MethodGet, "", "aaaaaaaaaaaa", "")
+	if rec.Code != http.StatusOK {
+		t.Fatalf("scrollback: %d %s", rec.Code, rec.Body.String())
+	}
+	var env struct {
+		Data struct {
+			Alternate bool   `json:"alternate"`
+			Text      string `json:"text"`
+		} `json:"data"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &env); err != nil {
+		t.Fatal(err)
+	}
+	if env.Data.Alternate || env.Data.Text != strings.TrimSuffix(out, "\n") {
+		t.Errorf("scrollback = %+v, want the capture as is, less its final newline", env.Data)
+	}
+	var captured bool
+	for _, c := range m.Calls {
+		if strings.HasSuffix(strings.Join(c.Args, " "), "capture-pane -p -e -J -t aaaaaaaaaaaa -S -"+strconv.Itoa(historyLines)) {
+			captured = true
+		}
+	}
+	if !captured {
+		t.Errorf("want a coloured, joined capture down to the screen's last row; calls %+v", m.Calls)
+	}
+}
+
+// A program in the alternate screen keeps its history to itself; a capture
+// would show the history from before it started and its screen, so none is
+// taken. Nor in copy mode, whose view the copy's bottom is not.
+func TestSessionScrollback_SaysAlternateAndCapturesNothing(t *testing.T) {
+	m := tmuxMock("1 0 80 24\n")
+	h := newTestHandler(t, m)
+	h.DB = openTestDB(t)
+	_ = insertSession(h.DB, sessionRow{ID: "aaaaaaaaaaaa", Tool: ToolCodex, Title: "a", RunAs: "root", CWD: "/"})
+
+	rec := call(t, h.SessionScrollback, http.MethodGet, "", "aaaaaaaaaaaa", "")
+	var env struct {
+		Data struct {
+			Alternate bool   `json:"alternate"`
+			Text      string `json:"text"`
+		} `json:"data"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &env); err != nil {
+		t.Fatal(err)
+	}
+	if !env.Data.Alternate || env.Data.Text != "" {
+		t.Errorf("scrollback = %+v, want alternate with no text", env.Data)
+	}
+	for _, c := range m.Calls {
+		if slices.Contains(c.Args, "capture-pane") {
+			t.Errorf("an alternate-screen pane must not be captured: %+v", c)
+		}
+	}
+	if code, _ := failCode(t, call(t, h.SessionScrollback, http.MethodGet, "", "../etc", "")); code != response.ErrAISessionNotFound {
+		t.Errorf("bad id: got %s, want AI_SESSION_NOT_FOUND", code)
+	}
+}
+
+// 다시 실행 types the inline override with the rest: a rerun that typed a bare
+// `codex resume --last` would bring the conversation back into the alternate
+// screen, out of the history view's reach.
+func TestRerun_TypesCodexInline(t *testing.T) {
+	launch, err := LaunchOptions{Continue: continueLast, Sandbox: "read-only"}.Encode()
+	if err != nil {
+		t.Fatal(err)
+	}
+	m := tmuxMock("aaaaaaaaaaaa\t1\tbash\t0\t1789348400\t0")
+	h := newTestHandler(t, m)
+	h.DB = openTestDB(t)
+	_ = insertSession(h.DB, sessionRow{ID: "aaaaaaaaaaaa", Tool: ToolCodex, Title: "Codex · x", RunAs: "root", CWD: "/", Launch: launch})
+	if rec := call(t, h.RerunSession, http.MethodPost, "", "aaaaaaaaaaaa", ""); rec.Code != http.StatusOK {
+		t.Fatalf("rerun: %d %s", rec.Code, rec.Body.String())
+	}
+	last := m.Calls[len(m.Calls)-1]
+	if i := slices.Index(last.Args, "send-keys"); i < 0 || last.Args[i+3] != "codex -c tui.alternate_screen=never resume --last --sandbox read-only" {
+		t.Errorf("rerun typed %q, want codex resumed inline", last.Args)
 	}
 }

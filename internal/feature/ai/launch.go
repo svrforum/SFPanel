@@ -39,6 +39,20 @@ const (
 // here — see validateLaunch.
 var claudePermissionModes = []string{"auto", "manual", "plan", "acceptEdits", "dontAsk", "bypassPermissions"}
 
+// codexInline runs Codex inline: its conversation goes to the terminal's
+// history, which in a session is tmux's, instead of staying inside Codex's
+// alternate screen, where only Codex can scroll it — a row per wheel report
+// and per round trip from a phone. In tmux's history the page's history view
+// scrolls it smoothly (GET /ai/sessions/:id/scrollback).
+//
+// A config override rather than --no-alt-screen, ahead of any subcommand: the
+// key arrived with the flag (Codex 0.81.0, openai/codex#8555) and an older
+// Codex, which refuses an unknown flag, ignores an unknown [tui] key; and
+// 0.81 to 0.148 parsed the flag after `resume` but dropped it, leaving a
+// resumed session in the alternate screen. An operator's own override in
+// 추가 인자 comes later and wins.
+var codexInline = []string{"-c", "tui.alternate_screen=never"}
+
 // codexApprovalPolicies and codexSandboxModes are `codex --help`'s own lists
 // for -a/--ask-for-approval and -s/--sandbox, read from the installed CLI
 // (Codex 0.154.0). Codex's bypass flag has no account rule of its own.
@@ -235,9 +249,11 @@ func toolArgv(tool string, o LaunchOptions) ([]string, error) {
 			argv = append(argv, "--model", o.Model)
 		}
 	case ToolCodex:
-		// `resume` is a SUBCOMMAND, not a flag, so it comes first and ahead
-		// of every option: `codex --continue` does not exist, and codex reads
-		// the subcommand before the flags that qualify it.
+		// Inline (codexInline) as a root option, before any subcommand.
+		argv = append(argv, codexInline...)
+		// `resume` is a SUBCOMMAND, not a flag, so it comes ahead of every
+		// option of its own: `codex --continue` does not exist, and codex
+		// reads the subcommand before the flags that qualify it.
 		switch o.Continue {
 		case continueLast:
 			argv = append(argv, "resume", "--last")

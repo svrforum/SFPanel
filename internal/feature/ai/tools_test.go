@@ -385,7 +385,8 @@ func TestProbeScript_FindsLocalBinOnAStockRootAccount(t *testing.T) {
 
 // The page sends its Shift wheel pairs only when the bundle says the attach
 // binds them: to a panel that does not, a program gets two wheel reports per
-// line. So the flag and the bindings have to go together.
+// line. So the flag and the bindings have to go together. The history view's
+// copy has its own flag: a page asks for it only from a panel that serves it.
 func TestTools_TouchScrollSaysTheAttachBindsIt(t *testing.T) {
 	for _, tool := range cliTools {
 		stubLatest(t, tool, "", http.StatusOK)
@@ -399,7 +400,8 @@ func TestTools_TouchScrollSaysTheAttachBindsIt(t *testing.T) {
 	rec := call(t, h.Tools, http.MethodGet, "", "", "?user=root")
 	var env struct {
 		Data struct {
-			TouchScroll bool `json:"touch_scroll"`
+			TouchScroll  bool `json:"touch_scroll"`
+			TouchHistory bool `json:"touch_history"`
 		} `json:"data"`
 	}
 	if err := json.Unmarshal(rec.Body.Bytes(), &env); err != nil {
@@ -416,5 +418,8 @@ func TestTools_TouchScrollSaysTheAttachBindsIt(t *testing.T) {
 	}
 	if !env.Data.TouchScroll {
 		t.Error("touch_scroll must be true while the attach binds touch scrolling")
+	}
+	if !env.Data.TouchHistory {
+		t.Error("touch_history must be true: the page asks this panel for the scrollback copy only then")
 	}
 }

@@ -2,16 +2,21 @@ package ai
 
 import (
 	"context"
+	"encoding/json"
 	"io"
+	"net/http"
 	"os"
 	osExec "os/exec"
 	"path/filepath"
+	"regexp"
 	"strconv"
 	"strings"
 	"testing"
 	"time"
 
 	"github.com/creack/pty"
+
+	"github.com/svrforum/SFPanel/internal/common/exec"
 )
 
 // Exercise an actual tmux attach, including upgrading an existing mouse-off
@@ -250,3 +255,80 @@ func TestTouchScrollKeepsAPasteOutOfCopyModesBindings(t *testing.T) {
 		t.Errorf("a paste into copy mode moved it to %s", got)
 	}
 }
+
+// Against a real tmux: the copy is the whole history down to the screen's
+// last row, every row of the screen present, colours kept, with the pane's
+// size; a program in the alternate screen, or a pane in copy mode, gets no
+// copy at all.
+func TestSessionScrollbackEndsWithTheScreen(t *testing.T) {
+	if _, err := osExec.LookPath("tmux"); err != nil {
+		t.Skip("tmux required")
+	}
+	h := newTestHandler(t, nil)
+	h.Cmd = exec.NewCommander()
+	h.DB = openTestDB(t)
+	if err := os.MkdirAll(filepath.Dir(h.socketPath(h.panel)), 0700); err != nil {
+		t.Fatal(err)
+	}
+	base := []string{"-f", "/dev/null", "-S", h.socketPath(h.panel)}
+	tmux := func(args ...string) string {
+		out, _ := osExec.Command("tmux", append(append([]string{}, base...), args...)...).CombinedOutput()
+		return strings.TrimSpace(string(out))
+	}
+	t.Cleanup(func() { _ = osExec.Command("tmux", append(base, "kill-server")...).Run() })
+	shell, program := "aaaaaaaaaaaa", "bbbbbbbbbbbb"
+	tmux("new-session", "-d", "-s", shell, "-x", "80", "-y", "24", `sh -c 'seq 1 100; printf "\033[31mred\033[0m\n"; exec sleep 60'`)
+	tmux("new-session", "-d", "-s", program, "-x", "80", "-y", "24", `sh -c 'printf "\033[?1049hfull screen"; exec sleep 60'`)
+	for _, id := range []string{shell, program} {
+		_ = insertSession(h.DB, sessionRow{ID: id, Tool: ToolShell, Title: id, RunAs: "root", CWD: "/"})
+	}
+	waitFor(t, func() bool { return strings.Contains(tmux("capture-pane", "-p", "-t", shell), "red") }, "the shell never drew")
+	waitFor(t, func() bool { return tmux("display-message", "-p", "-t", program, "#{alternate_on}") == "1" }, "the program never took the alternate screen")
+
+	type copyOf struct {
+		Alternate bool   `json:"alternate"`
+		CopyMode  bool   `json:"copy_mode"`
+		Cols      int    `json:"cols"`
+		Rows      int    `json:"rows"`
+		Text      string `json:"text"`
+	}
+	scrollback := func(id string) copyOf {
+		rec := call(t, h.SessionScrollback, http.MethodGet, "", id, "")
+		var env struct {
+			Data copyOf `json:"data"`
+		}
+		if err := json.Unmarshal(rec.Body.Bytes(), &env); err != nil {
+			t.Fatalf("%s: %v: %s", id, err, rec.Body.String())
+		}
+		return env.Data
+	}
+	got := scrollback(shell)
+	alt, text := got.Alternate, got.Text
+	if got.Cols != 80 || got.Rows != 24 || got.CopyMode {
+		t.Errorf("pane %dx%d copy mode %v, want 80x24 and live", got.Cols, got.Rows, got.CopyMode)
+	}
+	lines := strings.Split(text, "\n")
+	history, _ := strconv.Atoi(tmux("display-message", "-p", "-t", shell, "#{history_size}"))
+	if alt || len(lines) != history+24 {
+		t.Fatalf("alternate %v, %d lines; want the %d lines of history and the 24 of the screen", alt, len(lines), history)
+	}
+	screen := strings.Split(tmux("capture-pane", "-p", "-t", shell), "\n")
+	if got := stripSGR(lines[len(lines)-24]); got != screen[0] {
+		t.Errorf("the copy's screen starts with %q, the screen with %q", got, screen[0])
+	}
+	if !strings.Contains(text, "\x1b[31mred") {
+		t.Error("the copy lost its colours")
+	}
+	if got := scrollback(program); !got.Alternate || got.Text != "" {
+		t.Errorf("a program in the alternate screen: %+v; want alternate and nothing", got)
+	}
+	tmux("copy-mode", "-t", shell)
+	waitFor(t, func() bool { return tmux("display-message", "-p", "-t", shell, "#{pane_in_mode}") == "1" }, "copy mode never opened")
+	if got := scrollback(shell); !got.CopyMode || got.Text != "" {
+		t.Errorf("a pane in copy mode: %+v; want copy_mode and nothing", got)
+	}
+}
+
+var sgrRe = regexp.MustCompile(`\x1b\[[0-9;]*m`)
+
+func stripSGR(s string) string { return sgrRe.ReplaceAllString(s, "") }

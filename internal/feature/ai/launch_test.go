@@ -28,18 +28,19 @@ func TestToolArgv_Claude(t *testing.T) {
 	}
 }
 
-// Codex continues with a SUBCOMMAND, which has to come first — a flag-shaped
-// translation would make `codex --continue`, which does not exist.
+// Codex continues with a SUBCOMMAND, which has to come ahead of its own
+// options — a flag-shaped translation would make `codex --continue`, which does
+// not exist. Only the inline override, a root option, precedes it.
 func TestToolArgv_CodexResumeIsASubcommandAndComesFirst(t *testing.T) {
 	got, err := toolArgv(ToolCodex, LaunchOptions{Continue: "last", Permission: "never", Sandbox: "workspace-write", Model: "gpt-6", Extra: []string{"--search"}})
 	if err != nil {
 		t.Fatal(err)
 	}
-	want := []string{"resume", "--last", "--ask-for-approval", "never", "--sandbox", "workspace-write", "-m", "gpt-6", "--search"}
+	want := []string{"-c", "tui.alternate_screen=never", "resume", "--last", "--ask-for-approval", "never", "--sandbox", "workspace-write", "-m", "gpt-6", "--search"}
 	if !slices.Equal(got, want) {
 		t.Errorf("got %q, want %q", got, want)
 	}
-	if got, _ := toolArgv(ToolCodex, LaunchOptions{Continue: "pick"}); !slices.Equal(got, []string{"resume"}) {
+	if got, _ := toolArgv(ToolCodex, LaunchOptions{Continue: "pick"}); !slices.Equal(got, []string{"-c", "tui.alternate_screen=never", "resume"}) {
 		t.Errorf("pick → %q, want [resume]", got)
 	}
 	// Without a continue choice there must be no subcommand at all.
@@ -47,7 +48,7 @@ func TestToolArgv_CodexResumeIsASubcommandAndComesFirst(t *testing.T) {
 	if slices.Contains(got, "resume") {
 		t.Errorf("no continue must emit no subcommand, got %q", got)
 	}
-	if got, _ := toolArgv(ToolCodex, LaunchOptions{Dangerous: true}); !slices.Equal(got, []string{"--dangerously-bypass-approvals-and-sandbox"}) {
+	if got, _ := toolArgv(ToolCodex, LaunchOptions{Dangerous: true}); !slices.Equal(got, []string{"-c", "tui.alternate_screen=never", "--dangerously-bypass-approvals-and-sandbox"}) {
 		t.Errorf("dangerous → %q", got)
 	}
 }
@@ -194,5 +195,29 @@ func TestLaunchEncodeDecode(t *testing.T) {
 	fwd, err := decodeLaunch(`{"continue":"last","futureThing":{"a":1}}`)
 	if err != nil || fwd.Continue != "last" {
 		t.Errorf("unknown fields must be ignored, got %+v %v", fwd, err)
+	}
+}
+
+// Codex runs inline from the first argument: a root option, ahead of any
+// subcommand, because 0.81 to 0.148 parsed --no-alt-screen after `resume`
+// and dropped it. An override in 추가 인자 comes after it and wins.
+func TestToolArgv_CodexRunsInlineAheadOfAnySubcommand(t *testing.T) {
+	inline := []string{"-c", "tui.alternate_screen=never"}
+	for _, c := range []struct {
+		o    LaunchOptions
+		rest []string
+	}{
+		{LaunchOptions{}, nil},
+		{LaunchOptions{Continue: "last", Model: "gpt-6"}, []string{"resume", "--last", "-m", "gpt-6"}},
+		{LaunchOptions{Continue: "pick"}, []string{"resume"}},
+		{LaunchOptions{Extra: []string{"-c", "tui.alternate_screen=always"}}, []string{"-c", "tui.alternate_screen=always"}},
+	} {
+		got, err := toolArgv(ToolCodex, c.o)
+		if want := append(append([]string{}, inline...), c.rest...); err != nil || !slices.Equal(got, want) {
+			t.Errorf("%+v: got %q (%v), want %q", c.o, got, err, want)
+		}
+	}
+	if got, _ := toolArgv(ToolClaude, LaunchOptions{}); len(got) != 0 {
+		t.Errorf("inline is a codex setting; claude got %q", got)
 	}
 }

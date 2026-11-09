@@ -99,6 +99,51 @@ func (h *Handler) SessionText(c echo.Context) error {
 	return response.OK(c, map[string]string{"text": paneText(out)})
 }
 
+// SessionScrollback — GET /ai/sessions/:id/scrollback: the history a phone's
+// history view scrolls. tmux keeps a session's history and the browser holds
+// one screen of it, so scrolling it through tmux moved a line per round trip;
+// the page scrolls this copy itself instead, a pixel at a time. Colours (-e)
+// and wrapped lines joined (-J) as in the attach's replay, from historyLines
+// back down to the screen's last row, blank rows included: the copy's bottom
+// is the screen the page shows, row for row — when the pane is the page's
+// size (cols, rows: another client may be tmux's latest) and not scrolled
+// back in copy mode.
+//
+// No copy, and the page scrolls through tmux, when either side is elsewhere:
+// a program in the alternate screen keeps its own history out of tmux's reach
+// (capture-pane would answer with the history from before it started and its
+// screen); copy mode shows a view of the history the copy's bottom is not.
+func (h *Handler) SessionScrollback(c echo.Context) error {
+	id := c.Param("id")
+	if !validSessionID(id) {
+		return response.Fail(c, http.StatusNotFound, response.ErrAISessionNotFound, "no such session")
+	}
+	acct, failed, err := h.sessionAccount(c, id)
+	if failed {
+		return err
+	}
+	state, err := h.tmux(acct, "display-message", "-p", "-t", id, "#{alternate_on} #{pane_in_mode} #{pane_width} #{pane_height}")
+	if err != nil {
+		return response.Fail(c, http.StatusNotFound, response.ErrAISessionNotFound, "no such session")
+	}
+	f := strings.Fields(state)
+	for len(f) < 4 {
+		f = append(f, "")
+	}
+	cols, _ := strconv.Atoi(f[2])
+	rows, _ := strconv.Atoi(f[3])
+	answer := map[string]any{"alternate": f[0] == "1", "copy_mode": f[1] == "1", "cols": cols, "rows": rows, "text": ""}
+	if f[0] == "1" || f[1] == "1" {
+		return response.OK(c, answer)
+	}
+	out, err := h.tmux(acct, "capture-pane", "-p", "-e", "-J", "-t", id, "-S", "-"+strconv.Itoa(historyLines))
+	if err != nil {
+		return response.Fail(c, http.StatusNotFound, response.ErrAISessionNotFound, "no such session")
+	}
+	answer["text"] = strings.TrimSuffix(out, "\n")
+	return response.OK(c, answer)
+}
+
 // paneText drops what capture-pane -J keeps but a copy does not want: the
 // blanks at the end of every line and the empty rows below the last output.
 func paneText(out string) string {
