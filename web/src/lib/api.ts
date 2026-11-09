@@ -1897,6 +1897,13 @@ class ApiClient {
     return this.request<{ text: string }>(`/ai/sessions/${encodeURIComponent(id)}/text`)
   }
 
+  // The history view's copy: coloured, down to the screen's last row, with
+  // the pane's size. None (empty text) for a program in the alternate screen
+  // or a pane scrolled back in copy mode.
+  getAISessionScrollback(id: string) {
+    return this.request<{ alternate: boolean; copy_mode: boolean; cols: number; rows: number; text: string }>(`/ai/sessions/${encodeURIComponent(id)}/scrollback`)
+  }
+
   // Disk Management - Tool Status
   checkSmartmontools() {
     return this.request<{ installed: boolean }>('/disks/smartmontools-status')

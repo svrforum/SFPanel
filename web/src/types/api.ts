@@ -1958,6 +1958,8 @@ export interface AITools {
   tools: Record<'claude' | 'codex' | 'gemini', AIToolStatus>
   /** the attach binds touch scrolling (Shift wheel pairs); absent from a panel that binds none, where they would reach a program as two wheels per line */
   touch_scroll?: boolean
+  /** GET /ai/sessions/:id/scrollback exists, for the history view; absent from a panel without it */
+  touch_history?: boolean
 }
 
 /**

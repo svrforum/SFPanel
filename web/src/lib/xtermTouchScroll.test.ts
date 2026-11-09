@@ -298,3 +298,109 @@ describe('scrollTerminalLines', () => {
     }
   })
 })
+
+// The history view takes a gesture's pixels whole, and needs to know where a
+// gesture begins and when it is over: the finger lifted, a fling came to rest.
+describe('attachXtermTouchScroll hooks', () => {
+  let container: HTMLElement
+  let root: EventTarget
+  let clock: number
+  let frames: Map<number, () => void>
+  let nextFrame: number
+  let log: string[]
+  let taken: number
+  let take: boolean
+  let detach: () => void
+  const touch = (target: EventTarget, type: string, points: { x: number; y: number }[] = [], at = clock) => {
+    const e = new Event(type, { bubbles: true, cancelable: true })
+    Object.defineProperties(e, {
+      touches: { value: points.map((p) => ({ clientX: p.x, clientY: p.y })) },
+      timeStamp: { value: at },
+    })
+    target.dispatchEvent(e)
+    return e
+  }
+  const tick = () => {
+    clock += 16
+    const pending = [...frames.values()]
+    frames.clear()
+    for (const step of pending) step()
+  }
+  const drag = (y0: number, dy: number, step: number) => {
+    touch(container, 'touchstart', [{ x: 100, y: y0 }])
+    for (let y = y0; Math.abs(y - y0) < Math.abs(dy);) {
+      y = y0 + Math.sign(dy) * Math.min(Math.abs(dy), Math.abs(y - y0) + step)
+      clock += 16
+      touch(root, 'touchmove', [{ x: 100, y }])
+    }
+  }
+
+  beforeEach(() => {
+    const screen = fakeScreen()
+    container = Object.assign(new EventTarget(), { querySelector: () => screen, isConnected: true }) as unknown as HTMLElement
+    root = new EventTarget()
+    clock = 1000
+    frames = new Map()
+    nextFrame = 1
+    log = []
+    taken = 0
+    take = true
+    detach = attachXtermTouchScroll(container, fakeTerm(), {
+      scroll: (lines) => { log.push(`lines ${lines}`) },
+      pixels: (px) => { if (take) taken += px; return take },
+      onStart: () => { log.push('start') },
+      onSettle: () => { log.push('settle') },
+      root,
+      now: () => clock,
+      frame: (step) => { frames.set(nextFrame, step); return nextFrame++ },
+      cancelFrame: (id) => { frames.delete(id) },
+    })
+  })
+  afterEach(() => detach())
+
+  it('gives the pixels to whoever takes them, and counts no lines', () => {
+    drag(200, 10 * CELL + 7, 3)
+    touch(root, 'touchend', [], clock + 100)
+    expect(taken).toBe(-(10 * CELL + 7))
+    expect(log).toEqual(['start', 'settle'])
+  })
+
+  it('counts lines of what is left', () => {
+    take = false
+    drag(200, 3 * CELL, 8)
+    touch(root, 'touchend', [], clock + 100)
+    expect(log).toEqual(['start', 'lines -1', 'lines -1', 'lines -1', 'settle'])
+  })
+
+  it('settles a fling when it comes to rest, not when the finger lifts', () => {
+    drag(600, -8 * CELL, 32)
+    touch(root, 'touchend')
+    expect(log).toEqual(['start'])
+    for (let i = 0; i < 200 && frames.size; i++) tick()
+    expect(log).toEqual(['start', 'settle'])
+    expect(taken).toBeGreaterThan(8 * CELL + 30 * CELL)
+  })
+
+  it('settles a fling a new touch catches, before that touch starts its own', () => {
+    drag(600, -8 * CELL, 32)
+    touch(root, 'touchend')
+    tick()
+    touch(container, 'touchstart', [{ x: 100, y: 300 }])
+    expect(log).toEqual(['start', 'settle', 'start'])
+  })
+
+  it('settles a gesture it gives up on', () => {
+    touch(container, 'touchstart', [{ x: 100, y: 200 }])
+    touch(root, 'touchmove', [{ x: 160, y: 205 }]) // sideways
+    expect(log).toEqual(['start', 'settle'])
+  })
+
+  // The app's page buttons: one synthetic wheel is a whole gesture.
+  it('makes a synthetic wheel a gesture of its own, in pixels', () => {
+    const e = new Event('wheel', { cancelable: true })
+    Object.defineProperties(e, { deltaY: { value: -5 * CELL }, isTrusted: { value: false }, clientX: { value: 5 }, clientY: { value: 120 } })
+    container.dispatchEvent(e)
+    expect(log).toEqual(['start', 'settle'])
+    expect(taken).toBe(-5 * CELL)
+  })
+})

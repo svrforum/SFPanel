@@ -1,7 +1,8 @@
 import { test, expect, type Page, type CDPSession } from '@playwright/test'
 import { spawn, spawnSync, type ChildProcess } from 'node:child_process'
-import { resolve } from 'node:path'
-import { readFileSync } from 'node:fs'
+import { join, resolve } from 'node:path'
+import { mkdtempSync, readFileSync, rmSync } from 'node:fs'
+import { tmpdir } from 'node:os'
 
 test.use({ viewport: { width: 412, height: 860 }, hasTouch: true })
 
@@ -13,9 +14,20 @@ const needsTmux = () => test.skip(spawnSync('tmux', ['-V']).status !== 0 || spaw
   'Requires tmux and Python 3 for the isolated PTY fixture')
 
 // The terminal page against a real tmux (fixtures/tmux-pty.py) running `cmd`.
-// With `touch`, the bundle says so and the fixture binds it as the panel's
-// attach does; without, this is a panel from before touch scrolling.
-async function openTerminal(page: Page, peers: ChildProcess[], { touch, cmd, android }: { touch?: boolean; cmd?: string; android: boolean }) {
+// With `touch`, the bundle says so, the fixture binds it as the panel's attach
+// does, and the scrollback route copies the fixture's own pane the way the
+// panel's endpoint does (GET /ai/sessions/:id/scrollback); without, this is a
+// panel from before touch scrolling.
+async function openTerminal(page: Page, peers: ChildProcess[], dirs: string[], { touch, cmd, android, scrollback, numbered = true }: {
+  touch?: boolean; cmd?: string; android: boolean
+  /** the pane prints the numbers 1-300 (else: anything on its first row) */
+  numbered?: boolean
+  /** stands in for the endpoint: how long it takes, or that it fails */
+  scrollback?: { delayMs?: number; fail?: boolean }
+}) {
+  const dir = mkdtempSync(join(tmpdir(), 'sfp-touch-'))
+  dirs.push(dir)
+  const tmux = (...args: string[]) => spawnSync('tmux', ['-S', join(dir, 'socket'), ...args]).stdout?.toString() ?? ''
   await page.addInitScript(() => {
     sessionStorage.setItem('token', 'fixture-token')
     localStorage.setItem('i18nextLng', 'en')
@@ -27,12 +39,26 @@ async function openTerminal(page: Page, peers: ChildProcess[], { touch, cmd, and
     else if (path.endsWith('/auth/ws-ticket')) data = { ticket: 'fixture-ticket' }
     else if (path.endsWith('/cluster/status')) data = { enabled: false }
     else if (path.endsWith('/ai/sessions')) data = [{ id: 'abcdef123456', title: 'History test', tool: 'codex', run_as: 'tester', cwd: '/tmp', state: 'working', persistence: 'service', attached: true }]
-    else if (path.endsWith('/ai/tools')) data = { tmux: { installed: true, supported: true, version: '3.4', min_version: '3.2' }, systemd_run: true, accounts: ['tester'], panel_account: 'tester', account: 'tester', tools: {}, ...(touch ? { touch_scroll: true } : {}) }
+    else if (path.endsWith('/ai/tools')) data = { tmux: { installed: true, supported: true, version: '3.4', min_version: '3.2' }, systemd_run: true, accounts: ['tester'], panel_account: 'tester', account: 'tester', tools: {}, ...(touch ? { touch_scroll: true, touch_history: true } : {}) }
+    else if (path.endsWith('/scrollback')) {
+      if (scrollback?.delayMs) await new Promise(done => setTimeout(done, scrollback.delayMs))
+      if (scrollback?.fail) {
+        await route.fulfill({ status: 500, json: { success: false, error: { code: 'INTERNAL_ERROR', message: 'x' } } })
+        return
+      }
+      // As the endpoint answers (internal/feature/ai/attach.go SessionScrollback).
+      const [alternate, mode, cols, rows] = tmux('display-message', '-p', '-t', 'test', '#{alternate_on} #{pane_in_mode} #{pane_width} #{pane_height}').trim().split(' ')
+      const busy = alternate === '1' || mode === '1'
+      data = {
+        alternate: alternate === '1', copy_mode: mode === '1', cols: Number(cols), rows: Number(rows),
+        text: busy ? '' : tmux('capture-pane', '-p', '-e', '-J', '-t', 'test', '-S', '-2000').replace(/\n$/, ''),
+      }
+    }
     await route.fulfill({ json: { success: true, data } })
   })
   await page.routeWebSocket(/\/ws\/ai\/attach/, socket => {
     const peer = spawn('python3', [resolve(__dirname, '../fixtures/tmux-pty.py')], {
-      env: { ...process.env, ...(cmd ? { SFPANEL_TEST_TMUX_CMD: cmd } : {}), ...(touch ? { SFPANEL_TEST_TOUCH_SCROLL: '1' } : {}) },
+      env: { ...process.env, SFPANEL_TEST_TMUX_DIR: dir, ...(cmd ? { SFPANEL_TEST_TMUX_CMD: cmd } : {}), ...(touch ? { SFPANEL_TEST_TOUCH_SCROLL: '1' } : {}) },
     })
     peers.push(peer)
     peer.stdout.on('data', chunk => socket.send(chunk))
@@ -65,7 +91,8 @@ async function openTerminal(page: Page, peers: ChildProcess[], { touch, cmd, and
   // Both fixtures print the numbers 1-300, newest at the bottom: the top row
   // says how far back the view is.
   const firstLine = async () => Number.parseInt(await row(0), 10)
-  await expect.poll(firstLine).toBeGreaterThan(200)
+  if (numbered) await expect.poll(firstLine).toBeGreaterThan(200)
+  else await expect.poll(async () => (await row(0)).trim().length).toBeGreaterThan(0)
   // Settled: the app's script resizes the terminal (it hides the web key
   // bar), and tmux redraws for the new size after the fit's debounce.
   let seen = ''
@@ -75,11 +102,21 @@ async function openTerminal(page: Page, peers: ChildProcess[], { touch, cmd, and
     seen = now
     return still
   }, { intervals: [300] }).toBe(true)
+  // The history view: open or not, how many pixels back, the number on its
+  // first whole row (row 0 is the extra one it slides in from the top), and
+  // how far that row is slid — the part of a line between two lines.
+  const view = () => page.evaluate(() => {
+    const el = document.querySelector('[data-history-view]') as HTMLElement | null
+    if (!el || el.style.visibility === 'hidden') return { open: false, offset: 0, top: NaN, shift: NaN }
+    const rows = el.querySelectorAll('.xterm-rows > div')
+    const shift = Number(/translateY\((-?[\d.]+)px\)/.exec((el.querySelector('.xterm') as HTMLElement).style.transform)?.[1])
+    return { open: true, offset: Number(el.dataset.offset), top: Number.parseInt(rows[1]?.textContent ?? '', 10), shift }
+  })
   const geometry = await terminal.evaluate(el => {
     const t = (el as any).__termRef.current
     return { cell: el.querySelector('.xterm-screen')!.clientHeight / t.rows, rows: t.rows }
   })
-  return { terminal, firstLine, pagerStatus, ...geometry }
+  return { terminal, firstLine, pagerStatus, view, ...geometry }
 }
 
 // A finger dragged by dy px in steps of `step` px, a 16 ms frame apart by the
@@ -100,12 +137,23 @@ async function drag(page: Page, client: CDPSession, x: number, y: number, dy: nu
   await client.send('Input.dispatchTouchEvent', { type: 'touchEnd', touchPoints: [], timestamp: rest ? at() + 0.15 : at() })
 }
 
+// The tmux server goes first: the fixture's own kill-server runs only once it
+// has wound down, by which time its socket would be gone with the directory,
+// and the server — and a pager that never sees EOF — would live on.
+const cleanup = (peers: ChildProcess[], dirs: string[]) => {
+  for (const dir of dirs) spawnSync('tmux', ['-S', join(dir, 'socket'), 'kill-server'])
+  for (const peer of peers) peer.kill()
+  for (const dir of dirs) rmSync(dir, { recursive: true, force: true })
+}
+
 for (const android of [false, true]) {
-  test(`terminal history visibly scrolls through real tmux (${android ? 'Android' : 'web'})`, async ({ page }) => {
+  const where = android ? 'Android' : 'web'
+
+  test(`terminal history visibly scrolls through real tmux (${where})`, async ({ page }) => {
     needsTmux()
-    const peers: ChildProcess[] = []
+    const peers: ChildProcess[] = [], dirs: string[] = []
     try {
-      const { terminal, firstLine } = await openTerminal(page, peers, { android })
+      const { terminal, firstLine } = await openTerminal(page, peers, dirs, { android })
       const before = await firstLine()
       const box = (await terminal.boundingBox())!
       const client = await page.context().newCDPSession(page)
@@ -124,98 +172,314 @@ for (const android of [false, true]) {
       await expect.poll(firstLine).toBe(before)
       await client.detach()
     } finally {
-      for (const peer of peers) peer.kill()
+      cleanup(peers, dirs)
     }
   })
 
-  // Ten lines of finger move the view ten lines, in tmux's history and in a
-  // program that scrolls itself. Before the Shift wheel pairs, xterm made each
-  // touch move one wheel report, and under 50 px 0.3 of one: Codex moved two
-  // lines for ten, and tmux nothing for three, then five at a time.
-  for (const receiver of ['history', 'program'] as const) {
-    test(`a finger's line is one line of ${receiver} (${android ? 'Android' : 'web'})`, async ({ page }) => {
-      needsTmux()
-      const peers: ChildProcess[] = []
-      try {
-        const { terminal, firstLine, pagerStatus, cell } = await openTerminal(page, peers, { touch: true, cmd: receiver === 'program' ? PAGER : undefined, android })
-        const box = (await terminal.boundingBox())!
-        const client = await page.context().newCDPSession(page)
-        const x = box.x + box.width / 2, y = box.y + box.height * 0.3
-        let at = await firstLine()
-        for (const step of [3, 45]) {
-          await drag(page, client, x, y, 10 * cell, step)
-          await expect.poll(firstLine).toBe(at - 10)
-          at -= 10
-        }
-        await drag(page, client, x, y + 10 * cell, -10 * cell, 7)
-        await expect.poll(firstLine).toBe(at + 10)
-        if (receiver === 'program') {
-          // Every Shift report stayed in tmux: the program saw plain wheel reports only.
-          await expect.poll(pagerStatus).toBe("wheel=30 other=b''")
-        }
-        await client.detach()
-      } finally {
-        for (const peer of peers) peer.kill()
+  // Through tmux every line was a round trip and a redraw; the history view
+  // moves the page's own copy, a pixel for a pixel, and tmux does nothing.
+  test(`a finger moves the history view a pixel at a time (${where})`, async ({ page }) => {
+    needsTmux()
+    const peers: ChildProcess[] = [], dirs: string[] = []
+    try {
+      const { terminal, firstLine, view, cell } = await openTerminal(page, peers, dirs, { touch: true, android })
+      const live = await firstLine()
+      const box = (await terminal.boundingBox())!
+      const client = await page.context().newCDPSession(page)
+      const x = box.x + box.width / 2, y = box.y + box.height * 0.3
+      const back = Math.round(10.5 * cell)
+      await drag(page, client, x, y, back, 3)
+      // Ten lines and half of one: ten rows up, and the half slid in.
+      await expect.poll(view).toMatchObject({ open: true, offset: back, top: live - 10, shift: -cell + (back - 10 * cell) })
+      expect(await firstLine()).toBe(live)
+      // Laid exactly over the live screen.
+      expect(await page.evaluate(() => {
+        const r = (el: Element) => { const b = el.getBoundingClientRect(); return [b.left, b.top, b.width, b.height].map(Math.round).join(',') }
+        return r(document.querySelector('[data-history-view]')!) === r(document.querySelector('[data-terminal-session="active"] .xterm-screen')!)
+      })).toBe(true)
+      await drag(page, client, x, y + back, -4 * cell, 5)
+      await expect.poll(view).toMatchObject({ open: true, offset: back - 4 * cell, top: live - 6 })
+      // Up past the bottom: back on the live screen once the finger lifts.
+      await drag(page, client, x, y + back, -back, 7)
+      await expect.poll(view).toMatchObject({ open: false })
+      expect(await firstLine()).toBe(live)
+      await client.detach()
+    } finally {
+      cleanup(peers, dirs)
+    }
+  })
+
+  // A program in the alternate screen (Codex outside inline mode) keeps its
+  // history to itself: ten lines of finger move it ten lines through tmux.
+  // Before the Shift wheel pairs, xterm made each touch move one wheel report,
+  // and under 50 px 0.3 of one: Codex moved two lines for ten.
+  test(`a finger's line is one line of a program in the alternate screen (${where})`, async ({ page }) => {
+    needsTmux()
+    const peers: ChildProcess[] = [], dirs: string[] = []
+    try {
+      const { terminal, firstLine, pagerStatus, view, cell } = await openTerminal(page, peers, dirs, { touch: true, cmd: PAGER, android })
+      const box = (await terminal.boundingBox())!
+      const client = await page.context().newCDPSession(page)
+      const x = box.x + box.width / 2, y = box.y + box.height * 0.3
+      let at = await firstLine()
+      for (const step of [3, 45]) {
+        await drag(page, client, x, y, 10 * cell, step)
+        await expect.poll(firstLine).toBe(at - 10)
+        at -= 10
       }
-    })
-  }
+      await drag(page, client, x, y + 10 * cell, -10 * cell, 7)
+      await expect.poll(firstLine).toBe(at + 10)
+      // Every Shift report stayed in tmux: the program saw plain wheel reports only.
+      await expect.poll(pagerStatus).toBe("wheel=30 other=b''")
+      expect((await view()).open).toBe(false)
+      await client.detach()
+    } finally {
+      cleanup(peers, dirs)
+    }
+  })
 }
 
-// A flick goes on after the finger lifts and comes to rest by itself.
-test('a flick carries the program on after the finger lifts (Android)', async ({ page }) => {
+// A flick goes on after the finger lifts and comes to rest by itself; flicked
+// back down to the bottom, the view gives way to the live screen.
+test('a flick carries the history view on, and back at the bottom it closes (Android)', async ({ page }) => {
   needsTmux()
-  const peers: ChildProcess[] = []
+  const peers: ChildProcess[] = [], dirs: string[] = []
   try {
-    const { terminal, firstLine, cell } = await openTerminal(page, peers, { touch: true, cmd: PAGER, android: true })
+    const { terminal, view, cell } = await openTerminal(page, peers, dirs, { touch: true, android: true })
     const box = (await terminal.boundingBox())!
     const client = await page.context().newCDPSession(page)
-    const before = await firstLine()
-    await drag(page, client, box.x + box.width / 2, box.y + box.height * 0.2, 8 * cell, 32, false)
-    const atLift = await firstLine()
-    await expect.poll(firstLine).toBeLessThan(atLift - 10)
+    const x = box.x + box.width / 2, y = box.y + box.height * 0.2
+    await drag(page, client, x, y, 8 * cell, 32, false)
+    await expect.poll(async () => (await view()).offset).toBeGreaterThan(8 * cell + 10 * cell)
     let last = -1
-    await expect.poll(async () => { const now = await firstLine(); const still = now === last; last = now; return still }, { intervals: [400] }).toBe(true)
-    expect(before - last).toBeGreaterThan(8 + 10)
+    await expect.poll(async () => { const now = (await view()).offset; const still = now === last; last = now; return still }, { intervals: [400] }).toBe(true)
+    await drag(page, client, x, y + 10 * cell, -10 * cell, 40, false)
+    await expect.poll(view, { timeout: 8000 }).toMatchObject({ open: false })
     await client.detach()
   } finally {
-    for (const peer of peers) peer.kill()
+    cleanup(peers, dirs)
   }
 })
 
-// The page buttons move a page, less one line of overlap. The web key bar
-// called scrollPages, which a tmux session's alternate buffer cannot do at
-// all; the app's dock dispatches one wheel event of the page's pixels, which
-// xterm made one report — one line of Codex.
+test('a tap, typing or the latest button returns to the live screen', async ({ page }) => {
+  needsTmux()
+  const peers: ChildProcess[] = [], dirs: string[] = []
+  try {
+    const { terminal, view, cell } = await openTerminal(page, peers, dirs, { touch: true, android: false })
+    const box = (await terminal.boundingBox())!
+    const client = await page.context().newCDPSession(page)
+    const x = box.x + box.width / 2, y = box.y + box.height * 0.3
+    const open = async () => {
+      await drag(page, client, x, y, 6 * cell, 8)
+      await expect.poll(view).toMatchObject({ open: true })
+    }
+    await open()
+    await page.locator('[data-history-latest]').click()
+    await expect.poll(view).toMatchObject({ open: false })
+
+    await open()
+    await client.send('Input.dispatchTouchEvent', { type: 'touchStart', touchPoints: [{ x, y }] })
+    await client.send('Input.dispatchTouchEvent', { type: 'touchEnd', touchPoints: [] })
+    await expect.poll(view).toMatchObject({ open: false })
+
+    await open()
+    await page.evaluate(() => (document.querySelector('[data-terminal-session="active"] .xterm-helper-textarea') as HTMLTextAreaElement).focus())
+    await page.keyboard.press('x')
+    await expect.poll(view).toMatchObject({ open: false })
+
+    // The key bar and the Android app's keys send through __wsRef, with no
+    // keyboard event on the page.
+    await open()
+    await page.evaluate(() => {
+      const el = document.querySelector('[data-terminal-session="active"]') as any
+      el.__wsRef.current.send(new TextEncoder().encode('\r'))
+    })
+    await expect.poll(view).toMatchObject({ open: false })
+    await client.detach()
+  } finally {
+    cleanup(peers, dirs)
+  }
+})
+
+// The page buttons move a page, less one line of overlap: the history view
+// for a shell's history, tmux for a program in the alternate screen. The web
+// key bar called scrollPages, which a tmux session's alternate buffer cannot
+// do at all; the app's dock dispatches one wheel event of the page's pixels,
+// which xterm made one report — one line of Codex.
 for (const receiver of ['history', 'program'] as const) {
   test(`the key bar's page buttons move a page of ${receiver}`, async ({ page }) => {
     needsTmux()
-    const peers: ChildProcess[] = []
+    const peers: ChildProcess[] = [], dirs: string[] = []
     try {
-      const { firstLine, rows } = await openTerminal(page, peers, { touch: true, cmd: receiver === 'program' ? PAGER : undefined, android: false })
+      const { firstLine, view, rows, cell } = await openTerminal(page, peers, dirs, { touch: true, cmd: receiver === 'program' ? PAGER : undefined, android: false })
       const at = await firstLine()
       await page.getByRole('button', { name: 'Scroll up', exact: true }).first().click()
-      await expect.poll(firstLine).toBe(at - (rows - 1))
+      if (receiver === 'history') await expect.poll(view).toMatchObject({ open: true, offset: Math.round((rows - 1) * cell), top: at - (rows - 1) })
+      else await expect.poll(firstLine).toBe(at - (rows - 1))
       await page.getByRole('button', { name: 'Scroll down', exact: true }).first().click()
-      await expect.poll(firstLine).toBe(at)
+      if (receiver === 'history') await expect.poll(view).toMatchObject({ open: false })
+      else await expect.poll(firstLine).toBe(at)
     } finally {
-      for (const peer of peers) peer.kill()
+      cleanup(peers, dirs)
     }
   })
 
   test(`the app's page buttons move a page of ${receiver}`, async ({ page }) => {
     needsTmux()
-    const peers: ChildProcess[] = []
+    const peers: ChildProcess[] = [], dirs: string[] = []
     try {
-      const { firstLine, rows } = await openTerminal(page, peers, { touch: true, cmd: receiver === 'program' ? PAGER : undefined, android: true })
+      const { firstLine, view, rows, cell } = await openTerminal(page, peers, dirs, { touch: true, cmd: receiver === 'program' ? PAGER : undefined, android: true })
       const at = await firstLine()
       // What MainActivity.scroll(-1) runs: a page is the session element's height.
       await page.evaluate(() => {
         const e = document.querySelector('[data-terminal-session="active"]') as any
         ;(window as any).__sfpanelScrollTerminal(e, -1 * e.clientHeight)
       })
-      await expect.poll(firstLine).toBe(at - (rows - 1))
+      if (receiver === 'history') await expect.poll(view).toMatchObject({ open: true, offset: Math.round((rows - 1) * cell), top: at - (rows - 1) })
+      else await expect.poll(firstLine).toBe(at - (rows - 1))
     } finally {
-      for (const peer of peers) peer.kill()
+      cleanup(peers, dirs)
     }
   })
 }
+
+// A finger that rests on the history view before it moves still scrolls it.
+// On the live screen that hold is a long press, and a fired press keeps the
+// rest of the drag for selecting; over the copy there is nothing to select.
+test('a finger that rests on the history view and then drags scrolls it', async ({ page }) => {
+  needsTmux()
+  const peers: ChildProcess[] = [], dirs: string[] = []
+  try {
+    const { terminal, view, cell } = await openTerminal(page, peers, dirs, { touch: true, android: false })
+    const box = (await terminal.boundingBox())!
+    const client = await page.context().newCDPSession(page)
+    const x = box.x + box.width / 2, y = box.y + box.height * 0.3
+    await drag(page, client, x, y, 3 * cell, 3)
+    await expect.poll(view).toMatchObject({ open: true, offset: 3 * cell })
+    await client.send('Input.dispatchTouchEvent', { type: 'touchStart', touchPoints: [{ x, y }] })
+    await page.waitForTimeout(800)
+    for (let i = 1; i <= 8; i++) {
+      await client.send('Input.dispatchTouchEvent', { type: 'touchMove', touchPoints: [{ x, y: y + i * cell / 2 }] })
+      await page.waitForTimeout(16)
+    }
+    await client.send('Input.dispatchTouchEvent', { type: 'touchEnd', touchPoints: [] })
+    await expect.poll(view).toMatchObject({ open: true, offset: 7 * cell })
+    // And nothing was selected on the live screen underneath.
+    expect(await page.locator('[data-terminal-selection]').count()).toBe(0)
+    await client.detach()
+  } finally {
+    cleanup(peers, dirs)
+  }
+})
+
+// A copy's lines are joined (-J) and wrap again in the view: its buffer is
+// counted in rows, or the oldest wrapped lines fall off the top.
+test('the top of a wrapped history is in reach', async ({ page }) => {
+  needsTmux()
+  const peers: ChildProcess[] = [], dirs: string[] = []
+  try {
+    const cmd = `sh -c 'for i in $(seq 1 150); do printf "L%s-%0200d\\n" $i 0; done; exec sleep 120'`
+    const { terminal, view, cell } = await openTerminal(page, peers, dirs, { touch: true, cmd, android: false, numbered: false })
+    const box = (await terminal.boundingBox())!
+    const client = await page.context().newCDPSession(page)
+    const x = box.x + box.width / 2, y = box.y + box.height * 0.3
+    await drag(page, client, x, y, 4 * cell, 8)
+    await expect.poll(view).toMatchObject({ open: true })
+    // 150 lines of 203 characters are 750 rows at a phone's 47 columns:
+    // further back than that, in whole drags that rest before lifting.
+    for (let i = 0; i < 14; i++) await drag(page, client, x, y, 60 * cell, 480)
+    expect(await page.evaluate(() => document.querySelectorAll('[data-history-view] .xterm-rows > div')[1]?.textContent?.trim().slice(0, 3))).toBe('L1-')
+    await client.detach()
+  } finally {
+    cleanup(peers, dirs)
+  }
+})
+
+// A fling moves the view from inside an animation frame, and xterm paints new
+// rows on the next one: the shift has to go in with the rows, or the text jumps
+// a row back at every line it crosses. Sampled every frame, a line's place on
+// screen only ever moves one way.
+test('a flick through the history view never jumps back a row (Android)', async ({ page }) => {
+  needsTmux()
+  const peers: ChildProcess[] = [], dirs: string[] = []
+  try {
+    const { terminal, view, cell } = await openTerminal(page, peers, dirs, { touch: true, android: true })
+    const box = (await terminal.boundingBox())!
+    const client = await page.context().newCDPSession(page)
+    const x = box.x + box.width / 2, y = box.y + box.height * 0.2
+    await drag(page, client, x, y, 2 * cell, 8)
+    await expect.poll(view).toMatchObject({ open: true })
+    await page.evaluate((cell) => {
+      const w = window as any
+      w.__samples = []
+      w.__sampling = true
+      const sample = () => {
+        const el = document.querySelector('[data-history-view]') as HTMLElement | null
+        if (el) {
+          const top = Number.parseInt(el.querySelectorAll('.xterm-rows > div')[1]?.textContent ?? '', 10)
+          const shift = Number(/translateY\((-?[\d.]+)px\)/.exec((el.querySelector('.xterm') as HTMLElement).style.transform)?.[1])
+          // Where line 0 would be, in pixels above the view's top.
+          if (Number.isFinite(top) && Number.isFinite(shift)) w.__samples.push(top * cell - (shift + cell))
+        }
+        if (w.__sampling) requestAnimationFrame(sample)
+      }
+      requestAnimationFrame(sample)
+    }, cell)
+    await drag(page, client, x, y, 6 * cell, 48, false)
+    let last = -1
+    await expect.poll(async () => { const now = (await view()).offset; const still = now === last; last = now; return still }, { intervals: [400] }).toBe(true)
+    const samples: number[] = await page.evaluate(() => { (window as any).__sampling = false; return (window as any).__samples })
+    expect(samples.length).toBeGreaterThan(20)
+    const backwards = samples.slice(1).filter((v, i) => v > samples[i] + 0.5)
+    expect(backwards).toEqual([])
+    await client.detach()
+  } finally {
+    cleanup(peers, dirs)
+  }
+})
+
+// Without a copy the gesture still scrolls, through tmux.
+test('a drag back scrolls through tmux when the copy cannot be had', async ({ page }) => {
+  needsTmux()
+  const peers: ChildProcess[] = [], dirs: string[] = []
+  try {
+    const { terminal, firstLine, view, cell } = await openTerminal(page, peers, dirs, { touch: true, android: false, scrollback: { fail: true } })
+    const before = await firstLine()
+    const box = (await terminal.boundingBox())!
+    const client = await page.context().newCDPSession(page)
+    await drag(page, client, box.x + box.width / 2, box.y + box.height * 0.3, 8 * cell, 8)
+    await expect.poll(firstLine).toBe(before - 8)
+    expect((await view()).open).toBe(false)
+    await client.detach()
+  } finally {
+    cleanup(peers, dirs)
+  }
+})
+
+// A program in the alternate screen waits for the answer once; the gestures
+// after it go to tmux at once, while the panel is asked again behind them —
+// including one that starts while that question is still out.
+test('a program in the alternate screen waits for the copy only once', async ({ page }) => {
+  needsTmux()
+  const peers: ChildProcess[] = [], dirs: string[] = []
+  try {
+    const { terminal, firstLine, cell } = await openTerminal(page, peers, dirs, { touch: true, cmd: PAGER, android: false, scrollback: { delayMs: 1500 } })
+    const box = (await terminal.boundingBox())!
+    const client = await page.context().newCDPSession(page)
+    const x = box.x + box.width / 2, y = box.y + box.height * 0.3
+    let at = await firstLine()
+    await drag(page, client, x, y, 4 * cell, 8)
+    await expect.poll(firstLine, { timeout: 5000 }).toBe(at - 4)
+    at -= 4
+    for (let i = 0; i < 2; i++) {
+      const t0 = Date.now()
+      await drag(page, client, x, y, 4 * cell, 8)
+      await expect.poll(firstLine, { intervals: [50] }).toBe(at - 4)
+      at -= 4
+      expect(Date.now() - t0).toBeLessThan(1000)
+    }
+    await client.detach()
+  } finally {
+    cleanup(peers, dirs)
+  }
+})

@@ -21,11 +21,13 @@
 export function attachLongPress(
   el: HTMLElement,
   onLongPress: (x: number, y: number) => void,
-  { delay = 500, slop = 10, root = window as EventTarget, onDrag }: {
+  { delay = 500, slop = 10, root = window as EventTarget, onDrag, enabled }: {
     delay?: number
     slop?: number
     root?: EventTarget
     onDrag?: (x: number, y: number) => void
+    /** read at each touchstart; false leaves the finger to everything else */
+    enabled?: () => boolean
   } = {},
 ): () => void {
   let timer: ReturnType<typeof setTimeout> | undefined
@@ -47,7 +49,7 @@ export function attachLongPress(
     cancel()
     tracking = false
     fired = false
-    if (e.touches.length !== 1) return
+    if (e.touches.length !== 1 || (enabled && !enabled())) return
     tracking = true
     startX = e.touches[0].clientX
     startY = e.touches[0].clientY

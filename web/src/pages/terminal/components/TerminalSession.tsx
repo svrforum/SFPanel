@@ -8,6 +8,7 @@ import { Unicode11Addon } from '@xterm/addon-unicode11'
 import '@xterm/xterm/css/xterm.css'
 import { api } from '@/lib/api'
 import { attachXtermTouchScroll, scrollTerminalLines, type TmuxTouch } from '@/lib/xtermTouchScroll'
+import { openHistoryView, type HistoryView } from '@/lib/terminalHistory'
 import { attachLongPress } from '@/lib/longPress'
 import { openTerminalLink } from '@/lib/terminalLinks'
 import { SELECT_TEXT_EVENT } from '@/lib/terminalText'
@@ -17,6 +18,7 @@ import { TerminalSelection, type HandleEnd, type Point } from './TerminalSelecti
 import { TerminalContextMenu, type TerminalMenuAt } from './TerminalContextMenu'
 import { cn, copyText } from '@/lib/utils'
 import { toast } from 'sonner'
+import { ArrowDown } from 'lucide-react'
 import { IS_MAC, MODIFIERS_CONSUMED_EVENT, MODIFIERS_EVENT, NO_MODIFIERS, terminalKey, type TerminalModifiers } from '@/lib/terminalKeys'
 
 // xterm paints into its own canvas, so it cannot inherit the app's CSS tokens
@@ -93,6 +95,8 @@ export interface TerminalSessionElement extends HTMLElement {
   __wsRef?: RefObject<WebSocket | null>
   /** scrolls by lines, negative back into history, as touch scrolling does */
   __scrollLines?: (lines: number) => void
+  /** back to the live screen from the history view */
+  __latest?: () => void
 }
 
 // The terminal's text grid on screen: where it starts and one cell's size.
@@ -134,6 +138,7 @@ export function TerminalSession({
   wsParams,
   tmux = false,
   touchScroll = false,
+  touchHistory = false,
 }: {
   sessionId: string
   active: boolean
@@ -147,6 +152,8 @@ export function TerminalSession({
    *  finger's line is then one line of history, or one wheel report to the
    *  program in the pane. */
   touchScroll?: boolean
+  /** The panel serves the history view's copy (GET /ai/tools touch_history). */
+  touchHistory?: boolean
 }) {
   const containerRef = useRef<HTMLDivElement>(null)
   const termRef = useRef<XTerm | null>(null)
@@ -155,6 +162,11 @@ export function TerminalSession({
   // arrive after the session has connected.
   const touchScrollRef = useRef(touchScroll)
   useEffect(() => { touchScrollRef.current = touchScroll }, [touchScroll])
+  const touchHistoryRef = useRef(touchHistory)
+  useEffect(() => { touchHistoryRef.current = touchHistory }, [touchHistory])
+  // The history view is open (lib/terminalHistory): the ↓ button shows.
+  const [historyOpen, setHistoryOpen] = useState(false)
+  const closeHistoryRef = useRef<() => void>(() => {})
   const fitAddonRef = useRef<FitAddon | null>(null)
   const searchAddonRef = useRef<SearchAddon | null>(null)
   // The long-press selection (null: none), shown with xterm's own highlight.
@@ -367,6 +379,52 @@ export function TerminalSession({
       })
     }
 
+    // History view (lib/terminalHistory): a phone scrolls a tmux session's
+    // history in the page, a pixel at a time, over a copy of it — through tmux
+    // every line was a round trip and a redraw. A drag back into the history
+    // opens it, once the panel serves the copy and the pane is as the page
+    // shows it: not in the alternate screen (a program there keeps its history
+    // to itself), not scrolled back in copy mode, and the page's size. Anything
+    // else keeps scrolling line by line through tmux. Back at the bottom, a
+    // tap, any input, a resize, a lost connection or the ↓ button returns to
+    // the live screen.
+    let view: HistoryView | null = null
+    // Where the current gesture goes: the view, lines through tmux, or held
+    // while the copy loads — both its pixels and the lines the touch helper
+    // counts from them, so whichever it turns out to be gets the gesture
+    // exactly: the view the finger's pixels, tmux its lines. A gesture that
+    // starts while a copy is on its way joins it.
+    let gesture: 'idle' | 'view' | 'lines' | 'forward' | 'loading' = 'idle'
+    let heldPx = 0
+    let heldLines = 0
+    let load = 0
+    let loading = false
+    // What the last copy said, so a pane that scrolls through tmux does not
+    // wait a round trip at every gesture: 'tmux' sends the lines at once and
+    // asks again behind them.
+    let pane: 'history' | 'tmux' | null = null
+    const closeView = () => {
+      // A copy still on its way would open over whatever came after.
+      load++
+      loading = false
+      heldPx = 0
+      heldLines = 0
+      if (gesture === 'loading') gesture = 'idle'
+      if (!view) return
+      view.close()
+      view = null
+      setHistoryOpen(false)
+    }
+    closeHistoryRef.current = closeView
+    // The socket's own send, for this component's senders. What everyone else
+    // sends through __wsRef — the key bar, the Android app's keys — goes through
+    // the socket's replaced send, which leaves the history view first: input is
+    // for the live screen. onData stays out of it, as it carries the terminal's
+    // answers to tmux's queries; the keyboard, a paste and touch scrolling
+    // close or keep the view themselves.
+    const sendDirect = new WeakMap<WebSocket, WebSocket['send']>()
+    const send = (sock: WebSocket, data: Parameters<WebSocket['send']>[0]) => (sendDirect.get(sock) ?? sock.send.bind(sock))(data)
+
     let mobileModifiers: TerminalModifiers = NO_MODIFIERS
     const onModifiers = (event: Event) => {
       mobileModifiers = (event as CustomEvent<TerminalModifiers>).detail
@@ -375,15 +433,17 @@ export function TerminalSession({
     const onDataDisposable = term.onData((data) => {
       const sock = wsRef.current
       if (sock && sock.readyState === WebSocket.OPEN) {
-        sock.send(new TextEncoder().encode(terminalKey(data, mobileModifiers)))
+        send(sock, new TextEncoder().encode(terminalKey(data, mobileModifiers)))
         mobileModifiers = NO_MODIFIERS
         window.dispatchEvent(new Event(MODIFIERS_CONSUMED_EVENT))
       }
     })
     const onResizeDisposable = term.onResize(({ cols, rows }) => {
+      // The copy was laid out for the old size.
+      closeView()
       const sock = wsRef.current
       if (sock && sock.readyState === WebSocket.OPEN) {
-        sock.send(JSON.stringify({ type: 'resize', cols, rows }))
+        send(sock, JSON.stringify({ type: 'resize', cols, rows }))
       }
     })
 
@@ -393,11 +453,17 @@ export function TerminalSession({
       const ws = new WebSocket(wsUrl)
       wsRef.current = ws
       ws.binaryType = 'arraybuffer'
+      const direct = ws.send.bind(ws)
+      sendDirect.set(ws, direct)
+      ws.send = (data) => {
+        closeView()
+        direct(data)
+      }
 
       ws.onopen = () => {
         term.focus()
         const { cols, rows } = term
-        ws.send(JSON.stringify({ type: 'resize', cols, rows }))
+        send(ws, JSON.stringify({ type: 'resize', cols, rows }))
         // Only clear the backoff once the socket has proven stable, so a server
         // that accepts then instantly drops can't spin in a tight reconnect loop.
         stableTimer = window.setTimeout(() => { attempts = 0 }, 3000)
@@ -418,6 +484,8 @@ export function TerminalSession({
       ws.onclose = () => {
         clearTimeout(stableTimer)
         if (disposed) return
+        // The notice goes to the live screen, which the view would cover.
+        closeView()
         if (attempts < maxReconnectAttempts) {
           const delay = Math.min(1000 * 2 ** attempts, 10000)
           attempts += 1
@@ -479,6 +547,10 @@ export function TerminalSession({
         }, {
           // Holding on and dragging extends the selection from the word the
           // press chose, as a phone's own text selection does.
+          // Not over the history view: the press would select from the live
+          // screen underneath, and an armed press takes the rest of the
+          // finger's drag from the scrolling.
+          enabled: () => !view,
           onDrag: (x, y) => {
             const grid = gridOf(term, container)
             const p = grid && cellAt(term, grid, x, y, true)
@@ -495,9 +567,10 @@ export function TerminalSession({
     // xterm v6's viewport isn't natively touch-scrollable; the shared helper
     // scrolls a line per line of finger travel and carries a flick on (see
     // lib/xtermTouchScroll), behind the long press, which stops a fired
-    // press's drag first. In a tmux session the lines go to tmux as the
-    // panel's touch wheel pairs once it says it binds them; the key bar's page
-    // buttons take the same path through __scrollLines. Those pairs never pass
+    // press's drag first. A tmux session's history goes to the history view
+    // (pixels, below); what it does not take goes to tmux as lines — the
+    // panel's touch wheel pairs once it says it binds them. The key bar's page
+    // buttons take the same path through __scrollLines. The pairs never pass
     // through xterm, so nothing else clears a selection they move the text from
     // under.
     const tmuxTouch: TmuxTouch | undefined = tmux
@@ -505,7 +578,7 @@ export function TerminalSession({
           bound: () => touchScrollRef.current,
           send: (data) => {
             const sock = wsRef.current
-            if (sock && sock.readyState === WebSocket.OPEN) sock.send(new TextEncoder().encode(data))
+            if (sock && sock.readyState === WebSocket.OPEN) send(sock, new TextEncoder().encode(data))
           },
         }
       : undefined
@@ -513,8 +586,158 @@ export function TerminalSession({
       if (lines) dismissSelection()
       scrollTerminalLines(term, container?.querySelector('.xterm-screen') ?? null, lines, at, tmuxTouch)
     }
-    const detachTouch = container ? attachXtermTouchScroll(container, term, { scroll: scrollLines }) : () => {}
-    if (container) (container as TerminalSessionElement).__scrollLines = scrollLines
+    const cellPx = () => {
+      const screen = container?.querySelector('.xterm-screen') as HTMLElement | null
+      return screen && term.rows ? screen.clientHeight / term.rows : 0
+    }
+    const routeLines = (lines: number, at?: Point) => {
+      if (gesture === 'loading') heldLines += lines
+      else scrollLines(lines, at)
+    }
+    const openView = (text: string) => {
+      if (!container) return
+      dismissSelection()
+      view = openHistoryView(container, term, text, () => {
+        closeView()
+        term.focus()
+      })
+      setHistoryOpen(true)
+    }
+    // Asks for the copy. What it answers decides the gesture still loading,
+    // and the pane's kind for the gestures after it.
+    const fetchCopy = () => {
+      const mine = ++load
+      loading = true
+      const asked = { cols: term.cols, rows: term.rows }
+      const asLines = () => {
+        const lines = heldLines
+        heldPx = 0
+        heldLines = 0
+        if (gesture === 'loading') gesture = 'lines'
+        scrollLines(lines)
+      }
+      api.getAISessionScrollback(sessionId).then((copy) => {
+        if (disposed || mine !== load) return
+        loading = false
+        const usable = !copy.alternate && !copy.copy_mode && copy.cols === asked.cols && copy.rows === asked.rows
+          && term.cols === asked.cols && term.rows === asked.rows
+        pane = usable ? 'history' : 'tmux'
+        if (!usable) {
+          asLines()
+          return
+        }
+        if (heldPx >= 0) {
+          // Nothing back to show: the gesture went to tmux, or turned back.
+          heldPx = 0
+          heldLines = 0
+          return
+        }
+        const still = gesture === 'loading'
+        openView(copy.text ?? '')
+        view?.move(heldPx)
+        heldPx = 0
+        heldLines = 0
+        if (still) gesture = 'view'
+        else if (view?.offset() === 0) closeView()
+      }).catch(() => {
+        if (disposed || mine !== load) return
+        loading = false
+        pane = 'tmux'
+        asLines()
+      })
+    }
+    const pixels = (px: number, _at: Point, flinging: boolean) => {
+      if (gesture === 'view') {
+        // A fling that brings the view back to the bottom is back on the live
+        // screen at once; the rest of it has nowhere to go.
+        if (view && view.move(px) === 0 && flinging && px > 0) closeView()
+        return true
+      }
+      if (gesture === 'loading') {
+        heldPx += px
+        return false
+      }
+      if (gesture === 'lines') return false
+      if (view) {
+        gesture = 'view'
+        view.move(px)
+        return true
+      }
+      if (!tmux || !touchScrollRef.current || !touchHistoryRef.current) {
+        gesture = 'lines'
+        return false
+      }
+      // Towards newer output on the live screen there is nothing to show, but
+      // a program in the alternate screen may be scrolled back: lines, until
+      // the finger turns back into the history.
+      if (px >= 0) {
+        gesture = 'forward'
+        return false
+      }
+      if (pane === 'tmux') {
+        gesture = 'lines'
+        // Asked again behind the lines, for the next gesture; this one is
+        // decided, and holds nothing for the answer.
+        if (!loading) fetchCopy()
+        return false
+      }
+      gesture = 'loading'
+      heldPx += px
+      if (!loading) fetchCopy()
+      return false
+    }
+    const startGesture = () => {
+      gesture = loading && pane !== 'tmux' ? 'loading' : 'idle'
+    }
+    // Back at the bottom when the finger lifts, or a fling comes to rest, is
+    // back on the live screen.
+    const settleGesture = () => {
+      if (gesture !== 'loading' && view?.offset() === 0) closeView()
+      gesture = 'idle'
+    }
+    const detachTouch = container
+      ? attachXtermTouchScroll(container, term, {
+          scroll: routeLines,
+          pixels: (px, at, flinging) => {
+            // A forward start that turns back into the history decides again.
+            if (gesture === 'forward' && px < 0) gesture = 'idle'
+            return pixels(px, at, flinging)
+          },
+          onStart: startGesture,
+          onSettle: settleGesture,
+        })
+      : () => {}
+    if (container) {
+      // The key bar's page buttons, as one gesture of a page's pixels.
+      (container as TerminalSessionElement).__scrollLines = (lines: number) => {
+        startGesture()
+        if (!pixels(lines * cellPx(), { x: 0, y: 0 }, false)) routeLines(lines)
+        settleGesture()
+      }
+      (container as TerminalSessionElement).__latest = closeView
+    }
+    // Typing is for the live screen: the textarea's own events, because xterm's
+    // onData also carries the terminal's answers to tmux's queries. In the
+    // capture phase, as xterm listens: it stops a key it handles there, and the
+    // textarea's bubble-phase listeners then never hear it.
+    const textarea = term.textarea
+    const onType = () => closeView()
+    const typing = ['keydown', 'beforeinput', 'paste', 'compositionstart'] as const
+    typing.forEach((type) => textarea?.addEventListener(type, onType, true))
+    // The Android app's "맨 아래로" calls scrollLines on this terminal directly;
+    // a move towards the latest output leaves the history view too.
+    const scrollTermLines = term.scrollLines.bind(term)
+    term.scrollLines = (amount: number) => {
+      if (amount > 0) closeView()
+      scrollTermLines(amount)
+    }
+    // A paste — the menu's, the Android app's composed prompt — reaches the
+    // session through term.paste with no event on the textarea.
+    const pasteDirect = term.paste.bind(term)
+    term.paste = (data: string) => {
+      closeView()
+      pasteDirect(data)
+    }
 
     // A right click opens the terminal's own menu. The button itself is kept
     // from xterm: with tmux's mouse on it would be reported, and tmux answers a
@@ -549,7 +772,12 @@ export function TerminalSession({
       window.removeEventListener('resize', handleResize)
       window.visualViewport?.removeEventListener('resize', handleResize)
       detachTouch()
-      if (container) delete (container as TerminalSessionElement).__scrollLines
+      typing.forEach((type) => textarea?.removeEventListener(type, onType, true))
+      closeView()
+      if (container) {
+        delete (container as TerminalSessionElement).__scrollLines
+        delete (container as TerminalSessionElement).__latest
+      }
       detachLongPress()
       rightButtonEvents.forEach((type) => container?.removeEventListener(type, keepRightButton, true))
       container?.removeEventListener('contextmenu', onContextMenu)
@@ -653,10 +881,23 @@ export function TerminalSession({
           // touch-none: xterm v6's viewport isn't natively touch-scrollable, so we
           // drive scrollback from a touch-drag handler (see the effect above) —
           // disable the browser's own touch gestures here so they can't preempt it.
-          'w-full h-full touch-none',
+          'relative w-full h-full touch-none',
           active ? 'block' : 'hidden'
         )}
       />
+      {historyOpen && (
+        <button
+          type="button"
+          aria-label={t('terminal.mobile.latest')}
+          title={t('terminal.mobile.latest')}
+          data-history-latest
+          onPointerDown={(e) => e.preventDefault()}
+          onClick={() => closeHistoryRef.current()}
+          className="absolute bottom-3 right-3 z-10 flex h-10 w-10 items-center justify-center rounded-full bg-secondary text-foreground shadow-md focus-visible:outline-2 focus-visible:outline-ring"
+        >
+          <ArrowDown className="h-5 w-5" aria-hidden="true" />
+        </button>
+      )}
       {sel && (
         <TerminalSelection
           measure={measureSelection}

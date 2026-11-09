@@ -76,6 +76,16 @@ export function scrollTerminalLines(term: Terminal, screen: HTMLElement | null, 
 export interface TouchScrollOptions {
   /** where the lines go; scrollTerminalLines without tmux by default */
   scroll?: (lines: number, at: Point) => void
+  /** offered every pixel of travel first, positive towards newer output; true
+   *  takes them (a history view moving a pixel at a time), false leaves them
+   *  to be counted into lines for scroll. flinging: the pixels are a fling's,
+   *  after the finger lifted. */
+  pixels?: (px: number, at: Point, flinging: boolean) => boolean
+  /** a gesture began: a finger came down on the terminal, or a synthetic wheel */
+  onStart?: () => void
+  /** that gesture is over: the finger lifted with no fling, a fling came to
+   *  rest or was caught, the gesture was abandoned, or the wheel was taken */
+  onSettle?: () => void
   /** where the rest of a gesture is heard (the window, in tests a stand-in) */
   root?: EventTarget
   now?: () => number
@@ -126,7 +136,8 @@ export function attachXtermTouchScroll(container: HTMLElement, term: Terminal, o
   let samples: { t: number; y: number }[] = []
   let flingId: number | null = null
 
-  const take = (px: number) => {
+  const take = (px: number, flinging = false) => {
+    if (opts.pixels?.(px, start, flinging)) return true
     const cell = cellPx()
     if (cell <= 0) return false
     remainder += px
@@ -141,11 +152,13 @@ export function attachXtermTouchScroll(container: HTMLElement, term: Terminal, o
   // A touch anywhere else stops a fling too, as in any list; heard at the
   // window's bubble phase, after the container's own touchstart has seen it.
   const onAnyTouch = () => stopFling()
+  const settle = () => opts.onSettle?.()
   const stopFling = () => {
     if (flingId === null) return
     cancelFrame(flingId)
     flingId = null
     root.removeEventListener('touchstart', onAnyTouch)
+    settle()
   }
   const fling = (v0: number) => {
     let v = Math.max(-FLING_MAX, Math.min(FLING_MAX, v0))
@@ -153,7 +166,7 @@ export function attachXtermTouchScroll(container: HTMLElement, term: Terminal, o
     const step = () => {
       const t = now()
       const decay = Math.exp(-(t - last) / FLING_TAU)
-      const laidOut = take(v * FLING_TAU * (1 - decay))
+      const laidOut = take(v * FLING_TAU * (1 - decay), true)
       v *= decay
       last = t
       if (Math.abs(v) < FLING_END || !laidOut || !container.isConnected) stopFling()
@@ -177,9 +190,13 @@ export function attachXtermTouchScroll(container: HTMLElement, term: Terminal, o
   const onTouchStart = (e: TouchEvent) => {
     caught = flingId !== null
     stopFling()
-    end()
+    if (tracking) {
+      end()
+      settle()
+    }
     claimed = false
     if (e.touches.length !== 1) return
+    opts.onStart?.()
     tracking = true
     listen(true)
     start = { x: e.touches[0].clientX, y: e.touches[0].clientY }
@@ -191,6 +208,7 @@ export function attachXtermTouchScroll(container: HTMLElement, term: Terminal, o
     const p = e.touches[0]
     if (e.touches.length !== 1 || !p) {
       end()
+      settle()
       return
     }
     if (!claimed) {
@@ -198,6 +216,7 @@ export function attachXtermTouchScroll(container: HTMLElement, term: Terminal, o
       if (dx <= SLOP && dy <= SLOP) return
       if (dx > dy) {
         end()
+        settle()
         return
       }
       claimed = true
@@ -215,24 +234,31 @@ export function attachXtermTouchScroll(container: HTMLElement, term: Terminal, o
     // No click after a drag, or after a tap that only stopped a fling: the
     // terminal would take focus, raise the keyboard, and tmux would get a click.
     if ((claimed || caught) && e.cancelable) e.preventDefault()
-    if (!claimed) return
     const t = timeOf(e)
     const first = samples[0], last = samples[samples.length - 1]
-    if (!first || !last || t - last.t > STOPPED_MS || last.t === first.t) return
-    const v = (first.y - last.y) / (last.t - first.t)
+    const v = claimed && first && last && t - last.t <= STOPPED_MS && last.t !== first.t
+      ? (first.y - last.y) / (last.t - first.t) : 0
     if (Math.abs(v) >= FLING_MIN) fling(v)
+    else settle()
   }
-  const onTouchCancel = () => end()
+  const onTouchCancel = () => {
+    end()
+    settle()
+  }
   const onWheel = (e: WheelEvent) => {
     if (e.isTrusted || relaying) return
     const cell = cellPx()
-    const lines = cell > 0 ? Math.round(e.deltaY / cell) : 0
-    if (!lines) return
+    const rounded = cell > 0 ? Math.round(e.deltaY / cell) : 0
+    if (!rounded) return
     e.preventDefault()
     e.stopPropagation()
     // At most a page less one line, as the key bar pages: a page of pixels
     // rounds up to one row more than fits, which skipped a line every page.
-    scroll(Math.sign(lines) * Math.min(Math.abs(lines), Math.max(1, term.rows - 1)), { x: e.clientX, y: e.clientY })
+    const lines = Math.sign(rounded) * Math.min(Math.abs(rounded), Math.max(1, term.rows - 1))
+    const at = { x: e.clientX, y: e.clientY }
+    opts.onStart?.()
+    if (!opts.pixels?.(lines * cell, at, false)) scroll(lines, at)
+    settle()
   }
 
   container.addEventListener('touchstart', onTouchStart, { capture: true, passive: true })

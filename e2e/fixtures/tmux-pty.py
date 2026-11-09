@@ -1,5 +1,6 @@
 """Disposable PTY peer for mobile history tests. No real accounts or AI tools."""
 import base64
+import contextlib
 import fcntl
 import json
 import os
@@ -18,7 +19,10 @@ def stop(*_):
 
 
 signal.signal(signal.SIGTERM, stop)
-with tempfile.TemporaryDirectory(prefix="sfpanel-touch-") as directory:
+# SFPANEL_TEST_TMUX_DIR puts the socket where a spec can reach the same tmux,
+# to copy its history as the panel's scrollback endpoint does.
+shared = os.environ.get("SFPANEL_TEST_TMUX_DIR")
+with (contextlib.nullcontext(shared) if shared else tempfile.TemporaryDirectory(prefix="sfpanel-touch-")) as directory:
     base = ["tmux", "-f", "/dev/null", "-S", directory + "/socket"]
     subprocess.run(base + ["new-session", "-d", "-s", "test", "-x", "80", "-y", "24",
                           os.environ.get("SFPANEL_TEST_TMUX_CMD", "sh -c 'seq 1 300; exec sleep 120'")],
@@ -49,6 +53,10 @@ with tempfile.TemporaryDirectory(prefix="sfpanel-touch-") as directory:
                 if value.get("type") == "resize":
                     fcntl.ioctl(master, termios.TIOCSWINSZ,
                                 struct.pack("HHHH", value["rows"], value["cols"], 0, 0))
+                    # The client has no controlling terminal here (the panel's
+                    # pty.Start gives it one), so no SIGWINCH comes on its own
+                    # and tmux would keep drawing at the first size.
+                    client.send_signal(signal.SIGWINCH)
                 else:
                     os.write(master, base64.b64decode(value["input"]))
 

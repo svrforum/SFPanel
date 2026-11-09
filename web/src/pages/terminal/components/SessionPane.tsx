@@ -12,6 +12,7 @@ export function SessionPane({
   fallback,
   fontSize,
   touchScroll,
+  touchHistory,
   onNew,
   onRestart,
   onRemoveEnded,
@@ -22,6 +23,8 @@ export function SessionPane({
   fontSize: number
   /** GET /ai/tools touch_scroll, for the session's touch scrolling */
   touchScroll?: boolean
+  /** GET /ai/tools touch_history, for its history view */
+  touchHistory?: boolean
   onNew: () => void
   onRestart: (s: AISession) => void
   onRemoveEnded: (s: AISession) => void
@@ -72,6 +75,7 @@ export function SessionPane({
       wsParams={{ session_id: session.id }}
       tmux
       touchScroll={touchScroll}
+      touchHistory={touchHistory}
     />
   )
 }

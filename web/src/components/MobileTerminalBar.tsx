@@ -30,6 +30,8 @@ export default function MobileTerminalBar({ onSendKey }: { onSendKey: (data: str
     document.querySelectorAll<TerminalSessionElement>('[data-terminal-session="active"]').forEach(el => {
       const term = el.__termRef?.current
       if (direction === 'bottom') {
+        // Out of the history view, which covers the live screen.
+        el.__latest?.()
         // Finish a pending keyboard resize first, so the target is the latest
         // line in the new-sized terminal rather than the old viewport's end.
         el.__fitAddon?.fit()
