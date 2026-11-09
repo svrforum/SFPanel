@@ -6,6 +6,17 @@ The format is loosely based on [Keep a Changelog](https://keepachangelog.com/), 
 
 ---
 
+## [0.84.0] – 2026-11-09
+
+### Added
+
+- **A finger scrolls a tmux session's history a pixel at a time.** On a phone, a drag back into a session's history lays a copy of it over the terminal and moves that copy with the finger, a flick included, where 0.83.4 asked tmux for each line and waited for it to redraw, so the text moved a line at a time. Back at the bottom, a tap, any input, a resize or the new arrow button returns to the live screen. A program in the alternate screen, such as vim, still scrolls through tmux a line at a time, as it did in 0.83.4.
+- **`GET /api/v1/ai/sessions/:id/scrollback`** returns that copy: the session's history down to the screen's last row, in colour, with the pane's size. `GET /api/v1/ai/tools` reports it as `touch_history`.
+
+### Changed
+
+- **Codex starts inline.** A new or restarted Codex session runs with `-c tui.alternate_screen=never`, so its conversation lands in the session's history, where a phone scrolls it smoothly, rather than in a screen of Codex's own. To keep that screen for a session, add `-c tui.alternate_screen=always` to its extra arguments. A session already running changes when it is restarted, and Codex 0.80 and older, which have no such setting, ignore it.
+
 ## [0.83.4] – 2026-11-09
 
 ### Fixed
