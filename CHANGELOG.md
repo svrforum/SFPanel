@@ -6,6 +6,17 @@ The format is loosely based on [Keep a Changelog](https://keepachangelog.com/), 
 
 ---
 
+## [0.83.4] – 2026-11-09
+
+### Fixed
+
+- **A finger scrolls the terminal a line for each line it travels, and a flick carries on.** On a phone, ten lines of drag moved Codex two rows, and a shell's history nothing for three lines, then five at a time: each move became one wheel event, which the terminal sends as a single report, scaled down further for small moves, and each program scales a report its own way. Each line now reaches tmux as one line of history, or as one wheel report for a program that scrolls itself, such as Codex. A flick continues after the finger lifts and slows to a stop, and a tap that stops it does not raise the keyboard. A desktop mouse wheel is unchanged.
+- **The page buttons move a page in a tmux session.** The Android app's page buttons moved Codex one line, and the web key bar's did nothing there at all; both now move a page, less one line.
+
+### Changed
+
+- **Dependencies.** gopsutil 4.26.10; Tauri updater plugin 2.14.1; @tailwindcss/vite 4.3.4; tailwind-merge 3.7.0; lucide-react 1.68.0, which redraws three of the icons the panel uses (the check circle, the key and the bolt). (#155–#159)
+
 ## [0.83.3] – 2026-11-06
 
 ### Changed
