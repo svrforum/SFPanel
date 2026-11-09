@@ -1956,6 +1956,8 @@ export interface AITools {
   panel_account: string
   account: string
   tools: Record<'claude' | 'codex' | 'gemini', AIToolStatus>
+  /** the attach binds touch scrolling (Shift wheel pairs); absent from a panel that binds none, where they would reach a program as two wheels per line */
+  touch_scroll?: boolean
 }
 
 /**

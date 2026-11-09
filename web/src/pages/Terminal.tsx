@@ -363,7 +363,8 @@ export default function TerminalPage() {
         )}
         <div className="flex-1 min-h-0 relative">
           {activeItem?.kind !== 'pty' && (
-            <SessionPane session={activeItem?.kind === 'tmux' ? activeItem.session : null} fallback={fallback} fontSize={fontSize} onNew={onNew}
+            <SessionPane session={activeItem?.kind === 'tmux' ? activeItem.session : null} fallback={fallback} fontSize={fontSize}
+              touchScroll={tools?.touch_scroll === true} onNew={onNew}
               onRestart={(s) => { void onAction('restart', { kind: 'tmux', id: s.id, session: s }) }}
               onRemoveEnded={(s) => { void onAction('removeEnded', { kind: 'tmux', id: s.id, session: s }) }} />
           )}

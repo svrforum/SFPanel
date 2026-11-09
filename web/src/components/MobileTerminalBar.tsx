@@ -38,6 +38,10 @@ export default function MobileTerminalBar({ onSendKey }: { onSendKey: (data: str
         // relative delta can stop one resize-height short in that state.
         requestAnimationFrame(() => term?.scrollLines(term.buffer.active.length))
       }
+      // A page less one line of overlap, as scrollPages moves. Through the
+      // session's own scrolling: a tmux session draws into the alternate
+      // buffer, which has no scrollback for scrollPages to move.
+      else if (term && el.__scrollLines) el.__scrollLines((direction === 'up' ? -1 : 1) * Math.max(1, term.rows - 1))
       else term?.scrollPages(direction === 'up' ? -1 : 1)
     })
   }

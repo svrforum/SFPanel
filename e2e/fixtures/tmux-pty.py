@@ -21,11 +21,20 @@ signal.signal(signal.SIGTERM, stop)
 with tempfile.TemporaryDirectory(prefix="sfpanel-touch-") as directory:
     base = ["tmux", "-f", "/dev/null", "-S", directory + "/socket"]
     subprocess.run(base + ["new-session", "-d", "-s", "test", "-x", "80", "-y", "24",
-                          "sh -c 'seq 1 300; exec sleep 120'"], check=True)
+                          os.environ.get("SFPANEL_TEST_TMUX_CMD", "sh -c 'seq 1 300; exec sleep 120'")],
+                   check=True)
     master, slave = pty.openpty()
     client = None
     try:
         subprocess.run(base + ["set", "-g", "status", "off"], check=True)
+        if os.environ.get("SFPANEL_TEST_TOUCH_SCROLL"):
+            # What the panel's attach binds for touch scrolling; a Go test keeps
+            # this file equal to touchScrollCommands (internal/feature/ai).
+            bindings = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "..", "internal",
+                                    "feature", "ai", "testdata", "touch_scroll_bindings.json")
+            with open(bindings) as f:
+                for command in json.load(f):
+                    subprocess.run(base + command, check=True)
         fcntl.ioctl(slave, termios.TIOCSWINSZ, struct.pack("HHHH", 24, 80, 0, 0))
         client = subprocess.Popen(base + ["set-option", "-t", "test", "mouse",
                                   os.environ.get("SFPANEL_TEST_TMUX_MOUSE", "on"), ";",

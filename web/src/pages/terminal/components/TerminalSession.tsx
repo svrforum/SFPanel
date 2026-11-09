@@ -7,7 +7,7 @@ import { SearchAddon } from '@xterm/addon-search'
 import { Unicode11Addon } from '@xterm/addon-unicode11'
 import '@xterm/xterm/css/xterm.css'
 import { api } from '@/lib/api'
-import { attachXtermTouchScroll } from '@/lib/xtermTouchScroll'
+import { attachXtermTouchScroll, scrollTerminalLines, type TmuxTouch } from '@/lib/xtermTouchScroll'
 import { attachLongPress } from '@/lib/longPress'
 import { openTerminalLink } from '@/lib/terminalLinks'
 import { SELECT_TEXT_EVENT } from '@/lib/terminalText'
@@ -91,6 +91,8 @@ export interface TerminalSessionElement extends HTMLElement {
   __fitAddon?: FitAddon
   __termRef?: RefObject<XTerm | null>
   __wsRef?: RefObject<WebSocket | null>
+  /** scrolls by lines, negative back into history, as touch scrolling does */
+  __scrollLines?: (lines: number) => void
 }
 
 // The terminal's text grid on screen: where it starts and one cell's size.
@@ -131,6 +133,7 @@ export function TerminalSession({
   wsPath = '/ws/terminal',
   wsParams,
   tmux = false,
+  touchScroll = false,
 }: {
   sessionId: string
   active: boolean
@@ -140,10 +143,18 @@ export function TerminalSession({
   wsParams?: Record<string, string>
   /** A tmux session: its copies arrive as OSC 52 (see the handler below). */
   tmux?: boolean
+  /** The panel binds touch scrolling for tmux (GET /ai/tools touch_scroll): a
+   *  finger's line is then one line of history, or one wheel report to the
+   *  program in the pane. */
+  touchScroll?: boolean
 }) {
   const containerRef = useRef<HTMLDivElement>(null)
   const termRef = useRef<XTerm | null>(null)
   const wsRef = useRef<WebSocket | null>(null)
+  // Read by the touch scrolling at each line: the tools bundle that says so can
+  // arrive after the session has connected.
+  const touchScrollRef = useRef(touchScroll)
+  useEffect(() => { touchScrollRef.current = touchScroll }, [touchScroll])
   const fitAddonRef = useRef<FitAddon | null>(null)
   const searchAddonRef = useRef<SearchAddon | null>(null)
   // The long-press selection (null: none), shown with xterm's own highlight.
@@ -445,10 +456,6 @@ export function TerminalSession({
     window.addEventListener('resize', handleResize)
     window.visualViewport?.addEventListener('resize', handleResize)
 
-    // xterm v6's viewport isn't natively touch-scrollable; the shared helper
-    // translates a vertical touch-drag into term.scrollLines so mobile can
-    // reach the scrollback (see lib/xtermTouchScroll).
-    const detachTouch = container ? attachXtermTouchScroll(container, term) : () => {}
     // A long press is how a phone selects text, and xterm draws into a canvas
     // with nothing to select. So a long press selects the word under the
     // finger in place, with xterm's own highlight, and raises a bar to copy it
@@ -485,6 +492,29 @@ export function TerminalSession({
           },
         })
       : () => {}
+    // xterm v6's viewport isn't natively touch-scrollable; the shared helper
+    // scrolls a line per line of finger travel and carries a flick on (see
+    // lib/xtermTouchScroll), behind the long press, which stops a fired
+    // press's drag first. In a tmux session the lines go to tmux as the
+    // panel's touch wheel pairs once it says it binds them; the key bar's page
+    // buttons take the same path through __scrollLines. Those pairs never pass
+    // through xterm, so nothing else clears a selection they move the text from
+    // under.
+    const tmuxTouch: TmuxTouch | undefined = tmux
+      ? {
+          bound: () => touchScrollRef.current,
+          send: (data) => {
+            const sock = wsRef.current
+            if (sock && sock.readyState === WebSocket.OPEN) sock.send(new TextEncoder().encode(data))
+          },
+        }
+      : undefined
+    const scrollLines = (lines: number, at?: Point) => {
+      if (lines) dismissSelection()
+      scrollTerminalLines(term, container?.querySelector('.xterm-screen') ?? null, lines, at, tmuxTouch)
+    }
+    const detachTouch = container ? attachXtermTouchScroll(container, term, { scroll: scrollLines }) : () => {}
+    if (container) (container as TerminalSessionElement).__scrollLines = scrollLines
 
     // A right click opens the terminal's own menu. The button itself is kept
     // from xterm: with tmux's mouse on it would be reported, and tmux answers a
@@ -519,6 +549,7 @@ export function TerminalSession({
       window.removeEventListener('resize', handleResize)
       window.visualViewport?.removeEventListener('resize', handleResize)
       detachTouch()
+      if (container) delete (container as TerminalSessionElement).__scrollLines
       detachLongPress()
       rightButtonEvents.forEach((type) => container?.removeEventListener(type, keepRightButton, true))
       container?.removeEventListener('contextmenu', onContextMenu)

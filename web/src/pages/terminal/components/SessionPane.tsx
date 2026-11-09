@@ -11,6 +11,7 @@ export function SessionPane({
   session,
   fallback,
   fontSize,
+  touchScroll,
   onNew,
   onRestart,
   onRemoveEnded,
@@ -19,6 +20,8 @@ export function SessionPane({
   /** tmux is missing: the only thing this page can open is a temporary shell */
   fallback: boolean
   fontSize: number
+  /** GET /ai/tools touch_scroll, for the session's touch scrolling */
+  touchScroll?: boolean
   onNew: () => void
   onRestart: (s: AISession) => void
   onRemoveEnded: (s: AISession) => void
@@ -68,6 +71,7 @@ export function SessionPane({
       wsPath="/ws/ai/attach"
       wsParams={{ session_id: session.id }}
       tmux
+      touchScroll={touchScroll}
     />
   )
 }

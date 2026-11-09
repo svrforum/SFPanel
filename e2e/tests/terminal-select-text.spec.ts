@@ -15,7 +15,7 @@ const LONG = 'cat /opt/stacks/' + 'very-long-directory-name/'.repeat(5) + 'docke
 // What the server's capture of the tmux session returns: history included.
 const HISTORY = [...Array.from({ length: 200 }, (_, i) => `history ${i + 1}`), '$ ' + LONG, 'gzip: stdin: not in gzip format'].join('\n')
 
-async function mock(page: Page, { tmux = true, insecure = false } = {}) {
+async function mock(page: Page, { tmux = true, insecure = false, touchScroll = false } = {}) {
   await page.addInitScript((insecure) => {
     sessionStorage.setItem('token', 'select-test-token')
     localStorage.setItem('i18nextLng', 'en')
@@ -30,7 +30,7 @@ async function mock(page: Page, { tmux = true, insecure = false } = {}) {
     else if (path.endsWith('/cluster/status')) data = { enabled: false }
     else if (path.endsWith('/ai/sessions/abcdef123456/text')) data = { text: HISTORY }
     else if (path.endsWith('/ai/sessions')) data = tmux ? [{ id: 'abcdef123456', title: 'Shell', tool: 'shell', run_as: 'tester', cwd: '/tmp', state: 'working', persistence: 'service', attached: true, created_at: '2026-09-15T00:00:00Z' }] : []
-    else if (path.endsWith('/ai/tools')) data = { tmux: tmux ? { installed: true, supported: true, version: '3.4', min_version: '3.2' } : { installed: false, supported: false, version: '', min_version: '3.2' }, systemd_run: true, accounts: ['tester'], panel_account: 'tester', account: 'tester', tools: {} }
+    else if (path.endsWith('/ai/tools')) data = { tmux: tmux ? { installed: true, supported: true, version: '3.4', min_version: '3.2' } : { installed: false, supported: false, version: '', min_version: '3.2' }, systemd_run: true, accounts: ['tester'], panel_account: 'tester', account: 'tester', tools: {}, ...(touchScroll ? { touch_scroll: true } : {}) }
     else if (path.endsWith('/terminal/sessions')) data = { sessions: [] }
     else if (path.endsWith('/terminal/info')) data = { shell_user: 'tester', hostname: 'fixture', home: '/home/tester', shell: '/bin/bash', is_root: false }
     await route.fulfill({ json: { success: true, data } })
@@ -212,6 +212,32 @@ test('holding on after the press and dragging extends the selection', async ({ p
   }
   await client.send('Input.dispatchTouchEvent', { type: 'touchEnd', touchPoints: [] })
   expect(await selection(page)).toBe('beta gamma')
+})
+
+// Down the rows, the same drag is also a vertical drag, which touch scrolling
+// claims: the session must stay put under the selection (TerminalSession
+// attaches the long press first, so a fired press stops it at the window).
+test('holding on after the press and dragging down the rows extends the selection without scrolling', async ({ page }) => {
+  // With touch scrolling bound every touch line goes out: the plain wheel of a
+  // panel without it is cut to nothing by xterm over a few rows, and would
+  // hide the scroll.
+  await mock(page, { touchScroll: true })
+  const sent: string[] = []
+  await page.routeWebSocket(/\/ws\//, ws => { ws.onMessage(m => { sent.push(typeof m === 'string' ? m : Buffer.from(m).toString('latin1')) }) })
+  await openTerminal(page)
+  await screen(page, 'alpha beta\r\ngamma delta\r\nepsilon zeta\r\neta theta\r\n')
+  const start = await cellPoint(page, 0, 7)
+  const end = await cellPoint(page, 3, 7)
+  const client = await page.context().newCDPSession(page)
+  await client.send('Input.dispatchTouchEvent', { type: 'touchStart', touchPoints: [start] })
+  await page.waitForTimeout(700)
+  for (let i = 1; i <= 6; i++) {
+    await client.send('Input.dispatchTouchEvent', { type: 'touchMove', touchPoints: [{ x: start.x, y: start.y + ((end.y - start.y) * i) / 6 }] })
+  }
+  await client.send('Input.dispatchTouchEvent', { type: 'touchEnd', touchPoints: [] })
+  expect(await selection(page)).toMatch(/^beta\s+gamma delta\s+epsilon zeta\s+eta t/)
+  // No touch line, nor any wheel report, left for the session.
+  expect(sent.filter(m => /\x1b\[<(64|65|68|69);/.test(m))).toEqual([])
 })
 
 test('a wrapped path comes whole, Copy line takes the line, View all opens the text view', async ({ page, context }) => {
