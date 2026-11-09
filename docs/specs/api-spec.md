@@ -4056,7 +4056,8 @@ Claude Code · Codex · Gemini CLI를 패널이 관리하는 tmux 세션으로 �
       "claude": { "installed": true, "version": "2.1.92 (Claude Code)", "path": "/root/.local/bin/claude", "latest": "2.1.270", "update_available": true, "logged_in": false },
       "codex":  { "installed": true, "version": "codex-cli 0.141.0", "path": "/usr/bin/codex", "latest": "0.154.0", "update_available": true, "logged_in": false },
       "gemini": { "installed": false, "version": "", "path": "", "latest": "0.59.0", "update_available": false, "logged_in": false }
-    }
+    },
+    "touch_scroll": true
   }
 }
 ```
@@ -4068,6 +4069,7 @@ Claude Code · Codex · Gemini CLI를 패널이 관리하는 tmux 세션으로 �
 | `tools.*.logged_in` | 계정 홈의 자격증명 파일 존재 여부 (힌트) |
 | `tmux.supported` | `tmux -V`가 `min_version`(3.2) 이상인지. 설치돼 있으나 낮으면 세션 생성/재시작이 `TMUX_MISSING`(503)으로 거절되고 배너가 업그레이드를 안내한다. 버전을 읽지 못하면 `true`(막지 않음). `tmux -V` 결과는 10분 캐시 |
 | `systemd_run` | 다음 spawn이 서버 폼(transient 서비스)을 쓸 수 있는지 = 패널이 root **그리고** 호스트에 `systemd-run`이 있음. 세션의 `persistence`와 같은 판정이며, `false`면 페이지 배너가 탭의 `process` 표시를 설명한다 |
+| `touch_scroll` | attach가 tmux에 터치 스크롤을 묶는지(websocket-spec §7 터치 스크롤). 페이지는 `true`일 때만 손가락이 지난 줄마다 `Shift 휠 보고 + 휠 보고` 쌍을 보낸다 — 묶지 않는 예전 패널에서는 프로그램이 한 줄에 휠 보고 두 개를 받는다 |
 
 | 코드 | HTTP | 조건 |
 |------|------|------|

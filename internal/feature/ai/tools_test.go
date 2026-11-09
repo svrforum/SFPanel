@@ -382,3 +382,39 @@ func TestProbeScript_FindsLocalBinOnAStockRootAccount(t *testing.T) {
 		t.Errorf("probe = %q %q (err %v), want %q at 9.9.9 — ~/.local/bin has to come first, not just appear somewhere on PATH", p, v, err, tool)
 	}
 }
+
+// The page sends its Shift wheel pairs only when the bundle says the attach
+// binds them: to a panel that does not, a program gets two wheel reports per
+// line. So the flag and the bindings have to go together.
+func TestTools_TouchScrollSaysTheAttachBindsIt(t *testing.T) {
+	for _, tool := range cliTools {
+		stubLatest(t, tool, "", http.StatusOK)
+	}
+	m := &exec.MockCommander{Outputs: map[string]exec.MockResult{
+		"exists:tmux": {}, "exists:systemd-run": {}, "tmux": {Output: "tmux 3.6a\n"},
+	}}
+	m.SetOutput("env", "", errTest)
+	h := newTestHandler(t, m)
+
+	rec := call(t, h.Tools, http.MethodGet, "", "", "?user=root")
+	var env struct {
+		Data struct {
+			TouchScroll bool `json:"touch_scroll"`
+		} `json:"data"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &env); err != nil {
+		t.Fatal(err)
+	}
+	bound := map[string]bool{}
+	for _, cmd := range touchScrollCommands() {
+		if len(cmd) > 2 && cmd[0] == "bind-key" && cmd[1] == "-n" {
+			bound[cmd[2]] = true
+		}
+	}
+	if !bound["S-WheelUpPane"] || !bound["S-WheelDownPane"] {
+		t.Fatalf("the attach binds no Shift wheel: %q", touchScrollCommands())
+	}
+	if !env.Data.TouchScroll {
+		t.Error("touch_scroll must be true while the attach binds touch scrolling")
+	}
+}

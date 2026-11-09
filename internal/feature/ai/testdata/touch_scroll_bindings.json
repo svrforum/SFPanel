@@ -1,0 +1,35 @@
+[
+  [
+    "bind-key",
+    "-n",
+    "S-WheelUpPane",
+    "if-shell",
+    "-F",
+    "#{pane_in_mode}",
+    "send-keys -X scroll-up ; switch-client -T sfpanel-touch",
+    "if-shell -F '#{?#{||:#{alternate_on},#{mouse_any_flag}},0,1}' 'copy-mode -e ; send-keys -X scroll-up ; switch-client -T sfpanel-touch'"
+  ],
+  [
+    "bind-key",
+    "-n",
+    "S-WheelDownPane",
+    "if-shell",
+    "-F",
+    "#{pane_in_mode}",
+    "send-keys -X scroll-down ; switch-client -T sfpanel-touch"
+  ],
+  [
+    "bind-key",
+    "-T",
+    "sfpanel-touch",
+    "WheelUpPane",
+    "select-pane"
+  ],
+  [
+    "bind-key",
+    "-T",
+    "sfpanel-touch",
+    "WheelDownPane",
+    "select-pane"
+  ]
+]

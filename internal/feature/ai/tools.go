@@ -198,6 +198,10 @@ type toolsResponse struct {
 	PanelAccount string                `json:"panel_account"`
 	Account      string                `json:"account"`
 	Tools        map[string]ToolStatus `json:"tools"`
+	// TouchScroll: the attach binds touch scrolling (touchScrollCommands). A
+	// page only sends its Shift wheel pairs when this says so; to a panel that
+	// binds nothing they reach a program as two wheel reports per line.
+	TouchScroll bool `json:"touch_scroll"`
 }
 
 // Tools — GET /ai/tools?user=<account>. The three probes run concurrently
@@ -221,6 +225,7 @@ func (h *Handler) Tools(c echo.Context) error {
 	}
 	resp.PanelAccount = h.panel.Name
 	resp.Account = acct.Name
+	resp.TouchScroll = true
 	resp.Tools = map[string]ToolStatus{}
 	var mu sync.Mutex
 	var wg sync.WaitGroup

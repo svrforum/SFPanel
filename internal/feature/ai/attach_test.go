@@ -5,6 +5,9 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"os"
+	"path/filepath"
+	"reflect"
 	"strconv"
 	"strings"
 	"testing"
@@ -35,13 +38,37 @@ func TestReplayHistory(t *testing.T) {
 func TestAttachArgv(t *testing.T) {
 	h := newTestHandler(t, nil)
 	alice := Account{Name: "alice", UID: 1000, GID: 1000, Home: "/home/alice", Shell: "/bin/bash"}
+	// The touch bindings go to the server in the same chain, ahead of the
+	// attach; what they do is TestTouchMarkerMovesOneLinePerReport's.
+	touch := ""
+	for _, cmd := range touchScrollCommands() {
+		touch += strings.Join(cmd, " ") + " ; "
+	}
 	name, argv := h.attachArgv(alice, "aaaaaaaaaaaa")
-	if name != "runuser" || strings.Join(argv, " ") != "-u alice -- tmux -f /dev/null -S "+h.socketPath(alice)+" set-option -t aaaaaaaaaaaa mouse on ; attach-session -t aaaaaaaaaaaa" {
+	if name != "runuser" || strings.Join(argv, " ") != "-u alice -- tmux -f /dev/null -S "+h.socketPath(alice)+" set-option -t aaaaaaaaaaaa mouse on ; "+touch+"attach-session -t aaaaaaaaaaaa" {
 		t.Errorf("alice: %s %q", name, argv)
 	}
 	name, argv = h.attachArgv(h.panel, "aaaaaaaaaaaa")
-	if name != "tmux" || strings.Join(argv, " ") != "-f /dev/null -S "+h.socketPath(h.panel)+" set-option -t aaaaaaaaaaaa mouse on ; attach-session -t aaaaaaaaaaaa" {
+	if name != "tmux" || strings.Join(argv, " ") != "-f /dev/null -S "+h.socketPath(h.panel)+" set-option -t aaaaaaaaaaaa mouse on ; "+touch+"attach-session -t aaaaaaaaaaaa" {
 		t.Errorf("root: %s %q", name, argv)
+	}
+}
+
+// The e2e fixture (e2e/fixtures/tmux-pty.py) binds touch scrolling from
+// testdata/touch_scroll_bindings.json, so the browser tests drive what the
+// attach really binds. Change both together.
+func TestTouchScrollCommandsAreTheE2EFixtures(t *testing.T) {
+	raw, err := os.ReadFile(filepath.Join("testdata", "touch_scroll_bindings.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var fixture [][]string
+	if err := json.Unmarshal(raw, &fixture); err != nil {
+		t.Fatal(err)
+	}
+	if !reflect.DeepEqual(fixture, touchScrollCommands()) {
+		got, _ := json.MarshalIndent(touchScrollCommands(), "", "  ")
+		t.Errorf("testdata/touch_scroll_bindings.json is not what the attach binds; it should read\n%s", got)
 	}
 }
 

@@ -115,10 +115,55 @@ func paneText(out string) string {
 // Enable wheel reporting on every attach, including sessions created by older
 // panels with mouse off. tmux uses the terminal's alternate buffer: its history
 // lives in tmux, not in xterm's scrollback. Mouse input reaches copy mode or the
-// active CLI according to tmux's native bindings.
+// active CLI according to tmux's native bindings. Touch scrolling is bound here
+// too, for the same reason: the server may have been started by an older panel.
+// One chain, so a tmux that refused a binding would refuse the attach as well;
+// every version from the 3.2 floor takes them (checked on 3.2a, 3.4 and 3.6).
 func (h *Handler) attachArgv(acct Account, id string) (string, []string) {
 	name, argv := h.tmuxBase(acct)
-	return name, append(argv, "set-option", "-t", id, "mouse", "on", ";", "attach-session", "-t", id)
+	argv = append(argv, "set-option", "-t", id, "mouse", "on", ";")
+	for _, cmd := range touchScrollCommands() {
+		argv = append(append(argv, cmd...), ";")
+	}
+	return name, append(argv, "attach-session", "-t", id)
+}
+
+// touchScrollCommands bind the page's touch scrolling (GET /ai/tools
+// touch_scroll). A finger has to move the view by the lines it travelled, and
+// one wheel report is five lines to tmux's copy mode but one row to Codex, so no
+// count of plain reports suits both — and changing copy mode's notch would
+// change every desktop mouse wheel with it. The page therefore sends each line
+// as a pair: a wheel report with Shift held, which xterm.js never sends for a
+// mouse, then a plain one.
+//
+// In copy mode, or in a pane with nothing that takes the wheel itself, the
+// Shift report moves copy mode one line, entering it first as the root
+// binding's copy-mode -e does, and the plain report after it is spent on a
+// table that only selects the pane. A program that takes the wheel — tmux's own
+// test: alternate screen or mouse mode — gets nothing from the Shift report and
+// the plain one as from a mouse: one report per line, which the program scales
+// as it likes (Codex one row, vim three lines).
+//
+// Mouse events, not keys, on purpose: tmux takes a quick run of keys for a paste
+// and skips the bindings, and the pairs of a drag arrive in runs. Turning that
+// detection off instead (assume-paste-time 0) put pastes into a scrolled-back
+// pane through copy mode's bindings, where Space pages down and leaves at the
+// bottom, so the rest of the paste ran in the shell.
+//
+// The page sends each pair in one write: tmux drops a key after a table switch
+// when the table does not bind it, so a lone Shift report would swallow the
+// next keystroke.
+func touchScrollCommands() [][]string {
+	const program = "#{||:#{alternate_on},#{mouse_any_flag}}"
+	return [][]string{
+		{"bind-key", "-n", "S-WheelUpPane", "if-shell", "-F", "#{pane_in_mode}",
+			"send-keys -X scroll-up ; switch-client -T sfpanel-touch",
+			"if-shell -F '#{?" + program + ",0,1}' 'copy-mode -e ; send-keys -X scroll-up ; switch-client -T sfpanel-touch'"},
+		{"bind-key", "-n", "S-WheelDownPane", "if-shell", "-F", "#{pane_in_mode}",
+			"send-keys -X scroll-down ; switch-client -T sfpanel-touch"},
+		{"bind-key", "-T", "sfpanel-touch", "WheelUpPane", "select-pane"},
+		{"bind-key", "-T", "sfpanel-touch", "WheelDownPane", "select-pane"},
+	}
 }
 
 // What the attach client runs with.

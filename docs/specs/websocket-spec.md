@@ -475,7 +475,7 @@ redis-1  | 1:M 10 Apr 2026 10:23:46.123 * Ready to accept connections\n
 | **용도** | 패널이 관리하는 tmux 세션(Claude/Codex/Gemini/셸)에 브라우저를 붙인다 |
 | **인증** | `?ticket=` (또는 루프백 한정 `?token=`) — `/ws/terminal`과 동일한 `auth.AuthenticateWSUpgrade` |
 | **통신 방향** | 양방향 |
-| **메시지 타입** | Binary (출력·입력), Text (`{"type":"resize"}` 및 안내 문구) |
+| **메시지 타입** | Binary (출력·입력, 터치 스크롤의 표시+휠 보고 포함), Text (`{"type":"resize"}` 및 안내 문구) |
 | **사용 페이지** | `Terminal.tsx` (`SessionPane` → `TerminalSession wsPath="/ws/ai/attach"`) |
 | **라우트 등록** | `e.GET("/ws/ai/attach", cluster.WrapEchoWSHandler(...))` |
 
@@ -487,8 +487,10 @@ redis-1  | 1:M 10 Apr 2026 10:23:46.123 * Ready to accept connections\n
 
 1. 세션이 없으면 Text `[session ended]` 한 프레임 후 종료 (클라이언트 없이).
 2. `tmux capture-pane -p -e -J -S -2000 -E -1` 결과를 CR LF로 바꿔 Binary 한 프레임으로 먼저 보낸다 — 화면 위의 이력이 xterm 스크롤백에 먼저 채워진다.
-3. PTY에서 `[runuser -u <계정> --] tmux -f /dev/null -S /run/sfpanel/ai/<uid>/sfpanel attach-session -t <id>`를 띄운다. 이후는 `/ws/terminal`과 같은 루프 (resize → `pty.Setsize`, 0×0 무시, 30초 ping / 70초 read deadline).
+3. PTY에서 `[runuser -u <계정> --] tmux -f /dev/null -S /run/sfpanel/ai/<uid>/sfpanel set-option -t <id> mouse on ; <터치 스크롤 바인딩> ; attach-session -t <id>`를 띄운다 — 예전 패널이 띄운 tmux 서버도 붙을 때마다 휠 보고와 터치 스크롤을 갖추고, 바인딩을 거부하는 서버에는 붙지 않는다(한 명령 줄). 이후는 `/ws/terminal`과 같은 루프 (resize → `pty.Setsize`, 0×0 무시, 30초 ping / 70초 read deadline).
 4. 소켓이 닫히면 클라이언트만 죽고(SIGHUP) 세션은 그대로다. 클라이언트가 먼저 끝나면(다른 곳에서 kill) Text `[detached]` 후 소켓을 닫는다.
+
+**터치 스크롤:** `GET /api/v1/ai/tools`의 `touch_scroll`이 `true`면 페이지는 손가락이 지난 줄마다 SGR 휠 보고 두 개를 붙여 Binary로 보낸다 — Shift를 누른 휠(`ESC [<68;열;행M` 위로 / `69` 아래로) 다음에 평범한 휠(`64` / `65`). attach가 묶은 바인딩(`touchScrollCommands`, `internal/feature/ai/testdata/touch_scroll_bindings.json`)에서, 복사 모드이거나 휠을 직접 받는 프로그램이 없는 패인이면 Shift 휠이 복사 모드를 한 줄 움직이고(처음이면 `copy-mode -e`로 들어가며 한 줄) 뒤의 평범한 휠은 패인만 고르는 테이블에서 소비된다. 휠을 직접 받는 프로그램(alternate screen 또는 마우스 모드, 예: Codex)이면 Shift 휠은 아무 일도 하지 않고 평범한 휠이 마우스에서 온 것처럼 넘어간다 — 한 줄에 보고 하나, 얼마나 움직일지는 프로그램이 정한다(Codex 한 행, vim 세 줄). 데스크톱 xterm.js는 Shift 휠을 보내지 않으므로 마우스 휠은 tmux 기본 그대로(복사 모드 5줄)다. 키가 아니라 마우스 이벤트인 이유: tmux는 빠르게 몰려 온 키를 붙여넣기로 보고 바인딩을 건너뛰는데 드래그의 쌍은 몰려서 온다. 그 감지를 끄면(`assume-paste-time 0`) 복사 모드로 올려 둔 패인에 붙여넣은 글이 복사 모드 바인딩을 거쳐(Space가 페이지를 내리다 맨 아래에서 빠져나감) 나머지가 셸에서 실행됐다. 쌍은 항상 한 번에 보낸다: Shift 휠 뒤의 키가 그 테이블에 없으면 tmux가 그 키를 버린다.
 
 **세션 유지:** 서버 측 세션 객체나 스크롤백 링버퍼는 없다 — tmux가 세션이다. 페이지는 활성 탭 하나에만 소켓을 연다(백그라운드 탭의 벨 플래그가 유지되도록, 그리고 페이지당 프로세스 하나).
 
