@@ -36,7 +36,7 @@ jobs:
           with open(os.environ['GITHUB_ENV'], 'a') as f:
               f.write(f'ANDROID_VERSION_NAME={major}.{minor}.{patch}\nANDROID_VERSION_CODE={code}\n')
           PY
-      - uses: actions/setup-java@b843ebf9b913146b38da2eaa7aeddf76074ae1ad
+      - uses: actions/setup-java@77dd5b2ce225ea11469928ac317850245a74ae78
         with:
           distribution: temurin
           java-version: '21'
