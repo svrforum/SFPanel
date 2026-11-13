@@ -40,7 +40,7 @@
     "tailwindcss": "^4.3.3",
     "uplot": "^1.6.32",
     "vaul": "^1.1.2",
-    "vite-plugin-pwa": "^1.2.0"
+    "vite-plugin-pwa": "^2.0.0"
   },
   "overrides": {
     "serialize-javascript": "^7.0.5",
