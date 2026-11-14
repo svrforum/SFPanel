@@ -94,7 +94,7 @@
 |-----------|----------|----------|
 | 일반 REST | gRPC `ClusterService.ProxyRequest` | 30초 |
 | SSE(`-stream` 접미사 또는 `/system/update`, `/appstore/.../install` 등) | HTTP 직접 릴레이 | 5분 (`/cluster/update`, 스택 이관 `/migrate`와 원본 세션 `/migrate-source`는 2시간) |
-| 파일 전송(`/files/download`·`/files/upload`·`/system/backup`·`/system/restore`·`/docker/compose/migrate-import`·`/migrate-source/bundle`) | HTTP 직접 릴레이 | 30분 |
+| 파일 전송(`/files/download`·`/files/upload`·`/system/backup`·`/system/restore`·`/docker/compose/migrate-import`·`/migrate-source/bundle`·`/ai/sessions/:id/upload`) | HTTP 직접 릴레이 | 30분 |
 | WebSocket | `WrapEchoWSHandler` 양방향 프록시 | WS 생명주기 전체 |
 
 `?node=` 요청이 다른 노드로 갈 때 사용자의 자격 증명은 실리지 않습니다. `Authorization`·`Cookie`·`X-CSRF-Token` 헤더와 `?token=`·`?ticket=`(그리고 `?node=`)를 떼어 내고, 운영자는 감사 로그용 `X-SFPanel-Original-User` 헤더로만 전달됩니다. 받는 노드의 인증은 전송 방식에 따라 다릅니다.
@@ -4059,7 +4059,8 @@ Claude Code · Codex · Gemini CLI를 패널이 관리하는 tmux 세션으로 �
     },
     "touch_scroll": true,
     "touch_history": true,
-    "attach_latest": true
+    "attach_latest": true,
+    "session_uploads": true
   }
 }
 ```
@@ -4074,6 +4075,7 @@ Claude Code · Codex · Gemini CLI를 패널이 관리하는 tmux 세션으로 �
 | `touch_scroll` | attach가 tmux에 터치 스크롤을 묶는지(websocket-spec §7 터치 스크롤). 페이지는 `true`일 때만 손가락이 지난 줄마다 `Shift 휠 보고 + 휠 보고` 쌍을 보낸다 — 묶지 않는 예전 패널에서는 프로그램이 한 줄에 휠 보고 두 개를 받는다 |
 | `touch_history` | `GET /ai/sessions/:id/scrollback`이 있는지. 폰의 기록 보기는 `touch_scroll`과 이것이 모두 `true`일 때만 사본을 요청하고, 아니면 손가락을 줄 단위로 tmux에 보낸다. 데스크톱을 포함해 검색도 이 사본에서 찾는다 |
 | `attach_latest` | attach가 `{"type":"latest"}` 프레임을 받아 tmux 복사 모드에서 나오는지(websocket-spec §7 최신 출력). 페이지는 `true`일 때만 보낸다 — 모르는 예전 패널은 그 프레임을 세션에 글자로 써 넣는다 |
+| `session_uploads` | `POST /ai/sessions/:id/upload`이 있는지. 페이지는 `true`일 때만 첨부(작성창의 첨부 버튼, 이미지 붙여넣기, 터미널에 파일 끌어놓기)를 내놓는다 |
 
 | 코드 | HTTP | 조건 |
 |------|------|------|
@@ -4283,10 +4285,50 @@ Codex는 고른 값과 별개로 **인라인**으로 띄운다: argv 맨 앞, �
 생성 시점의 root 규칙(`AI_LAUNCH_ROOT_DANGER`)은 **다시 적용하지 않는다**. `claude` + `dangerous` 행은 root가 아닌 계정으로 만들어졌으므로, 여기서 root라면 행 아래에서 계정이 바뀐 것이다. 다시 시작에는 계정 선택기가 없어 거절하면 삭제밖에 남지 않는 탭이 되고, 패널이 인용하려던 그 문장(Claude 자신의 거부)은 pane에 그대로 찍혀 운영자가 읽고 조치할 수 있다. `rerun`도 같은 이유로 같다.
 
 ### DELETE /api/v1/ai/sessions/:id
-살아있으면 `kill-session`, 행 삭제. `AI_SESSION_NOT_FOUND`(404). **Response:** `{ "deleted": "<id>" }`
+살아있으면 `kill-session`, 행 삭제, 그 세션의 업로드 디렉터리(`POST /ai/sessions/:id/upload`) 삭제. `AI_SESSION_NOT_FOUND`(404). **Response:** `{ "deleted": "<id>" }`
 
 ### GET /api/v1/ai/sessions/:id/scrollback
 폰의 "기록 보기"가 스크롤하는 사본. tmux는 브라우저 터미널의 대체 화면에 그려 브라우저에는 한 화면만 있으므로, tmux를 통해 기록을 스크롤하면 한 줄마다 왕복이 필요했다 — 페이지는 이 사본을 받아 픽셀 단위로 직접 스크롤한다. 먼저 `display-message -p '#{alternate_on} #{pane_in_mode} #{pane_width} #{pane_height}'`로 pane의 상태와 크기를 읽는다. 대체 화면이거나(`alternate`) 복사 모드면(`copy_mode`) 사본 없이(`text: ""`) 그 상태만 돌려준다: 대체 화면의 프로그램(vim·대체 화면으로 띄운 Codex 등)은 기록을 자기 안에 갖고 있고 capture-pane은 그 프로그램이 시작하기 전 셸의 화면을 돌려주며, 복사 모드의 pane은 기록의 어느 지점을 보여주고 있어 사본의 맨 아래가 보이는 화면이 아니다. 페이지는 이때, 그리고 `cols`·`rows`가 자기 크기와 다를 때(크기를 바꾸는 중) tmux로 줄 단위 스크롤한다. 아니면 `capture-pane -p -e -J -S -2000` — `-e` 색, `-J` 이어 붙인 줄(첨부 시 replay와 같음), 화면 마지막 행까지 **빈 행 포함**, 마지막 개행만 뺀다: 사본의 맨 아래가 페이지가 보여주는 화면과 행 단위로 같아야 기록 보기가 보던 화면에서 바로 열린다. `AI_SESSION_NOT_FOUND`(404, 잘못된 id이거나 끝난 세션) · `INVALID_ACCOUNT`(400, 세션 계정이 사라짐). **Response:** `{ "alternate": false, "copy_mode": false, "cols": 47, "rows": 44, "text": "..." }`
+
+### POST /api/v1/ai/sessions/:id/upload
+세션에 파일 하나를 첨부한다 — 스크린샷이나 로그를 AI CLI에 보여 주려고. `multipart/form-data`, 필드 `file`, 파일당 **25 MiB**. 세션이 도는 노드의, 세션 실행 계정 홈 아래 `<홈>/.sfpanel-ai/uploads/<세션 id>/`에 저장하고 그 **절대 경로**를 돌려준다. 페이지는 그 경로를 프롬프트(작성창의 초안, 또는 터미널)에 넣는다. `/tmp`가 아닌 이유: 패널 유닛이 `PrivateTmp`면 세션과 다른 `/tmp`를 본다.
+
+- 디렉터리는 0700·파일은 0600이고, 패널이 root면 세션 계정 소유로 넘긴다. 홈은 그 계정이 마음대로 바꿀 수 있는 곳이라 `.sfpanel-ai` → `uploads` → `<id>`를 프로파일 디렉터리와 같은 방식(`os.Root`, 단계마다 `lstat`)으로 내려간다: 어느 단계든 심볼릭 링크면 `INVALID_PATH`.
+- 저장 이름은 `<UTC 시각 YYYYMMDD-HHMMSS>-<정리한 이름>`. 정리: 기본 이름만, 글자·숫자·`.`·`_`·`-` 밖은 `-`, 앞의 점 제거, 80자(확장자 유지). 프롬프트와 셸 명령에 따옴표 없이 들어갈 수 있어야 하기 때문이다. 같은 이름이 있으면 `-2`, `-3`…을 붙이고 **덮어쓰지 않는다**.
+- 세션을 삭제하면(`DELETE /ai/sessions/:id`) 그 세션의 업로드 디렉터리도 지운다.
+- 클러스터: `?node=`가 있으면 프록시가 gRPC(4MB 한도)가 아니라 HTTP 중계로 넘긴다.
+
+**Response:** `{ "path": "/home/alice/.sfpanel-ai/uploads/3f9c2a1b7d40/20261114-093005-Screen-Shot.png", "name": "20261114-093005-Screen-Shot.png", "size": 48213 }`
+
+| 코드 | HTTP | 조건 |
+|------|------|------|
+| `AI_SESSION_NOT_FOUND` | 404 | 그런 세션이 없음(행도 없고 살아 있지도 않음) |
+| `INVALID_REQUEST` | 400 | `file` 필드가 없음 |
+| `FILE_TOO_LARGE` | 413 | 25 MiB 초과. 아무것도 남기지 않는다 |
+| `INVALID_PATH` | 400 | 업로드 디렉터리로 가는 길에 심볼릭 링크나 파일이 있음 |
+| `INVALID_ACCOUNT` | 400 | 세션의 실행 계정이 더는 없음 |
+
+### GET /api/v1/ai/prefs
+터미널 페이지의 개인 설정: 다시 보낼 글(**스니펫**)과 터미널 아래 **키 줄의 구성**. 브라우저가 아니라 패널에 두어 폰과 데스크톱이 같은 것을 본다. `terminal_prefs` 표(db-schema ID 41)에 노드별로 저장하고 복제하지 않는다 — 페이지는 `?node=` 없이 **접속한 노드**에 묻는다(보고 있는 노드를 바꿔도 내 스니펫은 그대로).
+
+**Response:**
+```json
+{
+  "snippets": [ { "kind": "agent", "body": "테스트를 돌리고 실패한 것만 고쳐줘" }, { "kind": "shell", "body": "docker compose logs -f --tail 100" } ],
+  "keysets": { "agent": [ [ { "id": "esc" }, { "id": "ctrl-b" }, { "label": "/compact", "text": "/compact", "enter": true } ] ] }
+}
+```
+저장된 것이 없으면 `{"snippets": [], "keysets": {}}`. `keysets`에 없는 종류는 패널의 기본 키를 쓴다. 읽을 수 없거나 아래 검증을 통과하지 못하는 행은 빈 값으로 응답한다.
+
+### PUT /api/v1/ai/prefs/snippets
+**Request:** `{ "snippets": [ { "kind": "agent" | "shell", "body": "…" }, … ] }` — 목록 **전체**를 보이는 순서대로. 마지막 저장이 이긴다. **Response:** `{ "snippets": [...] }`. 본문 1 MiB 초과는 413.
+
+한도와 검증(어기면 `INVALID_REQUEST` 400, 메시지가 이유를 말한다): 100개까지, 각 2000자까지, 빈 글 불가, 줄바꿈·탭 외의 제어 문자 불가, 같은 종류의 같은 글 중복 불가.
+
+### PUT /api/v1/ai/prefs/keysets
+**Request:** `{ "keysets": { "agent": [[키…], …], "shell": [[키…], …] } }` — 모든 종류를 한 번에. 빠진 종류, 또는 쪽이 0개인 종류는 기본 키로 돌아간다. **Response:** `{ "keysets": {...} }`. 본문 1 MiB 초과는 413.
+
+키는 둘 중 하나다: 페이지가 아는 키 `{ "id": "esc" }`(`^[a-zA-Z0-9-]{1,24}$` — 패널은 형태만 보고, 어떤 id가 있는지는 페이지의 `lib/terminalKeysets.ts`가 안다. 모르는 id는 페이지가 빼고 그린다), 또는 운영자가 만든 키 `{ "label": "≤8자", "text": "≤64자", "enter": true|false }`(`text`를 입력하고 `enter`면 Enter까지). 한도: 종류는 `agent`·`shell`, 종류별 6쪽, 쪽마다 1~7키, `label`·`text`에 제어 문자(줄바꿈 포함) 불가. 어기면 `INVALID_REQUEST` 400.
 
 ### GET /api/v1/ai/sessions/:id/text
 세션의 기록과 현재 화면을 평문으로 돌려준다 — 터미널 페이지의 "텍스트 선택" 창이 쓴다. tmux는 브라우저 터미널의 대체 화면에 그리므로 브라우저에는 한 화면만 있고 나머지 기록은 tmux에 있다. `capture-pane -p -J -S -2000`: `-J`가 pane 폭에서 줄바꿈된 줄을 이어 붙여 복사한 명령·경로가 끊기지 않는다. 줄 끝 공백과 마지막 출력 아래 빈 줄은 뺀다. `AI_SESSION_NOT_FOUND`(404, 잘못된 id이거나 끝난 세션) · `INVALID_ACCOUNT`(400, 세션 계정이 사라짐). **Response:** `{ "text": "..." }`
@@ -7257,6 +7299,10 @@ WireGuard 키페어 생성 (`wg genkey` + `wg pubkey`).
 | DELETE | `/api/v1/ai/sessions/:id` | O | 세션 종료 |
 | GET | `/api/v1/ai/sessions/:id/text` | O | 세션 기록을 평문으로 |
 | GET | `/api/v1/ai/sessions/:id/scrollback` | O | 기록 보기용 사본(색 포함, pane 상태·크기) |
+| POST | `/api/v1/ai/sessions/:id/upload` | O | 세션에 파일 첨부 (multipart, 25 MiB), 저장된 절대 경로 응답 |
+| GET | `/api/v1/ai/prefs` | O | 터미널 페이지의 스니펫·키 줄 구성 (접속한 노드) |
+| PUT | `/api/v1/ai/prefs/snippets` | O | 스니펫 목록 전체 저장 |
+| PUT | `/api/v1/ai/prefs/keysets` | O | 키 줄 구성 저장 |
 
 ### Docker - 컨테이너 (11개)
 
