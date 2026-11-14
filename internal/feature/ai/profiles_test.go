@@ -2,6 +2,7 @@ package ai
 
 import (
 	"encoding/json"
+	"errors"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -317,8 +318,8 @@ func TestProfileLevels_RefuseASymlinkedLevel(t *testing.T) {
 	// ownership handed out past the level where the walk stopped
 	h = mk()
 	var chowned []string
-	h.lchownAt = func(r *os.Root, name string, uid, gid int) error {
-		chowned = append(chowned, filepath.Join(r.Name(), name))
+	h.fchown = func(f *os.File, uid, gid int) error {
+		chowned = append(chowned, f.Name())
 		return nil
 	}
 	rec = call(t, h.CreateProfile, http.MethodPost, `{"tool":"codex","name":"fresh"}`, "", "")
@@ -335,20 +336,19 @@ func TestProfileLevels_RefuseASymlinkedLevel(t *testing.T) {
 
 // The two levels the panel owns inside the home are handed to the account —
 // they are 0700, so root-owned levels would leave the account unable to
-// traverse to, or log in to, its own profile. Each call is root-relative:
-// the directory named is resolved under the descriptor the walk verified,
-// never by joining a string a moment later.
+// traverse to, or log in to, its own profile. Each is handed over through a
+// descriptor opened on the directory, under the descriptor the walk verified.
 func TestCreateProfile_HandsThePanelLevelsToTheAccount(t *testing.T) {
 	h := newTestHandler(t, tmuxMock(""))
 	h.DB = openTestDB(t)
 	home := t.TempDir()
 	h.panel.Home = home
 	var chowned []string
-	h.lchownAt = func(r *os.Root, name string, uid, gid int) error {
+	h.fchown = func(f *os.File, uid, gid int) error {
 		if uid != h.panel.UID || gid != h.panel.GID {
-			t.Errorf("chown %s to %d:%d, want the account %d:%d", name, uid, gid, h.panel.UID, h.panel.GID)
+			t.Errorf("chown %s to %d:%d, want the account %d:%d", f.Name(), uid, gid, h.panel.UID, h.panel.GID)
 		}
-		chowned = append(chowned, filepath.Join(r.Name(), name))
+		chowned = append(chowned, f.Name())
 		return nil
 	}
 	rec := call(t, h.CreateProfile, http.MethodPost, `{"tool":"codex","name":"work"}`, "", "")
@@ -398,5 +398,114 @@ func TestProfileLastUsed(t *testing.T) {
 		if _, err := time.Parse(time.RFC3339, ts); err != nil {
 			t.Errorf("profile %q: last used %q is not RFC 3339 like created_at is: %v", name, ts, err)
 		}
+	}
+}
+
+// The levels inside the home are the account's to rearrange, and a hard link
+// to a file is as good as a symlink for redirecting an operation that looks a
+// name up: between the check of a level and a chmod and chown of it by name,
+// the account can move the directory away and link a file under its name — one
+// it may write to but does not own — and a root panel would make that file
+// 0700 and the account's. So a level is opened as a directory first, and its
+// mode and owner are set through that descriptor.
+func TestCreateProfile_ALevelIsHandedOverByDescriptorNotByName(t *testing.T) {
+	h := newTestHandler(t, tmuxMock(""))
+	h.DB = openTestDB(t)
+	home := t.TempDir()
+	h.panel.Home = home
+	victim := filepath.Join(home, "victim")
+	if err := os.WriteFile(victim, []byte("not the account's"), 0o640); err != nil {
+		t.Fatal(err)
+	}
+	level := filepath.Join(home, profileRootName)
+	swapped := false
+	// What the account does the moment before ownership is given.
+	swap := func() {
+		if swapped {
+			return
+		}
+		swapped = true
+		if err := os.Rename(level, level+".away"); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.Link(victim, level); err != nil {
+			t.Fatal(err)
+		}
+	}
+	var given os.FileInfo
+	h.fchown = func(f *os.File, uid, gid int) error {
+		if given != nil || filepath.Base(f.Name()) != profileRootName {
+			return nil
+		}
+		swap()
+		info, err := f.Stat()
+		given = info
+		return err
+	}
+	rec := call(t, h.CreateProfile, http.MethodPost, `{"tool":"codex","name":"work"}`, "", "")
+	if given == nil {
+		t.Fatal("the level was never handed to the account")
+	}
+	victimInfo, _ := os.Stat(victim)
+	if os.SameFile(given, victimInfo) {
+		t.Error("ownership went to whatever the name pointed at: the file the account linked in the directory's place")
+	}
+	if away, _ := os.Stat(level + ".away"); !os.SameFile(given, away) {
+		t.Error("ownership did not go to the directory the walk had checked")
+	}
+	if victimInfo.Mode().Perm() != 0o640 {
+		t.Errorf("the linked file's mode is now %v", victimInfo.Mode().Perm())
+	}
+	// And the walk does not go on through what is no longer a directory.
+	if rec.Code == http.StatusOK {
+		t.Errorf("the profile was created through a swapped level: %s", rec.Body.String())
+	}
+}
+
+// What ownProfileDir is asked to hand over must be a directory, and the one
+// the name is: not a file under that name, and not a directory reached
+// through a symlink put there after the caller looked.
+func TestOwnProfileDir_OnlyADirectoryThatTheNameItselfIs(t *testing.T) {
+	h := newTestHandler(t, tmuxMock(""))
+	home := t.TempDir()
+	root, err := os.OpenRoot(home)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer root.Close()
+	handed := 0
+	h.fchown = func(*os.File, int, int) error { handed++; return nil }
+
+	if err := os.WriteFile(filepath.Join(home, "file"), []byte("x"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Mkdir(filepath.Join(home, "elsewhere"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink("elsewhere", filepath.Join(home, "link")); err != nil {
+		t.Fatal(err)
+	}
+	for name, untouched := range map[string]string{"file": "file", "link": "elsewhere"} {
+		err := h.ownProfileDir(root, h.panel, name)
+		if !errors.Is(err, errProfilePath) {
+			t.Errorf("%s: got %v, want errProfilePath", name, err)
+		}
+		info, _ := os.Stat(filepath.Join(home, untouched))
+		if want := map[string]os.FileMode{"file": 0o644, "elsewhere": 0o755}[untouched]; info.Mode().Perm() != want {
+			t.Errorf("%s: the mode of %s is now %v, want it left %v", name, untouched, info.Mode().Perm(), want)
+		}
+	}
+	if handed != 0 {
+		t.Errorf("ownership was handed out %d times for what is not the directory", handed)
+	}
+	// A real directory gets both.
+	if err := os.Mkdir(filepath.Join(home, "real"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := h.ownProfileDir(root, h.panel, "real"); err != nil {
+		t.Fatal(err)
+	}
+	if info, _ := os.Stat(filepath.Join(home, "real")); info.Mode().Perm() != 0o700 || handed != 1 {
+		t.Errorf("a real directory: mode %v, handed over %d times", info.Mode().Perm(), handed)
 	}
 }

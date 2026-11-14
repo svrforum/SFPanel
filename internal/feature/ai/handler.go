@@ -54,11 +54,12 @@ type Handler struct {
 
 	socketRoot string                       // where the tmux sockets live; tests use a temp dir
 	chown      func(string, int, int) error // os.Chown; a test binary is not root
-	// lchownAt is (*os.Root).Lchown, injected for the same reason chown is.
-	// Root-relative and no-follow: the profile levels live inside an
-	// account-writable home, so the ownership change has to land on the entry
-	// the caller checked and stay under the descriptor it checked it through.
-	lchownAt func(*os.Root, string, int, int) error
+	// fchown is (*os.File).Chown: ownership given through an open descriptor,
+	// which stays on the file or directory it was opened on whatever its name
+	// points at by then. Everything handed to an account inside its own home
+	// goes through it (ownProfileDir, SessionUpload). Injected for the same
+	// reason chown is.
+	fchown func(*os.File, int, int) error
 
 	// spawnLocks serialises session creation per account; spawnMu guards the
 	// map, not the spawns. The server form claims one fixed unit name per
@@ -96,7 +97,7 @@ func NewHandler(db *sql.DB, cmd exec.Commander, stacksPath, stateDir string) *Ha
 		isRoot:     isRoot,
 		socketRoot: socketRoot(stateDir, isRoot()),
 		chown:      os.Chown,
-		lchownAt:   func(r *os.Root, name string, uid, gid int) error { return r.Lchown(name, uid, gid) },
+		fchown:     func(f *os.File, uid, gid int) error { return f.Chown(uid, gid) },
 		toolMemo:   map[string]toolMemoEntry{},
 		latestMemo: map[string]latestMemoEntry{},
 		now:        time.Now,

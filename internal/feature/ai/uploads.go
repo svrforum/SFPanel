@@ -185,11 +185,15 @@ func (h *Handler) SessionUpload(c echo.Context) error {
 		name = fmt.Sprintf("%s-%d%s", strings.TrimSuffix(base, ext), try, ext)
 	}
 	size, cerr := io.Copy(dst, io.LimitReader(src, uploadMaxBytes+1))
+	// Handed to the account through the descriptor the bytes went into, never
+	// by name: the directory is the account's, and a name in it can be made to
+	// point at another file — a hard link to one the account may write to but
+	// does not own — between the write and a chown that looks the name up.
+	if cerr == nil && h.isRoot() {
+		cerr = h.fchown(dst, acct.UID, acct.GID)
+	}
 	if err := dst.Close(); cerr == nil {
 		cerr = err
-	}
-	if cerr == nil && h.isRoot() {
-		cerr = h.lchownAt(dir, name, acct.UID, acct.GID)
 	}
 	if cerr != nil || size > uploadMaxBytes {
 		_ = dir.Remove(name)

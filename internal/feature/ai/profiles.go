@@ -9,6 +9,7 @@ import (
 	"path/filepath"
 	"regexp"
 	"strings"
+	"syscall"
 
 	"github.com/labstack/echo/v4"
 
@@ -384,8 +385,8 @@ var (
 // makes the two levels (the read paths take create=false, where a missing
 // level is errProfileMissing rather than a directory the caller gets to make).
 //
-// Two defences, both load-bearing, and neither is the leaf check callers do
-// afterwards:
+// Three defences, each load-bearing, and none of them the leaf check callers
+// do afterwards:
 //
 //   - The Root anchors every operation below on a descriptor for the
 //     account's home, so a level swapped underneath us cannot redirect a
@@ -394,10 +395,16 @@ var (
 //     and under a root panel every regular login account is selectable
 //     (allowedAccounts) while its home is its own to rearrange — the same
 //     hostile boundary accountEnv already draws.
+//
 //   - The Lstat at each level refuses a link that was on disk before the
 //     operator acted, which the Root alone would follow as long as it pointed
 //     back inside the home. This is the chain-of-lstat defence
 //     internal/feature/files/archive.go applies, for the same reason.
+//
+//   - A level's mode and owner are set through a descriptor opened on it
+//     (ownProfileDir), not by its name: inside the home a hard link redirects
+//     a by-name chmod or chown as well as a symlink would, and neither the
+//     Root nor a no-follow call sees one.
 //
 // The home directory itself is never created: os.OpenRoot makes nothing,
 // which is the point — a MkdirAll here would leave somebody's home root-owned.
@@ -457,17 +464,42 @@ func (h *Handler) descendProfileLevel(parent *os.Root, acct Account, name string
 
 // ownProfileDir pins 0700 (Mkdir applies the umask) and, when the panel is
 // root, hands the directory to the account that will write credentials into
-// it. Both calls are root-relative, and the ownership one is Lchown rather
-// than os.Chown: it must land on the entry the check above saw and never on
-// whatever a link put in its place afterwards.
+// it — through a descriptor on the directory, never by its name.
+//
+// The parent is the account's to rearrange. A chmod and a chown that look the
+// name up can be given another inode in the moment after the check: the
+// directory moved away and a hard link to a file put under its name — a file
+// the account may write to but does not own, which fs.protected_hardlinks
+// lets it link — and a root panel would make that file 0700 and the
+// account's. Lchown does not help: a hard link is not a link to follow, it is
+// the file. So the directory is opened first (O_DIRECTORY refuses a file),
+// the name is checked to still be that very directory and not a symlink to
+// it, and mode and owner go to the descriptor, which stays on the directory
+// it was opened on whatever the name points at afterwards.
 func (h *Handler) ownProfileDir(parent *os.Root, acct Account, name string) error {
-	if err := parent.Chmod(name, 0o700); err != nil {
+	full := filepath.Join(parent.Name(), name)
+	d, err := parent.OpenFile(name, os.O_RDONLY|syscall.O_DIRECTORY, 0)
+	if err != nil {
+		return fmt.Errorf("%w: %s: %v", errProfilePath, full, err)
+	}
+	defer d.Close()
+	opened, err := d.Stat()
+	if err != nil {
+		return err
+	}
+	// Root.OpenFile follows a symlink that stays inside the root, so a link
+	// swapped in after the caller's check would have been opened through.
+	named, err := parent.Lstat(name)
+	if err != nil || named.Mode()&os.ModeSymlink != 0 || !os.SameFile(opened, named) {
+		return fmt.Errorf("%w: %s changed underneath", errProfilePath, full)
+	}
+	if err := d.Chmod(0o700); err != nil {
 		return err
 	}
 	if !h.isRoot() {
 		return nil
 	}
-	return h.lchownAt(parent, name, acct.UID, acct.GID)
+	return h.fchown(d, acct.UID, acct.GID)
 }
 
 // failProfileWalk answers a profile path the module refuses to walk. A level

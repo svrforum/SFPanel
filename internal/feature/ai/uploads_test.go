@@ -252,3 +252,50 @@ func TestSessionUpload_ARowlessSessionUploadsAsTheAccountItRunsAs(t *testing.T) 
 		t.Errorf("the deleted session's uploads are still there (%v)", err)
 	}
 }
+
+// The account owns the directory the file is written into. Between the write
+// and a chown of the file by its name it can move the file away and put a
+// hard link to another inode under that name — a file it may write to but
+// does not own — and a root panel would hand it that one. So the file is
+// handed over through the descriptor its bytes went into.
+func TestSessionUpload_OwnershipGoesToTheFileWrittenNotToItsName(t *testing.T) {
+	h, home, id := uploadHandler(t)
+	dir := filepath.Join(home, profileRootName, "uploads", id)
+	victim := filepath.Join(home, "victim")
+	if err := os.WriteFile(victim, []byte("not the account's"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	// What the account does the moment before ownership is given.
+	swap := func(name string) {
+		if err := os.Rename(filepath.Join(dir, name), filepath.Join(dir, "moved-away")); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.Link(victim, filepath.Join(dir, name)); err != nil {
+			t.Fatal(err)
+		}
+	}
+	var given os.FileInfo
+	h.fchown = func(f *os.File, uid, gid int) error {
+		info, err := f.Stat()
+		if err != nil || info.IsDir() {
+			return err // a level of the path, handed over the same way
+		}
+		swap(filepath.Base(f.Name()))
+		given = info
+		return nil
+	}
+	if rec := upload(t, h, id, "a.txt", []byte("the upload")); rec.Code != http.StatusOK {
+		t.Fatalf("upload answered %d %s", rec.Code, rec.Body.String())
+	}
+	if given == nil {
+		t.Fatal("under a root panel the file was never handed to the account")
+	}
+	victimInfo, _ := os.Stat(victim)
+	written, _ := os.Stat(filepath.Join(dir, "moved-away"))
+	if os.SameFile(given, victimInfo) {
+		t.Error("ownership went to whatever the name pointed at: the file the account linked in its place")
+	}
+	if !os.SameFile(given, written) {
+		t.Error("ownership did not go to the file the upload was written into")
+	}
+}
