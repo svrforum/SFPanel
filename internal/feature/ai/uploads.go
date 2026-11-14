@@ -25,9 +25,12 @@ import (
 // has its own.
 
 const (
-	uploadsLevel   = "uploads"
-	uploadNameMax  = 80 // runes
-	uploadTriesMax = 100
+	uploadsLevel  = "uploads"
+	uploadNameMax = 80 // runes: what is readable in a prompt
+	// And bytes: a file system takes 255 of a path element, the time goes in
+	// front of the name and "-100" may follow it, and a Korean letter is three.
+	uploadNameBytes = 200
+	uploadTriesMax  = 100
 )
 
 // uploadMaxBytes bounds one file. A var so a test can lower it.
@@ -57,7 +60,7 @@ func uploadName(original string) string {
 	if name == "" {
 		return "file"
 	}
-	if utf8.RuneCountInString(name) <= uploadNameMax {
+	if utf8.RuneCountInString(name) <= uploadNameMax && len(name) <= uploadNameBytes {
 		return name
 	}
 	// Too long: the end goes, the extension stays — a program reads a file by it.
@@ -65,8 +68,18 @@ func uploadName(original string) string {
 	if utf8.RuneCountInString(ext) > 12 {
 		ext = ""
 	}
-	stem := []rune(strings.TrimSuffix(name, ext))
-	return string(stem[:uploadNameMax-utf8.RuneCountInString(ext)]) + ext
+	stem := strings.TrimSuffix(name, ext)
+	runes, bytes := uploadNameMax-utf8.RuneCountInString(ext), uploadNameBytes-len(ext)
+	end := 0
+	for _, r := range stem {
+		size := utf8.RuneLen(r)
+		if runes == 0 || end+size > bytes {
+			break
+		}
+		runes--
+		end += size
+	}
+	return stem[:end] + ext
 }
 
 // openSessionUploads opens <home>/.sfpanel-ai/uploads[/<id>] as an os.Root,

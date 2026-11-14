@@ -253,6 +253,34 @@ func TestSessionUpload_ARowlessSessionUploadsAsTheAccountItRunsAs(t *testing.T) 
 	}
 }
 
+// The stored name is one path element, and a file system takes 255 bytes of
+// one, not 255 characters: a name of Korean letters is three bytes each, and
+// the time in front of it and the "-2" behind it are part of the element.
+func TestSessionUpload_ALongNameStillFitsAPathElement(t *testing.T) {
+	h, _, id := uploadHandler(t)
+	for _, name := range []string{
+		strings.Repeat("가", 100),
+		strings.Repeat("가", 100) + ".png",
+		strings.Repeat("\U00020000", 100) + ".png", // four bytes a letter
+		strings.Repeat("a", 300) + ".tar.gz",
+	} {
+		first := uploadedOf(t, upload(t, h, id, name, []byte("x")))
+		// And again: the second of a name gets a suffix, which must fit too.
+		second := uploadedOf(t, upload(t, h, id, name, []byte("y")))
+		for _, got := range []uploaded{first, second} {
+			if len(got.Name) > 255 {
+				t.Errorf("stored name is %d bytes", len(got.Name))
+			}
+			if _, err := os.Stat(got.Path); err != nil {
+				t.Errorf("stored file: %v", err)
+			}
+		}
+		if ext := filepath.Ext(name); ext != "" && !strings.HasSuffix(first.Name, ext) {
+			t.Errorf("%q lost its extension: stored as %q", ext, first.Name)
+		}
+	}
+}
+
 // The account owns the directory the file is written into. Between the write
 // and a chown of the file by its name it can move the file away and put a
 // hard link to another inode under that name — a file it may write to but
