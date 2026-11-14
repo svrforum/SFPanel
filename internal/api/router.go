@@ -806,6 +806,12 @@ func NewRouter(database *sql.DB, auditWriter *sfdb.AsyncWriter, alertManager *fe
 	ai.GET("/sessions/:id/text", aiHandler.SessionText)
 	ai.GET("/sessions/:id/scrollback", aiHandler.SessionScrollback)
 	ai.POST("/sessions/:id/upload", aiHandler.SessionUpload)
+	// The terminal page's snippets and key rows. A full list is hundreds of KB
+	// (100 snippets of 2000 characters), never more.
+	prefsBody := echoMw.BodyLimit("1MiB")
+	ai.GET("/prefs", aiHandler.Prefs)
+	ai.PUT("/prefs/snippets", aiHandler.PutSnippets, prefsBody)
+	ai.PUT("/prefs/keysets", aiHandler.PutKeysets, prefsBody)
 	ai.GET("/profiles", aiHandler.Profiles)
 	ai.POST("/profiles", aiHandler.CreateProfile)
 	ai.DELETE("/profiles/:tool/:name", aiHandler.DeleteProfile)

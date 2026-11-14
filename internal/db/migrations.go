@@ -248,6 +248,15 @@ var migrations = []migration{
 	// The retention sweep keeps the newest 200 and drops what is past 30
 	// days, both by started_at.
 	{ID: 40, Up: `CREATE INDEX IF NOT EXISTS idx_task_jobs_started_at ON task_jobs(started_at)`},
+	// The terminal page's preferences on this node: the operator's snippets
+	// and key rows, each one JSON value under its key (feature/ai prefs.go).
+	// Per node, never replicated. Not the settings table: GET /settings
+	// answers with every row of that one, and these run to hundreds of KB.
+	{ID: 41, Up: `CREATE TABLE IF NOT EXISTS terminal_prefs (
+		key        TEXT PRIMARY KEY,
+		value      TEXT NOT NULL,
+		updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
+	)`},
 }
 
 // RunMigrations applies every registered migration that hasn't already been
