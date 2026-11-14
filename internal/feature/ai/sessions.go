@@ -701,6 +701,7 @@ func (h *Handler) deleteLiveRowless(c echo.Context, id string) error {
 	if out, err := h.tmux(acct, "kill-session", "-t", id); err != nil {
 		slog.Warn("ai kill-session", "component", "ai", "id", id, "err", err, "out", response.SanitizeOutput(out))
 	}
+	h.removeSessionUploads(acct, id)
 	slog.Info("ai session deleted", "component", "ai", "id", id, "account", acct.Name)
 	return response.OK(c, map[string]string{"deleted": id})
 }

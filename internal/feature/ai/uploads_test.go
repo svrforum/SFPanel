@@ -218,3 +218,37 @@ func TestDeleteSession_TakesItsUploadsWithIt(t *testing.T) {
 		t.Errorf("another session's upload went with it: %v", err)
 	}
 }
+
+// A session with no row — a database restored from before it — is still a
+// session: its uploads go to the home of the account whose socket it is on,
+// and leave with it.
+func TestSessionUpload_ARowlessSessionUploadsAsTheAccountItRunsAs(t *testing.T) {
+	h := newTestHandler(t, nil)
+	h.DB = openTestDB(t)
+	home := t.TempDir()
+	if err := os.WriteFile(h.passwdPath, []byte(strings.ReplaceAll(passwdFixture, "/home/alice", home)), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	alice, ok := h.resolveAccount("alice")
+	if !ok || alice.Home != home {
+		t.Fatalf("alice resolved to %+v", alice)
+	}
+	if err := h.ensureSocketDir(alice); err != nil {
+		t.Fatal(err)
+	}
+	const id = "969018a4f943"
+	h.Cmd = socketsCommander(map[string]string{h.socketPath(alice): id + "\t1\tbash\t0\t1789348400\t0"}, "")
+	h.now = func() time.Time { return time.Unix(1789348400, 0) }
+
+	got := uploadedOf(t, upload(t, h, id, "a.txt", []byte("x")))
+	dir := filepath.Join(home, profileRootName, "uploads", id)
+	if filepath.Dir(got.Path) != dir {
+		t.Fatalf("stored at %s, want it under alice's %s", got.Path, dir)
+	}
+	if rec := call(t, h.DeleteSession, http.MethodDelete, "", id, ""); rec.Code != http.StatusOK {
+		t.Fatalf("delete answered %d %s", rec.Code, rec.Body.String())
+	}
+	if _, err := os.Stat(dir); !os.IsNotExist(err) {
+		t.Errorf("the deleted session's uploads are still there (%v)", err)
+	}
+}
