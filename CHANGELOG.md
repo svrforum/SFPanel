@@ -6,7 +6,7 @@ The format is loosely based on [Keep a Changelog](https://keepachangelog.com/), 
 
 ---
 
-## [Unreleased]
+## [0.85.0] – 2026-11-14
 
 ### Added
 
@@ -24,6 +24,11 @@ The format is loosely based on [Keep a Changelog](https://keepachangelog.com/), 
 ### Changed
 
 - **The Dashboard button left the key bar** for the foot of the session drawer. It sat among the keys, one stray tap from leaving the terminal.
+
+### Upgrading
+
+- Update every node; the cluster update takes them one at a time. The Android app needs no update: its search and its "latest output" button pick the changes up from the panel.
+- A session attached through an older node keeps that node's behaviour until the node is updated — the page asks each node what it supports.
 
 ## [0.84.1] – 2026-11-14
 
