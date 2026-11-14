@@ -72,7 +72,7 @@ describe('NODE_MENU_ITEMS', () => {
 })
 
 describe('isTerminalRoute', () => {
-  // The one console page hosts the xterm and the MobileTerminalBar; the shell
+  // The one console page hosts the xterm and its own input area; the shell
   // has to drop its padding and hide the bottom nav there.
   it('covers the terminal page, and the retired AI route is no longer one', () => {
     expect(isTerminalRoute('/terminal')).toBe(true)

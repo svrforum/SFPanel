@@ -6,6 +6,26 @@ The format is loosely based on [Keep a Changelog](https://keepachangelog.com/), 
 
 ---
 
+## [Unreleased]
+
+### Added
+
+- **A composer under the terminal, on a phone and a tablet.** A prompt was written through the terminal's hidden field, where an IME composing Korean, dictation and autocorrect each misbehave; the one multi-line editor was a dialog in the Android app. The composer is an ordinary text box, so the phone's own text input works in it, a long press pastes, and it grows to five lines. Send puts the text in as a paste — bracketed when the program asked, so a prompt's lines are not each an Enter — and then presses Enter; the Enter can be switched off, and a send with nothing written is a bare Enter. A session scrolled back in tmux's copy mode is brought to its live screen first. A draft stays with its session, and what was sent can be had again from the + button.
+- **One row of keys, by what the session runs.** The key bar was 21 keys in a row that scrolled sideways. It is seven keys and a cell that turns the page; a sideways swipe turns it too. An AI CLI gets Esc, Shift+Tab, the arrows, Enter, Ctrl+C and a slash on its first page; a shell gets Esc, Tab, Ctrl and the four arrows.
+- **A modifier can be locked.** Tapped once, Ctrl, Alt or Shift is for the next key; tapped twice it stays until tapped again.
+- **A held arrow repeats.**
+
+### Changed
+
+- **A key no longer takes the focus.** The keyboard stays with the composer or the terminal, whichever had it, instead of opening at every key.
+- **The row of scroll buttons is gone.** A finger scrolls; the way back to the latest output is the button on the terminal, which now also shows for a temporary shell scrolled back and for a session known to be in tmux's copy mode.
+- **Sideways on a phone the composer and the keys take turns**, where both would leave two lines of terminal above a keyboard.
+
+### Android app 0.1.7
+
+- **The app uses the panel's composer and keys.** Connected to a panel from this release on, it draws no key rows of its own and leaves the page's in place, so the phone app, a phone's browser and a tablet have the same input area. "Paste and edit" puts the clipboard's text into the composer, which also works on a plain-HTTP panel. Connected to an older panel, the app is as it was.
+- Apps up to 0.1.6 keep working with this panel: they hide the page's input area and draw their own keys, as before.
+
 ## [0.85.0] – 2026-11-14
 
 ### Added
