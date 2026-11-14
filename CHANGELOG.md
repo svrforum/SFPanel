@@ -6,6 +6,28 @@ The format is loosely based on [Keep a Changelog](https://keepachangelog.com/), 
 
 ---
 
+## [0.87.0] – 2026-11-15
+
+### Added
+
+- **Attach a photo or a file to a session.** Getting a screenshot or a log in front of an AI CLI meant uploading it through the file manager and typing its path. On a phone the composer's + sheet has an attach button, and an image pasted into the composer is attached too; at a desk, an image pasted into the terminal or a file dropped on it. The file goes up to the server the session runs on — into `.sfpanel-ai/uploads/` in the home of the account the session runs as, up to 25 MB a file — and its path is put where you are writing. A session that is deleted takes its uploads with it. A paste that carries text stays a paste of the text.
+- **Snippets.** What is written in the composer, or anything sent lately, can be kept and put back with a tap — prompts for AI tools and commands for shells apart. Removing one leaves a way back in the sheet.
+- **A key row of your own.** The keys under the terminal can be arranged: which keys, on which page, in which order, for AI tools and for shells apart. Keys come from a catalog — the named keys, the modifiers, Ctrl with any letter — or are your own: a text the key types, with Enter after it when asked (`/compact`, `yes`).
+- Snippets and key rows are kept by the panel, not the browser, so a phone and a desk have the same ones. They belong to the panel you connect to and are not replicated to the cluster's other managers.
+
+### Security
+
+- **What the panel hands to an account goes to the file it meant.** The directories the panel makes inside an account's home for tool profiles were given their mode and owner by name. A symlink could not redirect that, but a hard link could: an account that swapped the directory for a link to a file at the right moment — a file it could already read and write but did not own, which is all the kernel's default lets it link — had a root panel make that file its own. Mode and owner are now set through a descriptor opened on the directory itself. It needed a local account that the operator runs sessions as, and the operator creating a profile at that moment.
+
+### Fixed
+
+- **The composer takes the keyboard after a snippet or an attachment is put in**, also when the sheet closes a moment later than the text arrives.
+
+### Upgrading
+
+- Update every node; the cluster update takes them one at a time. The update adds one table to each node's database.
+- The Android app needs no update: from 0.1.7 it shows the panel's composer, and the attach button opens the phone's file picker.
+
 ## [0.86.0] – 2026-11-14
 
 ### Added
