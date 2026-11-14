@@ -91,7 +91,9 @@ function currentTermTheme() {
 // forwarding) can find them by querying the DOM. This sidesteps lifting a
 // dynamic list of refs to the parent.
 export interface TerminalSessionElement extends HTMLElement {
-  __searchAddon?: SearchAddon
+  /** What the Android app's own search dialog calls (MainActivity.find): the
+   *  addon itself for a temporary shell, the session's search for a tmux one. */
+  __searchAddon?: Pick<SearchAddon, 'findNext' | 'findPrevious'>
   __fitAddon?: FitAddon
   __termRef?: RefObject<XTerm | null>
   __wsRef?: RefObject<WebSocket | null>
@@ -797,10 +799,11 @@ export function TerminalSession({
     // screen is all there is, and the outcome says so.
     let askedOnScreen = ''
     const findOnScreen = (query: string, direction: SearchDirection) => {
-      // A new query starts from the newest output (see HistoryView.search).
+      // A new query starts on the newest match (see HistoryView.search).
       if (query !== askedOnScreen) {
         askedOnScreen = query
         term.clearSelection()
+        direction = 'older'
       }
       return direction === 'newer' ? searchAddon.findNext(query, searchOptions()) : searchAddon.findPrevious(query, searchOptions())
     }
@@ -850,6 +853,14 @@ export function TerminalSession({
       return { found: await view.search(query, direction), scope: 'history' }
     }
     research = (query) => { void search(query, 'older') }
+    // The Android app's search dialog calls the search addon on this element
+    // and reads true or false at once. For a tmux session that addon sees one
+    // screen, so the app gets the session's search under the same two names:
+    // true at once, and a miss — known only when the copy has come — said here.
+    const fromApp = (direction: SearchDirection) => (query: string) => {
+      void search(query, direction).then((outcome) => { if (!outcome.found && !disposed) toast.info(t('terminal.searchNone')) })
+      return true
+    }
     const searchEnd = () => {
       askedOnScreen = ''
       searching = null
@@ -868,6 +879,7 @@ export function TerminalSession({
       }
       (container as TerminalSessionElement).__latest = closeView
       ;(container as TerminalSessionElement).__search = search
+      if (tmux) (container as TerminalSessionElement).__searchAddon = { findNext: fromApp('newer'), findPrevious: fromApp('older') }
       ;(container as TerminalSessionElement).__searchEnd = searchEnd
     }
     // Typing is for the live screen: the textarea's own events, because xterm's
@@ -939,6 +951,7 @@ export function TerminalSession({
         delete (container as TerminalSessionElement).__scrollLines
         delete (container as TerminalSessionElement).__latest
         delete (container as TerminalSessionElement).__search
+        delete (container as TerminalSessionElement).__searchAddon
         delete (container as TerminalSessionElement).__searchEnd
       }
       detachLongPress()
@@ -997,11 +1010,12 @@ export function TerminalSession({
   useEffect(() => {
     const el = containerRef.current as TerminalSessionElement | null
     if (!el) return
-    if (searchAddonRef.current) el.__searchAddon = searchAddonRef.current
+    // A tmux session's is its own search, set where that is defined.
+    if (!tmux && searchAddonRef.current) el.__searchAddon = searchAddonRef.current
     if (fitAddonRef.current) el.__fitAddon = fitAddonRef.current
     el.__wsRef = wsRef
     el.__termRef = termRef
-  }, [])
+  }, [tmux])
 
   // data-terminal-session is a stable hook for the parent's active-session
   // lookup (search/clear/key forwarding). Querying by Tailwind class substrings

@@ -165,11 +165,13 @@ export function openHistoryView(host: HTMLElement, live: Terminal, text: string,
     async search(query: string, direction: SearchDirection) {
       await whenWritten
       if (closed || !query) return false
-      // A new query starts from the newest output, not from where the last
-      // one's match was: the search goes on from the selection.
+      // A new query starts on the newest match, whichever way it was asked
+      // to go and wherever the last one's match was: the search goes on from
+      // the selection, and with none "newer" would start at the oldest.
       if (query !== asked) {
         asked = query
         term.clearSelection()
+        direction = 'older'
       }
       const found = direction === 'newer' ? finder.findNext(query, searchOptions()) : finder.findPrevious(query, searchOptions())
       const row = term.getSelectionPosition()?.start.y

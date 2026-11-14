@@ -619,6 +619,27 @@ test('a search on a phone outlives the keyboard its box raises', async ({ page }
   }
 })
 
+test('the app\'s own search dialog finds what has scrolled off too', async ({ page }) => {
+  needsTmux()
+  const peers: ChildProcess[] = [], dirs: string[] = []
+  try {
+    const { terminal } = await openTerminal(page, peers, dirs, { touch: true, android: true })
+    // MainActivity.find, as the app evaluates it: the answer is read at once.
+    const find = (name: 'findNext' | 'findPrevious', query: string) => terminal.evaluate((el, [name, query]) =>
+      (el as any).__searchAddon?.[name](query) || false, [name, query] as const)
+    // "Next" on a new query: the newest match all the same, not the oldest.
+    expect(await find('findNext', '25')).toBe(true)
+    await expect.poll(() => shownRows(page)).toContain('259')
+    expect(await find('findPrevious', '25')).toBe(true)
+    await expect.poll(() => shownRows(page)).toContain('250')
+    // A miss is known only once the copy has been searched; the page says it.
+    expect(await find('findPrevious', 'no such text')).toBe(true)
+    await expect(page.getByText('No results')).toBeVisible()
+  } finally {
+    cleanup(peers, dirs)
+  }
+})
+
 test.describe('search on a desktop', () => {
   test.use({ viewport: { width: 1280, height: 800 }, hasTouch: false, locale: 'en-US' })
 

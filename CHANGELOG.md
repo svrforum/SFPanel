@@ -10,7 +10,7 @@ The format is loosely based on [Keep a Changelog](https://keepachangelog.com/), 
 
 ### Added
 
-- **Search reaches a tmux session's history.** The terminal's search found only what was on screen: the browser holds one screen of a tmux session, and that is all it looked through. It now searches the session's history — the copy the history view scrolls — opens it over the live screen with the match in the middle, marks every match and counts them (`3/17`). Enter goes to the older match, Shift+Enter to the newer. A program in the alternate screen keeps its history to itself; there the search covers the screen and says so.
+- **Search reaches a tmux session's history.** The terminal's search found only what was on screen: the browser holds one screen of a tmux session, and that is all it looked through. It now searches the session's history — the copy the history view scrolls — opens it over the live screen with the match in the middle, marks every match and counts them (`3/17`). Enter goes to the older match, Shift+Enter to the newer. A program in the alternate screen keeps its history to itself; there the search covers the screen and says so. The Android app's own search dialog gets the same search, with no app update.
 - **Pinch to change the font size.** Two fingers on the terminal preview the size as they move and apply it when they lift, so the session is resized once. On a phone the session menu steps the size in a row that stays open and shows how many columns it comes to. The smallest size is 8px, down from 10: 80 columns on an upright phone.
 - **Focus, on a desktop.** A button in the session header gives the app sidebar's width to the terminal. It applies to the terminal page only and is remembered.
 
