@@ -220,12 +220,39 @@ test('a draft stays with its session, and what was sent can be had again', async
   await expect.poll(t.focused).toBe('composer')
 })
 
-test('an Android app up to 0.1.6 hides the input area and one that says it uses it does not', async ({ page }) => {
+test('an Android app up to 0.1.6 hides the input area: it draws its own keys', async ({ page }) => {
   const t = await openTerminal(page)
   await expect(t.area).toBeVisible()
-  // As the app installs its script (WebView.evaluateJavascript).
+  // As the app installs its script (WebView.evaluateJavascript); 0.1.6 and
+  // earlier set no flag about the input area.
   await page.evaluate(readFileSync(PANEL_JS, 'utf8'))
   await expect(t.area).toBeHidden()
+})
+
+test.describe('in the Android app from 0.1.7, on a small phone', () => {
+  test.use({ viewport: { width: 360, height: 740 }, hasTouch: true })
+  test('the page\'s input area stays, and its eight cells fit the screen', async ({ page }) => {
+    const t = await openTerminal(page)
+    // The app says the panel brings its own keys, then installs its script.
+    await page.evaluate('window.__sfpanelAndroidWebInput=true;' + readFileSync(PANEL_JS, 'utf8'))
+    await page.waitForTimeout(500)
+    await expect(t.area).toBeVisible()
+    const row = t.area.locator('[data-terminal-keys]')
+    // The app's stylesheet makes every button at least 48px wide; eight of
+    // those and their gaps are wider than this phone.
+    expect(await row.evaluate(el => el.scrollWidth <= el.clientWidth)).toBe(true)
+    expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true)
+    for (const button of await row.getByRole('button').all()) {
+      const box = (await button.boundingBox())!
+      expect(box.x + box.width).toBeLessThanOrEqual(360)
+      expect(box.height).toBeGreaterThanOrEqual(48)
+    }
+    // And it works as it does in a browser.
+    await t.composer.fill('from the app')
+    await t.send.tap()
+    await expect.poll(() => t.input[0]).toBe('from the app')
+    await expect.poll(() => t.input[1]).toBe('\r')
+  })
 })
 
 test('the app\'s "paste and edit" reaches the composer', async ({ page }) => {

@@ -85,6 +85,9 @@ public final class MainActivity extends Activity {
     // Two metric sets and the signals that pick one. windowFrame is scratch for
     // the pre-API-30 keyboard probe, which runs on every layout pass.
     private boolean compactBar, keyboardOpen;
+    // The panel's terminal page has its own keys and composer (PanelVersion):
+    // the app draws no key rows and leaves the page's in place.
+    private boolean webInput;
     private final android.graphics.Rect windowFrame = new android.graphics.Rect();
     private android.view.ViewTreeObserver.OnGlobalLayoutListener layoutListener;
     // The bar's twelve keys, built once and only ever re-arranged.
@@ -384,7 +387,8 @@ public final class MainActivity extends Activity {
         ((InputMethodManager) getSystemService(INPUT_METHOD_SERVICE)).hideSoftInputFromWindow(addressInput.getWindowToken(), 0);
         int request = ++generation;
         worker.execute(() -> {
-            int error = HealthCheck.check(server.address(), certificates.pin(server.address()));
+            HealthCheck.Answer answer = HealthCheck.ask(server.address(), certificates.pin(server.address()));
+            int error = answer.error;
             java.security.cert.X509Certificate inspected = null;
             if (error == R.string.certificate_failed) {
                 try { inspected = PrivateTls.inspect(server.address()); } catch (Exception ignored) { }
@@ -395,6 +399,7 @@ public final class MainActivity extends Activity {
                 connecting = false; connectButton.setEnabled(true);
                 if (error == R.string.certificate_failed && candidate != null) { confirmCertificate(server, candidate, request); return; }
                 if (error != 0) { status.setText(error); status.setTextColor(0xffa32638); return; }
+                webInput = PanelVersion.webInput(answer.version);
                 store.save(server); openPanel(server);
             });
         });
@@ -501,7 +506,7 @@ public final class MainActivity extends Activity {
         });
         web.setDownloadListener((url, ua, disposition, mime, length) -> downloads.request(web, server.address(), url, disposition, mime));
         root.addView(web, new LinearLayout.LayoutParams(-1, 0, 1));
-        addTerminalBar();
+        if (!webInput) addTerminalBar();
         panelSession = PanelSession.attach(this, web, sessions, server.address());
         web.loadUrl(server.address() + startPath);
     }
@@ -735,9 +740,10 @@ public final class MainActivity extends Activity {
         dialog.show();
     }
     private void updateTerminalBar(String url) {
-        if (terminalBar == null) return;
         String path = Uri.parse(url).getPath();
         if (panelTitle != null && current != null) panelTitle.setText(current.name() + ("/terminal".equals(path) ? " · " + getString(R.string.terminal) : ""));
+        // No bar of the app's own where the page brings its keys.
+        if (terminalBar == null) return;
         terminalBar.setVisibility("/terminal".equals(path) ? View.VISIBLE : View.GONE);
         if (terminalBar.getVisibility() != View.VISIBLE) setKeyDockOpen(false);
         shift = false; ctrl = false; alt = false; updateModifiers();
@@ -776,7 +782,8 @@ public final class MainActivity extends Activity {
             String script;
             try (java.io.InputStream in = getAssets().open("panel.js")) { script = new String(HealthCheck.readBounded(in, 65536), StandardCharsets.UTF_8); }
             AccessibilityManager accessibility = (AccessibilityManager) getSystemService(ACCESSIBILITY_SERVICE);
-            web.evaluateJavascript("window.__sfpanelAndroidScreenReader=" + accessibility.isTouchExplorationEnabled() + ";" + script, null);
+            web.evaluateJavascript("window.__sfpanelAndroidScreenReader=" + accessibility.isTouchExplorationEnabled()
+                    + ";window.__sfpanelAndroidWebInput=" + webInput + ";" + script, null);
         } catch (java.io.IOException e) { toast(R.string.page_failed); }
     }
 
@@ -803,12 +810,16 @@ public final class MainActivity extends Activity {
         }
         // One page, one menu: /terminal is the AI workspace since v0.76.0, so
         // the tools panel and the session actions belong to it.
-        int[] labels = {R.string.ai_setup, R.string.session_actions, R.string.show_keyboard, R.string.paste_prompt,
-                R.string.read_output, R.string.search_output, R.string.terminal_controls, R.string.options, R.string.reload};
+        // The key dock is the app's own bar's; a page with its own keys has none.
+        int[] labels = webInput
+                ? new int[]{R.string.ai_setup, R.string.session_actions, R.string.show_keyboard, R.string.paste_prompt,
+                        R.string.read_output, R.string.search_output, R.string.options, R.string.reload}
+                : new int[]{R.string.ai_setup, R.string.session_actions, R.string.show_keyboard, R.string.paste_prompt,
+                        R.string.read_output, R.string.search_output, R.string.terminal_controls, R.string.options, R.string.reload};
         String[] names = java.util.Arrays.stream(labels).mapToObj(this::getString).toArray(String[]::new);
         new AlertDialog.Builder(this).setTitle(R.string.coding_tools).setItems(names, (d, which) -> {
-            switch (which) {
-                case 0 -> evaluate("document.documentElement.toggleAttribute('data-ai-tools-open');window.dispatchEvent(new Event('resize'));return true;", null);
+            int chosen = labels[which];
+                if (chosen == R.string.ai_setup) evaluate("document.documentElement.toggleAttribute('data-ai-tools-open');window.dispatchEvent(new Event('resize'));return true;", null);
                 // The header menu is the documented hook and the only one a
                 // phone has: the rail renders on wide screens only, and the
                 // phone's copy sits in a drawer that is unmounted while
@@ -822,7 +833,7 @@ public final class MainActivity extends Activity {
                 // lands a render later, so it is not what we report. The
                 // rail's context menu stays as the wide-screen path, and the
                 // only path on panels older than the header hook.
-                case 1 -> evaluate("const m=document.querySelector('[data-session-menu]');"
+                else if (chosen == R.string.session_actions) evaluate("const m=document.querySelector('[data-session-menu]');"
                         + "if(m){const b=m.getBoundingClientRect();"
                         + "m.dispatchEvent(new PointerEvent('pointerdown',{bubbles:true,cancelable:true,composed:true,button:0,buttons:1,pointerId:1,pointerType:'touch',isPrimary:true,clientX:b.x+b.width/2,clientY:b.y+b.height/2}));"
                         + "if(!('state' in m.dataset))m.click();"
@@ -830,7 +841,7 @@ public final class MainActivity extends Activity {
                         + "const tab=document.querySelector('[role=tab][aria-selected=true]');if(!tab)return false;"
                         + "const r=tab.getBoundingClientRect();tab.dispatchEvent(new MouseEvent('contextmenu',{bubbles:true,clientX:r.x+r.width/2,clientY:r.bottom}));return true;",
                         result -> { if (!"true".equals(result)) toast(R.string.no_session); });
-                case 2 -> {
+                else if (chosen == R.string.show_keyboard) {
                     WebView target = web;
                     // The menu window must release focus before the WebView
                     // becomes the IME target; otherwise Show keyboard is ignored.
@@ -843,19 +854,35 @@ public final class MainActivity extends Activity {
                         });
                     }, 200);
                 }
-                case 3 -> {
+                else if (chosen == R.string.paste_prompt) {
                     ClipboardManager clipboard = (ClipboardManager) getSystemService(CLIPBOARD_SERVICE);
                     ClipData clip = clipboard.getPrimaryClip();
-                    compose(clip != null && clip.getItemCount() > 0 ? clip.getItemAt(0).coerceToText(this).toString() : "");
+                    String text = clip != null && clip.getItemCount() > 0 ? clip.getItemAt(0).coerceToText(this).toString() : "";
+                    if (webInput) pasteIntoComposer(text); else compose(text);
                 }
-                case 4 -> readOutput();
-                case 5 -> searchOutput();
-                case 6 -> showKeypad();
-                case 7 -> showOptions();
-                case 8 -> { if (web != null) web.reload(); }
-                default -> { }
-            }
+                else if (chosen == R.string.read_output) readOutput();
+                else if (chosen == R.string.search_output) searchOutput();
+                else if (chosen == R.string.terminal_controls) showKeypad();
+                else if (chosen == R.string.options) showOptions();
+                else if (chosen == R.string.reload && web != null) web.reload();
         }).show();
+    }
+
+    // The page's composer takes the clipboard's text (its element's __compose)
+    // and the keyboard. The app's clipboard read works on a plain-HTTP panel,
+    // where the page's own does not.
+    private void pasteIntoComposer(String text) {
+        WebView target = web;
+        if (target == null) return;
+        // After the menu window has let go of the focus, as "show keyboard" waits.
+        target.postDelayed(() -> {
+            if (web != target) return;
+            target.requestFocus();
+            evaluate("const a=document.querySelector('[data-terminal-input]');if(!a||!a.__compose)return false;a.__compose(" + JSONObject.quote(text) + ");return true;", result -> {
+                if (!"true".equals(result)) toast(R.string.no_session);
+                else if (web == target) ((InputMethodManager) getSystemService(INPUT_METHOD_SERVICE)).showSoftInput(target, InputMethodManager.SHOW_IMPLICIT);
+            });
+        }, 200);
     }
 
     private void compose(String initial) {

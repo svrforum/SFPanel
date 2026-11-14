@@ -8,6 +8,8 @@
     html.dark[data-sfpanel-android] { --muted-foreground:#b0bdcb; --primary:#75b5ff; --primary-foreground:#101923; }
     [data-sfpanel-android] :is(button,[role=button],[role=tab],[role=menuitem],[role=menuitemcheckbox],[role=menuitemradio],[role=option],input:not([type=checkbox]):not([type=radio]),select) { min-height:48px; }
     [data-sfpanel-android] :is(button,[role=button],[role=tab]) { min-width:48px; }
+    /* The page's own key row is eight cells across the screen: 48px each does not fit a 360px phone. */
+    [data-sfpanel-android] [data-terminal-input] :is(button,[role=button]) { min-width:0; }
     [data-sfpanel-android] :is(input,textarea,select) { font-size:max(16px,1em); }
     [data-sfpanel-android] .xterm-helper-textarea { min-height:0 !important; font-size:inherit; }
     [data-sfpanel-android] :focus-visible { outline:3px solid var(--primary); outline-offset:2px; }
@@ -71,7 +73,7 @@
   }, { capture:true, passive:false });
   document.addEventListener('touchcancel', () => { drag = null; }, { capture:true, passive:true });
   // Native key rows stay usable on older SFPanel releases as well. Hide the
-  // duplicate web key bar, but leave every other navigation surface intact.
+  // duplicate web key bar there, but leave every other navigation surface intact.
   const adapt = () => {
     // v0.73.0 predates the explicit marker. Compact only the AI overview
     // header when the keyboard leaves little height; session tabs stay visible.
@@ -80,6 +82,9 @@
       const term = el.__termRef?.current;
       if (term && term.options.screenReaderMode !== !!window.__sfpanelAndroidScreenReader) term.options.screenReaderMode = !!window.__sfpanelAndroidScreenReader;
     });
+    // A panel with its own input area (0.86.0 on) is told so by the app, which
+    // then draws no keys: the page's stay.
+    if (window.__sfpanelAndroidWebInput) return;
     document.querySelectorAll('[data-mobile-terminal-bar]').forEach(el => { el.style.display = 'none'; });
     document.querySelectorAll('button').forEach(el => {
       if (el.textContent.trim() !== 'Esc') return;
