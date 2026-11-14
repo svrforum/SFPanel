@@ -4,6 +4,9 @@
 @plugin "@tailwindcss/typography";
 
 @custom-variant dark (&:is(.dark *));
+/* A phone held sideways: every row of chrome costs the terminal two of its
+   twenty lines. */
+@custom-variant short (@media (max-height: 480px));
 
 @theme inline {
     --font-sans: "Pretendard Variable", "Pretendard", -apple-system, BlinkMacSystemFont, system-ui, "Segoe UI", Roboto, sans-serif;

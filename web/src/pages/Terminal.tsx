@@ -8,7 +8,7 @@ import { buildRail, findItem, parseActiveKey, pickActive, type RailItem } from '
 import { cn } from '@/lib/utils'
 import { OutputDialog, useSSEOutput } from '@/components/OutputDialog'
 import { useConfirm } from '@/components/ConfirmDialog'
-import { useIsMobile } from '@/hooks/useIsMobile'
+import { useTerminalCompact, useTerminalFocus } from '@/lib/terminalLayout'
 import MobileTerminalBar from '@/components/MobileTerminalBar'
 import { Sheet, SheetContent, SheetTitle } from '@/components/ui/sheet'
 import type { TerminalSessionElement } from '@/pages/terminal/components/TerminalSession'
@@ -57,12 +57,14 @@ function forEachActiveSession(fn: (el: TerminalSessionElement) => void) {
  * listed in a rail grouped by directory; the PTY engine is the fallback when
  * tmux is missing or too old, and the temporary-shell door in the tools
  * panel. The rail <aside> is always the first child of [data-ai-workspace]
- * and is empty on a phone, where the rail lives in a drawer — see the spec's
- * §2 and §10 for what the Android app and the e2e fixtures select on.
+ * and is empty in the compact layout (a phone, a tablet: lib/terminalLayout),
+ * where the rail lives in a drawer — see the spec's §2 and §10 for what the
+ * Android app and the e2e fixtures select on.
  */
 export default function TerminalPage() {
   const { t } = useTranslation()
-  const isMobile = useIsMobile()
+  const compact = useTerminalCompact()
+  const [focus, setFocus] = useTerminalFocus()
   const output = useSSEOutput()
   const confirm = useConfirm()
   const [account, setAccount] = useState<string>(() => readLS(accountKey()))
@@ -345,16 +347,18 @@ export default function TerminalPage() {
   const shownAccount = account || tools?.panel_account || ''
 
   return (
-    <div data-ai-workspace data-select-text className="flex h-full overflow-hidden md:p-4">
-      {/* Always the first child, empty on a phone: see the component comment. */}
-      <aside className={cn('hidden md:flex flex-col shrink-0 bg-console border border-r-0 border-console-border rounded-l-2xl overflow-hidden', collapsed ? 'w-14' : 'w-[272px]')}>
-        {!isMobile && <SessionRail {...railProps} collapsed={collapsed} onToggleCollapsed={() => setCollapsed((c) => !c)} />}
+    <div data-ai-workspace data-select-text className={cn('flex h-full overflow-hidden', !compact && 'p-4')}>
+      {/* Always the first child, empty in the compact layout: see the component comment. */}
+      <aside className={cn(compact ? 'hidden' : 'flex', 'flex-col shrink-0 bg-console border border-r-0 border-console-border rounded-l-2xl overflow-hidden', collapsed ? 'w-14' : 'w-[272px]')}>
+        {!compact && <SessionRail {...railProps} collapsed={collapsed} onToggleCollapsed={() => setCollapsed((c) => !c)} />}
       </aside>
 
-      <div className="flex-1 flex flex-col min-h-0 min-w-0 overflow-clip bg-console md:rounded-r-2xl md:border md:border-console-border">
+      <div className={cn('flex-1 flex flex-col min-h-0 min-w-0 overflow-clip bg-console', !compact && 'rounded-r-2xl border border-console-border')}>
         <SessionHeader item={activeItem} hostInfo={hostInfo} fontSize={fontSize} onFontSize={adjustFontSize} search={search}
           onClear={clearTerminal} onSelectText={openSelectText} onRename={onRename} onAction={onAction}
-          drawer={isMobile ? { onOpen: () => setDrawerOpen(true), waiting } : undefined} />
+          compact={compact}
+          drawer={compact ? { onOpen: () => setDrawerOpen(true), waiting } : undefined}
+          focus={compact ? undefined : { on: focus, onToggle: () => setFocus(!focus) }} />
         {fallback && tools && (
           <div className="shrink-0 px-3 pt-3 space-y-2">
             <p className="text-[12px] text-console-muted">{t('terminal.fallback.banner')}</p>
@@ -371,14 +375,14 @@ export default function TerminalPage() {
           )}
           <PtyPane tabs={ptyTabs} activeId={activeItem?.kind === 'pty' ? activeItem.id : null} fontSize={fontSize} />
         </div>
-        <MobileTerminalBar onSendKey={sendKey} />
+        {compact && <MobileTerminalBar onSendKey={sendKey} />}
       </div>
 
-      {isMobile && (
+      {compact && (
         <Sheet open={drawerOpen} onOpenChange={setDrawerOpen}>
           <SheetContent side="left" className="w-[85vw] max-w-sm p-0 gap-0 bg-console text-console-foreground border-console-border" showCloseButton={false}>
             <SheetTitle className="sr-only">{t('terminal.rail.sessions')}</SheetTitle>
-            <SessionRail {...railProps} collapsed={false} />
+            <SessionRail {...railProps} collapsed={false} dashboardLink />
           </SheetContent>
         </Sheet>
       )}

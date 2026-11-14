@@ -7,6 +7,7 @@ import { useTranslation } from 'react-i18next'
 import { api } from '@/lib/api'
 import { cn } from '@/lib/utils'
 import { NAV_ITEMS, isTerminalRoute } from '@/lib/navigation'
+import { useTerminalCompact, useTerminalFocus } from '@/lib/terminalLayout'
 import { NODE_CHANGED, type NodeChangedDetail } from '@/lib/nodeSelection'
 import { useVisibleInterval } from '@/hooks/useVisibleInterval'
 import { ErrorBoundary } from '@/components/ErrorBoundary'
@@ -54,6 +55,12 @@ export default function Layout() {
   const [clusterStatus, setClusterStatus] = useState<ClusterStatus | null>(null)
   const location = useLocation()
   const isTerminal = isTerminalRoute(location.pathname)
+  // The terminal has the window to itself on a touch device, and on a desktop
+  // when the operator chose focus: the sidebars stay mounted (their state and
+  // the cluster tree's polling survive) and are only not shown.
+  const terminalCompact = useTerminalCompact()
+  const [terminalFocus] = useTerminalFocus()
+  const sidebarHidden = isTerminal && (terminalCompact || terminalFocus)
 
   const handleNodeChanged = useCallback((nodeId: string | null) => {
     setNodeKey((k) => k + 1)
@@ -167,11 +174,11 @@ export default function Layout() {
     <div className="flex overflow-hidden bg-background" style={{ height: 'var(--app-h, 100dvh)' }}>
       {/* First visit only: no remembered mode yet, so neither sidebar can be
           chosen without guessing. Hold the slot rather than collapsing it. */}
-      {clusterEnabled === null && <SidebarSkeleton />}
+      {clusterEnabled === null && !sidebarHidden && <SidebarSkeleton />}
 
       {/* Cluster dual-panel sidebar */}
       {clusterEnabled === true && (
-        <div className="hidden md:flex h-full shrink-0">
+        <div className={cn('hidden h-full shrink-0', !sidebarHidden && 'md:flex')}>
           <ClusterSidebar
             status={clusterStatus}
             panelVersion={panelVersion}
@@ -183,7 +190,8 @@ export default function Layout() {
 
       {/* Standard sidebar (non-cluster mode) */}
       {clusterEnabled === false && <aside className={cn(
-        'bg-card border-r border-border flex-col transition-all duration-300 ease-in-out shrink-0 hidden md:flex h-full',
+        'bg-card border-r border-border flex-col transition-all duration-300 ease-in-out shrink-0 hidden h-full',
+        !sidebarHidden && 'md:flex',
         collapsed ? 'w-[68px]' : 'w-60'
       )}>
         <div className={cn('flex items-center', collapsed ? 'px-3 py-6 justify-center' : 'px-4 py-4')}>

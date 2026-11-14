@@ -2478,6 +2478,10 @@
     "fallback": {
       "banner": "Without tmux, sessions live in this browser only. You can reattach within 5 minutes of a reload; after that they are gone.",
       "noSessionsHint": "Start a temporary shell. It lives in this browser only and is gone 5 minutes after a reload."
+    },
+    "focus": {
+      "enter": "Focus on the terminal",
+      "exit": "Show the sidebar again"
     }
   },
   "ai": {

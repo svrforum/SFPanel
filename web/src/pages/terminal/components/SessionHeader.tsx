@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState, type RefObject } from 'react'
 import { useTranslation } from 'react-i18next'
-import { Eraser, Minus, MoreHorizontal, PanelLeft, Plus, Search, ShieldAlert, User as UserIcon, X } from 'lucide-react'
+import { Eraser, Maximize2, Minimize2, Minus, MoreHorizontal, PanelLeft, Plus, Search, ShieldAlert, User as UserIcon, X } from 'lucide-react'
 import type { TerminalInfo } from '@/types/api'
 import { TOOL_META, dangerousFlagFor, launchSummary } from '@/lib/aiSessions'
 import { activeKey, type RailItem } from '@/lib/sessionRail'
@@ -31,8 +31,12 @@ export interface SessionHeaderProps {
   onSelectText: () => void
   onRename: (item: RailItem, title: string) => void
   onAction: (action: RailAction, item: RailItem) => void
-  /** present on a phone: the drawer trigger with the waiting count */
+  /** the compact layout (lib/terminalLayout): a finger's targets, not a mouse's */
+  compact?: boolean
+  /** present in the compact layout: the drawer trigger with the waiting count */
   drawer?: { onOpen: () => void; waiting: number }
+  /** present on a desktop: the app sidebar's width given to the terminal, or back */
+  focus?: { on: boolean; onToggle: () => void }
 }
 
 const ICON = 'h-7 w-7 p-0 text-console-muted hover:text-console-foreground hover:bg-console-foreground/10'
@@ -44,8 +48,12 @@ const ICON = 'h-7 w-7 p-0 text-console-muted hover:text-console-foreground hover
  * so every action exists somewhere visible, and on a phone (where the rail
  * is in a drawer) the Android app can open them through [data-session-menu].
  */
-export function SessionHeader({ item, hostInfo, fontSize, onFontSize, search, onClear, onSelectText, onRename, onAction, drawer }: SessionHeaderProps) {
+export function SessionHeader({ item, hostInfo, fontSize, onFontSize, search, onClear, onSelectText, onRename, onAction, compact, drawer, focus }: SessionHeaderProps) {
   const { t } = useTranslation()
+  // The toolbar shows from the md width up, which a tablet has: 36px there, as
+  // 28 is a mouse's target.
+  const icon = cn(ICON, compact && 'h-9 w-9')
+  const focusLabel = focus?.on ? t('terminal.focus.exit') : t('terminal.focus.enter')
   // Destructured once, not read as `search.…` through the JSX: the search
   // object carries the input's ref, and react-hooks/refs treats every
   // property read on an object holding one as a ref access during render.
@@ -81,7 +89,7 @@ export function SessionHeader({ item, hostInfo, fontSize, onFontSize, search, on
       <div className="flex items-center gap-2 h-11 px-2 md:px-3">
         {drawer && (
           <button type="button" onClick={drawer.onOpen} aria-label={t('terminal.rail.sessions')}
-            className="md:hidden relative flex items-center justify-center h-8 w-8 rounded-lg text-console-muted hover:text-console-foreground hover:bg-console-foreground/10 outline-none focus-visible:ring-2 focus-visible:ring-ring/40">
+            className="relative flex items-center justify-center h-8 w-8 rounded-lg text-console-muted hover:text-console-foreground hover:bg-console-foreground/10 outline-none focus-visible:ring-2 focus-visible:ring-ring/40">
             <PanelLeft className="h-4 w-4" aria-hidden="true" />
             {drawer.waiting > 0 && (
               <span className="absolute -top-0.5 -right-0.5 min-w-4 h-4 px-1 rounded-full bg-warning text-warning-foreground text-[10px] font-semibold flex items-center justify-center"
@@ -129,12 +137,17 @@ export function SessionHeader({ item, hostInfo, fontSize, onFontSize, search, on
         </div>
 
         <div className="hidden md:flex items-center gap-0.5 shrink-0">
-          <Button variant="ghost" size="sm" className={ICON} onClick={() => onFontSize(-1)} title={t('terminal.fontSmaller')} aria-label={t('terminal.fontSmaller')}><Minus className="h-3 w-3" /></Button>
+          <Button variant="ghost" size="sm" className={icon} onClick={() => onFontSize(-1)} title={t('terminal.fontSmaller')} aria-label={t('terminal.fontSmaller')}><Minus className="h-3 w-3" /></Button>
           <span className="text-[10px] text-console-muted min-w-[20px] text-center">{fontSize}</span>
-          <Button variant="ghost" size="sm" className={ICON} onClick={() => onFontSize(1)} title={t('terminal.fontLarger')} aria-label={t('terminal.fontLarger')}><Plus className="h-3 w-3" /></Button>
+          <Button variant="ghost" size="sm" className={icon} onClick={() => onFontSize(1)} title={t('terminal.fontLarger')} aria-label={t('terminal.fontLarger')}><Plus className="h-3 w-3" /></Button>
           <div className="w-px h-4 bg-console-border mx-1" aria-hidden="true" />
-          <Button variant="ghost" size="sm" className={cn(ICON, searchOpen && 'text-primary')} onClick={onSearchToggle} title={t('terminal.search')} aria-label={t('terminal.search')}><Search className="h-3.5 w-3.5" /></Button>
-          <Button variant="ghost" size="sm" className={ICON} onClick={onClear} title={t('terminal.clear')} aria-label={t('terminal.clear')}><Eraser className="h-3.5 w-3.5" /></Button>
+          <Button variant="ghost" size="sm" className={cn(icon, searchOpen && 'text-primary')} onClick={onSearchToggle} title={t('terminal.search')} aria-label={t('terminal.search')}><Search className="h-3.5 w-3.5" /></Button>
+          <Button variant="ghost" size="sm" className={icon} onClick={onClear} title={t('terminal.clear')} aria-label={t('terminal.clear')}><Eraser className="h-3.5 w-3.5" /></Button>
+          {focus && (
+            <Button variant="ghost" size="sm" className={cn(icon, focus.on && 'text-primary')} onClick={focus.onToggle} aria-pressed={focus.on} title={focusLabel} aria-label={focusLabel}>
+              {focus.on ? <Minimize2 className="h-3.5 w-3.5" /> : <Maximize2 className="h-3.5 w-3.5" />}
+            </Button>
+          )}
         </div>
 
         {item && user && (

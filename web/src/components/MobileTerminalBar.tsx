@@ -1,14 +1,13 @@
 import { useEffect, useState } from 'react'
 import { useTranslation } from 'react-i18next'
-import { useNavigate } from 'react-router-dom'
 import { cn } from '@/lib/utils'
 import { MODIFIERS_CONSUMED_EVENT, MODIFIERS_EVENT, NO_MODIFIERS, terminalKey, type TerminalModifiers } from '@/lib/terminalKeys'
 import type { TerminalSessionElement } from '@/pages/terminal/components/TerminalSession'
 
-// Pointer presses preserve xterm focus so the Android IME stays open.
+// The compact layout's key bar (lib/terminalLayout); the page mounts it there
+// only. Pointer presses preserve xterm focus so the Android IME stays open.
 export default function MobileTerminalBar({ onSendKey }: { onSendKey: (data: string) => void }) {
   const { t } = useTranslation()
-  const navigate = useNavigate()
   const [modifiers, setModifiers] = useState<TerminalModifiers>(NO_MODIFIERS)
   useEffect(() => {
     const consumed = () => {
@@ -47,7 +46,7 @@ export default function MobileTerminalBar({ onSendKey }: { onSendKey: (data: str
       else term?.scrollPages(direction === 'up' ? -1 : 1)
     })
   }
-  const keyClass = 'shrink-0 min-w-12 min-h-12 px-3 rounded-lg text-sm font-medium bg-secondary text-foreground active:bg-accent focus-visible:outline-2 focus-visible:outline-ring'
+  const keyClass = 'shrink-0 min-w-12 min-h-12 px-3 short:min-w-10 short:min-h-9 rounded-lg text-sm font-medium bg-secondary text-foreground active:bg-accent focus-visible:outline-2 focus-visible:outline-ring'
   const keys = [
     { label: 'Esc', data: '\x1b', name: 'escape' },
     { label: 'Tab', data: '\t', name: 'tab' },
@@ -63,8 +62,10 @@ export default function MobileTerminalBar({ onSendKey }: { onSendKey: (data: str
     ...['c', 'd', 'z', '|', '/', '~', '-'].map(data => ({ label: data, data, name: '' })),
   ]
   return (
-    <div data-mobile-terminal-bar className="md:hidden shrink-0 bg-card border-t border-border">
-      <div role="group" aria-label={t('terminal.mobile.keys')} className="flex items-center gap-1 px-1 py-1 overflow-x-auto">
+    // Two rows; one, scrolling as a whole, where the window is short (index.css
+    // `short`): sideways with the keyboard up a phone has under 200px in all.
+    <div data-mobile-terminal-bar className="shrink-0 bg-card border-t border-border short:flex short:overflow-x-auto">
+      <div role="group" aria-label={t('terminal.mobile.keys')} className="flex items-center gap-1 px-1 py-1 overflow-x-auto short:items-start short:shrink-0 short:overflow-visible short:pr-0">
         {(['shift', 'ctrl', 'alt'] as const).map(key => (
           <button key={key} aria-pressed={modifiers[key]} aria-label={t('terminal.mobile.modifier', { key })}
             className={cn(keyClass, modifiers[key] && 'bg-primary text-primary-foreground')}
@@ -77,12 +78,11 @@ export default function MobileTerminalBar({ onSendKey }: { onSendKey: (data: str
             onPointerDown={e => e.preventDefault()} onClick={() => send(key.data)}>{key.label}</button>
         ))}
       </div>
-      <div role="group" aria-label={t('terminal.mobile.history')} className="flex gap-1 px-1 py-1 overflow-x-auto border-t border-border pb-safe">
+      <div role="group" aria-label={t('terminal.mobile.history')} className="flex gap-1 px-1 py-1 overflow-x-auto border-t border-border pb-safe short:shrink-0 short:overflow-visible short:border-t-0">
         <button className={keyClass} onPointerDown={e => e.preventDefault()} onClick={() => scroll('up')}>{t('terminal.mobile.scrollUp')}</button>
         <button className={keyClass} onPointerDown={e => e.preventDefault()} onClick={() => scroll('down')}>{t('terminal.mobile.scrollDown')}</button>
         <button className={keyClass} onPointerDown={e => e.preventDefault()} onClick={() => scroll('bottom')}>{t('terminal.mobile.latest')}</button>
         <button className={cn(keyClass, 'text-destructive')} onPointerDown={e => e.preventDefault()} onClick={() => { onSendKey('\x03'); change(NO_MODIFIERS) }}>Ctrl+C</button>
-        <button className={keyClass} onClick={() => navigate('/dashboard')}>{t('layout.mobileNav.dashboard')}</button>
       </div>
     </div>
   )
