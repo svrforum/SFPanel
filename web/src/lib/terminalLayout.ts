@@ -19,6 +19,29 @@ export function useTerminalCompact(): boolean {
   return useSyncExternalStore(subscribeCompact, () => window.matchMedia(COMPACT_QUERY).matches)
 }
 
+/**
+ * Whether the keyboard goes to the terminal on its own — when a session opens
+ * or reconnects. Not on a touch device: a field that holds the focus there is
+ * a keyboard waiting to open, and in an Android WebView the next tap anywhere
+ * on the page opens it — a key of the key row included. There the terminal
+ * gets the keyboard when it is tapped.
+ */
+export function focusesUnasked(): boolean {
+  return !window.matchMedia('(pointer: coarse)').matches
+}
+
+export interface ViewportSize { width: number; height: number }
+
+/**
+ * Whether the on-screen keyboard was just put away: the visual viewport grew
+ * taller by a keyboard's worth at the same width (another width is a rotation).
+ * The field it served is then let go of (see focusesUnasked), so that a key
+ * pressed afterwards does not bring the keyboard back.
+ */
+export function keyboardDismissed(before: ViewportSize, after: ViewportSize): boolean {
+  return Math.abs(after.width - before.width) < 1 && after.height - before.height > 120
+}
+
 const FOCUS_KEY = 'sfpanel_terminal_focus'
 const FOCUS_EVENT = 'sfpanel:terminal-focus'
 

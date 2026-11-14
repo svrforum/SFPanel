@@ -13,6 +13,7 @@ import { attachLongPress } from '@/lib/longPress'
 import { openTerminalLink } from '@/lib/terminalLinks'
 import { SELECT_TEXT_EVENT } from '@/lib/terminalText'
 import { DEFAULT_FONT_SIZE, FONT_SIZE_EVENT, GRID_EVENT, attachPinch } from '@/lib/terminalFont'
+import { focusesUnasked } from '@/lib/terminalLayout'
 import { SEARCH_RESULTS_EVENT, searchOptions, type SearchDirection, type SearchOutcome } from '@/lib/terminalSearch'
 import { decodeOsc52 } from '@/lib/osc52'
 import { cellBefore, lineAt, rangeBetween, spanEnd, wordAt, type CellPos, type TextSpan } from '@/lib/terminalWord'
@@ -530,7 +531,7 @@ export function TerminalSession({
       }
 
       ws.onopen = () => {
-        term.focus()
+        if (focusesUnasked()) term.focus()
         const { cols, rows } = term
         send(ws, JSON.stringify({ type: 'resize', cols, rows }))
         // Only clear the backoff once the socket has proven stable, so a server
@@ -1011,7 +1012,7 @@ export function TerminalSession({
       setTimeout(() => {
         fitAddonRef.current?.fit()
         const term = termRef.current
-        term?.focus()
+        if (focusesUnasked()) term?.focus()
         if (term) window.dispatchEvent(new CustomEvent(GRID_EVENT, { detail: { cols: term.cols, rows: term.rows } }))
       }, 50)
     }

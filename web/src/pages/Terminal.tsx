@@ -8,7 +8,7 @@ import { activeKey, buildRail, findItem, parseActiveKey, pickActive, type RailIt
 import { cn } from '@/lib/utils'
 import { OutputDialog, useSSEOutput } from '@/components/OutputDialog'
 import { useConfirm } from '@/components/ConfirmDialog'
-import { useTerminalCompact, useTerminalFocus } from '@/lib/terminalLayout'
+import { keyboardDismissed, useTerminalCompact, useTerminalFocus } from '@/lib/terminalLayout'
 import { DEFAULT_FONT_SIZE, FONT_SIZE_EVENT, GRID_EVENT, MAX_FONT_SIZE, MIN_FONT_SIZE, clampFontSize } from '@/lib/terminalFont'
 import { Sheet, SheetContent, SheetTitle } from '@/components/ui/sheet'
 import type { TerminalSessionElement } from '@/pages/terminal/components/TerminalSession'
@@ -408,6 +408,26 @@ export default function TerminalPage() {
     window.addEventListener('keydown', handler)
     return () => window.removeEventListener('keydown', handler)
   }, [searchOpen, closeSearch])
+
+  // The on-screen keyboard put away is the terminal's or the composer's field
+  // let go of: left holding the focus it is a keyboard waiting to come back,
+  // and in an Android WebView the next tap on the page — a key of the key row
+  // — brings it (lib/terminalLayout focusesUnasked).
+  useEffect(() => {
+    const vv = window.visualViewport
+    if (!compact || !vv) return
+    let before = { width: vv.width, height: vv.height }
+    const onResize = () => {
+      const after = { width: vv.width, height: vv.height }
+      const dismissed = keyboardDismissed(before, after)
+      before = after
+      if (!dismissed) return
+      const el = document.activeElement
+      if (el instanceof HTMLElement && el.closest('[data-terminal-session], [data-terminal-composer]')) el.blur()
+    }
+    vv.addEventListener('resize', onResize)
+    return () => vv.removeEventListener('resize', onResize)
+  }, [compact])
 
   const railProps = {
     groups, active, fallback, reattachable,

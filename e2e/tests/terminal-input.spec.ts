@@ -115,6 +115,41 @@ test('a key leaves the keyboard where it was', async ({ page }) => {
   expect(await t.focused()).toBe('terminal')
 })
 
+test('the terminal takes the keyboard when it is tapped, and no key brings one up', async ({ page }) => {
+  const t = await openTerminal(page)
+  // A field holding the focus is a keyboard waiting to open: in the Android
+  // app the next tap anywhere on the page opened it, a key of the row included.
+  await page.waitForTimeout(400)
+  expect(await t.focused()).not.toBe('terminal')
+  await t.key('Escape').tap()
+  await expect.poll(() => t.input.at(-1)).toBe('\x1b')
+  expect(await t.focused()).not.toBe('terminal')
+  await t.terminal.tap()
+  await expect.poll(t.focused).toBe('terminal')
+})
+
+test('the keyboard put away lets go of the field it served', async ({ page }) => {
+  const t = await openTerminal(page)
+  for (const field of ['terminal', 'composer'] as const) {
+    await (field === 'terminal' ? t.terminal : t.composer).tap()
+    await expect.poll(t.focused).toBe(field)
+    // The keyboard comes up: the field keeps the focus.
+    await page.setViewportSize({ width: 412, height: 560 })
+    await page.waitForTimeout(400)
+    expect(await t.focused()).toBe(field)
+    // And is put away: left focused, the next key pressed would bring it back.
+    await page.setViewportSize({ width: 412, height: 860 })
+    await expect.poll(t.focused).not.toBe(field)
+  }
+  // Turning the phone is not the keyboard going: taller, but another width.
+  await page.setViewportSize({ width: 915, height: 412 })
+  await t.terminal.tap()
+  await expect.poll(t.focused).toBe('terminal')
+  await page.setViewportSize({ width: 412, height: 860 })
+  await page.waitForTimeout(400)
+  expect(await t.focused()).toBe('terminal')
+})
+
 test('a modifier is for the next key, or locked for every key until tapped again', async ({ page }) => {
   const t = await openTerminal(page, SHELL.id)
   await t.terminal.tap()

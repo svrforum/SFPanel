@@ -17,7 +17,7 @@ The format is loosely based on [Keep a Changelog](https://keepachangelog.com/), 
 
 ### Changed
 
-- **A key no longer takes the focus.** The keyboard stays with the composer or the terminal, whichever had it, instead of opening at every key.
+- **A key no longer brings the keyboard up.** A key press leaves the focus where it was, and on a touch device nothing holds the focus unasked: the terminal takes the keyboard when it is tapped, and lets go of it when the keyboard is put away. Before, the terminal took the focus at every key and whenever a session opened, and the on-screen keyboard came up with it.
 - **The row of scroll buttons is gone.** A finger scrolls; the way back to the latest output is the button on the terminal, which now also shows for a temporary shell scrolled back and for a session known to be in tmux's copy mode.
 - **Sideways on a phone the composer and the keys take turns**, where both would leave two lines of terminal above a keyboard.
 

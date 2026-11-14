@@ -177,6 +177,8 @@ test.describe('a desktop', () => {
     await expect(rail(page).getByRole('tablist')).toBeVisible()
     await expect(keyBar(page)).toHaveCount(0)
     await expect(rail(page).getByRole('link', { name: 'Dashboard' })).toHaveCount(0)
+    // With a keyboard on the desk the terminal has it from the start.
+    await expect.poll(() => page.evaluate(() => document.activeElement?.classList.contains('xterm-helper-textarea'))).toBe(true)
   })
   test('focus hides the app sidebar on the terminal page only, and is remembered', async ({ page }) => {
     const t = await openTerminal(page)

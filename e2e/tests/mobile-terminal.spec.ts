@@ -62,6 +62,8 @@ for (const path of ['/terminal']) {
 
     const ctrl = keys.getByRole('button', { name: 'Toggle ctrl for the next key' })
     await ctrl.tap()
+    // The terminal has the keyboard once it is tapped, not before.
+    await terminal.tap()
     await page.keyboard.press('c')
     await expect.poll(() => input.at(-1)).toBe('\x03')
     await expect(ctrl).toHaveAttribute('aria-pressed', 'false')

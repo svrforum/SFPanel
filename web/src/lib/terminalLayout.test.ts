@@ -47,3 +47,16 @@ describe('terminal focus', () => {
     expect(layout.readTerminalFocus()).toBe(false)
   })
 })
+
+describe('keyboardDismissed', () => {
+  it('is the viewport growing by a keyboard at the same width', () => {
+    expect(layout.keyboardDismissed({ width: 412, height: 560 }, { width: 412, height: 860 })).toBe(true)
+  })
+  it('is not the keyboard opening, a toolbar sliding away, or a rotation', () => {
+    expect(layout.keyboardDismissed({ width: 412, height: 860 }, { width: 412, height: 560 })).toBe(false)
+    // A browser's address bar hides as the page is used: some 56px.
+    expect(layout.keyboardDismissed({ width: 412, height: 804 }, { width: 412, height: 860 })).toBe(false)
+    // Sideways to upright with the keyboard up: taller, but another width.
+    expect(layout.keyboardDismissed({ width: 915, height: 190 }, { width: 412, height: 560 })).toBe(false)
+  })
+})
