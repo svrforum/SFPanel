@@ -7,7 +7,7 @@ import { cn } from '@/lib/utils'
 import { Checkbox } from '@/components/ui/checkbox'
 import { Sheet, SheetContent, SheetTitle } from '@/components/ui/sheet'
 import { MODIFIERS_CONSUMED_EVENT, MODIFIERS_EVENT, terminalKey } from '@/lib/terminalKeys'
-import { LONG_LABEL, NO_BAR_MODIFIERS, activeModifiers, afterKey, barKeyName, keysetPages, longLabel, tapModifier, type BarKey, type BarModifiers, type KeysetKind } from '@/lib/terminalKeysets'
+import { LONG_LABEL, NO_BAR_MODIFIERS, activeModifiers, afterKey, barKeyName, keysetPages, longLabel, tapModifier, type BarKey, type BarModifiers, type KeysetKind, type StoredKeysets } from '@/lib/terminalKeysets'
 import { attachedText, carriedFiles } from '@/lib/terminalAttach'
 import { snippetBody, snippetRefusal } from '@/lib/terminalPrefs'
 import { useTerminalPrefs } from '@/hooks/useTerminalPrefs'
@@ -88,8 +88,9 @@ export function TerminalInput({ kind, sessionKey, onSendKey, onSubmit, onAttach 
   const [sendEnter, setSendEnter] = useState(() => readJSON(SEND_ENTER_KEY, true))
   const [recent, setRecent] = useState<string[]>(() => readJSON<string[]>(recentKey(), []))
   const [sheetOpen, setSheetOpen] = useState(false)
-  const [editingKeys, setEditingKeys] = useState(false)
-  const { prefs, saveSnippets, saveKeysets } = useTerminalPrefs()
+  // The key rows the editor starts from, while it is open.
+  const [editingKeys, setEditingKeys] = useState<StoredKeysets | null>(null)
+  const { prefs, status: prefsStatus, load: loadPrefs, changeSnippets, loadKeysets, saveKeysets } = useTerminalPrefs()
   // Where the window is short the composer and the keys take turns.
   const [composing, setComposing] = useState(false)
 
@@ -247,39 +248,58 @@ export function TerminalInput({ kind, sessionKey, onSendKey, onSubmit, onAttach 
   }
 
   // Snippets: what the operator keeps to send again, for this kind of
-  // session. The list is saved whole, newest first.
+  // session, newest first. Each change is made to the list the panel holds
+  // (hooks/useTerminalPrefs), not to the one on screen.
   const snippets = prefs.snippets.filter((s) => s.kind === kind)
-  // The list as it was before the last removal, for the way back. It is
-  // offered in the sheet itself: a toast's button cannot be pressed while a
-  // sheet is open — everything outside it is inert.
-  const [removedFrom, setRemovedFrom] = useState<TerminalSnippet[] | null>(null)
+  const same = (a: TerminalSnippet, b: TerminalSnippet) => a.kind === b.kind && a.body === b.body
+  // The last one removed and where it was, for the way back. It is offered in
+  // the sheet itself: a toast's button cannot be pressed while a sheet is
+  // open — everything outside it is inert.
+  const [removed, setRemoved] = useState<{ snippet: TerminalSnippet; index: number } | null>(null)
   const keepSnippet = async (text: string) => {
     const snippet: TerminalSnippet = { kind, body: snippetBody(text) }
-    const refusal = snippetRefusal(prefs.snippets, snippet)
-    if (refusal === 'empty') return
-    if (refusal === 'there') { toast(t('terminal.input.snippetThere')); return }
-    if (refusal === 'long') { toast.error(t('terminal.input.snippetTooLong')); return }
-    if (refusal === 'full') { toast.error(t('terminal.input.snippetsFull')); return }
-    if (!(await saveSnippets([snippet, ...prefs.snippets]))) {
-      toast.error(t('terminal.input.saveFailed'))
-      return
-    }
-    setRemovedFrom(null)
-    toast.success(t('terminal.input.snippetSaved'))
+    if (!snippet.body) return
+    let refusal: ReturnType<typeof snippetRefusal> = null
+    const result = await changeSnippets((list) => {
+      refusal = snippetRefusal(list, snippet)
+      return refusal ? null : [snippet, ...list]
+    })
+    if (result === 'saved') {
+      setRemoved(null)
+      toast.success(t('terminal.input.snippetSaved'))
+    } else if (result === 'failed') toast.error(t('terminal.input.saveFailed'))
+    else if (refusal === 'there') toast(t('terminal.input.snippetThere'))
+    else if (refusal === 'long') toast.error(t('terminal.input.snippetTooLong'))
+    else if (refusal === 'full') toast.error(t('terminal.input.snippetsFull'))
   }
   const dropSnippet = async (snippet: TerminalSnippet) => {
-    const before = prefs.snippets
-    if (!(await saveSnippets(before.filter((s) => s !== snippet)))) {
-      toast.error(t('terminal.input.saveFailed'))
+    let index = -1
+    const result = await changeSnippets((list) => {
+      index = list.findIndex((s) => same(s, snippet))
+      return index < 0 ? null : list.filter((_, i) => i !== index)
+    })
+    // A long prompt is not something to lose to a slip of the thumb.
+    if (result === 'saved') setRemoved({ snippet, index })
+    else if (result === 'failed') toast.error(t('terminal.input.saveFailed'))
+  }
+  const restoreSnippet = async () => {
+    if (!removed) return
+    const { snippet, index } = removed
+    const result = await changeSnippets((list) => (list.some((s) => same(s, snippet)) ? null : [...list.slice(0, index), snippet, ...list.slice(index)]))
+    if (result === 'failed') toast.error(t('terminal.input.saveFailed'))
+    else setRemoved(null)
+  }
+  // The editor opens on the key rows the panel holds, and not at all while it
+  // cannot be asked: what it would show then are not the operator's keys, and
+  // saving them would replace the ones that are.
+  const openKeysEditor = async () => {
+    const held = await loadKeysets()
+    if (held === null) {
+      toast.error(t('terminal.input.loadFailed'))
       return
     }
-    // A long prompt is not something to lose to a slip of the thumb.
-    setRemovedFrom(before)
-  }
-  const restoreSnippets = async () => {
-    if (!removedFrom) return
-    if (await saveSnippets(removedFrom)) setRemovedFrom(null)
-    else toast.error(t('terminal.input.saveFailed'))
+    setSheetOpen(false)
+    setEditingKeys(held)
   }
 
   const keepFocus = (e: React.PointerEvent) => e.preventDefault()
@@ -366,7 +386,12 @@ export function TerminalInput({ kind, sessionKey, onSendKey, onSubmit, onAttach 
         </button>
       </div>
 
-      <Sheet open={sheetOpen} onOpenChange={(open) => { setSheetOpen(open); if (!open) setRemovedFrom(null) }}>
+      <Sheet open={sheetOpen} onOpenChange={(open) => {
+        setSheetOpen(open)
+        // Opened before the panel has answered: it is asked again.
+        if (open && prefsStatus !== 'ready') void loadPrefs()
+        if (!open) setRemoved(null)
+      }}>
         <SheetContent side="bottom" className="max-h-[75dvh] gap-3 overflow-y-auto rounded-t-2xl p-4">
           <SheetTitle>{t('terminal.input.tools')}</SheetTitle>
           <label className="flex min-h-12 items-center gap-3 text-[14px]">
@@ -395,16 +420,17 @@ export function TerminalInput({ kind, sessionKey, onSendKey, onSubmit, onAttach 
                 <BookmarkPlus className="h-4 w-4" aria-hidden="true" />{t('terminal.input.snippetSave')}
               </button>
             </div>
-            {removedFrom && (
+            {removed && (
               <p role="status" className="flex min-h-11 items-center justify-between gap-2 rounded-xl bg-accent px-3 text-[13px]">
                 {t('terminal.input.snippetRemoved')}
-                <button type="button" onClick={() => void restoreSnippets()}
+                <button type="button" onClick={() => void restoreSnippet()}
                   className="min-h-9 rounded-lg px-2 font-medium text-primary active:bg-background focus-visible:outline-2 focus-visible:outline-ring">
                   {t('terminal.input.undo')}
                 </button>
               </p>
             )}
-            {snippets.length === 0 && !removedFrom && <p className="text-[13px] text-muted-foreground">{t('terminal.input.snippetsEmpty')}</p>}
+            {prefsStatus === 'failed' && <p role="alert" className="text-[13px] text-destructive">{t('terminal.input.loadFailed')}</p>}
+            {prefsStatus === 'ready' && snippets.length === 0 && !removed && <p className="text-[13px] text-muted-foreground">{t('terminal.input.snippetsEmpty')}</p>}
             {snippets.map((snippet) => (
               <div key={snippet.body} className="flex items-stretch gap-1">
                 <button type="button" data-snippet onClick={() => compose(snippet.body)} className={ROW}>{snippet.body}</button>
@@ -427,7 +453,7 @@ export function TerminalInput({ kind, sessionKey, onSendKey, onSubmit, onAttach 
               </div>
             ))}
           </section>
-          <button type="button" onClick={() => { setSheetOpen(false); setEditingKeys(true) }}
+          <button type="button" onClick={() => void openKeysEditor()}
             className="flex min-h-12 items-center gap-3 rounded-xl border border-border bg-secondary px-3 text-left text-[14px] active:bg-accent focus-visible:outline-2 focus-visible:outline-ring">
             <Settings2 className="h-4 w-4" aria-hidden="true" />
             <span className="flex flex-col">
@@ -437,7 +463,7 @@ export function TerminalInput({ kind, sessionKey, onSendKey, onSubmit, onAttach 
           </button>
         </SheetContent>
       </Sheet>
-      {editingKeys && <KeysEditor kind={kind} saved={prefs.keysets} onSave={saveKeysets} onClose={() => setEditingKeys(false)} />}
+      {editingKeys && <KeysEditor kind={kind} saved={editingKeys} onSave={saveKeysets} onClose={() => setEditingKeys(null)} />}
     </div>
   )
 }

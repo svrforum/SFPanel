@@ -2526,7 +2526,9 @@
       "editKeys": "Edit the keys",
       "editKeysHint": "Choose which keys sit in the row under the terminal",
       "dropHere": "Drop to upload to this session's server and type its path",
-      "attachedElsewhere": "Uploaded for the session you left: {{paths}}"
+      "attachedElsewhere": "Uploaded for the session you left: {{paths}}",
+      "loadFailed": "Your snippets and keys could not be loaded. Try again in a moment.",
+      "dropNothing": "There was no file in what was dropped"
     },
     "keysEditor": {
       "title": "Edit the keys",

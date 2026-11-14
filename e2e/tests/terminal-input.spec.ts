@@ -13,7 +13,7 @@ const SHELL = S('aaaaaaaaaaa2', 'shell', 'Shell')
 
 type Prefs = { snippets?: { kind: string; body: string }[]; keysets?: Record<string, unknown[][]> }
 
-async function openTerminal(page: Page, active = AGENT.id, { uploads = true, uploadFails = '', prefs = {}, prefsFail = false }: {
+async function openTerminal(page: Page, active = AGENT.id, { uploads = true, uploadFails = '', prefs = {}, prefsFail = false, prefsLoadFails = false, prefsDelay = 0, sessions = [AGENT, SHELL] }: {
   /** the panel takes attachments (GET /ai/tools session_uploads); false: one from before them */
   uploads?: boolean
   /** the upload route answers with this error code */
@@ -22,7 +22,14 @@ async function openTerminal(page: Page, active = AGENT.id, { uploads = true, upl
   prefs?: Prefs
   /** saving them fails */
   prefsFail?: boolean
+  /** asking for them fails — the panel is restarting — until `panel.loads` is set */
+  prefsLoadFails?: boolean
+  /** a save takes this long to be answered */
+  prefsDelay?: number
+  /** the sessions there are */
+  sessions?: ReturnType<typeof S>[]
 } = {}) {
+  const panel = { loads: !prefsLoadFails }
   // The panel's side of the snippets and key rows, and every save it was sent.
   const kept = { snippets: prefs.snippets ?? [], keysets: prefs.keysets ?? {} }
   const saves: { what: string; node: string | null; body: any }[] = []
@@ -43,7 +50,7 @@ async function openTerminal(page: Page, active = AGENT.id, { uploads = true, upl
     else if (url.pathname.endsWith('/auth/ws-ticket')) data = { ticket: 'fixture-ticket' }
     else if (url.pathname.endsWith('/cluster/status')) data = { enabled: false }
     else if (url.pathname.endsWith('/system/overview')) data = { version: 'test' }
-    else if (url.pathname.endsWith('/ai/sessions')) data = [AGENT, SHELL]
+    else if (url.pathname.endsWith('/ai/sessions')) data = sessions
     else if (url.pathname.endsWith('/ai/tools')) data = { tmux: { installed: true, supported: true, version: '3.4', min_version: '3.2' }, systemd_run: true, accounts: ['tester'], panel_account: 'tester', account: 'tester', tools: {}, attach_latest: true, ...(uploads ? { session_uploads: true } : {}) }
     else if (url.pathname.endsWith('/upload')) {
       const id = url.pathname.split('/').at(-2)!
@@ -56,11 +63,18 @@ async function openTerminal(page: Page, active = AGENT.id, { uploads = true, upl
       // As the panel answers (internal/feature/ai SessionUpload): the path on the session's node.
       data = { path: `/home/tester/.sfpanel-ai/uploads/${id}/20261114-093005-${name}`, name: `20261114-093005-${name}`, size: 3 }
     }
-    else if (url.pathname.endsWith('/ai/prefs')) data = kept
+    else if (url.pathname.endsWith('/ai/prefs')) {
+      if (!panel.loads) {
+        await route.fulfill({ status: 503, json: { success: false, error: { code: 'INTERNAL_ERROR', message: 'x' } } })
+        return
+      }
+      data = { snippets: [...kept.snippets], keysets: { ...kept.keysets } }
+    }
     else if (url.pathname.includes('/ai/prefs/')) {
       const what = url.pathname.split('/').at(-1) as 'snippets' | 'keysets'
       const body = route.request().postDataJSON()
       saves.push({ what, node: url.searchParams.get('node'), body })
+      if (prefsDelay) await new Promise(r => setTimeout(r, prefsDelay))
       if (prefsFail) {
         await route.fulfill({ status: 500, json: { success: false, error: { code: 'INTERNAL_ERROR', message: 'x' } } })
         return
@@ -81,8 +95,11 @@ async function openTerminal(page: Page, active = AGENT.id, { uploads = true, upl
   })
   await page.goto('/terminal')
   const terminal = page.locator('[data-terminal-session="active"]')
-  await expect(terminal).toBeVisible()
-  await expect.poll(() => terminal.evaluate(el => (el as any).__wsRef?.current?.readyState)).toBe(1)
+  // An ended session has no terminal to wait for.
+  if (sessions.find(s => s.id === active)?.state !== 'ended') {
+    await expect(terminal).toBeVisible()
+    await expect.poll(() => terminal.evaluate(el => (el as any).__wsRef?.current?.readyState)).toBe(1)
+  }
   const area = page.locator('[data-terminal-input]')
   const key = (name: string) => area.locator('[data-terminal-keys]').getByRole('button', { name, exact: true })
   const nextKeys = area.getByRole('button', { name: /^Next keys/ })
@@ -94,7 +111,7 @@ async function openTerminal(page: Page, active = AGENT.id, { uploads = true, upl
   })
   const sheet = page.getByRole('dialog')
   const openTools = () => area.getByRole('button', { name: 'Composer tools' }).tap()
-  return { terminal, area, key, nextKeys, composer, send, focused, input, control, uploaded, saves, sheet, openTools }
+  return { terminal, area, key, nextKeys, composer, send, focused, input, control, uploaded, saves, sheet, openTools, kept, panel }
 }
 
 test('what the composer wrote goes out as one paste and one Enter', async ({ page }) => {
@@ -478,6 +495,54 @@ test('a snippet the panel does not keep says so and is not shown as kept', async
   await expect(t.composer).toHaveValue('keep me')
 })
 
+// A save is the whole list. Built from a list the page never received, it
+// would replace everything the panel holds with the one thing just added.
+test('a save waits for what the panel holds: nothing kept is lost to a failed load', async ({ page }) => {
+  const held = [{ kind: 'agent', body: 'review the diff' }, { kind: 'shell', body: 'df -h' }]
+  const t = await openTerminal(page, AGENT.id, { prefs: { snippets: held, keysets: { shell: [[{ id: 'tab' }]] } }, prefsLoadFails: true })
+  await t.composer.fill('a new one')
+  await t.openTools()
+  // The panel is back by the time of the save: it is asked first.
+  t.panel.loads = true
+  await t.sheet.getByRole('button', { name: 'Save what is written' }).tap()
+  await expect(t.sheet.locator('[data-snippet]')).toHaveText(['a new one', 'review the diff'])
+  expect(t.saves).toEqual([{ what: 'snippets', node: null, body: { snippets: [{ kind: 'agent', body: 'a new one' }, ...held] } }])
+})
+
+test('while the panel cannot be asked, nothing is saved over what it holds', async ({ page }) => {
+  const held = [{ kind: 'agent', body: 'review the diff' }]
+  const t = await openTerminal(page, AGENT.id, { prefs: { snippets: held, keysets: { agent: [[{ id: 'enter' }]] } }, prefsLoadFails: true })
+  await t.composer.fill('a new one')
+  await t.openTools()
+  await t.sheet.getByRole('button', { name: 'Save what is written' }).tap()
+  await expect(page.getByText('Could not be saved')).toBeVisible()
+  expect(t.saves).toEqual([])
+  expect(t.kept.snippets).toEqual(held)
+  // The sheet says why its list is empty.
+  await expect(t.sheet.getByText('could not be loaded')).toBeVisible()
+  // Nor does the key editor open on keys that are not the operator's.
+  await t.sheet.getByRole('button', { name: /Edit the keys/ }).tap()
+  await expect(page.getByText('could not be loaded').last()).toBeVisible()
+  await expect(page.locator('[data-keys-editor]')).toHaveCount(0)
+  expect(t.saves).toEqual([])
+})
+
+test('two removals in a row are both made', async ({ page }) => {
+  const held = [{ kind: 'agent', body: 'one' }, { kind: 'agent', body: 'two' }, { kind: 'agent', body: 'three' }]
+  const t = await openTerminal(page, AGENT.id, { prefs: { snippets: held }, prefsDelay: 400 })
+  await t.openTools()
+  const remove = t.sheet.getByRole('button', { name: 'Remove the snippet' })
+  await expect(remove).toHaveCount(3)
+  // The second before the first has been answered.
+  await remove.nth(0).tap()
+  await remove.nth(1).tap()
+  await expect(t.sheet.locator('[data-snippet]')).toHaveText(['three'])
+  expect(t.kept.snippets).toEqual([{ kind: 'agent', body: 'three' }])
+  // The way back is for the last one.
+  await t.sheet.getByRole('button', { name: 'Undo' }).tap()
+  await expect(t.sheet.locator('[data-snippet]')).toHaveText(['two', 'three'])
+})
+
 test('the keys the operator arranged replace the panel\'s, and a key of their own types its text', async ({ page }) => {
   const t = await openTerminal(page, AGENT.id, { prefs: { keysets: { agent: [[{ id: 'esc' }, { label: '/compact', text: '/compact', enter: true }, { id: 'ctrl-b' }, { id: 'hyper' }, { label: 'y', text: 'y' }]] } } })
   const row = t.area.locator('[data-terminal-keys]')
@@ -634,6 +699,35 @@ test.describe('with a mouse and a keyboard', () => {
     await expect(zone).toHaveCount(0)
     await expect.poll(() => t.input).toEqual(['/home/tester/.sfpanel-ai/uploads/aaaaaaaaaaa1/20261114-093005-error.log /home/tester/.sfpanel-ai/uploads/aaaaaaaaaaa1/20261114-093005-trace.txt '])
     expect(t.uploaded).toEqual(['aaaaaaaaaaa1:error.log', 'aaaaaaaaaaa1:trace.txt'])
+  })
+
+  test('files dropped with text beside them are still files', async ({ page }) => {
+    // What a file manager on Linux hands over: the files, and their paths as text.
+    const t = await openTerminal(page)
+    await page.locator('[data-terminal-session="active"]').evaluate((el) => {
+      const data = new DataTransfer()
+      data.items.add(new File(['x'], 'error.log', { type: 'text/plain' }))
+      data.setData('text/plain', '/home/me/error.log')
+      el.dispatchEvent(new DragEvent('drop', { dataTransfer: data, bubbles: true, cancelable: true }))
+    })
+    await expect.poll(() => t.uploaded).toEqual(['aaaaaaaaaaa1:error.log'])
+    await expect.poll(() => t.input).toEqual(['/home/tester/.sfpanel-ai/uploads/aaaaaaaaaaa1/20261114-093005-error.log '])
+  })
+
+  test('a session that has ended takes no files: there is nothing to type their paths into', async ({ page }) => {
+    const ended = { ...S('aaaaaaaaaaa3', 'claude', 'Ended'), state: 'ended' }
+    const t = await openTerminal(page, ended.id, { sessions: [ended] })
+    const card = page.getByText('Session ended', { exact: true })
+    await expect(card).toBeVisible()
+    await card.evaluate((el) => {
+      for (const type of ['dragenter', 'drop']) {
+        const data = new DataTransfer()
+        data.items.add(new File(['x'], 'error.log', { type: 'text/plain' }))
+        el.dispatchEvent(new DragEvent(type, { dataTransfer: data, bubbles: true, cancelable: true }))
+      }
+    })
+    await page.waitForTimeout(400)
+    expect(t.uploaded).toEqual([])
   })
 
   test('a file the panel refuses is named, and nothing is typed', async ({ page }) => {

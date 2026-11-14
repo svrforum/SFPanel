@@ -2515,7 +2515,9 @@
       "editKeys": "키 편집",
       "editKeysHint": "터미널 아래 키 줄에 둘 키를 정합니다",
       "dropHere": "놓으면 이 세션의 서버에 올리고 경로를 입력합니다",
-      "attachedElsewhere": "떠난 세션에 올렸습니다: {{paths}}"
+      "attachedElsewhere": "떠난 세션에 올렸습니다: {{paths}}",
+      "loadFailed": "스니펫과 키 구성을 불러오지 못했습니다. 잠시 뒤 다시 시도하세요.",
+      "dropNothing": "놓은 것에 파일이 없습니다"
     },
     "keysEditor": {
       "title": "키 편집",

@@ -400,7 +400,8 @@ export default function TerminalPage() {
   // is uploaded to the session's node instead, and its path there is what is
   // typed — into the composer's draft on a touch device, straight into the
   // terminal where a file is dropped on it or an image pasted into it.
-  const canAttach = activeTmuxId !== null && tools?.session_uploads === true
+  // Not for a session that has ended: there is no program to give the path to.
+  const canAttach = activeItem?.kind === 'tmux' && activeItem.session.state !== 'ended' && tools?.session_uploads === true
   const attachFile = useCallback((file: File) => api.uploadAISessionFile(activeTmuxId ?? '', file).then((r) => r.path), [activeTmuxId])
   const activeTmuxIdRef = useRef(activeTmuxId)
   useEffect(() => { activeTmuxIdRef.current = activeTmuxId }, [activeTmuxId])
@@ -520,7 +521,12 @@ export default function TerminalPage() {
             if (!carriesFiles(e)) return
             e.preventDefault()
             setDropping(false)
-            void attachToTerminal(carriedFiles(e.dataTransfer))
+            // Every file of a drop, text beside them or not: a file manager
+            // hands over the paths as text too, and a drop on a terminal is
+            // nothing else's to handle. (Only a paste is left alone for its text.)
+            const files = Array.from(e.dataTransfer.files)
+            if (files.length === 0) toast(t('terminal.input.dropNothing'))
+            void attachToTerminal(files)
           }}>
           {dropping && (
             <div className="pointer-events-none absolute inset-2 z-20 flex items-center justify-center rounded-xl border-2 border-dashed border-primary bg-console/85 px-6 text-center text-[14px] font-medium text-console-foreground">
