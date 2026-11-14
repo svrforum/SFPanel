@@ -249,9 +249,12 @@ jobs:
           # — a required module whose affected packages no code imports, such
           # as x/crypto's openpgp deprecation, "fixed" by deleting the package —
           # are listed above but do not fail it. Output without the sections
-          # fails rather than passing unread.
+          # fails rather than passing unread. A standard-library advisory has no
+          # Module: line ("Standard library" in its place), so it is named
+          # stdlib here; it used to take the name of the module listed above it
+          # and blame, say, echo for a fix that is a Go release.
           echo "$out" | grep -q '^=== Symbol Results ===' || { echo "::error::govulncheck printed no Symbol Results section: the gate cannot read its output"; exit 1; }
-          fixable=$(echo "$out" | awk '/^=== (Symbol|Package) Results ===/{s=1} /^=== Module Results ===/{s=0} s && /^[[:space:]]*Module:/{m=$2} s && /^[[:space:]]*Fixed in:/{if ($NF != "N/A") print m}' | sort -u)
+          fixable=$(echo "$out" | awk '/^=== (Symbol|Package) Results ===/{s=1} /^=== Module Results ===/{s=0} s && /^[[:space:]]*Module:/{m=$2} s && /^[[:space:]]*Standard library/{m="stdlib"} s && /^[[:space:]]*Fixed in:/{if ($NF != "N/A") print m}' | sort -u)
           if [ -n "$fixable" ]; then
             echo "::error::govulncheck found fixable vulnerabilities in: $(echo "$fixable" | tr '\n' ' ')"
             exit 1
