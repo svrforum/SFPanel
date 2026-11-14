@@ -6,6 +6,20 @@ The format is loosely based on [Keep a Changelog](https://keepachangelog.com/), 
 
 ---
 
+## [0.84.1] – 2026-11-14
+
+### Security
+
+- **Rebuilt with Go 1.26.11.** Go 1.26.11 fixes GO-2026-6859, an HTTP/1 server crash due to a `MaxBytesReader` header race in `net/http` — the server the panel answers on. No line of the panel's own code differs from 0.84.0. The CI vulnerability job had been failing on it since it appeared, under the wrong name: its check gave a standard-library advisory the name of the module listed before it, echo, and now names it stdlib. The two echo advisories published alongside it (GO-2026-6872, GO-2026-6875) have no fix yet and concern echo's rate limiter and reverse proxy middleware, which the panel does not use.
+
+### Changed
+
+- **Dependencies.** modernc.org/sqlite 1.62.0; react-router-dom 7.18.5; vite-plugin-pwa 2.0.0, whose only change for the panel is the peer range it accepts — the service worker it builds precaches the same files; eslint 10.14.0 and typescript-eslint 8.72.2; Playwright 1.65.0 for the end-to-end tests; setup-java 6.2.0, action-gh-release 3.0.4 and cosign-installer 4.1.3 in the workflows. (#161–#169)
+
+### Upgrading
+
+- Update every node; the cluster update takes them one at a time.
+
 ## [0.84.0] – 2026-11-09
 
 ### Added
