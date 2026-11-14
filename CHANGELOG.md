@@ -6,7 +6,7 @@ The format is loosely based on [Keep a Changelog](https://keepachangelog.com/), 
 
 ---
 
-## [Unreleased]
+## [0.86.0] – 2026-11-14
 
 ### Added
 
@@ -29,6 +29,12 @@ The format is loosely based on [Keep a Changelog](https://keepachangelog.com/), 
 
 - **The app uses the panel's composer and keys.** Connected to a panel from this release on, it draws no key rows of its own and leaves the page's in place, so the phone app, a phone's browser and a tablet have the same input area. "Paste and edit" puts the clipboard's text into the composer, which also works on a plain-HTTP panel. Connected to an older panel, the app is as it was.
 - Apps up to 0.1.6 keep working with this panel: they hide the page's input area and draw their own keys, as before.
+
+### Upgrading
+
+- Update every node; the cluster update takes them one at a time.
+- Update the Android app to 0.1.7 to get the composer and the new keys in the app (its own update check offers it). Until then the app keeps its own keys.
+- On a touch device the terminal no longer has the keyboard as soon as a session opens: tap the terminal, or the composer, to type.
 
 ## [0.85.0] – 2026-11-14
 
