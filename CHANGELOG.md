@@ -21,6 +21,10 @@ The format is loosely based on [Keep a Changelog](https://keepachangelog.com/), 
 - **The row of scroll buttons is gone.** A finger scrolls; the way back to the latest output is the button on the terminal, which now also shows for a temporary shell scrolled back and for a session known to be in tmux's copy mode.
 - **Sideways on a phone the composer and the keys take turns**, where both would leave two lines of terminal above a keyboard.
 
+### Fixed
+
+- **The key pressed right after a sideways flick is pressed.** A quick sideways flick across the terminal left the next tap — a key, a button — doing nothing for a second or two: the browser keeps a flick it pans nothing for as a fling in progress, and the tap that stops a fling is not a click. The terminal and the key row now take a finger's moves themselves.
+
 ### Android app 0.1.7
 
 - **The app uses the panel's composer and keys.** Connected to a panel from this release on, it draws no key rows of its own and leaves the page's in place, so the phone app, a phone's browser and a tablet have the same input area. "Paste and edit" puts the clipboard's text into the composer, which also works on a plain-HTTP panel. Connected to an older panel, the app is as it was.

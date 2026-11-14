@@ -263,6 +263,37 @@ test('the app\'s "paste and edit" reaches the composer', async ({ page }) => {
   await expect.poll(t.focused).toBe('composer')
 })
 
+// A flick as a finger makes one: the events' own clock a 16 ms frame apart,
+// lifted mid-motion.
+async function flick(page: Page, from: { x: number; y: number }, dx: number) {
+  const client = await page.context().newCDPSession(page)
+  const t0 = Date.now() / 1000
+  await client.send('Input.dispatchTouchEvent', { type: 'touchStart', touchPoints: [from], timestamp: t0 })
+  for (let i = 1; i <= 6; i++) {
+    await client.send('Input.dispatchTouchEvent', { type: 'touchMove', touchPoints: [{ x: from.x + dx * i / 6, y: from.y }], timestamp: t0 + 0.016 * i })
+    await page.waitForTimeout(16)
+  }
+  await client.send('Input.dispatchTouchEvent', { type: 'touchEnd', touchPoints: [], timestamp: t0 + 0.016 * 7 })
+  await client.detach()
+}
+
+// The browser keeps a flick it was not told about as a fling in progress for a
+// second or two, and the tap that stops a fling is not a click.
+for (const where of ['the keys', 'the terminal'] as const) {
+  test(`the key pressed right after a sideways flick across ${where} is pressed`, async ({ page }) => {
+    const t = await openTerminal(page)
+    const box = (await (where === 'the keys' ? t.area.locator('[data-terminal-keys]') : t.terminal).boundingBox())!
+    await flick(page, { x: box.x + 300, y: box.y + box.height / 2 }, -200)
+    // Across the keys it turned the page: the first key is now another.
+    const first = t.area.locator('[data-terminal-keys] button').first()
+    const label = await first.textContent()
+    await page.waitForTimeout(100)
+    await first.tap()
+    await expect.poll(() => t.input.at(-1)).toBe(where === 'the keys' ? '1' : '\x1b')
+    expect(label).toBe(where === 'the keys' ? '1' : 'Esc')
+  })
+}
+
 test.describe('sideways', () => {
   test.use({ viewport: { width: 915, height: 412 }, hasTouch: true })
   test('the composer and the keys take turns, which leaves lines to read with the keyboard up', async ({ page }) => {

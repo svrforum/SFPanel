@@ -261,12 +261,21 @@ export function attachXtermTouchScroll(container: HTMLElement, term: Terminal, o
     settle()
   }
 
+  // Every move of a finger on the terminal is taken, the ones this helper
+  // leaves alone too (a sideways drag). The browser pans nothing here either
+  // way — the container is touch-action: none — but a flick it was not told
+  // about it keeps as a fling in progress for a second or two, and the tap
+  // that stops a fling is not a click: the next key pressed did nothing.
+  const onAnyMove = (e: TouchEvent) => { if (e.cancelable) e.preventDefault() }
+
   container.addEventListener('touchstart', onTouchStart, { capture: true, passive: true })
+  container.addEventListener('touchmove', onAnyMove, { passive: false })
   container.addEventListener('wheel', onWheel, { capture: true, passive: false })
   return () => {
     stopFling()
     end()
     container.removeEventListener('touchstart', onTouchStart, { capture: true })
+    container.removeEventListener('touchmove', onAnyMove)
     container.removeEventListener('wheel', onWheel, { capture: true })
   }
 }

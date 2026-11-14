@@ -64,6 +64,7 @@ export function TerminalInput({ kind, sessionKey, onSendKey, onSubmit }: {
 }) {
   const { t } = useTranslation()
   const rootRef = useRef<HTMLDivElement>(null)
+  const keysRef = useRef<HTMLDivElement>(null)
   const draftRef = useRef<HTMLTextAreaElement>(null)
   const [mods, setMods] = useState<BarModifiers>(NO_BAR_MODIFIERS)
   const [page, setPage] = useState(0)
@@ -131,6 +132,18 @@ export function TerminalInput({ kind, sessionKey, onSendKey, onSubmit }: {
     hold.current.timer = hold.current.every = 0
   }
   useEffect(() => stopHold, [])
+  // A finger's moves across the keys are taken from the browser. It pans
+  // nothing here, but a flick it is not told about it keeps as a fling in
+  // progress for a second or two, and the tap that stops a fling is not a
+  // click: the key pressed right after turning the page did nothing. React's
+  // own touchmove is passive and cannot say so.
+  useEffect(() => {
+    const row = keysRef.current
+    if (!row) return
+    const taken = (e: TouchEvent) => { if (e.cancelable) e.preventDefault() }
+    row.addEventListener('touchmove', taken, { passive: false })
+    return () => row.removeEventListener('touchmove', taken)
+  }, [])
   const startHold = (key: BarKey) => {
     stopHold()
     hold.current.fired = false
@@ -216,8 +229,8 @@ export function TerminalInput({ kind, sessionKey, onSendKey, onSubmit }: {
         </button>
       </div>
 
-      <div role="group" aria-label={t('terminal.mobile.keys')} data-terminal-keys
-        className={cn('grid grid-cols-8 short:grid-cols-9 gap-1 px-1.5 py-1.5 touch-pan-y', composing && 'short:hidden')}
+      <div ref={keysRef} role="group" aria-label={t('terminal.mobile.keys')} data-terminal-keys
+        className={cn('grid grid-cols-8 short:grid-cols-9 gap-1 px-1.5 py-1.5 touch-none', composing && 'short:hidden')}
         onPointerDown={(e) => { hold.current.x = e.clientX; hold.current.swiped = false }}
         onPointerUp={(e) => {
           stopHold()
