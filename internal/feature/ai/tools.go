@@ -211,6 +211,9 @@ type toolsResponse struct {
 	// mode. A panel from before it writes that frame into the session as
 	// text, so the page sends it only when this says so.
 	AttachLatest bool `json:"attach_latest"`
+	// SessionUploads: POST /ai/sessions/:id/upload exists, for the composer's
+	// attachments. The page offers none to a panel without it.
+	SessionUploads bool `json:"session_uploads"`
 }
 
 // Tools — GET /ai/tools?user=<account>. The three probes run concurrently
@@ -237,6 +240,7 @@ func (h *Handler) Tools(c echo.Context) error {
 	resp.TouchScroll = true
 	resp.TouchHistory = true
 	resp.AttachLatest = true
+	resp.SessionUploads = true
 	resp.Tools = map[string]ToolStatus{}
 	var mu sync.Mutex
 	var wg sync.WaitGroup

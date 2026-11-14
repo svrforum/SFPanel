@@ -648,13 +648,18 @@ func (h *Handler) DeleteSession(c echo.Context) error {
 	if !found {
 		return h.deleteLiveRowless(c, id)
 	}
-	if acct, resolved := h.resolveAccount(row.RunAs); resolved && h.rowState(row, acct) != StateEnded {
+	acct, resolved := h.resolveAccount(row.RunAs)
+	if resolved && h.rowState(row, acct) != StateEnded {
 		if out, err := h.tmux(acct, "kill-session", "-t", row.ID); err != nil {
 			slog.Warn("ai kill-session", "component", "ai", "id", row.ID, "err", err, "out", response.SanitizeOutput(out))
 		}
 	}
 	if _, err := deleteSessionRow(h.DB, row.ID); err != nil {
 		return response.Fail(c, http.StatusInternalServerError, response.ErrInternalError, "could not delete the session")
+	}
+	// What was attached for it goes with it.
+	if resolved {
+		h.removeSessionUploads(acct, row.ID)
 	}
 	slog.Info("ai session deleted", "component", "ai", "id", row.ID, "account", row.RunAs)
 	return response.OK(c, map[string]string{"deleted": row.ID})

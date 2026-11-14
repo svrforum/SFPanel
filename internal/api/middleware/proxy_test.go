@@ -51,6 +51,10 @@ func TestIsBinaryRelayEndpoint(t *testing.T) {
 		{"/api/v1/docker/compose/foo/migrate-source/bundle", true},
 		{"/api/v1/docker/compose/foo/migrate-source", false},
 		{"/api/v1/docker/compose/foo/migrate-source/info", false},
+		// What the terminal's composer attaches: up to 25 MiB a file.
+		{"/api/v1/ai/sessions/abcdef123456/upload", true},
+		{"/api/v1/ai/sessions/abcdef123456/text", false},
+		{"/api/v1/ai/sessions", false},
 		{"/api/v1/docker/compose/foo/migrate-source/outcome", false},
 	}
 	for _, tc := range cases {

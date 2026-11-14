@@ -128,7 +128,9 @@ func isBinaryRelayEndpoint(path string) bool {
 		strings.HasSuffix(path, "/system/backup") ||
 		strings.HasSuffix(path, "/system/restore") ||
 		strings.HasSuffix(path, "/compose/migrate-import") ||
-		strings.HasSuffix(path, "/migrate-source/bundle")
+		strings.HasSuffix(path, "/migrate-source/bundle") ||
+		// A session's attachment, up to 25 MiB (feature/ai SessionUpload).
+		(strings.Contains(path, "/ai/sessions/") && strings.HasSuffix(path, "/upload"))
 }
 
 // hopByHopHeaders are headers that must not be forwarded across HTTP
