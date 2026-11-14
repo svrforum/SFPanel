@@ -203,12 +203,27 @@ export function TerminalInput({ kind, sessionKey, onSendKey, onSubmit, onAttach 
     setDraft('')
   }
 
+  // Text put into the draft brings the keyboard to the composer — when the
+  // composer can take it, which a timer cannot know. The commit that shows the
+  // composer and closes the sheet comes whenever React gets to it (at once
+  // from a tap, later from the end of an upload or a call from the app), and a
+  // sheet that is still up pulls back a focus given before it has let go. So:
+  // after that commit (the effect below), and if a sheet is up, when its
+  // content says it has let go (onCloseAutoFocus).
+  const focusAsked = useRef(false)
+  const sheetUp = useRef(false)
+  const [focusAsks, setFocusAsks] = useState(0)
+  useEffect(() => {
+    if (!focusAsked.current || sheetUp.current) return
+    focusAsked.current = false
+    draftRef.current?.focus()
+  }, [focusAsks])
   const compose = useCallback((text: string) => {
     setDraft(draftRef.current?.value ? `${draftRef.current.value}${text}` : text)
     setComposing(true)
     setSheetOpen(false)
-    // After the sheet has let go of the focus.
-    setTimeout(() => draftRef.current?.focus(), 0)
+    focusAsked.current = true
+    setFocusAsks((n) => n + 1)
   }, [setDraft])
   useEffect(() => {
     const el = rootRef.current as TerminalInputElement | null
@@ -308,7 +323,7 @@ export function TerminalInput({ kind, sessionKey, onSendKey, onSubmit, onAttach 
   return (
     <div ref={rootRef} data-terminal-input data-mobile-terminal-bar className="shrink-0 border-t border-border bg-card pb-safe">
       <div data-terminal-composer className={cn('flex items-end gap-1.5 px-1.5 pt-1.5', !composing && 'short:hidden')}>
-        <button type="button" className={ROUND} aria-label={t('terminal.input.tools')} onPointerDown={keepFocus} onClick={() => setSheetOpen(true)}>
+        <button type="button" className={ROUND} aria-label={t('terminal.input.tools')} onPointerDown={keepFocus} onClick={() => { sheetUp.current = true; setSheetOpen(true) }}>
           <Plus className="h-5 w-5" aria-hidden="true" />
         </button>
         <textarea
@@ -392,7 +407,16 @@ export function TerminalInput({ kind, sessionKey, onSendKey, onSubmit, onAttach 
         if (open && prefsStatus !== 'ready') void loadPrefs()
         if (!open) setRemoved(null)
       }}>
-        <SheetContent side="bottom" className="max-h-[75dvh] gap-3 overflow-y-auto rounded-t-2xl p-4">
+        <SheetContent side="bottom" className="max-h-[75dvh] gap-3 overflow-y-auto rounded-t-2xl p-4"
+          onCloseAutoFocus={(e) => {
+            // The sheet has gone and is about to hand the focus back to where
+            // it was; text put into the draft sends it to the composer instead.
+            sheetUp.current = false
+            if (!focusAsked.current) return
+            focusAsked.current = false
+            e.preventDefault()
+            draftRef.current?.focus()
+          }}>
           <SheetTitle>{t('terminal.input.tools')}</SheetTitle>
           <label className="flex min-h-12 items-center gap-3 text-[14px]">
             <Checkbox checked={sendEnter} onCheckedChange={(v) => { const on = v === true; setSendEnter(on); writeJSON(SEND_ENTER_KEY, on) }} />
