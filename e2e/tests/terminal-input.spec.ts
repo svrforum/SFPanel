@@ -341,7 +341,8 @@ test('the app\'s "paste and edit" reaches the composer', async ({ page }) => {
 
 test('a file attached from the sheet is uploaded to the session and its path goes into the draft', async ({ page }) => {
   const t = await openTerminal(page)
-  await t.composer.fill('look at ')
+  // No space after the last word: the path must not run into it.
+  await t.composer.fill('look at')
   await t.area.getByRole('button', { name: 'Composer tools' }).tap()
   await expect(page.getByRole('dialog').getByRole('button', { name: /Attach a photo or a file/ })).toBeVisible()
   await page.locator('[data-terminal-attach]').setInputFiles([
@@ -371,6 +372,16 @@ test('an image pasted into the composer is attached, and pasted text stays text'
   await expect(t.composer).toHaveValue('/home/tester/.sfpanel-ai/uploads/aaaaaaaaaaa1/20261114-093005-clipboard.png ')
   expect(t.uploaded).toEqual(['aaaaaaaaaaa1:clipboard.png'])
   expect(await paste('text')).toBe(true)
+  expect(t.uploaded.length).toBe(1)
+  // Cells copied from a spreadsheet come with a picture of themselves: the
+  // text is what was copied, and the paste is left to be one.
+  const both = await t.composer.evaluate((el) => {
+    const data = new DataTransfer()
+    data.items.add(new File(['png'], 'cells.png', { type: 'image/png' }))
+    data.setData('text/plain', 'a\tb')
+    return el.dispatchEvent(new ClipboardEvent('paste', { clipboardData: data, bubbles: true, cancelable: true }))
+  })
+  expect(both).toBe(true)
   expect(t.uploaded.length).toBe(1)
 })
 
@@ -580,6 +591,66 @@ test('an arrangement the panel does not keep stays open to try again', async ({ 
   await page.keyboard.press('Escape')
   // Nothing changed under the terminal.
   await expect(t.area.locator('[data-terminal-keys]').getByRole('button').first()).toHaveText('Esc')
+})
+
+test.describe('with a mouse and a keyboard', () => {
+  test.use({ viewport: { width: 1280, height: 800 }, hasTouch: false })
+
+  // What the terminal's own field is given, as a browser gives it.
+  const paste = (page: Page, kind: 'image' | 'text' | 'both') => page.locator('[data-terminal-session="active"] .xterm-helper-textarea').evaluate((el, kind) => {
+    const data = new DataTransfer()
+    if (kind !== 'text') data.items.add(new File(['png'], 'image.png', { type: 'image/png' }))
+    if (kind !== 'image') data.setData('text/plain', 'plain words')
+    el.dispatchEvent(new ClipboardEvent('paste', { clipboardData: data, bubbles: true, cancelable: true }))
+  }, kind)
+  const drag = (page: Page, type: 'dragenter' | 'drop' | 'dragleave', names: string[]) => page.locator('[data-terminal-session="active"]').evaluate((el, { type, names }) => {
+    const data = new DataTransfer()
+    for (const name of names) data.items.add(new File(['x'], name, { type: 'text/plain' }))
+    el.dispatchEvent(new DragEvent(type, { dataTransfer: data, bubbles: true, cancelable: true }))
+  }, { type, names })
+
+  test('an image pasted into the terminal is uploaded and its path typed, and text is pasted as text', async ({ page }) => {
+    const t = await openTerminal(page)
+    await expect(t.area).toHaveCount(0)
+    await paste(page, 'image')
+    // The path, on the live screen, and no Enter: it is the start of a prompt.
+    await expect.poll(() => t.input).toEqual(['/home/tester/.sfpanel-ai/uploads/aaaaaaaaaaa1/20261114-093005-image.png '])
+    expect(t.uploaded).toEqual(['aaaaaaaaaaa1:image.png'])
+    expect(t.control).toEqual(['{"type":"latest"}'])
+    // Text is the terminal's own business, with or without a picture beside it.
+    await paste(page, 'text')
+    await paste(page, 'both')
+    await expect.poll(() => t.input).toEqual(['/home/tester/.sfpanel-ai/uploads/aaaaaaaaaaa1/20261114-093005-image.png ', 'plain words', 'plain words'])
+    expect(t.uploaded).toHaveLength(1)
+  })
+
+  test('files dropped on the terminal are uploaded and their paths typed', async ({ page }) => {
+    const t = await openTerminal(page)
+    const zone = page.locator('[data-terminal-drop]')
+    await drag(page, 'dragenter', ['error.log'])
+    await expect(zone).toBeVisible()
+    await expect(page.getByText('Drop to upload to this session\'s server')).toBeVisible()
+    await drag(page, 'drop', ['error.log', 'trace.txt'])
+    await expect(zone).toHaveCount(0)
+    await expect.poll(() => t.input).toEqual(['/home/tester/.sfpanel-ai/uploads/aaaaaaaaaaa1/20261114-093005-error.log /home/tester/.sfpanel-ai/uploads/aaaaaaaaaaa1/20261114-093005-trace.txt '])
+    expect(t.uploaded).toEqual(['aaaaaaaaaaa1:error.log', 'aaaaaaaaaaa1:trace.txt'])
+  })
+
+  test('a file the panel refuses is named, and nothing is typed', async ({ page }) => {
+    const t = await openTerminal(page, AGENT.id, { uploadFails: 'FILE_TOO_LARGE' })
+    await paste(page, 'image')
+    await expect(page.getByText('image.png: larger than 25 MB')).toBeVisible()
+    expect(t.input).toEqual([])
+  })
+
+  test('a panel from before attachments is left as it was', async ({ page }) => {
+    const t = await openTerminal(page, AGENT.id, { uploads: false })
+    await paste(page, 'image')
+    await drag(page, 'dragenter', ['error.log'])
+    await page.waitForTimeout(300)
+    await expect(page.locator('[data-terminal-drop]')).toHaveCount(0)
+    expect(t.uploaded).toEqual([])
+  })
 })
 
 // A flick as a finger makes one: the events' own clock a 16 ms frame apart,

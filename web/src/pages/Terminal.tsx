@@ -17,6 +17,7 @@ import { SessionHeader } from '@/pages/terminal/components/SessionHeader'
 import { SessionPane } from '@/pages/terminal/components/SessionPane'
 import { TerminalInput } from '@/pages/terminal/components/TerminalInput'
 import { keysetKind } from '@/lib/terminalKeysets'
+import { attachedText, carriedFiles } from '@/lib/terminalAttach'
 import { PtyPane } from '@/pages/terminal/components/PtyPane'
 import { ToolsSheet } from '@/pages/terminal/components/ToolsSheet'
 import { TmuxBanner } from '@/pages/terminal/components/TmuxBanner'
@@ -394,6 +395,43 @@ export default function TerminalPage() {
     })
   }, [])
 
+  // Attachments. A terminal carries text: a screenshot on the clipboard or a
+  // file from a folder cannot be pasted into a program on another machine. It
+  // is uploaded to the session's node instead, and its path there is what is
+  // typed — into the composer's draft on a touch device, straight into the
+  // terminal where a file is dropped on it or an image pasted into it.
+  const canAttach = activeTmuxId !== null && tools?.session_uploads === true
+  const attachFile = useCallback((file: File) => api.uploadAISessionFile(activeTmuxId ?? '', file).then((r) => r.path), [activeTmuxId])
+  const activeTmuxIdRef = useRef(activeTmuxId)
+  useEffect(() => { activeTmuxIdRef.current = activeTmuxId }, [activeTmuxId])
+  const [dropping, setDropping] = useState(false)
+  const attachToTerminal = useCallback(async (files: File[]) => {
+    const id = activeTmuxId
+    const paths: string[] = []
+    for (const file of files) {
+      try {
+        paths.push(await attachFile(file))
+      } catch (err: unknown) {
+        const tooLarge = (err as { code?: string }).code === 'FILE_TOO_LARGE'
+        toast.error(t(tooLarge ? 'terminal.input.attachTooLarge' : 'terminal.input.attachFailed', { name: file.name || t('terminal.input.attachUnnamed') }))
+      }
+    }
+    if (paths.length === 0) return
+    // Another session is on screen by now: the paths are not typed into it.
+    if (activeTmuxIdRef.current !== id) {
+      toast(t('terminal.input.attachedElsewhere', { paths: paths.join(' ') }), { duration: 15000 })
+      return
+    }
+    forEachActiveSession((el) => {
+      const term = el.__termRef?.current
+      if (!term) return
+      el.__latest?.()
+      term.paste(attachedText(paths, ''))
+      term.focus()
+    })
+  }, [activeTmuxId, attachFile, t])
+  const carriesFiles = (e: React.DragEvent) => canAttach && Array.from(e.dataTransfer.types).includes('Files')
+
   useEffect(() => {
     const handler = (e: KeyboardEvent) => {
       // Ctrl+Shift+F and ⌘F from anywhere (the terminal leaves them to this
@@ -465,7 +503,30 @@ export default function TerminalPage() {
             <TmuxBanner tools={tools} onChanged={loadTools} />
           </div>
         )}
-        <div className="flex-1 min-h-0 relative">
+        <div className="flex-1 min-h-0 relative" data-terminal-drop={dropping ? '' : undefined}
+          onPasteCapture={(e) => {
+            // Before the terminal's own handler, which would paste the nothing
+            // an image has for text.
+            const files = canAttach ? carriedFiles(e.clipboardData) : []
+            if (files.length === 0) return
+            e.preventDefault()
+            e.stopPropagation()
+            void attachToTerminal(files)
+          }}
+          onDragEnter={(e) => { if (carriesFiles(e)) { e.preventDefault(); setDropping(true) } }}
+          onDragOver={(e) => { if (carriesFiles(e)) { e.preventDefault(); e.dataTransfer.dropEffect = 'copy' } }}
+          onDragLeave={(e) => { if (!e.currentTarget.contains(e.relatedTarget as Node | null)) setDropping(false) }}
+          onDrop={(e) => {
+            if (!carriesFiles(e)) return
+            e.preventDefault()
+            setDropping(false)
+            void attachToTerminal(carriedFiles(e.dataTransfer))
+          }}>
+          {dropping && (
+            <div className="pointer-events-none absolute inset-2 z-20 flex items-center justify-center rounded-xl border-2 border-dashed border-primary bg-console/85 px-6 text-center text-[14px] font-medium text-console-foreground">
+              {t('terminal.input.dropHere')}
+            </div>
+          )}
           {activeItem?.kind !== 'pty' && (
             <SessionPane session={activeItem?.kind === 'tmux' ? activeItem.session : null} fallback={fallback} fontSize={fontSize}
               touchScroll={tools?.touch_scroll === true}
@@ -480,8 +541,7 @@ export default function TerminalPage() {
           <TerminalInput kind={keysetKind(activeItem?.kind === 'tmux' ? activeItem.session.tool : undefined)}
             sessionKey={activeItem && !(activeItem.kind === 'tmux' && activeItem.session.state === 'ended') ? activeKey(activeItem) : null}
             onSendKey={sendKey} onSubmit={submit}
-            onAttach={activeTmuxId && tools?.session_uploads === true
-              ? (file) => api.uploadAISessionFile(activeTmuxId, file).then((r) => r.path) : undefined} />
+            onAttach={canAttach ? attachFile : undefined} />
         )}
       </div>
 

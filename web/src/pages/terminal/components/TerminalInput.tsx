@@ -8,6 +8,7 @@ import { Checkbox } from '@/components/ui/checkbox'
 import { Sheet, SheetContent, SheetTitle } from '@/components/ui/sheet'
 import { MODIFIERS_CONSUMED_EVENT, MODIFIERS_EVENT, terminalKey } from '@/lib/terminalKeys'
 import { LONG_LABEL, NO_BAR_MODIFIERS, activeModifiers, afterKey, barKeyName, keysetPages, longLabel, tapModifier, type BarKey, type BarModifiers, type KeysetKind } from '@/lib/terminalKeysets'
+import { attachedText, carriedFiles } from '@/lib/terminalAttach'
 import { snippetBody, snippetRefusal } from '@/lib/terminalPrefs'
 import { useTerminalPrefs } from '@/hooks/useTerminalPrefs'
 import { KeysEditor } from '@/pages/terminal/components/KeysEditor'
@@ -220,8 +221,14 @@ export function TerminalInput({ kind, sessionKey, onSendKey, onSubmit, onAttach 
   // picker, or pasted into the composer (a screenshot from the clipboard).
   const fileRef = useRef<HTMLInputElement>(null)
   const [attaching, setAttaching] = useState(0)
+  const sessionKeyRef = useRef(sessionKey)
+  useEffect(() => { sessionKeyRef.current = sessionKey }, [sessionKey])
   const attach = async (files: File[]) => {
-    if (!onAttach || files.length === 0) return
+    // The session the files go to is the one on screen now; an upload takes a
+    // moment, and its path belongs in that session's draft whichever session
+    // is on screen when it is done.
+    const key = sessionKey
+    if (!onAttach || !key || files.length === 0) return
     setAttaching((n) => n + files.length)
     const paths: string[] = []
     for (const file of files) {
@@ -234,7 +241,9 @@ export function TerminalInput({ kind, sessionKey, onSendKey, onSubmit, onAttach 
         setAttaching((n) => n - 1)
       }
     }
-    if (paths.length > 0) compose(paths.map((p) => `${p} `).join(''))
+    if (paths.length === 0) return
+    if (key === sessionKeyRef.current) compose(attachedText(paths, draftRef.current?.value ?? ''))
+    else setDrafts((all) => ({ ...all, [key]: `${all[key] ?? ''}${attachedText(paths, all[key] ?? '')}` }))
   }
 
   // Snippets: what the operator keeps to send again, for this kind of
@@ -289,7 +298,7 @@ export function TerminalInput({ kind, sessionKey, onSendKey, onSubmit, onAttach 
           onChange={(e) => setDraft(e.target.value)}
           onPaste={(e) => {
             // A pasted image is a file, not text: it is attached. Text pastes as it does anywhere.
-            const files = Array.from(e.clipboardData.files)
+            const files = carriedFiles(e.clipboardData)
             if (!onAttach || files.length === 0) return
             e.preventDefault()
             void attach(files)

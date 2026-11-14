@@ -2524,7 +2524,9 @@
       "undo": "Undo",
       "saveFailed": "Could not be saved",
       "editKeys": "Edit the keys",
-      "editKeysHint": "Choose which keys sit in the row under the terminal"
+      "editKeysHint": "Choose which keys sit in the row under the terminal",
+      "dropHere": "Drop to upload to this session's server and type its path",
+      "attachedElsewhere": "Uploaded for the session you left: {{paths}}"
     },
     "keysEditor": {
       "title": "Edit the keys",
