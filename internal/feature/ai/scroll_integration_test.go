@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"io"
 	"net/http"
+	"net/http/httptest"
 	"os"
 	osExec "os/exec"
 	"path/filepath"
@@ -15,7 +16,10 @@ import (
 	"time"
 
 	"github.com/creack/pty"
+	"github.com/gorilla/websocket"
+	"github.com/labstack/echo/v4"
 
+	"github.com/svrforum/SFPanel/internal/auth"
 	"github.com/svrforum/SFPanel/internal/common/exec"
 )
 
@@ -332,3 +336,119 @@ func TestSessionScrollbackEndsWithTheScreen(t *testing.T) {
 var sgrRe = regexp.MustCompile(`\x1b\[[0-9;]*m`)
 
 func stripSGR(s string) string { return sgrRe.ReplaceAllString(s, "") }
+
+// Against a real tmux: "latest" takes a pane that is scrolled back in copy
+// mode to its live screen, and is nothing at all to a pane that is not in it —
+// no key reaches the program there, which a blind `q` or Escape would be.
+func TestLeaveCopyModeReturnsToTheLiveScreen(t *testing.T) {
+	if _, err := osExec.LookPath("tmux"); err != nil {
+		t.Skip("tmux required")
+	}
+	h := newTestHandler(t, nil)
+	h.Cmd = exec.NewCommander()
+	if err := os.MkdirAll(filepath.Dir(h.socketPath(h.panel)), 0700); err != nil {
+		t.Fatal(err)
+	}
+	base := []string{"-f", "/dev/null", "-S", h.socketPath(h.panel)}
+	tmux := func(args ...string) string {
+		out, _ := osExec.Command("tmux", append(append([]string{}, base...), args...)...).CombinedOutput()
+		return strings.TrimSpace(string(out))
+	}
+	t.Cleanup(func() { _ = osExec.Command("tmux", append(base, "kill-server")...).Run() })
+	id := "aaaaaaaaaaaa"
+	// cat echoes whatever it is sent, so a stray key shows on the screen.
+	tmux("new-session", "-d", "-s", id, "-x", "80", "-y", "24", "sh -c 'seq 1 300; exec cat'")
+	screen := func() string { return tmux("capture-pane", "-p", "-t", id) }
+	mode := func() string { return tmux("display-message", "-p", "-t", id, "#{pane_in_mode}") }
+	waitFor(t, func() bool { return strings.HasSuffix(screen(), "300") }, "the pane never drew")
+	live := screen()
+
+	h.leaveCopyMode(h.panel, id)
+	time.Sleep(150 * time.Millisecond)
+	if got := screen(); got != live || mode() != "0" {
+		t.Errorf("a pane on its live screen was sent something: mode %s, screen now ends %q", mode(), got[max(0, len(got)-20):])
+	}
+
+	tmux("copy-mode", "-t", id)
+	tmux("send-keys", "-X", "-t", id, "-N", "50", "scroll-up")
+	waitFor(t, func() bool {
+		return tmux("display-message", "-p", "-t", id, "#{pane_in_mode} #{scroll_position}") == "1 50"
+	}, "copy mode never scrolled back")
+	h.leaveCopyMode(h.panel, id)
+	waitFor(t, func() bool { return mode() == "0" }, "the pane stayed in copy mode")
+	if got := screen(); got != live {
+		t.Errorf("leaving copy mode typed into the program: screen now ends %q", got[max(0, len(got)-20):])
+	}
+}
+
+// The frame itself, through a real attach: the pane leaves copy mode, and the
+// frame is not written into the session as the text it would be to a panel
+// that does not know it.
+func TestAttachWS_LatestFrameLeavesCopyModeAndIsNotInput(t *testing.T) {
+	if _, err := osExec.LookPath("tmux"); err != nil {
+		t.Skip("tmux required")
+	}
+	h := newTestHandler(t, nil)
+	h.Cmd = exec.NewCommander()
+	h.DB = openTestDB(t)
+	if err := os.MkdirAll(filepath.Dir(h.socketPath(h.panel)), 0700); err != nil {
+		t.Fatal(err)
+	}
+	base := []string{"-f", "/dev/null", "-S", h.socketPath(h.panel)}
+	tmux := func(args ...string) string {
+		out, _ := osExec.Command("tmux", append(append([]string{}, base...), args...)...).CombinedOutput()
+		return strings.TrimSpace(string(out))
+	}
+	t.Cleanup(func() { _ = osExec.Command("tmux", append(base, "kill-server")...).Run() })
+	id := "aaaaaaaaaaaa"
+	tmux("new-session", "-d", "-s", id, "-x", "80", "-y", "24", "sh -c 'seq 1 300; exec cat'")
+	if err := insertSession(h.DB, sessionRow{ID: id, Tool: ToolShell, Title: id, RunAs: "root", CWD: "/"}); err != nil {
+		t.Fatal(err)
+	}
+	screen := func() string { return tmux("capture-pane", "-p", "-t", id) }
+	mode := func() string { return tmux("display-message", "-p", "-t", id, "#{pane_in_mode}") }
+	waitFor(t, func() bool { return strings.HasSuffix(screen(), "300") }, "the pane never drew")
+
+	e := echo.New()
+	e.GET("/ws/ai/attach", h.AttachWS(func() string { return "test-secret" }, nil, nil))
+	srv := httptest.NewServer(e)
+	defer srv.Close()
+	tok, err := auth.GenerateToken("admin", "test-secret", time.Minute)
+	if err != nil {
+		t.Fatal(err)
+	}
+	ws, _, err := websocket.DefaultDialer.Dial("ws"+strings.TrimPrefix(srv.URL, "http")+"/ws/ai/attach?session_id="+id+"&token="+tok, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer ws.Close()
+	go func() {
+		for {
+			if _, _, err := ws.ReadMessage(); err != nil {
+				return
+			}
+		}
+	}()
+	waitFor(t, func() bool { return tmux("display-message", "-p", "-t", id, "#{session_attached}") == "1" }, "the attach never reached tmux")
+	if err := ws.WriteMessage(websocket.TextMessage, []byte(`{"type":"resize","cols":80,"rows":24}`)); err != nil {
+		t.Fatal(err)
+	}
+	waitFor(t, func() bool { return strings.HasSuffix(screen(), "300") }, "the pane did not settle at the attach's size")
+	live := screen()
+
+	tmux("copy-mode", "-t", id)
+	tmux("send-keys", "-X", "-t", id, "-N", "50", "scroll-up")
+	waitFor(t, func() bool { return mode() == "1" }, "copy mode never opened")
+	if err := ws.WriteMessage(websocket.TextMessage, []byte(`{"type":"latest"}`)); err != nil {
+		t.Fatal(err)
+	}
+	waitFor(t, func() bool { return mode() == "0" }, "the latest frame left the pane in copy mode")
+	// Sent again on the live screen: still not input.
+	if err := ws.WriteMessage(websocket.TextMessage, []byte(`{"type":"latest"}`)); err != nil {
+		t.Fatal(err)
+	}
+	time.Sleep(200 * time.Millisecond)
+	if got := screen(); got != live {
+		t.Errorf("the frame reached the program as text: screen now ends %q", got[max(0, len(got)-40):])
+	}
+}

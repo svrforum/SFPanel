@@ -1960,6 +1960,8 @@ export interface AITools {
   touch_scroll?: boolean
   /** GET /ai/sessions/:id/scrollback exists, for the history view; absent from a panel without it */
   touch_history?: boolean
+  /** the attach takes the {"type":"latest"} frame and leaves tmux's copy mode; a panel without it writes the frame into the session as text */
+  attach_latest?: boolean
 }
 
 /**

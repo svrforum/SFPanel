@@ -7,6 +7,8 @@ const session = { id: 'abcdef123456', title: 'Screen test', tool: 'shell', run_a
 
 async function openTerminal(page: Page, path = '/terminal') {
   const resizes: { cols: number; rows: number }[] = []
+  // What reached the session as input.
+  const input: string[] = []
   await page.addInitScript(() => {
     sessionStorage.setItem('token', 'fixture-token')
     localStorage.setItem('i18nextLng', 'en')
@@ -30,7 +32,7 @@ async function openTerminal(page: Page, path = '/terminal') {
       if (value.startsWith('{')) {
         const m = JSON.parse(value)
         if (m.type === 'resize') resizes.push({ cols: m.cols, rows: m.rows })
-      }
+      } else input.push(value)
     })
   })
   await page.goto(path)
@@ -43,7 +45,7 @@ async function openTerminal(page: Page, path = '/terminal') {
     await expect.poll(async () => { const now = await cols(); const still = now === seen; seen = now; return still }, { intervals: [300] }).toBe(true)
     return seen
   }
-  return { terminal, cols, settledCols, resizes }
+  return { terminal, cols, settledCols, resizes, input }
 }
 
 const appSidebar = (page: Page) => page.locator('aside').filter({ has: page.getByRole('link', { name: 'Docker', exact: true }) })
@@ -200,6 +202,21 @@ test.describe('a desktop', () => {
     await expect(page.locator('[data-terminal-session="active"]')).toBeVisible()
     await page.getByRole('button', { name: 'Show the sidebar again' }).click()
     await expect(appSidebar(page)).toBeVisible()
+  })
+  test('Ctrl+Shift+F opens the search from the terminal, and plain Ctrl+F stays the program\'s key', async ({ page }) => {
+    const t = await openTerminal(page)
+    await t.terminal.click({ position: { x: 200, y: 200 } })
+    await expect.poll(() => page.evaluate(() => document.activeElement?.classList.contains('xterm-helper-textarea'))).toBe(true)
+    // A page down in vim and less: the terminal's, as it always was.
+    await page.keyboard.press('Control+f')
+    await expect.poll(() => t.input.at(-1)).toBe('\x06')
+    await expect(page.getByPlaceholder('Search in terminal...')).toHaveCount(0)
+    // The search's own key did nothing while the terminal had the keyboard:
+    // xterm took it, and the page never heard it.
+    const sent = t.input.length
+    await page.keyboard.press('Control+Shift+f')
+    await expect(page.getByPlaceholder('Search in terminal...')).toBeFocused()
+    expect(t.input.length).toBe(sent)
   })
   test('a narrow window is the phone layout, as before', async ({ page }) => {
     await page.setViewportSize({ width: 700, height: 800 })

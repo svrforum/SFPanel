@@ -242,10 +242,29 @@ func attachEnv(base []string, acct, panel Account) []string {
 	return []string{attachTerm, attachPath, attachLang, "HOME=" + acct.Home}
 }
 
-type resizeMsg struct {
+// controlMsg is a text frame that is not input (input comes as binary):
+// "resize" with the page's grid, or "latest" (see leaveCopyMode). Anything
+// else in a text frame is written to the session, as it always was — so a
+// page sends "latest" only to a panel whose GET /ai/tools says attach_latest.
+type controlMsg struct {
 	Type string `json:"type"`
 	Cols uint16 `json:"cols"`
 	Rows uint16 `json:"rows"`
+}
+
+// leaveCopyMode puts a pane that is scrolled back in tmux's copy mode on its
+// live screen again: what "latest output" means to a session whose history
+// lives in tmux, where the page's own scrolling has nothing to move. One tmux
+// command, so the check and the cancel cannot straddle a change of mode — and
+// a pane that is not in copy mode is sent nothing: a blind `q` or Escape there
+// is a key to the program, and Escape stops an AI CLI mid-answer.
+//
+// Not an HTTP route: it would add a row to the audit log for every tap of a
+// scroll button.
+func (h *Handler) leaveCopyMode(acct Account, id string) {
+	if _, err := h.tmux(acct, "if-shell", "-F", "-t", id, "#{pane_in_mode}", "send-keys -X -t "+id+" cancel"); err != nil {
+		slog.Debug("tmux leave copy mode", "component", "ai", "session", id, "err", err)
+	}
 }
 
 // AttachWS — GET /ws/ai/attach?session_id=. One tmux client per socket; the
@@ -372,13 +391,19 @@ func (h *Handler) AttachWS(jwtSecret func() string, auditWriter *sfdb.AsyncWrite
 				return nil
 			}
 			if mt == websocket.TextMessage {
-				var r resizeMsg
-				if json.Unmarshal(msg, &r) == nil && r.Type == "resize" {
-					if r.Cols == 0 || r.Rows == 0 {
-						continue // a 0×0 winsize wedges full-screen TUIs
+				var r controlMsg
+				if json.Unmarshal(msg, &r) == nil {
+					switch r.Type {
+					case "resize":
+						if r.Cols == 0 || r.Rows == 0 {
+							continue // a 0×0 winsize wedges full-screen TUIs
+						}
+						_ = pty.Setsize(ptmx, &pty.Winsize{Cols: r.Cols, Rows: r.Rows})
+						continue
+					case "latest":
+						h.leaveCopyMode(acct, id)
+						continue
 					}
-					_ = pty.Setsize(ptmx, &pty.Winsize{Cols: r.Cols, Rows: r.Rows})
-					continue
 				}
 			}
 			if _, err := ptmx.Write(msg); err != nil {

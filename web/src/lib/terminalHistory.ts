@@ -1,5 +1,7 @@
 import { Terminal } from '@xterm/xterm'
 import { Unicode11Addon } from '@xterm/addon-unicode11'
+import { SearchAddon } from '@xterm/addon-search'
+import { searchOptions, type SearchDirection } from './terminalSearch'
 
 /**
  * Where a history view stands `px` pixels back from the bottom of its copy:
@@ -23,6 +25,10 @@ export interface HistoryView {
    *  offset from the bottom the move ended at, 0 at the bottom. */
   move(px: number): number
   offset(): number
+  /** Selects the match before the one selected (older) or after it — the
+   *  newest of all, to begin with — and brings its row to the middle of the
+   *  view. False when the copy has none. */
+  search(query: string, direction: SearchDirection): Promise<boolean>
   close(): void
 }
 
@@ -32,9 +38,11 @@ export interface HistoryView {
  * — the live screen, row for row — for the page to move a pixel at a time
  * (historyFrame). It draws as the live terminal does: its font, size, colours
  * and character widths. A tap on it calls onTap — the page's way back to the
- * live screen; a drag or a caught fling does not click.
+ * live screen; a drag or a caught fling does not click. A mouse's wheel moves
+ * it, for the desktop, where only a search opens it. onResults hears a
+ * search's count: the current match's index and how many there are.
  */
-export function openHistoryView(host: HTMLElement, live: Terminal, text: string, onTap?: () => void): HistoryView {
+export function openHistoryView(host: HTMLElement, live: Terminal, text: string, onTap?: () => void, onResults?: (index: number, count: number) => void): HistoryView {
   const liveScreen = host.querySelector('.xterm-screen') as HTMLElement | null
   const frameEl = document.createElement('div')
   frameEl.dataset.historyView = ''
@@ -71,6 +79,9 @@ export function openHistoryView(host: HTMLElement, live: Terminal, text: string,
   const unicode = new Unicode11Addon()
   term.loadAddon(unicode)
   term.unicode.activeVersion = '11'
+  const finder = new SearchAddon()
+  term.loadAddon(finder)
+  if (onResults) finder.onDidChangeResults(({ resultIndex, resultCount }) => { if (!closed) onResults(resultIndex, resultCount) })
   host.appendChild(frameEl)
   if (onTap) frameEl.addEventListener('click', onTap)
   term.open(frameEl)
@@ -84,6 +95,10 @@ export function openHistoryView(host: HTMLElement, live: Terminal, text: string,
   let ready = false
   let closed = false
   let at = 0
+  let asked = '' // the query of the search in progress
+  // A search waits for the copy: until it is written there is nothing to find.
+  let written = () => {}
+  const whenWritten = new Promise<void>((resolve) => { written = resolve })
   // The shift waiting for xterm to paint new rows. xterm repaints on the next
   // animation frame, and a fling moves the view from inside one, so a shift
   // set at once would land a frame before its rows: the text would jump a row
@@ -128,9 +143,17 @@ export function openHistoryView(host: HTMLElement, live: Terminal, text: string,
     maxTop = term.buffer.active.baseY
     ready = true
     draw()
+    written()
     // In case nothing is left to paint after all.
     setTimeout(() => { if (!closed && unrevealed) reveal() }, 100)
   })
+  // A wheel's own lines or pixels, towards newer output as it turns down.
+  frameEl.addEventListener('wheel', (e) => {
+    if (closed) return
+    e.preventDefault()
+    at = Math.max(0, at - (e.deltaMode === WheelEvent.DOM_DELTA_LINE ? e.deltaY * cell() : e.deltaY))
+    draw()
+  }, { passive: false })
   return {
     move(px: number) {
       if (closed) return 0
@@ -139,6 +162,26 @@ export function openHistoryView(host: HTMLElement, live: Terminal, text: string,
       return at
     },
     offset: () => at,
+    async search(query: string, direction: SearchDirection) {
+      await whenWritten
+      if (closed || !query) return false
+      // A new query starts from the newest output, not from where the last
+      // one's match was: the search goes on from the selection.
+      if (query !== asked) {
+        asked = query
+        term.clearSelection()
+      }
+      const found = direction === 'newer' ? finder.findNext(query, searchOptions()) : finder.findPrevious(query, searchOptions())
+      const row = term.getSelectionPosition()?.start.y
+      const c = cell()
+      if (!found || row === undefined || c <= 0) return found
+      // The view shows the rows below its terminal's first, which it keeps
+      // hidden (historyFrame): the match goes to the middle of those.
+      const top = Math.max(0, Math.min(maxTop, row - 1 - Math.floor((term.rows - 1) / 2)))
+      at = (maxTop - top) * c
+      draw()
+      return true
+    },
     close() {
       if (closed) return
       closed = true

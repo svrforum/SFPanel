@@ -5,6 +5,7 @@ import type { TerminalInfo } from '@/types/api'
 import { TOOL_META, dangerousFlagFor, launchSummary } from '@/lib/aiSessions'
 import { activeKey, type RailItem } from '@/lib/sessionRail'
 import { cn } from '@/lib/utils'
+import { IS_MAC } from '@/lib/terminalKeys'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuTrigger } from '@/components/ui/dropdown-menu'
@@ -13,6 +14,10 @@ import type { RailAction } from '@/pages/terminal/components/SessionRail'
 export interface SessionSearch {
   open: boolean
   query: string
+  /** "3/17", "No results", or nothing yet */
+  status: string
+  /** what the search could not reach, when it could not reach everything */
+  hint: string
   inputRef: RefObject<HTMLInputElement | null>
   onToggle: () => void
   onQuery: (q: string) => void
@@ -62,7 +67,7 @@ export function SessionHeader({ item, hostInfo, fontSize, cols, onFontSize, sear
   // property read on an object holding one as a ref access during render.
   // Taking the fields apart here is the same read the rule allows for a
   // local ref — nothing dereferences `.current` in render either way.
-  const { open: searchOpen, query: searchQuery, inputRef: searchInputRef,
+  const { open: searchOpen, query: searchQuery, status: searchStatus, hint: searchHint, inputRef: searchInputRef,
     onToggle: onSearchToggle, onQuery: onSearchQuery, onNext: onSearchNext,
     onPrev: onSearchPrev, onClose: onSearchClose } = search
   // The rename in progress is keyed to the session it started on, so a
@@ -88,7 +93,7 @@ export function SessionHeader({ item, hostInfo, fontSize, cols, onFontSize, sear
   const isRoot = item?.kind === 'pty' ? hostInfo?.is_root === true : s?.run_as === 'root'
 
   return (
-    <header data-terminal-chrome className="shrink-0 border-b border-console-border text-console-foreground">
+    <header data-terminal-chrome className="relative shrink-0 border-b border-console-border text-console-foreground">
       <div className="flex items-center gap-2 h-11 px-2 md:px-3">
         {drawer && (
           <button type="button" onClick={drawer.onOpen} aria-label={t('terminal.rail.sessions')}
@@ -144,7 +149,7 @@ export function SessionHeader({ item, hostInfo, fontSize, cols, onFontSize, sear
           <span className="text-[10px] text-console-muted min-w-[20px] text-center" title={colsLabel}>{fontSize}</span>
           <Button variant="ghost" size="sm" className={icon} onClick={() => onFontSize(1)} title={t('terminal.fontLarger')} aria-label={t('terminal.fontLarger')}><Plus className="h-3 w-3" /></Button>
           <div className="w-px h-4 bg-console-border mx-1" aria-hidden="true" />
-          <Button variant="ghost" size="sm" className={cn(icon, searchOpen && 'text-primary')} onClick={onSearchToggle} title={t('terminal.search')} aria-label={t('terminal.search')}><Search className="h-3.5 w-3.5" /></Button>
+          <Button variant="ghost" size="sm" className={cn(icon, searchOpen && 'text-primary')} onClick={onSearchToggle} title={`${t('terminal.search')} (${IS_MAC ? '⌘F' : 'Ctrl+Shift+F'})`} aria-label={t('terminal.search')}><Search className="h-3.5 w-3.5" /></Button>
           <Button variant="ghost" size="sm" className={icon} onClick={onClear} title={t('terminal.clear')} aria-label={t('terminal.clear')}><Eraser className="h-3.5 w-3.5" /></Button>
           {focus && (
             <Button variant="ghost" size="sm" className={cn(icon, focus.on && 'text-primary')} onClick={focus.onToggle} aria-pressed={focus.on} title={focusLabel} aria-label={focusLabel}>
@@ -214,15 +219,19 @@ export function SessionHeader({ item, hostInfo, fontSize, cols, onFontSize, sear
         )}
       </div>
 
+      {/* Over the pane's top corner, not a row of the header: a row took its
+          height from the terminal, and the resize that followed redrew the
+          program in it — and closed the history view the search had opened. */}
       {searchOpen && (
-        <div className="flex items-center gap-1.5 border-t border-console-border px-2 md:px-3 py-1.5">
+        <div data-terminal-search className="absolute right-2 top-full z-20 mt-1 flex w-[min(30rem,calc(100%-1rem))] flex-wrap items-center gap-x-1.5 gap-y-1 rounded-xl border border-console-border bg-console px-2 py-1.5 shadow-md">
           <Search className="h-3.5 w-3.5 text-console-muted" aria-hidden="true" />
           <Input ref={searchInputRef} value={searchQuery} onChange={(e) => onSearchQuery(e.target.value)}
             onKeyDown={(e) => {
-              if (e.key === 'Enter') { e.preventDefault(); if (e.shiftKey) onSearchPrev(); else onSearchNext() }
+              // Towards the older output, as a terminal's search goes: it starts on the newest match.
+              if (e.key === 'Enter') { e.preventDefault(); if (e.shiftKey) onSearchNext(); else onSearchPrev() }
               if (e.key === 'Escape') onSearchClose()
             }}
-            placeholder={t('terminal.searchPlaceholder')} className="h-7 text-xs bg-card border-border text-foreground flex-1 max-w-[10rem] md:max-w-xs" autoFocus />
+            placeholder={t('terminal.searchPlaceholder')} className="h-7 text-xs bg-card border-border text-foreground flex-1 min-w-0" autoFocus />
           {/* The visible label is an arrow on a phone, so the name has to be
               on the button rather than in its text. */}
           <Button variant="ghost" size="sm" className="h-7 px-2 text-xs text-console-muted hover:text-console-foreground hover:bg-console-foreground/10" onClick={onSearchPrev} aria-label={t('terminal.prev')}>
@@ -232,6 +241,8 @@ export function SessionHeader({ item, hostInfo, fontSize, cols, onFontSize, sear
             <span className="hidden md:inline" aria-hidden="true">{t('terminal.next')}</span><span className="md:hidden" aria-hidden="true">↓</span>
           </Button>
           <Button variant="ghost" size="sm" className={ICON} onClick={onSearchClose} aria-label={t('common.close')}><X className="h-3.5 w-3.5" /></Button>
+          <span data-search-status role="status" className="min-w-10 text-[11px] tabular-nums text-console-muted">{searchStatus}</span>
+          {searchHint && <span data-search-hint className="basis-full text-[11px] text-console-muted md:basis-auto">{searchHint}</span>}
         </div>
       )}
     </header>

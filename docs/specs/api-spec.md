@@ -4058,7 +4058,8 @@ Claude Code · Codex · Gemini CLI를 패널이 관리하는 tmux 세션으로 �
       "gemini": { "installed": false, "version": "", "path": "", "latest": "0.59.0", "update_available": false, "logged_in": false }
     },
     "touch_scroll": true,
-    "touch_history": true
+    "touch_history": true,
+    "attach_latest": true
   }
 }
 ```
@@ -4071,7 +4072,8 @@ Claude Code · Codex · Gemini CLI를 패널이 관리하는 tmux 세션으로 �
 | `tmux.supported` | `tmux -V`가 `min_version`(3.2) 이상인지. 설치돼 있으나 낮으면 세션 생성/재시작이 `TMUX_MISSING`(503)으로 거절되고 배너가 업그레이드를 안내한다. 버전을 읽지 못하면 `true`(막지 않음). `tmux -V` 결과는 10분 캐시 |
 | `systemd_run` | 다음 spawn이 서버 폼(transient 서비스)을 쓸 수 있는지 = 패널이 root **그리고** 호스트에 `systemd-run`이 있음. 세션의 `persistence`와 같은 판정이며, `false`면 페이지 배너가 탭의 `process` 표시를 설명한다 |
 | `touch_scroll` | attach가 tmux에 터치 스크롤을 묶는지(websocket-spec §7 터치 스크롤). 페이지는 `true`일 때만 손가락이 지난 줄마다 `Shift 휠 보고 + 휠 보고` 쌍을 보낸다 — 묶지 않는 예전 패널에서는 프로그램이 한 줄에 휠 보고 두 개를 받는다 |
-| `touch_history` | `GET /ai/sessions/:id/scrollback`이 있는지. 폰의 기록 보기는 `touch_scroll`과 이것이 모두 `true`일 때만 사본을 요청하고, 아니면 손가락을 줄 단위로 tmux에 보낸다 |
+| `touch_history` | `GET /ai/sessions/:id/scrollback`이 있는지. 폰의 기록 보기는 `touch_scroll`과 이것이 모두 `true`일 때만 사본을 요청하고, 아니면 손가락을 줄 단위로 tmux에 보낸다. 데스크톱을 포함해 검색도 이 사본에서 찾는다 |
+| `attach_latest` | attach가 `{"type":"latest"}` 프레임을 받아 tmux 복사 모드에서 나오는지(websocket-spec §7 최신 출력). 페이지는 `true`일 때만 보낸다 — 모르는 예전 패널은 그 프레임을 세션에 글자로 써 넣는다 |
 
 | 코드 | HTTP | 조건 |
 |------|------|------|

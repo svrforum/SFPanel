@@ -207,6 +207,10 @@ type toolsResponse struct {
 	// sessions keep scrolling through tmux rather than asking every gesture
 	// for a copy that 404s.
 	TouchHistory bool `json:"touch_history"`
+	// AttachLatest: the attach takes {"type":"latest"} and leaves tmux's copy
+	// mode. A panel from before it writes that frame into the session as
+	// text, so the page sends it only when this says so.
+	AttachLatest bool `json:"attach_latest"`
 }
 
 // Tools — GET /ai/tools?user=<account>. The three probes run concurrently
@@ -232,6 +236,7 @@ func (h *Handler) Tools(c echo.Context) error {
 	resp.Account = acct.Name
 	resp.TouchScroll = true
 	resp.TouchHistory = true
+	resp.AttachLatest = true
 	resp.Tools = map[string]ToolStatus{}
 	var mu sync.Mutex
 	var wg sync.WaitGroup

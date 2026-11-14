@@ -22,6 +22,7 @@ import { TmuxBanner } from '@/pages/terminal/components/TmuxBanner'
 import { NewSessionDialog } from '@/pages/terminal/components/NewSessionDialog'
 import { SelectTextDialog } from '@/pages/terminal/components/SelectTextDialog'
 import { bufferText, SELECT_TEXT_EVENT } from '@/lib/terminalText'
+import { SEARCH_RESULTS_EVENT, type SearchDirection, type SearchOutcome } from '@/lib/terminalSearch'
 import { useAISessions } from '@/pages/terminal/hooks/useAISessions'
 import { usePtyTabs } from '@/pages/terminal/hooks/usePtyTabs'
 
@@ -229,7 +230,6 @@ export default function TerminalPage() {
     setActive(`pty:${pty.reattach(sessionId)}`)
     setDrawerOpen(false)
   }, [pty])
-  const onSelect = useCallback((key: string) => { setActive(key); setDrawerOpen(false) }, [])
 
   const onRename = useCallback((item: RailItem, title: string) => {
     if (item.kind === 'pty') pty.rename(item.id, title)
@@ -274,20 +274,58 @@ export default function TerminalPage() {
       window.removeEventListener(GRID_EVENT, onGrid)
     }
   }, [])
+  // Search goes through the session (__search): a tmux session's history is
+  // not in the browser, and the session knows where it is. The outcome says
+  // whether anything matched and how far the search reached; the count comes
+  // on its own, once the matches are marked.
+  const [searchOutcome, setSearchOutcome] = useState<SearchOutcome | null>(null)
+  const [searchCount, setSearchCount] = useState<{ index: number; count: number } | null>(null)
+  const searchSeq = useRef(0)
+  const runSearch = useCallback((query: string, direction: SearchDirection) => {
+    const seq = ++searchSeq.current
+    if (!query) {
+      forEachActiveSession((el) => el.__searchEnd?.())
+      setSearchOutcome(null)
+      setSearchCount(null)
+      return
+    }
+    forEachActiveSession((el) => {
+      void el.__search?.(query, direction).then((outcome) => {
+        if (seq !== searchSeq.current) return
+        setSearchOutcome(outcome)
+        if (!outcome.found) setSearchCount(null)
+      })
+    })
+  }, [])
+  useEffect(() => {
+    const onResults = (e: Event) => setSearchCount((e as CustomEvent<{ index: number; count: number }>).detail)
+    window.addEventListener(SEARCH_RESULTS_EVENT, onResults)
+    return () => window.removeEventListener(SEARCH_RESULTS_EVENT, onResults)
+  }, [])
   const handleSearch = useCallback((query: string) => {
     setSearchQuery(query)
-    forEachActiveSession((el) => { if (el.__searchAddon && query) el.__searchAddon.findNext(query) })
-  }, [])
-  const handleSearchNext = useCallback(() => {
-    forEachActiveSession((el) => { if (el.__searchAddon && searchQuery) el.__searchAddon.findNext(searchQuery) })
-  }, [searchQuery])
-  const handleSearchPrev = useCallback(() => {
-    forEachActiveSession((el) => { if (el.__searchAddon && searchQuery) el.__searchAddon.findPrevious(searchQuery) })
-  }, [searchQuery])
-  const closeSearch = useCallback(() => { setSearchOpen(false); setSearchQuery('') }, [])
+    setSearchCount(null)
+    runSearch(query, 'older')
+  }, [runSearch])
+  const handleSearchNext = useCallback(() => runSearch(searchQuery, 'newer'), [runSearch, searchQuery])
+  const handleSearchPrev = useCallback(() => runSearch(searchQuery, 'older'), [runSearch, searchQuery])
+  const closeSearch = useCallback(() => {
+    setSearchOpen(false)
+    setSearchQuery('')
+    runSearch('', 'older')
+    // The keyboard goes back to the terminal; not on a phone, where that
+    // raises the on-screen one.
+    if (!window.matchMedia('(pointer: coarse)').matches) forEachActiveSession((el) => el.__termRef?.current?.focus())
+  }, [runSearch])
   const toggleSearch = useCallback(() => {
     if (searchOpen) closeSearch()
     else { setSearchOpen(true); setTimeout(() => searchInputRef.current?.focus(), 0) }
+  }, [searchOpen, closeSearch])
+  // Another session has another history: the search does not carry over.
+  const onSelect = useCallback((key: string) => {
+    if (searchOpen) closeSearch()
+    setActive(key)
+    setDrawerOpen(false)
   }, [searchOpen, closeSearch])
   const clearTerminal = useCallback(() => {
     forEachActiveSession((el) => {
@@ -338,7 +376,9 @@ export default function TerminalPage() {
 
   useEffect(() => {
     const handler = (e: KeyboardEvent) => {
-      if ((e.ctrlKey || e.metaKey) && e.key === 'f') {
+      // Ctrl+Shift+F and ⌘F from anywhere (the terminal leaves them to this
+      // handler); plain Ctrl+F from anywhere but the terminal, whose key it is.
+      if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'f') {
         e.preventDefault()
         setSearchOpen(true)
         setTimeout(() => searchInputRef.current?.focus(), 0)
@@ -354,7 +394,16 @@ export default function TerminalPage() {
     onSelect, onNew, onReattach, onRename, onAction,
     onOpenTools: () => { setDrawerOpen(false); setToolsOpenBoth(true) },
   }
-  const search = { open: searchOpen, query: searchQuery, inputRef: searchInputRef, onToggle: toggleSearch, onQuery: handleSearch, onNext: handleSearchNext, onPrev: handleSearchPrev, onClose: closeSearch }
+  const searchStatus = !searchQuery || !searchOutcome ? ''
+    : !searchOutcome.found ? t('terminal.searchNone')
+    : !searchCount || searchCount.count === 0 ? ''
+    : searchCount.index < 0 ? String(searchCount.count)
+    : `${searchCount.index + 1}/${searchCount.count}`
+  const search = {
+    open: searchOpen, query: searchQuery, inputRef: searchInputRef, status: searchStatus,
+    hint: searchQuery && searchOutcome?.scope === 'screen' ? t('terminal.searchScreenOnly') : '',
+    onToggle: toggleSearch, onQuery: handleSearch, onNext: handleSearchNext, onPrev: handleSearchPrev, onClose: closeSearch,
+  }
   const shownAccount = account || tools?.panel_account || ''
 
   return (
@@ -380,7 +429,8 @@ export default function TerminalPage() {
           {activeItem?.kind !== 'pty' && (
             <SessionPane session={activeItem?.kind === 'tmux' ? activeItem.session : null} fallback={fallback} fontSize={fontSize}
               touchScroll={tools?.touch_scroll === true}
-              touchHistory={tools?.touch_history === true} onNew={onNew}
+              touchHistory={tools?.touch_history === true}
+              attachLatest={tools?.attach_latest === true} onNew={onNew}
               onRestart={(s) => { void onAction('restart', { kind: 'tmux', id: s.id, session: s }) }}
               onRemoveEnded={(s) => { void onAction('removeEnded', { kind: 'tmux', id: s.id, session: s }) }} />
           )}

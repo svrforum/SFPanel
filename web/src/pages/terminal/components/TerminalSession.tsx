@@ -13,6 +13,7 @@ import { attachLongPress } from '@/lib/longPress'
 import { openTerminalLink } from '@/lib/terminalLinks'
 import { SELECT_TEXT_EVENT } from '@/lib/terminalText'
 import { DEFAULT_FONT_SIZE, FONT_SIZE_EVENT, GRID_EVENT, attachPinch } from '@/lib/terminalFont'
+import { SEARCH_RESULTS_EVENT, searchOptions, type SearchDirection, type SearchOutcome } from '@/lib/terminalSearch'
 import { decodeOsc52 } from '@/lib/osc52'
 import { cellBefore, lineAt, rangeBetween, spanEnd, wordAt, type CellPos, type TextSpan } from '@/lib/terminalWord'
 import { TerminalSelection, type HandleEnd, type Point } from './TerminalSelection'
@@ -98,6 +99,11 @@ export interface TerminalSessionElement extends HTMLElement {
   __scrollLines?: (lines: number) => void
   /** back to the live screen from the history view */
   __latest?: () => void
+  /** finds the query in the session's history — a tmux session's through the
+   *  history view, opened over the live screen — or on its screen alone */
+  __search?: (query: string, direction: SearchDirection) => Promise<SearchOutcome>
+  /** the search is over: its marks go, and the view it opened */
+  __searchEnd?: () => void
 }
 
 // The terminal's text grid on screen: where it starts and one cell's size.
@@ -140,6 +146,7 @@ export function TerminalSession({
   tmux = false,
   touchScroll = false,
   touchHistory = false,
+  attachLatest = false,
 }: {
   sessionId: string
   active: boolean
@@ -155,6 +162,9 @@ export function TerminalSession({
   touchScroll?: boolean
   /** The panel serves the history view's copy (GET /ai/tools touch_history). */
   touchHistory?: boolean
+  /** The attach takes the latest frame (GET /ai/tools attach_latest): out of
+   *  tmux's copy mode. A panel without it would type the frame into the session. */
+  attachLatest?: boolean
 }) {
   const containerRef = useRef<HTMLDivElement>(null)
   const termRef = useRef<XTerm | null>(null)
@@ -165,6 +175,8 @@ export function TerminalSession({
   useEffect(() => { touchScrollRef.current = touchScroll }, [touchScroll])
   const touchHistoryRef = useRef(touchHistory)
   useEffect(() => { touchHistoryRef.current = touchHistory }, [touchHistory])
+  const attachLatestRef = useRef(attachLatest)
+  useEffect(() => { attachLatestRef.current = attachLatest }, [attachLatest])
   // Only the session on screen says what its grid is (GRID_EVENT).
   const activeRef = useRef(active)
   useEffect(() => { activeRef.current = active }, [active])
@@ -279,6 +291,10 @@ export function TerminalSession({
       if (activeRef.current) window.dispatchEvent(new CustomEvent(GRID_EVENT, { detail: { cols: term.cols, rows: term.rows } }))
     }
     announceGrid()
+    const announceResults = (index: number, count: number) => {
+      if (activeRef.current) window.dispatchEvent(new CustomEvent(SEARCH_RESULTS_EVENT, { detail: { index, count } }))
+    }
+    const liveResults = searchAddon.onDidChangeResults(({ resultIndex, resultCount }) => announceResults(resultIndex, resultCount))
 
     // Time-debounced fit. The mobile soft keyboard fires a BURST of viewport
     // resizes across its open/close animation; fitting on each one churns the
@@ -286,6 +302,11 @@ export function TerminalSession({
     // keyboard). Instead, fit once ~140ms after the size settles, skip it when
     // the dimensions didn't actually change, and anchor to the bottom so no gap
     // shows above the prompt.
+    // xterm's own scrollLines. term.scrollLines is replaced further down to
+    // hear a move to the latest output from outside this component; the fit's
+    // anchoring is not one, and must not take a pane out of tmux's copy mode
+    // every time the keyboard opens.
+    const scrollTermLines = term.scrollLines.bind(term)
     let fitTimer = 0
     const safeFit = () => {
       clearTimeout(fitTimer)
@@ -295,7 +316,7 @@ export function TerminalSession({
           if (dims && (dims.rows !== term.rows || dims.cols !== term.cols)) {
             const wasAtBottom = term.buffer.active.viewportY >= term.buffer.active.baseY
             fitAddon.fit()
-            if (wasAtBottom) requestAnimationFrame(() => { if (termRef.current === term) term.scrollLines(term.buffer.active.length) })
+            if (wasAtBottom) requestAnimationFrame(() => { if (termRef.current === term) scrollTermLines(term.buffer.active.length) })
           }
         } catch { /* container not laid out yet */ }
       }, 140)
@@ -342,8 +363,13 @@ export function TerminalSession({
     // DOM selection exists for the browser to copy. Plain Ctrl+C must stay
     // SIGINT, hence the Shift variant every terminal emulator uses.
     term.attachCustomKeyEventHandler((e) => {
-      if (e.type !== 'keydown' || !e.ctrlKey || !e.shiftKey) return true
       const key = e.key.toLowerCase()
+      // The page's search (Terminal.tsx hears it on the window): Ctrl+Shift+F
+      // as in a terminal emulator, ⌘F on a Mac. xterm must not take the key,
+      // or it never gets there. Plain Ctrl+F stays the program's — a page
+      // down in vim and less — as it always reached it from here.
+      if (key === 'f' && (e.metaKey || (e.ctrlKey && e.shiftKey))) return false
+      if (e.type !== 'keydown' || !e.ctrlKey || !e.shiftKey) return true
       if (key === 'c') {
         const selection = term.getSelection()
         if (!selection) return true
@@ -414,6 +440,16 @@ export function TerminalSession({
     // wait a round trip at every gesture: 'tmux' sends the lines at once and
     // asks again behind them.
     let pane: 'history' | 'tmux' | null = null
+    // The search in progress, for a resize to restore: it closes the view the
+    // copy was laid out in — the keyboard a phone raises for the search box
+    // does, right after the first match showed. research is the search
+    // itself, defined further down with the rest of it.
+    let searching: string | null = null
+    let researchTimer = 0
+    let research: (query: string) => void = () => {}
+    // The view is a search's: it stays open at the bottom of the history,
+    // where a gesture's would close, until the search ends.
+    let searchPinned = false
     const closeView = () => {
       // A copy still on its way would open over whatever came after.
       load++
@@ -421,6 +457,7 @@ export function TerminalSession({
       heldPx = 0
       heldLines = 0
       if (gesture === 'loading') gesture = 'idle'
+      searchPinned = false
       if (!view) return
       view.close()
       view = null
@@ -451,8 +488,19 @@ export function TerminalSession({
     })
     const onResizeDisposable = term.onResize(({ cols, rows }) => {
       announceGrid()
-      // The copy was laid out for the old size.
+      // The copy was laid out for the old size. A search's view comes back
+      // once the size has settled; one the operator had already left (a tap,
+      // to type — which is what raised the keyboard) does not.
+      const restore = searchPinned || researchTimer !== 0
       closeView()
+      clearTimeout(researchTimer)
+      researchTimer = 0
+      if (restore && searching !== null) {
+        researchTimer = window.setTimeout(() => {
+          researchTimer = 0
+          if (searching !== null) research(searching)
+        }, 250)
+      }
       const sock = wsRef.current
       if (sock && sock.readyState === WebSocket.OPEN) {
         send(sock, JSON.stringify({ type: 'resize', cols, rows }))
@@ -612,7 +660,7 @@ export function TerminalSession({
       view = openHistoryView(container, term, text, () => {
         closeView()
         term.focus()
-      })
+      }, announceResults)
       setHistoryOpen(true)
     }
     // Asks for the copy. What it answers decides the gesture still loading,
@@ -650,7 +698,7 @@ export function TerminalSession({
         heldPx = 0
         heldLines = 0
         if (still) gesture = 'view'
-        else if (view?.offset() === 0) closeView()
+        else if (view?.offset() === 0 && !searchPinned) closeView()
       }).catch(() => {
         if (disposed || mine !== load) return
         loading = false
@@ -662,7 +710,7 @@ export function TerminalSession({
       if (gesture === 'view') {
         // A fling that brings the view back to the bottom is back on the live
         // screen at once; the rest of it has nowhere to go.
-        if (view && view.move(px) === 0 && flinging && px > 0) closeView()
+        if (view && view.move(px) === 0 && flinging && px > 0 && !searchPinned) closeView()
         return true
       }
       if (gesture === 'loading') {
@@ -704,7 +752,7 @@ export function TerminalSession({
     // Back at the bottom when the finger lifts, or a fling comes to rest, is
     // back on the live screen.
     const settleGesture = () => {
-      if (gesture !== 'loading' && view?.offset() === 0) closeView()
+      if (gesture !== 'loading' && view?.offset() === 0 && !searchPinned) closeView()
       gesture = 'idle'
     }
     const detachTouch = container
@@ -741,6 +789,76 @@ export function TerminalSession({
           },
         })
       : () => {}
+    // Search. xterm holds one screen of a tmux session — tmux draws into the
+    // alternate buffer — so its own search found only what was showing. The
+    // history is searched in the history view's copy instead, opened over the
+    // live screen for it. Where there is no copy (a program in the alternate
+    // screen keeps its history to itself; a panel without the route) the
+    // screen is all there is, and the outcome says so.
+    let askedOnScreen = ''
+    const findOnScreen = (query: string, direction: SearchDirection) => {
+      // A new query starts from the newest output (see HistoryView.search).
+      if (query !== askedOnScreen) {
+        askedOnScreen = query
+        term.clearSelection()
+      }
+      return direction === 'newer' ? searchAddon.findNext(query, searchOptions()) : searchAddon.findPrevious(query, searchOptions())
+    }
+    const copyForSearch = async (): Promise<void> => {
+      const mine = ++load // a gesture's copy still on its way is dropped
+      loading = false
+      heldPx = 0
+      heldLines = 0
+      if (gesture === 'loading') gesture = 'idle'
+      const later = (ms: number) => new Promise((done) => setTimeout(done, ms))
+      for (let attempt = 0; attempt < 3; attempt++) {
+        let copy: Awaited<ReturnType<typeof api.getAISessionScrollback>>
+        try { copy = await api.getAISessionScrollback(sessionId) } catch { return }
+        if (disposed || mine !== load) return
+        const sock = wsRef.current
+        const fits = copy.cols === term.cols && copy.rows === term.rows
+        if (!copy.alternate && !copy.copy_mode && fits) {
+          pane = 'history'
+          openView(copy.text ?? '')
+          return
+        }
+        // Scrolled back through tmux: the search takes the view to its
+        // matches, so the pane's own place is given up for the copy.
+        if (copy.copy_mode && attachLatestRef.current && sock && sock.readyState === WebSocket.OPEN) send(sock, JSON.stringify({ type: 'latest' }))
+        // The alternate screen does not pass; a pane still taking the page's
+        // new size, or leaving copy mode, does in a moment.
+        else if (copy.alternate || fits) break
+        if (attempt === 2) break
+        await later(200)
+        if (disposed || mine !== load) return
+      }
+      pane = 'tmux'
+    }
+    let copying: Promise<void> | null = null
+    const search = async (query: string, direction: SearchDirection): Promise<SearchOutcome> => {
+      searching = query
+      // A temporary shell's history is xterm's own, until a program takes the alternate screen.
+      if (!tmux) return { found: findOnScreen(query, direction), scope: term.buffer.active.type === 'alternate' ? 'screen' : 'history' }
+      if (!view && touchHistoryRef.current) {
+        copying ??= copyForSearch().finally(() => { copying = null })
+        await copying
+      }
+      if (disposed) return { found: false, scope: 'screen' }
+      if (!view) return { found: findOnScreen(query, direction), scope: 'screen' }
+      searchPinned = true
+      searchAddon.clearDecorations()
+      return { found: await view.search(query, direction), scope: 'history' }
+    }
+    research = (query) => { void search(query, 'older') }
+    const searchEnd = () => {
+      askedOnScreen = ''
+      searching = null
+      clearTimeout(researchTimer)
+      researchTimer = 0
+      searchAddon.clearDecorations()
+      term.clearSelection()
+      if (searchPinned) closeView()
+    }
     if (container) {
       // The key bar's page buttons, as one gesture of a page's pixels.
       (container as TerminalSessionElement).__scrollLines = (lines: number) => {
@@ -749,6 +867,8 @@ export function TerminalSession({
         settleGesture()
       }
       (container as TerminalSessionElement).__latest = closeView
+      ;(container as TerminalSessionElement).__search = search
+      ;(container as TerminalSessionElement).__searchEnd = searchEnd
     }
     // Typing is for the live screen: the textarea's own events, because xterm's
     // onData also carries the terminal's answers to tmux's queries. In the
@@ -758,11 +878,18 @@ export function TerminalSession({
     const onType = () => closeView()
     const typing = ['keydown', 'beforeinput', 'paste', 'compositionstart'] as const
     typing.forEach((type) => textarea?.addEventListener(type, onType, true))
-    // The Android app's "맨 아래로" calls scrollLines on this terminal directly;
-    // a move towards the latest output leaves the history view too.
-    const scrollTermLines = term.scrollLines.bind(term)
+    // The key bar's "latest output" and the Android app's "맨 아래로" call
+    // scrollLines on this terminal directly: a move towards the latest output
+    // leaves the history view, and one of the whole buffer's length — what
+    // both pass — leaves tmux's copy mode too, where a pane scrolled back
+    // through tmux is and xterm has nothing to move. The frame goes only to a
+    // panel that takes it; an older one would type it into the session.
     term.scrollLines = (amount: number) => {
       if (amount > 0) closeView()
+      const sock = wsRef.current
+      if (tmux && attachLatestRef.current && amount >= term.buffer.active.length && sock && sock.readyState === WebSocket.OPEN) {
+        send(sock, JSON.stringify({ type: 'latest' }))
+      }
       scrollTermLines(amount)
     }
     // A paste — the menu's, the Android app's composed prompt — reaches the
@@ -811,9 +938,13 @@ export function TerminalSession({
       if (container) {
         delete (container as TerminalSessionElement).__scrollLines
         delete (container as TerminalSessionElement).__latest
+        delete (container as TerminalSessionElement).__search
+        delete (container as TerminalSessionElement).__searchEnd
       }
       detachLongPress()
       detachPinch()
+      clearTimeout(researchTimer)
+      liveResults.dispose()
       rightButtonEvents.forEach((type) => container?.removeEventListener(type, keepRightButton, true))
       container?.removeEventListener('contextmenu', onContextMenu)
       container?.removeEventListener('focusin', onFocusIn)

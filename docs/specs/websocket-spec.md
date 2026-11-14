@@ -475,7 +475,7 @@ redis-1  | 1:M 10 Apr 2026 10:23:46.123 * Ready to accept connections\n
 | **용도** | 패널이 관리하는 tmux 세션(Claude/Codex/Gemini/셸)에 브라우저를 붙인다 |
 | **인증** | `?ticket=` (또는 루프백 한정 `?token=`) — `/ws/terminal`과 동일한 `auth.AuthenticateWSUpgrade` |
 | **통신 방향** | 양방향 |
-| **메시지 타입** | Binary (출력·입력, 터치 스크롤의 표시+휠 보고 포함), Text (`{"type":"resize"}` 및 안내 문구) |
+| **메시지 타입** | Binary (출력·입력, 터치 스크롤의 표시+휠 보고 포함), Text (`{"type":"resize"}`, `{"type":"latest"}` 및 안내 문구) |
 | **사용 페이지** | `Terminal.tsx` (`SessionPane` → `TerminalSession wsPath="/ws/ai/attach"`) |
 | **라우트 등록** | `e.GET("/ws/ai/attach", cluster.WrapEchoWSHandler(...))` |
 
@@ -493,6 +493,10 @@ redis-1  | 1:M 10 Apr 2026 10:23:46.123 * Ready to accept connections\n
 **터치 스크롤:** `GET /api/v1/ai/tools`의 `touch_scroll`이 `true`면 페이지는 손가락이 지난 줄마다 SGR 휠 보고 두 개를 붙여 Binary로 보낸다 — Shift를 누른 휠(`ESC [<68;열;행M` 위로 / `69` 아래로) 다음에 평범한 휠(`64` / `65`). attach가 묶은 바인딩(`touchScrollCommands`, `internal/feature/ai/testdata/touch_scroll_bindings.json`)에서, 복사 모드이거나 휠을 직접 받는 프로그램이 없는 패인이면 Shift 휠이 복사 모드를 한 줄 움직이고(처음이면 `copy-mode -e`로 들어가며 한 줄) 뒤의 평범한 휠은 패인만 고르는 테이블에서 소비된다. 휠을 직접 받는 프로그램(alternate screen 또는 마우스 모드, 예: Codex)이면 Shift 휠은 아무 일도 하지 않고 평범한 휠이 마우스에서 온 것처럼 넘어간다 — 한 줄에 보고 하나, 얼마나 움직일지는 프로그램이 정한다(Codex 한 행, vim 세 줄). 데스크톱 xterm.js는 Shift 휠을 보내지 않으므로 마우스 휠은 tmux 기본 그대로(복사 모드 5줄)다. 키가 아니라 마우스 이벤트인 이유: tmux는 빠르게 몰려 온 키를 붙여넣기로 보고 바인딩을 건너뛰는데 드래그의 쌍은 몰려서 온다. 그 감지를 끄면(`assume-paste-time 0`) 복사 모드로 올려 둔 패인에 붙여넣은 글이 복사 모드 바인딩을 거쳐(Space가 페이지를 내리다 맨 아래에서 빠져나감) 나머지가 셸에서 실행됐다. 쌍은 항상 한 번에 보낸다: Shift 휠 뒤의 키가 그 테이블에 없으면 tmux가 그 키를 버린다.
 
 **기록 보기:** `touch_history`도 `true`면 기록 쪽으로 끄는 손가락은 위의 쌍 대신 페이지가 직접 스크롤하는 사본으로 간다 — `GET /api/v1/ai/sessions/:id/scrollback`의 사본을 읽기 전용 xterm으로 라이브 화면 위에 정확히 겹쳐 열고, 픽셀 단위로 움직인다(관성 포함). 이 동안 WebSocket에는 아무것도 보내지 않는다. pane이 대체 화면·복사 모드이거나 크기가 페이지와 다르면 사본이 없으므로 그 몸짓은 위의 쌍으로 간다. 맨 아래로 돌아오거나, 탭·입력(키보드, 키 막대·앱이 `__wsRef`로 보내는 키, 붙여넣기)·크기 변경·연결 끊김·↓ 버튼이 있으면 사본을 닫고 라이브 화면으로 돌아간다 — 입력은 라이브 화면을 위한 것이다.
+
+**최신 출력:** `GET /api/v1/ai/tools`의 `attach_latest`가 `true`면 페이지는 "최신 출력"(웹 키 막대, Android 앱의 "맨 아래로" — 둘 다 터미널의 `scrollLines`를 버퍼 길이만큼 부른다)에서 Text 프레임 `{"type":"latest"}`를 보낸다. 서버는 tmux 명령 하나(`if-shell -F -t <id> '#{pane_in_mode}' 'send-keys -X -t <id> cancel'`)로 pane이 복사 모드일 때만 거기서 나오게 한다 — tmux를 거쳐 뒤로 스크롤한 pane은 복사 모드에 있고, 대체 화면만 가진 xterm에는 움직일 것이 없다. 복사 모드가 아닌 pane에는 아무것도 보내지 않는다(무조건 보내는 `q`·Esc는 프로그램의 키가 된다). HTTP 라우트가 아닌 이유는 스크롤 버튼을 누를 때마다 감사 로그 행이 생기기 때문이다. 키보드가 열리며 생기는 크기 변경은 이 프레임을 보내지 않는다. 검색이 사본을 요청했는데 pane이 복사 모드면 같은 프레임을 보내고 다시 요청한다.
+
+**검색:** tmux 세션에서 xterm이 가진 것은 화면 한 장뿐이라(대체 화면), 검색은 위 기록 보기의 사본에서 찾는다 — 사본을 라이브 화면 위에 열고 일치하는 줄을 가운데로 가져온다. WebSocket에는 아무것도 보내지 않는다. 사본이 없으면(대체 화면 프로그램, `touch_history` 없는 패널) 보이는 화면에서만 찾고 페이지가 그렇게 표시한다.
 
 **세션 유지:** 서버 측 세션 객체나 스크롤백 링버퍼는 없다 — tmux가 세션이다. 페이지는 활성 탭 하나에만 소켓을 연다(백그라운드 탭의 벨 플래그가 유지되도록, 그리고 페이지당 프로세스 하나).
 

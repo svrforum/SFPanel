@@ -2474,7 +2474,9 @@
     },
     "fontSize": "글자 크기",
     "cols": "{{n}}칸",
-    "fontPreview": "{{size}}px · {{cols}}칸"
+    "fontPreview": "{{size}}px · {{cols}}칸",
+    "searchNone": "결과 없음",
+    "searchScreenOnly": "보이는 화면에서만 찾습니다"
   },
   "ai": {
     "account": "실행 계정",

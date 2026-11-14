@@ -6,6 +6,25 @@ The format is loosely based on [Keep a Changelog](https://keepachangelog.com/), 
 
 ---
 
+## [Unreleased]
+
+### Added
+
+- **Search reaches a tmux session's history.** The terminal's search found only what was on screen: the browser holds one screen of a tmux session, and that is all it looked through. It now searches the session's history — the copy the history view scrolls — opens it over the live screen with the match in the middle, marks every match and counts them (`3/17`). Enter goes to the older match, Shift+Enter to the newer. A program in the alternate screen keeps its history to itself; there the search covers the screen and says so.
+- **Pinch to change the font size.** Two fingers on the terminal preview the size as they move and apply it when they lift, so the session is resized once. On a phone the session menu steps the size in a row that stays open and shows how many columns it comes to. The smallest size is 8px, down from 10: 80 columns on an upright phone.
+- **Focus, on a desktop.** A button in the session header gives the app sidebar's width to the terminal. It applies to the terminal page only and is remembered.
+
+### Fixed
+
+- **A phone held sideways and a tablet get the phone layout.** From 768px of width the terminal page used its desktop layout whatever the device, so the app sidebar and the session list stayed and left the terminal 42 columns on a phone held sideways and 30 on a tablet, with no key bar for a touch keyboard. A touch device now gets the sessions in a drawer, the key bar, and the whole width: about 100 and 90 columns. Sideways, the key bar is one row.
+- **"Latest output" returns from tmux's copy mode.** A session scrolled back through tmux — a Claude Code session, any program in the alternate screen — stayed where it was when the key bar's Latest output, or the Android app's own button, was pressed. The attach now takes a `{"type":"latest"}` frame and leaves copy mode; `GET /api/v1/ai/tools` reports it as `attach_latest`.
+- **Ctrl+Shift+F opens the search from the terminal** (⌘F on a Mac). The search key did nothing while the terminal had the keyboard, which is when it is wanted: the terminal took Ctrl+F for the program in it. Plain Ctrl+F stays the program's key — a page down in vim and less.
+- **The search bar no longer resizes the terminal.** It was a row of the header, so opening it redrew whatever ran in the session; it floats over the pane's corner now.
+
+### Changed
+
+- **The Dashboard button left the key bar** for the foot of the session drawer. It sat among the keys, one stray tap from leaving the terminal.
+
 ## [0.84.1] – 2026-11-14
 
 ### Security

@@ -13,6 +13,7 @@ export function SessionPane({
   fontSize,
   touchScroll,
   touchHistory,
+  attachLatest,
   onNew,
   onRestart,
   onRemoveEnded,
@@ -25,6 +26,8 @@ export function SessionPane({
   touchScroll?: boolean
   /** GET /ai/tools touch_history, for its history view */
   touchHistory?: boolean
+  /** GET /ai/tools attach_latest, for leaving tmux's copy mode */
+  attachLatest?: boolean
   onNew: () => void
   onRestart: (s: AISession) => void
   onRemoveEnded: (s: AISession) => void
@@ -76,6 +79,7 @@ export function SessionPane({
       tmux
       touchScroll={touchScroll}
       touchHistory={touchHistory}
+      attachLatest={attachLatest}
     />
   )
 }

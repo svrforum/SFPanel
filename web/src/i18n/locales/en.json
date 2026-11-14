@@ -2485,7 +2485,9 @@
     },
     "fontSize": "Font size",
     "cols": "{{n}} columns",
-    "fontPreview": "{{size}}px · {{cols}} columns"
+    "fontPreview": "{{size}}px · {{cols}} columns",
+    "searchNone": "No results",
+    "searchScreenOnly": "Searching the visible screen only"
   },
   "ai": {
     "account": "Run as",

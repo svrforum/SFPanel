@@ -402,6 +402,7 @@ func TestTools_TouchScrollSaysTheAttachBindsIt(t *testing.T) {
 		Data struct {
 			TouchScroll  bool `json:"touch_scroll"`
 			TouchHistory bool `json:"touch_history"`
+			AttachLatest bool `json:"attach_latest"`
 		} `json:"data"`
 	}
 	if err := json.Unmarshal(rec.Body.Bytes(), &env); err != nil {
@@ -421,5 +422,8 @@ func TestTools_TouchScrollSaysTheAttachBindsIt(t *testing.T) {
 	}
 	if !env.Data.TouchHistory {
 		t.Error("touch_history must be true: the page asks this panel for the scrollback copy only then")
+	}
+	if !env.Data.AttachLatest {
+		t.Error("attach_latest must be true: the page sends the latest frame to this panel only then")
 	}
 }

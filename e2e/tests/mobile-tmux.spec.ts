@@ -18,8 +18,10 @@ const needsTmux = () => test.skip(spawnSync('tmux', ['-V']).status !== 0 || spaw
 // does, and the scrollback route copies the fixture's own pane the way the
 // panel's endpoint does (GET /ai/sessions/:id/scrollback); without, this is a
 // panel from before touch scrolling.
-async function openTerminal(page: Page, peers: ChildProcess[], dirs: string[], { touch, cmd, android, scrollback, numbered = true }: {
+async function openTerminal(page: Page, peers: ChildProcess[], dirs: string[], { touch, cmd, android, scrollback, numbered = true, latest = true }: {
   touch?: boolean; cmd?: string; android: boolean
+  /** the panel takes the latest frame (GET /ai/tools attach_latest); false: a panel from before it */
+  latest?: boolean
   /** the pane prints the numbers 1-300 (else: anything on its first row) */
   numbered?: boolean
   /** stands in for the endpoint: how long it takes, or that it fails */
@@ -27,6 +29,8 @@ async function openTerminal(page: Page, peers: ChildProcess[], dirs: string[], {
 }) {
   const dir = mkdtempSync(join(tmpdir(), 'sfp-touch-'))
   dirs.push(dir)
+  // The control frames the page sent, other than resizes.
+  const frames: string[] = []
   const tmux = (...args: string[]) => spawnSync('tmux', ['-S', join(dir, 'socket'), ...args]).stdout?.toString() ?? ''
   await page.addInitScript(() => {
     sessionStorage.setItem('token', 'fixture-token')
@@ -39,7 +43,7 @@ async function openTerminal(page: Page, peers: ChildProcess[], dirs: string[], {
     else if (path.endsWith('/auth/ws-ticket')) data = { ticket: 'fixture-ticket' }
     else if (path.endsWith('/cluster/status')) data = { enabled: false }
     else if (path.endsWith('/ai/sessions')) data = [{ id: 'abcdef123456', title: 'History test', tool: 'codex', run_as: 'tester', cwd: '/tmp', state: 'working', persistence: 'service', attached: true }]
-    else if (path.endsWith('/ai/tools')) data = { tmux: { installed: true, supported: true, version: '3.4', min_version: '3.2' }, systemd_run: true, accounts: ['tester'], panel_account: 'tester', account: 'tester', tools: {}, ...(touch ? { touch_scroll: true, touch_history: true } : {}) }
+    else if (path.endsWith('/ai/tools')) data = { tmux: { installed: true, supported: true, version: '3.4', min_version: '3.2' }, systemd_run: true, accounts: ['tester'], panel_account: 'tester', account: 'tester', tools: {}, ...(touch ? { touch_scroll: true, touch_history: true } : {}), ...(touch && latest ? { attach_latest: true } : {}) }
     else if (path.endsWith('/scrollback')) {
       if (scrollback?.delayMs) await new Promise(done => setTimeout(done, scrollback.delayMs))
       if (scrollback?.fail) {
@@ -64,8 +68,18 @@ async function openTerminal(page: Page, peers: ChildProcess[], dirs: string[], {
     peer.stdout.on('data', chunk => socket.send(chunk))
     socket.onMessage(message => {
       const text = message.toString()
-      const value = text.startsWith('{') && JSON.parse(text).type === 'resize'
-        ? text : JSON.stringify({ input: Buffer.from(message).toString('base64') })
+      let control: { type?: string } = {}
+      if (typeof message === 'string' && text.startsWith('{')) try { control = JSON.parse(text) } catch { /* input */ }
+      if (control.type === 'latest') {
+        frames.push('latest')
+        // As the panel answers it (internal/feature/ai/attach.go leaveCopyMode);
+        // a panel from before it writes the frame into the session as text.
+        if (latest) {
+          tmux('if-shell', '-F', '-t', 'test', '#{pane_in_mode}', 'send-keys -X -t test cancel')
+          return
+        }
+      }
+      const value = control.type === 'resize' ? text : JSON.stringify({ input: Buffer.from(message).toString('base64') })
       peer.stdin.write(value + '\n')
     })
     socket.onClose(() => peer.kill())
@@ -116,7 +130,7 @@ async function openTerminal(page: Page, peers: ChildProcess[], dirs: string[], {
     const t = (el as any).__termRef.current
     return { cell: el.querySelector('.xterm-screen')!.clientHeight / t.rows, rows: t.rows }
   })
-  return { terminal, firstLine, pagerStatus, view, ...geometry }
+  return { terminal, firstLine, pagerStatus, view, tmux, frames, ...geometry }
 }
 
 // A finger dragged by dy px in steps of `step` px, a 16 ms frame apart by the
@@ -482,4 +496,192 @@ test('a program in the alternate screen waits for the copy only once', async ({ 
   } finally {
     cleanup(peers, dirs)
   }
+})
+
+// --- Latest output, in a session whose history lives in tmux ---------------
+
+const paneMode = (tmux: (...args: string[]) => string) => tmux('display-message', '-p', '-t', 'test', '#{pane_in_mode}').trim()
+
+// With no copy to be had a drag scrolls through tmux, which puts the pane in
+// copy mode: where "latest output" had nothing to move.
+async function scrollBackThroughTmux(page: Page, opened: Awaited<ReturnType<typeof openTerminal>>) {
+  const box = (await opened.terminal.boundingBox())!
+  const client = await page.context().newCDPSession(page)
+  await drag(page, client, box.x + box.width / 2, box.y + box.height * 0.3, 6 * opened.cell, 8)
+  await client.detach()
+  await expect.poll(() => paneMode(opened.tmux)).toBe('1')
+}
+
+test('the latest button brings a pane back from tmux copy mode', async ({ page }) => {
+  needsTmux()
+  const peers: ChildProcess[] = [], dirs: string[] = []
+  try {
+    const opened = await openTerminal(page, peers, dirs, { touch: true, android: false, scrollback: { fail: true } })
+    const live = await opened.firstLine()
+    await scrollBackThroughTmux(page, opened)
+    await expect.poll(opened.firstLine).toBeLessThan(live)
+    await page.locator('[data-mobile-terminal-bar]').getByRole('button', { name: 'Latest output' }).tap()
+    await expect.poll(() => paneMode(opened.tmux)).toBe('0')
+    await expect.poll(opened.firstLine).toBe(live)
+  } finally {
+    cleanup(peers, dirs)
+  }
+})
+
+test('the app\'s own latest button does too', async ({ page }) => {
+  needsTmux()
+  const peers: ChildProcess[] = [], dirs: string[] = []
+  try {
+    const opened = await openTerminal(page, peers, dirs, { touch: true, android: true, scrollback: { fail: true } })
+    await scrollBackThroughTmux(page, opened)
+    // MainActivity.scroll(0), as the app evaluates it.
+    await opened.terminal.evaluate(el => {
+      const e = el as any, t = e.__termRef.current
+      e.__fitAddon?.fit()
+      requestAnimationFrame(() => t.scrollLines(t.buffer.active.length))
+    })
+    await expect.poll(() => paneMode(opened.tmux)).toBe('0')
+  } finally {
+    cleanup(peers, dirs)
+  }
+})
+
+test('a panel from before the latest frame is not sent it', async ({ page }) => {
+  needsTmux()
+  const peers: ChildProcess[] = [], dirs: string[] = []
+  try {
+    const opened = await openTerminal(page, peers, dirs, { touch: true, android: false, scrollback: { fail: true }, latest: false })
+    await scrollBackThroughTmux(page, opened)
+    await page.locator('[data-mobile-terminal-bar]').getByRole('button', { name: 'Latest output' }).tap()
+    await page.waitForTimeout(500)
+    // That panel would write the frame into the session as text.
+    expect(opened.frames).toEqual([])
+  } finally {
+    cleanup(peers, dirs)
+  }
+})
+
+test('the keyboard opening leaves a pane scrolled back where it is', async ({ page }) => {
+  needsTmux()
+  const peers: ChildProcess[] = [], dirs: string[] = []
+  try {
+    const opened = await openTerminal(page, peers, dirs, { touch: true, android: false, scrollback: { fail: true } })
+    await scrollBackThroughTmux(page, opened)
+    // The fit that follows a resize anchors the terminal to its end with the
+    // same scroll the latest buttons make; it is not one of them.
+    await page.setViewportSize({ width: 412, height: 560 })
+    await expect.poll(() => opened.terminal.evaluate(el => (el as any).__termRef.current.rows as number)).toBeLessThan(opened.rows)
+    await page.waitForTimeout(500)
+    expect(opened.frames).toEqual([])
+    expect(paneMode(opened.tmux)).toBe('1')
+  } finally {
+    cleanup(peers, dirs)
+  }
+})
+
+// --- Search ---------------------------------------------------------------
+
+// The whole rows the history view shows.
+const shownRows = (page: Page) => page.evaluate(() => {
+  const frame = document.querySelector('[data-history-view]') as HTMLElement | null
+  if (!frame || frame.style.visibility === 'hidden') return []
+  const edge = frame.getBoundingClientRect()
+  return [...frame.querySelectorAll('.xterm-rows > div')]
+    .filter(r => { const b = r.getBoundingClientRect(); return b.top >= edge.top - 1 && b.bottom <= edge.bottom + 1 })
+    .map(r => (r.textContent ?? '').trim())
+})
+
+test('a search on a phone outlives the keyboard its box raises', async ({ page }) => {
+  needsTmux()
+  const peers: ChildProcess[] = [], dirs: string[] = []
+  try {
+    const { terminal, rows } = await openTerminal(page, peers, dirs, { touch: true, android: false })
+    await page.locator('[data-session-menu]').tap()
+    await page.getByRole('menuitem', { name: 'Search' }).tap()
+    await page.getByPlaceholder('Search in terminal...').fill('123')
+    await expect.poll(() => shownRows(page)).toContain('123')
+    // The keyboard resizes the terminal, and the view was laid out for the
+    // size before: it closes, and the search brings its match back.
+    await page.setViewportSize({ width: 412, height: 560 })
+    await expect.poll(() => terminal.evaluate(el => (el as any).__termRef.current.rows as number)).toBeLessThan(rows)
+    await expect.poll(() => shownRows(page), { timeout: 8000 }).toContain('123')
+    await expect(page.locator('[data-search-status]')).toHaveText('1/1')
+    // Left with a tap, the view stays away through the next resize: the tap
+    // was to type, and that is what raises the keyboard.
+    await page.locator('[data-history-view]').tap()
+    await expect(page.locator('[data-history-view]')).toHaveCount(0)
+    await page.setViewportSize({ width: 412, height: 700 })
+    await expect.poll(() => terminal.evaluate(el => (el as any).__termRef.current.rows as number)).toBeGreaterThan(30)
+    await page.waitForTimeout(800)
+    await expect(page.locator('[data-history-view]')).toHaveCount(0)
+  } finally {
+    cleanup(peers, dirs)
+  }
+})
+
+test.describe('search on a desktop', () => {
+  test.use({ viewport: { width: 1280, height: 800 }, hasTouch: false, locale: 'en-US' })
+
+  test('finds what has scrolled off a tmux session\'s screen', async ({ page }) => {
+    needsTmux()
+    const peers: ChildProcess[] = [], dirs: string[] = []
+    try {
+      const { terminal, firstLine, view, tmux } = await openTerminal(page, peers, dirs, { touch: true, android: false })
+      // 123 is far above the screen, which is all the browser holds of a tmux session.
+      expect(await firstLine()).toBeGreaterThan(200)
+      await page.keyboard.press('Control+Shift+f')
+      const box = page.getByPlaceholder('Search in terminal...')
+      const status = page.locator('[data-search-status]')
+      await box.fill('123')
+      await expect(status).toHaveText('1/1')
+      // On the screen, not only counted.
+      const shown = () => shownRows(page)
+      await expect.poll(shown).toContain('123')
+      // 25, 125, 225 and 250–259: the newest first, Enter towards the older.
+      await box.fill('25')
+      await expect(status).toHaveText('13/13')
+      await expect.poll(shown).toContain('259')
+      await box.press('Enter')
+      await expect(status).toHaveText('12/13')
+      await box.press('Shift+Enter')
+      await expect(status).toHaveText('13/13')
+      // A mouse has no finger to drag the view with: its wheel moves it.
+      const before = (await view()).offset
+      const at = (await terminal.boundingBox())!
+      await page.mouse.move(at.x + at.width / 2, at.y + at.height / 2)
+      await page.mouse.wheel(0, -240)
+      await expect.poll(async () => (await view()).offset).toBeGreaterThan(before)
+      await box.fill('no such text')
+      await expect(status).toHaveText('No results')
+      // The search read a copy: tmux never left its live screen.
+      expect(paneMode(tmux)).toBe('0')
+      await box.press('Escape')
+      await expect.poll(async () => (await view()).open).toBe(false)
+      await expect(page.locator('[data-history-view]')).toHaveCount(0)
+      // And the keyboard is the terminal's again.
+      await expect.poll(() => page.evaluate(() => document.activeElement?.classList.contains('xterm-helper-textarea'))).toBe(true)
+    } finally {
+      cleanup(peers, dirs)
+    }
+  })
+
+  test('a program in the alternate screen is searched on its screen, and the page says so', async ({ page }) => {
+    needsTmux()
+    const peers: ChildProcess[] = [], dirs: string[] = []
+    try {
+      const { firstLine } = await openTerminal(page, peers, dirs, { touch: true, cmd: PAGER, android: false })
+      const top = await firstLine()
+      await page.keyboard.press('Control+Shift+f')
+      const box = page.getByPlaceholder('Search in terminal...')
+      await box.fill('300')
+      await expect(page.locator('[data-search-status]')).toHaveText('1/1')
+      await expect(page.locator('[data-search-hint]')).toHaveText('Searching the visible screen only')
+      await expect(page.locator('[data-history-view]')).toHaveCount(0)
+      // What the program has scrolled off is its own to show.
+      await box.fill(String(top - 20))
+      await expect(page.locator('[data-search-status]')).toHaveText('No results')
+    } finally {
+      cleanup(peers, dirs)
+    }
+  })
 })

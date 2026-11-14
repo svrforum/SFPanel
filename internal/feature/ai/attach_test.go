@@ -320,3 +320,20 @@ func TestAttachEnv_ANonPanelAccountInheritsNothing(t *testing.T) {
 		t.Errorf("the panel account's client = %q", env)
 	}
 }
+
+// The tmux command, as one invocation: a check and a cancel sent apart could
+// straddle the pane entering or leaving the mode, and the cancel alone is a
+// key to whatever is not in it.
+func TestLeaveCopyModeIsOneConditionalCommand(t *testing.T) {
+	m := exec.NewMockCommander()
+	h := newTestHandler(t, m)
+	h.leaveCopyMode(h.panel, "aaaaaaaaaaaa")
+	if len(m.Calls) != 1 {
+		t.Fatalf("%d commands, want one: %+v", len(m.Calls), m.Calls)
+	}
+	got := strings.Join(m.Calls[0].Args, " ")
+	want := "if-shell -F -t aaaaaaaaaaaa #{pane_in_mode} send-keys -X -t aaaaaaaaaaaa cancel"
+	if !strings.HasSuffix(got, want) {
+		t.Errorf("tmux was run with %q, want it to end %q", got, want)
+	}
+}
