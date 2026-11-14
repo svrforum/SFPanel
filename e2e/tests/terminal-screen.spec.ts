@@ -63,16 +63,14 @@ test.describe('a phone held sideways', () => {
     // 42 before: the app's sidebar and the session rail took 512 of the 915px.
     expect(await t.settledCols()).toBeGreaterThan(95)
   })
-  test('has its keys in one row, which leaves lines to type on with the keyboard up', async ({ page }) => {
+  test('has one row under the terminal, which leaves lines to type on with the keyboard up', async ({ page }) => {
     const t = await openTerminal(page)
-    const groups = keyBar(page).getByRole('group')
-    const [keys, history] = [await groups.nth(0).boundingBox(), await groups.nth(1).boundingBox()]
-    expect(history!.y).toBeLessThan(keys!.y + keys!.height / 2)
-    expect((await keyBar(page).boundingBox())!.height).toBeLessThan(52)
-    // The far end of the row is reachable.
-    await keyBar(page).getByRole('button', { name: 'Ctrl+C' }).scrollIntoViewIfNeeded()
-    await expect(keyBar(page).getByRole('button', { name: 'Ctrl+C' })).toBeInViewport()
-    // What a keyboard leaves of a 412px-high window. Two rows of keys left two lines.
+    // The keys alone: the composer takes their place when asked for
+    // (terminal-input.spec.ts), where both would leave two lines.
+    await expect(keyBar(page).locator('[data-terminal-keys]')).toBeVisible()
+    await expect(keyBar(page).getByRole('textbox')).toBeHidden()
+    expect((await keyBar(page).boundingBox())!.height).toBeLessThan(56)
+    // What a keyboard leaves of a 412px-high window.
     await page.setViewportSize({ width: 915, height: 190 })
     await expect.poll(() => t.terminal.evaluate(el => (el as any).__termRef.current.rows as number)).toBeGreaterThanOrEqual(5)
   })

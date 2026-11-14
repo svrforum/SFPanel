@@ -2365,7 +2365,7 @@
   },
   "terminal": {
     "mobile": {
-      "keys": "터미널 키: 옆으로 스크롤하면 더 많은 키가 있어요",
+      "keys": "터미널 키",
       "history": "출력 기록과 화면 이동",
       "modifier": "다음 키에 {{key}} 조합 켜기 또는 끄기",
       "escape": "이스케이프",
@@ -2381,7 +2381,12 @@
       "end": "엔드",
       "scrollUp": "기록 위로",
       "scrollDown": "기록 아래로",
-      "latest": "최신 출력"
+      "latest": "최신 출력",
+      "shiftTab": "Shift+Tab",
+      "interrupt": "중단 (Ctrl+C)",
+      "endOfInput": "입력 끝 (Ctrl+D)",
+      "suspend": "일시 중지 (Ctrl+Z)",
+      "searchHistory": "명령 기록 검색 (Ctrl+R)"
     },
     "connectingLogs": "컨테이너 로그에 연결 중...",
     "connectingShell": "컨테이너 쉘에 연결 중...",
@@ -2476,7 +2481,20 @@
     "cols": "{{n}}칸",
     "fontPreview": "{{size}}px · {{cols}}칸",
     "searchNone": "결과 없음",
-    "searchScreenOnly": "보이는 화면에서만 찾습니다"
+    "searchScreenOnly": "보이는 화면에서만 찾습니다",
+    "input": {
+      "composer": "작성창",
+      "placeholderAgent": "여기에 쓰고 보내기",
+      "placeholderShell": "명령을 쓰고 보내기",
+      "send": "보내기",
+      "tools": "작성 도구",
+      "sendEnter": "보내기를 누르면 Enter까지 보내기",
+      "recent": "최근 보낸 것",
+      "recentEmpty": "아직 없습니다. 보낸 글이 여기에 쌓입니다.",
+      "compose": "작성",
+      "showKeys": "키 보기",
+      "nextKeys": "다음 키 묶음 ({{page}})"
+    }
   },
   "ai": {
     "account": "실행 계정",

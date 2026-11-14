@@ -2376,7 +2376,7 @@
   },
   "terminal": {
     "mobile": {
-      "keys": "Terminal keys: scroll horizontally for more",
+      "keys": "Terminal keys",
       "history": "Output history and navigation",
       "modifier": "Toggle {{key}} for the next key",
       "escape": "Escape",
@@ -2392,7 +2392,12 @@
       "end": "End",
       "scrollUp": "Scroll up",
       "scrollDown": "Scroll down",
-      "latest": "Latest output"
+      "latest": "Latest output",
+      "shiftTab": "Shift+Tab",
+      "interrupt": "Interrupt (Ctrl+C)",
+      "endOfInput": "End of input (Ctrl+D)",
+      "suspend": "Suspend (Ctrl+Z)",
+      "searchHistory": "Search the command history (Ctrl+R)"
     },
     "connectingLogs": "Connecting to container logs...",
     "connectingShell": "Connecting to container shell...",
@@ -2487,7 +2492,20 @@
     "cols": "{{n}} columns",
     "fontPreview": "{{size}}px · {{cols}} columns",
     "searchNone": "No results",
-    "searchScreenOnly": "Searching the visible screen only"
+    "searchScreenOnly": "Searching the visible screen only",
+    "input": {
+      "composer": "Composer",
+      "placeholderAgent": "Write here, then send",
+      "placeholderShell": "Write a command, then send",
+      "send": "Send",
+      "tools": "Composer tools",
+      "sendEnter": "Send presses Enter too",
+      "recent": "Recently sent",
+      "recentEmpty": "Nothing yet. What you send collects here.",
+      "compose": "Write",
+      "showKeys": "Show the keys",
+      "nextKeys": "Next keys ({{page}})"
+    }
   },
   "ai": {
     "account": "Run as",

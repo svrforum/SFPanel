@@ -38,23 +38,33 @@ for (const path of ['/terminal']) {
       const session = el as HTMLElement & { __wsRef?: { current?: WebSocket } }
       return session.__wsRef?.current?.readyState
     })).toBe(1)
+    // The input area: the session runs Codex, so the keys are an AI CLI's.
     const bar = page.locator('[data-mobile-terminal-bar]')
-    const shift = bar.getByRole('button', { name: 'Toggle shift for the next key' })
+    const keys = bar.locator('[data-terminal-keys]')
+    const nextKeys = bar.getByRole('button', { name: /^Next keys/ })
+    await keys.getByRole('button', { name: 'Shift+Tab', exact: true }).tap()
+    await expect.poll(() => input.at(-1)).toBe('\x1b[Z')
+    // Shift is on the third page and Enter on the first: an armed modifier
+    // waits for its key across pages.
+    await nextKeys.tap()
+    await nextKeys.tap()
+    const shift = keys.getByRole('button', { name: 'Toggle shift for the next key' })
     await shift.tap()
     await expect(shift).toHaveAttribute('aria-pressed', 'true')
-    await bar.getByRole('button', { name: 'Tab', exact: true }).tap()
-    await expect.poll(() => input.at(-1)).toBe('\x1b[Z')
-    await expect(shift).toHaveAttribute('aria-pressed', 'false')
-    await shift.tap()
-    await bar.getByRole('button', { name: 'Enter', exact: true }).tap()
+    await nextKeys.tap()
+    await keys.getByRole('button', { name: 'Enter', exact: true }).tap()
     // A newline, not the CSI-u form of shift+enter: tmux collapses that one to
     // a carriage return, which sends the message the key exists to break.
     await expect.poll(() => input.at(-1)).toBe('\n')
+    await nextKeys.tap()
+    await nextKeys.tap()
+    await expect(shift).toHaveAttribute('aria-pressed', 'false')
 
-    await bar.getByRole('button', { name: 'Toggle ctrl for the next key' }).tap()
+    const ctrl = keys.getByRole('button', { name: 'Toggle ctrl for the next key' })
+    await ctrl.tap()
     await page.keyboard.press('c')
     await expect.poll(() => input.at(-1)).toBe('\x03')
-    await expect(bar.getByRole('button', { name: 'Toggle ctrl for the next key' })).toHaveAttribute('aria-pressed', 'false')
+    await expect(ctrl).toHaveAttribute('aria-pressed', 'false')
 
     await terminal.evaluate(el => {
       const session = el as HTMLElement & { __termRef?: { current?: { write: (s: string) => void } } }
@@ -75,13 +85,15 @@ for (const path of ['/terminal']) {
       return { viewport: b.viewportY, bottom: b.baseY }
     })
     await expect.poll(async () => (await scrollPosition()).bottom).toBeGreaterThan(100)
-    await bar.getByRole('button', { name: 'Scroll up', exact: true }).tap()
+    await swipe(200)
     await expect.poll(async () => { const p = await scrollPosition(); return p.viewport < p.bottom }).toBe(true)
     // Keyboard-sized viewport must preserve the operator's reading position.
     await page.setViewportSize({ width: 412, height: 560 })
     await expect.poll(async () => { const p = await scrollPosition(); return p.viewport < p.bottom }).toBe(true)
-    await bar.getByRole('button', { name: 'Latest output', exact: true }).tap()
+    // Scrolled back, the way to the latest output is on the terminal itself.
+    await page.locator('[data-history-latest]').tap()
     await expect.poll(async () => { const p = await scrollPosition(); return p.viewport === p.bottom }).toBe(true)
+    await expect(page.locator('[data-history-latest]')).toHaveCount(0)
     // A clipping frame must not become an extra scroll container when the
     // WebView brings its focused textarea into view above the keyboard.
     const frame = page.locator('[data-ai-workspace] > .overflow-clip')

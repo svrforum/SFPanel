@@ -97,9 +97,7 @@ export interface TerminalSessionElement extends HTMLElement {
   __fitAddon?: FitAddon
   __termRef?: RefObject<XTerm | null>
   __wsRef?: RefObject<WebSocket | null>
-  /** scrolls by lines, negative back into history, as touch scrolling does */
-  __scrollLines?: (lines: number) => void
-  /** back to the live screen from the history view */
+  /** back to the latest output: out of the history view and of tmux's copy mode */
   __latest?: () => void
   /** finds the query in the session's history — a tmux session's through the
    *  history view, opened over the live screen — or on its screen alone */
@@ -187,7 +185,13 @@ export function TerminalSession({
   const [pinch, setPinch] = useState<{ size: number; cols: number } | null>(null)
   // The history view is open (lib/terminalHistory): the ↓ button shows.
   const [historyOpen, setHistoryOpen] = useState(false)
-  const closeHistoryRef = useRef<() => void>(() => {})
+  // The pane was in tmux's copy mode when last asked (the scrollback's
+  // answer): scrolled back where xterm has nothing to scroll, so the ↓ button
+  // shows for it too.
+  const [paneCopyMode, setPaneCopyMode] = useState(false)
+  // xterm's own buffer is scrolled back (a temporary shell's history is there).
+  const [scrolledUp, setScrolledUp] = useState(false)
+  const latestRef = useRef<() => void>(() => {})
   const fitAddonRef = useRef<FitAddon | null>(null)
   const searchAddonRef = useRef<SearchAddon | null>(null)
   // The long-press selection (null: none), shown with xterm's own highlight.
@@ -296,6 +300,10 @@ export function TerminalSession({
     const announceResults = (index: number, count: number) => {
       if (activeRef.current) window.dispatchEvent(new CustomEvent(SEARCH_RESULTS_EVENT, { detail: { index, count } }))
     }
+    const liveScroll = term.onScroll(() => {
+      const b = term.buffer.active
+      setScrolledUp(b.type === 'normal' && b.viewportY < b.baseY)
+    })
     const liveResults = searchAddon.onDidChangeResults(({ resultIndex, resultCount }) => announceResults(resultIndex, resultCount))
 
     // Time-debounced fit. The mobile soft keyboard fires a BURST of viewport
@@ -465,7 +473,6 @@ export function TerminalSession({
       view = null
       setHistoryOpen(false)
     }
-    closeHistoryRef.current = closeView
     // The socket's own send, for this component's senders. What everyone else
     // sends through __wsRef — the key bar, the Android app's keys — goes through
     // the socket's replaced send, which leaves the history view first: input is
@@ -631,8 +638,7 @@ export function TerminalSession({
     // lib/xtermTouchScroll), behind the long press, which stops a fired
     // press's drag first. A tmux session's history goes to the history view
     // (pixels, below); what it does not take goes to tmux as lines — the
-    // panel's touch wheel pairs once it says it binds them. The key bar's page
-    // buttons take the same path through __scrollLines. The pairs never pass
+    // panel's touch wheel pairs once it says it binds them. The pairs never pass
     // through xterm, so nothing else clears a selection they move the text from
     // under.
     const tmuxTouch: TmuxTouch | undefined = tmux
@@ -647,10 +653,6 @@ export function TerminalSession({
     const scrollLines = (lines: number, at?: Point) => {
       if (lines) dismissSelection()
       scrollTerminalLines(term, container?.querySelector('.xterm-screen') ?? null, lines, at, tmuxTouch)
-    }
-    const cellPx = () => {
-      const screen = container?.querySelector('.xterm-screen') as HTMLElement | null
-      return screen && term.rows ? screen.clientHeight / term.rows : 0
     }
     const routeLines = (lines: number, at?: Point) => {
       if (gesture === 'loading') heldLines += lines
@@ -681,6 +683,7 @@ export function TerminalSession({
       api.getAISessionScrollback(sessionId).then((copy) => {
         if (disposed || mine !== load) return
         loading = false
+        setPaneCopyMode(copy.copy_mode)
         const usable = !copy.alternate && !copy.copy_mode && copy.cols === asked.cols && copy.rows === asked.rows
           && term.cols === asked.cols && term.rows === asked.rows
         pane = usable ? 'history' : 'tmux'
@@ -705,6 +708,9 @@ export function TerminalSession({
         if (disposed || mine !== load) return
         loading = false
         pane = 'tmux'
+        // No answer, so no telling: the lines that follow may put the pane in
+        // copy mode, and the ↓ button costs nothing where they did not.
+        setPaneCopyMode(true)
         asLines()
       })
     }
@@ -819,6 +825,7 @@ export function TerminalSession({
         try { copy = await api.getAISessionScrollback(sessionId) } catch { return }
         if (disposed || mine !== load) return
         const sock = wsRef.current
+        setPaneCopyMode(copy.copy_mode)
         const fits = copy.cols === term.cols && copy.rows === term.rows
         if (!copy.alternate && !copy.copy_mode && fits) {
           pane = 'history'
@@ -871,14 +878,7 @@ export function TerminalSession({
       if (searchPinned) closeView()
     }
     if (container) {
-      // The key bar's page buttons, as one gesture of a page's pixels.
-      (container as TerminalSessionElement).__scrollLines = (lines: number) => {
-        startGesture()
-        if (!pixels(lines * cellPx(), { x: 0, y: 0 }, false)) routeLines(lines)
-        settleGesture()
-      }
-      (container as TerminalSessionElement).__latest = closeView
-      ;(container as TerminalSessionElement).__search = search
+      (container as TerminalSessionElement).__search = search
       if (tmux) (container as TerminalSessionElement).__searchAddon = { findNext: fromApp('newer'), findPrevious: fromApp('older') }
       ;(container as TerminalSessionElement).__searchEnd = searchEnd
     }
@@ -890,18 +890,29 @@ export function TerminalSession({
     const onType = () => closeView()
     const typing = ['keydown', 'beforeinput', 'paste', 'compositionstart'] as const
     typing.forEach((type) => textarea?.addEventListener(type, onType, true))
-    // The key bar's "latest output" and the Android app's "맨 아래로" call
-    // scrollLines on this terminal directly: a move towards the latest output
-    // leaves the history view, and one of the whole buffer's length — what
-    // both pass — leaves tmux's copy mode too, where a pane scrolled back
-    // through tmux is and xterm has nothing to move. The frame goes only to a
-    // panel that takes it; an older one would type it into the session.
-    term.scrollLines = (amount: number) => {
-      if (amount > 0) closeView()
+    // Back to the latest output: out of the history view, out of tmux's copy
+    // mode — where a pane scrolled back through tmux is, and xterm has nothing
+    // to move — and to the end of xterm's own buffer for a temporary shell.
+    // The frame goes only to a panel that takes it (GET /ai/tools
+    // attach_latest); an older one would type it into the session.
+    const toLatest = () => {
+      closeView()
       const sock = wsRef.current
-      if (tmux && attachLatestRef.current && amount >= term.buffer.active.length && sock && sock.readyState === WebSocket.OPEN) {
-        send(sock, JSON.stringify({ type: 'latest' }))
+      if (tmux && attachLatestRef.current && sock && sock.readyState === WebSocket.OPEN) send(sock, JSON.stringify({ type: 'latest' }))
+      setPaneCopyMode(false)
+      scrollTermLines(term.buffer.active.length)
+    }
+    latestRef.current = toLatest
+    if (container) (container as TerminalSessionElement).__latest = toLatest
+    // The Android app's own "맨 아래로" calls scrollLines on this terminal with
+    // the whole buffer's length; any move towards the latest output leaves the
+    // history view.
+    term.scrollLines = (amount: number) => {
+      if (amount >= term.buffer.active.length) {
+        toLatest()
+        return
       }
+      if (amount > 0) closeView()
       scrollTermLines(amount)
     }
     // A paste — the menu's, the Android app's composed prompt — reaches the
@@ -948,7 +959,6 @@ export function TerminalSession({
       typing.forEach((type) => textarea?.removeEventListener(type, onType, true))
       closeView()
       if (container) {
-        delete (container as TerminalSessionElement).__scrollLines
         delete (container as TerminalSessionElement).__latest
         delete (container as TerminalSessionElement).__search
         delete (container as TerminalSessionElement).__searchAddon
@@ -958,6 +968,7 @@ export function TerminalSession({
       detachPinch()
       clearTimeout(researchTimer)
       liveResults.dispose()
+      liveScroll.dispose()
       rightButtonEvents.forEach((type) => container?.removeEventListener(type, keepRightButton, true))
       container?.removeEventListener('contextmenu', onContextMenu)
       container?.removeEventListener('focusin', onFocusIn)
@@ -1067,14 +1078,14 @@ export function TerminalSession({
           active ? 'block' : 'hidden'
         )}
       />
-      {historyOpen && (
+      {(historyOpen || paneCopyMode || scrolledUp) && (
         <button
           type="button"
           aria-label={t('terminal.mobile.latest')}
           title={t('terminal.mobile.latest')}
           data-history-latest
           onPointerDown={(e) => e.preventDefault()}
-          onClick={() => closeHistoryRef.current()}
+          onClick={() => latestRef.current()}
           className="absolute bottom-3 right-3 z-10 flex h-10 w-10 items-center justify-center rounded-full bg-secondary text-foreground shadow-md focus-visible:outline-2 focus-visible:outline-ring"
         >
           <ArrowDown className="h-5 w-5" aria-hidden="true" />

@@ -315,29 +315,12 @@ test('a tap, typing or the latest button returns to the live screen', async ({ p
   }
 })
 
-// The page buttons move a page, less one line of overlap: the history view
-// for a shell's history, tmux for a program in the alternate screen. The web
-// key bar called scrollPages, which a tmux session's alternate buffer cannot
-// do at all; the app's dock dispatches one wheel event of the page's pixels,
-// which xterm made one report — one line of Codex.
+// The app's page buttons move a page, less one line of overlap: the history
+// view for a shell's history, tmux for a program in the alternate screen. Its
+// dock dispatches one wheel event of the page's pixels, which xterm made one
+// report — one line of Codex. (The web key bar had page buttons too, until
+// its second row gave way to the composer.)
 for (const receiver of ['history', 'program'] as const) {
-  test(`the key bar's page buttons move a page of ${receiver}`, async ({ page }) => {
-    needsTmux()
-    const peers: ChildProcess[] = [], dirs: string[] = []
-    try {
-      const { firstLine, view, rows, cell } = await openTerminal(page, peers, dirs, { touch: true, cmd: receiver === 'program' ? PAGER : undefined, android: false })
-      const at = await firstLine()
-      await page.getByRole('button', { name: 'Scroll up', exact: true }).first().click()
-      if (receiver === 'history') await expect.poll(view).toMatchObject({ open: true, offset: Math.round((rows - 1) * cell), top: at - (rows - 1) })
-      else await expect.poll(firstLine).toBe(at - (rows - 1))
-      await page.getByRole('button', { name: 'Scroll down', exact: true }).first().click()
-      if (receiver === 'history') await expect.poll(view).toMatchObject({ open: false })
-      else await expect.poll(firstLine).toBe(at)
-    } finally {
-      cleanup(peers, dirs)
-    }
-  })
-
   test(`the app's page buttons move a page of ${receiver}`, async ({ page }) => {
     needsTmux()
     const peers: ChildProcess[] = [], dirs: string[] = []
@@ -512,7 +495,7 @@ async function scrollBackThroughTmux(page: Page, opened: Awaited<ReturnType<type
   await expect.poll(() => paneMode(opened.tmux)).toBe('1')
 }
 
-test('the latest button brings a pane back from tmux copy mode', async ({ page }) => {
+test('the ↓ button brings a pane back from tmux copy mode', async ({ page }) => {
   needsTmux()
   const peers: ChildProcess[] = [], dirs: string[] = []
   try {
@@ -520,7 +503,7 @@ test('the latest button brings a pane back from tmux copy mode', async ({ page }
     const live = await opened.firstLine()
     await scrollBackThroughTmux(page, opened)
     await expect.poll(opened.firstLine).toBeLessThan(live)
-    await page.locator('[data-mobile-terminal-bar]').getByRole('button', { name: 'Latest output' }).tap()
+    await page.locator('[data-history-latest]').tap()
     await expect.poll(() => paneMode(opened.tmux)).toBe('0')
     await expect.poll(opened.firstLine).toBe(live)
   } finally {
@@ -552,7 +535,7 @@ test('a panel from before the latest frame is not sent it', async ({ page }) => 
   try {
     const opened = await openTerminal(page, peers, dirs, { touch: true, android: false, scrollback: { fail: true }, latest: false })
     await scrollBackThroughTmux(page, opened)
-    await page.locator('[data-mobile-terminal-bar]').getByRole('button', { name: 'Latest output' }).tap()
+    await page.locator('[data-history-latest]').tap()
     await page.waitForTimeout(500)
     // That panel would write the frame into the session as text.
     expect(opened.frames).toEqual([])
@@ -574,6 +557,52 @@ test('the keyboard opening leaves a pane scrolled back where it is', async ({ pa
     await page.waitForTimeout(500)
     expect(opened.frames).toEqual([])
     expect(paneMode(opened.tmux)).toBe('1')
+  } finally {
+    cleanup(peers, dirs)
+  }
+})
+
+test('a pane left in copy mode shows the ↓ button once a finger finds it there', async ({ page }) => {
+  needsTmux()
+  const peers: ChildProcess[] = [], dirs: string[] = []
+  try {
+    const opened = await openTerminal(page, peers, dirs, { touch: true, android: false })
+    const live = await opened.firstLine()
+    await expect(page.locator('[data-history-latest]')).toHaveCount(0)
+    // As a desktop's wheel leaves it: scrolled back through tmux.
+    opened.tmux('copy-mode', '-t', 'test')
+    opened.tmux('send-keys', '-X', '-t', 'test', '-N', '30', 'scroll-up')
+    await expect.poll(() => paneMode(opened.tmux)).toBe('1')
+    // The page learns of it from the copy it asks for when a finger drags back.
+    const box = (await opened.terminal.boundingBox())!
+    const client = await page.context().newCDPSession(page)
+    await drag(page, client, box.x + box.width / 2, box.y + box.height * 0.3, 3 * opened.cell, 8)
+    await client.detach()
+    await page.locator('[data-history-latest]').tap()
+    await expect.poll(() => paneMode(opened.tmux)).toBe('0')
+    await expect.poll(opened.firstLine).toBe(live)
+    await expect(page.locator('[data-history-latest]')).toHaveCount(0)
+  } finally {
+    cleanup(peers, dirs)
+  }
+})
+
+test('what the composer sends reaches the program, not the copy mode its pane was left in', async ({ page }) => {
+  needsTmux()
+  const peers: ChildProcess[] = [], dirs: string[] = []
+  try {
+    // cat echoes what it is sent: the screen says what reached the program.
+    const opened = await openTerminal(page, peers, dirs, { touch: true, android: false, cmd: "sh -c 'seq 1 300; exec cat'" })
+    opened.tmux('copy-mode', '-t', 'test')
+    opened.tmux('send-keys', '-X', '-t', 'test', '-N', '30', 'scroll-up')
+    await expect.poll(() => paneMode(opened.tmux)).toBe('1')
+    const area = page.locator('[data-terminal-input]')
+    // In copy mode these letters are its keys: q alone would only leave it.
+    await area.getByRole('textbox', { name: 'Composer' }).fill('quit is not a key here')
+    await area.getByRole('button', { name: 'Send', exact: true }).tap()
+    await expect.poll(() => paneMode(opened.tmux)).toBe('0')
+    // Typed, and — the Enter having followed — read back by cat.
+    await expect.poll(() => opened.tmux('capture-pane', '-p', '-t', 'test').split('\n').filter(l => l === 'quit is not a key here').length).toBe(2)
   } finally {
     cleanup(peers, dirs)
   }

@@ -4,18 +4,19 @@ import { toast } from 'sonner'
 import { api } from '@/lib/api'
 import type { AISession, AITools, TerminalInfo, TerminalSession as TerminalSessionInfo } from '@/types/api'
 import { aiErrorMessage, sessionInfoLine, titlePrefix, waitingCount } from '@/lib/aiSessions'
-import { buildRail, findItem, parseActiveKey, pickActive, type RailItem } from '@/lib/sessionRail'
+import { activeKey, buildRail, findItem, parseActiveKey, pickActive, type RailItem } from '@/lib/sessionRail'
 import { cn } from '@/lib/utils'
 import { OutputDialog, useSSEOutput } from '@/components/OutputDialog'
 import { useConfirm } from '@/components/ConfirmDialog'
 import { useTerminalCompact, useTerminalFocus } from '@/lib/terminalLayout'
 import { DEFAULT_FONT_SIZE, FONT_SIZE_EVENT, GRID_EVENT, MAX_FONT_SIZE, MIN_FONT_SIZE, clampFontSize } from '@/lib/terminalFont'
-import MobileTerminalBar from '@/components/MobileTerminalBar'
 import { Sheet, SheetContent, SheetTitle } from '@/components/ui/sheet'
 import type { TerminalSessionElement } from '@/pages/terminal/components/TerminalSession'
 import { SessionRail, type RailAction } from '@/pages/terminal/components/SessionRail'
 import { SessionHeader } from '@/pages/terminal/components/SessionHeader'
 import { SessionPane } from '@/pages/terminal/components/SessionPane'
+import { TerminalInput } from '@/pages/terminal/components/TerminalInput'
+import { keysetKind } from '@/lib/terminalKeysets'
 import { PtyPane } from '@/pages/terminal/components/PtyPane'
 import { ToolsSheet } from '@/pages/terminal/components/ToolsSheet'
 import { TmuxBanner } from '@/pages/terminal/components/TmuxBanner'
@@ -365,12 +366,31 @@ export default function TerminalPage() {
     window.addEventListener(SELECT_TEXT_EVENT, openSelectText)
     return () => window.removeEventListener(SELECT_TEXT_EVENT, openSelectText)
   }, [openSelectText])
+  // A key from the input area's row. The focus stays where it was — the
+  // composer or the terminal — so the keyboard does not come and go with keys.
   const sendKey = useCallback((data: string) => {
     forEachActiveSession((el) => {
       if (el.__wsRef?.current && el.__wsRef.current.readyState === WebSocket.OPEN) {
         el.__wsRef.current.send(new TextEncoder().encode(data))
       }
-      el.__termRef?.current?.focus()
+    })
+  }, [])
+  // What the composer wrote, to the program: on its live screen (a pane
+  // scrolled back in copy mode would take the text as that mode's keys), as a
+  // paste — bracketed when the program asked, so the lines of a prompt are not
+  // each an Enter — and then the Enter that submits it, a moment later so it
+  // is not read as the paste's last line.
+  const submit = useCallback((text: string, enter: boolean) => {
+    forEachActiveSession((el) => {
+      const term = el.__termRef?.current
+      if (!term) return
+      el.__latest?.()
+      term.paste(text)
+      if (!enter) return
+      const sock = el.__wsRef?.current
+      setTimeout(() => {
+        if (sock && sock.readyState === WebSocket.OPEN) sock.send(new TextEncoder().encode('\r'))
+      }, 40)
     })
   }, [])
 
@@ -436,7 +456,11 @@ export default function TerminalPage() {
           )}
           <PtyPane tabs={ptyTabs} activeId={activeItem?.kind === 'pty' ? activeItem.id : null} fontSize={fontSize} />
         </div>
-        {compact && <MobileTerminalBar onSendKey={sendKey} />}
+        {compact && (
+          <TerminalInput kind={keysetKind(activeItem?.kind === 'tmux' ? activeItem.session.tool : undefined)}
+            sessionKey={activeItem && !(activeItem.kind === 'tmux' && activeItem.session.state === 'ended') ? activeKey(activeItem) : null}
+            onSendKey={sendKey} onSubmit={submit} />
+        )}
       </div>
 
       {compact && (
