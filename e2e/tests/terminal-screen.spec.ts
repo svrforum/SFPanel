@@ -107,6 +107,67 @@ test.describe('a phone', () => {
   })
 })
 
+test.describe('font size on a phone', () => {
+  test.use({ viewport: { width: 412, height: 860 }, hasTouch: true })
+
+  test('the menu steps it without closing, and says how wide the terminal is', async ({ page }) => {
+    const t = await openTerminal(page)
+    const before = await t.settledCols()
+    await page.locator('[data-session-menu]').tap()
+    const menu = page.getByRole('menu')
+    const size = menu.locator('[data-font-size]')
+    await expect(size).toHaveText('14')
+    await expect(menu.getByRole('group', { name: 'Font size' })).toContainText(`${before} columns`)
+    const smaller = menu.getByRole('menuitem', { name: 'Decrease font size' })
+    await smaller.tap()
+    await smaller.tap()
+    await smaller.tap()
+    // Three steps in one visit: the menu closed after each one before.
+    await expect(size).toHaveText('11')
+    await expect(menu).toBeVisible()
+    const after = await t.settledCols()
+    expect(after).toBeGreaterThan(before)
+    await expect(menu.getByRole('group', { name: 'Font size' })).toContainText(`${after} columns`)
+    // 8px, where an upright phone fits 80 columns; 10 was the floor.
+    for (let i = 0; i < 6; i++) await smaller.tap()
+    await expect(size).toHaveText('8')
+    expect(await t.settledCols()).toBeGreaterThanOrEqual(80)
+  })
+
+  test('two fingers pinch it: a preview while they move, one resize when they lift', async ({ page }) => {
+    const t = await openTerminal(page)
+    await t.settledCols()
+    const box = (await t.terminal.boundingBox())!
+    const y = box.y + box.height / 2, mid = box.x + box.width / 2
+    const client = await page.context().newCDPSession(page)
+    const touch = (type: string, half?: number) => client.send('Input.dispatchTouchEvent', {
+      type, touchPoints: half === undefined ? [] : [{ x: mid - half, y, id: 0 }, { x: mid + half, y, id: 1 }],
+    })
+    const sent = t.resizes.length
+    // The page focuses a session it opens; a keyboard-less phone shows none of
+    // that, so drop it to see what the gesture itself does.
+    await page.evaluate(() => (document.activeElement as HTMLElement | null)?.blur())
+    await touch('touchStart', 150)
+    for (const half of [140, 125, 110, 100]) await touch('touchMove', half)
+    // 14px × 200/300.
+    await expect(page.locator('[data-font-preview]')).toContainText('9px')
+    const size = () => t.terminal.evaluate(el => (el as any).__termRef.current.options.fontSize as number)
+    // Nothing applied while the fingers are down: every size is a redraw.
+    expect(await size()).toBe(14)
+    expect(t.resizes.length).toBe(sent)
+    await touch('touchEnd')
+    await expect(page.locator('[data-font-preview]')).toHaveCount(0)
+    await expect.poll(size).toBe(9)
+    await t.settledCols()
+    expect(t.resizes.length).toBe(sent + 1)
+    expect(await t.terminal.evaluate(el => ((el as any).__termRef.current.element as HTMLElement).style.transform)).toBe('')
+    // The setting, not this session's alone.
+    expect(await page.evaluate(() => localStorage.getItem('sfpanel_terminal_fontsize'))).toBe('9')
+    // The pinch is not a tap: the terminal did not take focus and raise the keyboard.
+    expect(await page.evaluate(() => document.activeElement?.classList.contains('xterm-helper-textarea'))).toBe(false)
+  })
+})
+
 test.describe('a desktop', () => {
   test.use({ viewport: { width: 1440, height: 900 } })
   test('keeps both sidebars and has no key bar', async ({ page }) => {

@@ -12,6 +12,7 @@ import { openHistoryView, type HistoryView } from '@/lib/terminalHistory'
 import { attachLongPress } from '@/lib/longPress'
 import { openTerminalLink } from '@/lib/terminalLinks'
 import { SELECT_TEXT_EVENT } from '@/lib/terminalText'
+import { DEFAULT_FONT_SIZE, FONT_SIZE_EVENT, GRID_EVENT, attachPinch } from '@/lib/terminalFont'
 import { decodeOsc52 } from '@/lib/osc52'
 import { cellBefore, lineAt, rangeBetween, spanEnd, wordAt, type CellPos, type TextSpan } from '@/lib/terminalWord'
 import { TerminalSelection, type HandleEnd, type Point } from './TerminalSelection'
@@ -164,6 +165,12 @@ export function TerminalSession({
   useEffect(() => { touchScrollRef.current = touchScroll }, [touchScroll])
   const touchHistoryRef = useRef(touchHistory)
   useEffect(() => { touchHistoryRef.current = touchHistory }, [touchHistory])
+  // Only the session on screen says what its grid is (GRID_EVENT).
+  const activeRef = useRef(active)
+  useEffect(() => { activeRef.current = active }, [active])
+  // Two fingers are changing the font size (lib/terminalFont): what they have
+  // reached, shown until they lift.
+  const [pinch, setPinch] = useState<{ size: number; cols: number } | null>(null)
   // The history view is open (lib/terminalHistory): the ↓ button shows.
   const [historyOpen, setHistoryOpen] = useState(false)
   const closeHistoryRef = useRef<() => void>(() => {})
@@ -268,6 +275,10 @@ export function TerminalSession({
     term.unicode.activeVersion = '11'
     term.open(containerRef.current)
     fitAddon.fit() // immediate baseline
+    const announceGrid = () => {
+      if (activeRef.current) window.dispatchEvent(new CustomEvent(GRID_EVENT, { detail: { cols: term.cols, rows: term.rows } }))
+    }
+    announceGrid()
 
     // Time-debounced fit. The mobile soft keyboard fires a BURST of viewport
     // resizes across its open/close animation; fitting on each one churns the
@@ -439,6 +450,7 @@ export function TerminalSession({
       }
     })
     const onResizeDisposable = term.onResize(({ cols, rows }) => {
+      announceGrid()
       // The copy was laid out for the old size.
       closeView()
       const sock = wsRef.current
@@ -707,6 +719,28 @@ export function TerminalSession({
           onSettle: settleGesture,
         })
       : () => {}
+    // A pinch previews its size by scaling what is drawn, and the size is
+    // applied when the fingers lift — once: each size is a resize, which tmux
+    // and the program in it redraw for.
+    const detachPinch = container
+      ? attachPinch(container, {
+          size: () => term.options.fontSize ?? DEFAULT_FONT_SIZE,
+          onPreview: (size) => {
+            const from = term.options.fontSize ?? DEFAULT_FONT_SIZE
+            if (term.element) {
+              term.element.style.transformOrigin = '0 0'
+              term.element.style.transform = size === from ? '' : `scale(${size / from})`
+            }
+            dismissSelection()
+            setPinch({ size, cols: Math.max(1, Math.floor(term.cols * from / size)) })
+          },
+          onEnd: (size) => {
+            if (term.element) term.element.style.transform = ''
+            setPinch(null)
+            if (size !== null) window.dispatchEvent(new CustomEvent(FONT_SIZE_EVENT, { detail: size }))
+          },
+        })
+      : () => {}
     if (container) {
       // The key bar's page buttons, as one gesture of a page's pixels.
       (container as TerminalSessionElement).__scrollLines = (lines: number) => {
@@ -779,6 +813,7 @@ export function TerminalSession({
         delete (container as TerminalSessionElement).__latest
       }
       detachLongPress()
+      detachPinch()
       rightButtonEvents.forEach((type) => container?.removeEventListener(type, keepRightButton, true))
       container?.removeEventListener('contextmenu', onContextMenu)
       container?.removeEventListener('focusin', onFocusIn)
@@ -820,7 +855,9 @@ export function TerminalSession({
     if (active && fitAddonRef.current && termRef.current) {
       setTimeout(() => {
         fitAddonRef.current?.fit()
-        termRef.current?.focus()
+        const term = termRef.current
+        term?.focus()
+        if (term) window.dispatchEvent(new CustomEvent(GRID_EVENT, { detail: { cols: term.cols, rows: term.rows } }))
       }, 50)
     }
   }, [active])
@@ -897,6 +934,13 @@ export function TerminalSession({
         >
           <ArrowDown className="h-5 w-5" aria-hidden="true" />
         </button>
+      )}
+      {pinch && (
+        <div data-font-preview className="pointer-events-none absolute inset-0 z-10 flex items-center justify-center">
+          <span className="rounded-xl bg-foreground/85 px-3 py-1.5 text-sm font-medium tabular-nums text-background shadow-md">
+            {t('terminal.fontPreview', { size: pinch.size, cols: pinch.cols })}
+          </span>
+        </div>
       )}
       {sel && (
         <TerminalSelection

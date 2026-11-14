@@ -25,6 +25,8 @@ export interface SessionHeaderProps {
   item: RailItem | null
   hostInfo: TerminalInfo | null
   fontSize: number
+  /** the active session's width at that size; null while there is none */
+  cols?: number | null
   onFontSize: (delta: number) => void
   search: SessionSearch
   onClear: () => void
@@ -48,12 +50,13 @@ const ICON = 'h-7 w-7 p-0 text-console-muted hover:text-console-foreground hover
  * so every action exists somewhere visible, and on a phone (where the rail
  * is in a drawer) the Android app can open them through [data-session-menu].
  */
-export function SessionHeader({ item, hostInfo, fontSize, onFontSize, search, onClear, onSelectText, onRename, onAction, compact, drawer, focus }: SessionHeaderProps) {
+export function SessionHeader({ item, hostInfo, fontSize, cols, onFontSize, search, onClear, onSelectText, onRename, onAction, compact, drawer, focus }: SessionHeaderProps) {
   const { t } = useTranslation()
   // The toolbar shows from the md width up, which a tablet has: 36px there, as
   // 28 is a mouse's target.
   const icon = cn(ICON, compact && 'h-9 w-9')
   const focusLabel = focus?.on ? t('terminal.focus.exit') : t('terminal.focus.enter')
+  const colsLabel = cols ? t('terminal.cols', { n: cols }) : undefined
   // Destructured once, not read as `search.…` through the JSX: the search
   // object carries the input's ref, and react-hooks/refs treats every
   // property read on an object holding one as a ref access during render.
@@ -138,7 +141,7 @@ export function SessionHeader({ item, hostInfo, fontSize, onFontSize, search, on
 
         <div className="hidden md:flex items-center gap-0.5 shrink-0">
           <Button variant="ghost" size="sm" className={icon} onClick={() => onFontSize(-1)} title={t('terminal.fontSmaller')} aria-label={t('terminal.fontSmaller')}><Minus className="h-3 w-3" /></Button>
-          <span className="text-[10px] text-console-muted min-w-[20px] text-center">{fontSize}</span>
+          <span className="text-[10px] text-console-muted min-w-[20px] text-center" title={colsLabel}>{fontSize}</span>
           <Button variant="ghost" size="sm" className={icon} onClick={() => onFontSize(1)} title={t('terminal.fontLarger')} aria-label={t('terminal.fontLarger')}><Plus className="h-3 w-3" /></Button>
           <div className="w-px h-4 bg-console-border mx-1" aria-hidden="true" />
           <Button variant="ghost" size="sm" className={cn(icon, searchOpen && 'text-primary')} onClick={onSearchToggle} title={t('terminal.search')} aria-label={t('terminal.search')}><Search className="h-3.5 w-3.5" /></Button>
@@ -168,12 +171,23 @@ export function SessionHeader({ item, hostInfo, fontSize, onFontSize, search, on
                 <MoreHorizontal className="h-4 w-4" />
               </Button>
             </DropdownMenuTrigger>
-            <DropdownMenuContent align="end" className="w-52">
+            <DropdownMenuContent align="end" className="w-60">
               <DropdownMenuItem onSelect={onSelectText}>{t('terminal.selectText.menu')}</DropdownMenuItem>
               <DropdownMenuItem className="md:hidden" onSelect={onSearchToggle}>{t('terminal.search')}</DropdownMenuItem>
               <DropdownMenuItem className="md:hidden" onSelect={onClear}>{t('terminal.clear')}</DropdownMenuItem>
-              <DropdownMenuItem className="md:hidden" onSelect={() => onFontSize(1)}>{t('terminal.fontLarger')}</DropdownMenuItem>
-              <DropdownMenuItem className="md:hidden" onSelect={() => onFontSize(-1)}>{t('terminal.fontSmaller')}</DropdownMenuItem>
+              {/* One row that stays open: each step is a tap, where it was the
+                  menu opened again. The width says what a size comes to. */}
+              <div role="group" aria-label={t('terminal.fontSize')} className="md:hidden flex items-center gap-1 pl-2 pr-1 py-1">
+                <span className="flex-1 min-w-0 text-sm">
+                  {t('terminal.fontSize')}
+                  {colsLabel && <span className="text-muted-foreground"> · {colsLabel}</span>}
+                </span>
+                <DropdownMenuItem className="h-9 w-9 shrink-0 justify-center p-0" aria-label={t('terminal.fontSmaller')}
+                  onSelect={(e) => { e.preventDefault(); onFontSize(-1) }}><Minus className="h-4 w-4" aria-hidden="true" /></DropdownMenuItem>
+                <span className="min-w-6 text-center text-sm tabular-nums" data-font-size>{fontSize}</span>
+                <DropdownMenuItem className="h-9 w-9 shrink-0 justify-center p-0" aria-label={t('terminal.fontLarger')}
+                  onSelect={(e) => { e.preventDefault(); onFontSize(1) }}><Plus className="h-4 w-4" aria-hidden="true" /></DropdownMenuItem>
+              </div>
               <DropdownMenuSeparator />
               <DropdownMenuItem onSelect={startEditing} disabled={s?.unknown}>{t('ai.tabs.rename')}</DropdownMenuItem>
               {s ? (

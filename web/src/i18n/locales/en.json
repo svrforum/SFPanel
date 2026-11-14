@@ -2482,7 +2482,10 @@
     "focus": {
       "enter": "Focus on the terminal",
       "exit": "Show the sidebar again"
-    }
+    },
+    "fontSize": "Font size",
+    "cols": "{{n}} columns",
+    "fontPreview": "{{size}}px · {{cols}} columns"
   },
   "ai": {
     "account": "Run as",

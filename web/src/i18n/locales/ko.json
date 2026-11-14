@@ -2471,7 +2471,10 @@
     "focus": {
       "enter": "터미널만 크게 보기",
       "exit": "사이드바 다시 보기"
-    }
+    },
+    "fontSize": "글자 크기",
+    "cols": "{{n}}칸",
+    "fontPreview": "{{size}}px · {{cols}}칸"
   },
   "ai": {
     "account": "실행 계정",

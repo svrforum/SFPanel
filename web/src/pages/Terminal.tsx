@@ -9,6 +9,7 @@ import { cn } from '@/lib/utils'
 import { OutputDialog, useSSEOutput } from '@/components/OutputDialog'
 import { useConfirm } from '@/components/ConfirmDialog'
 import { useTerminalCompact, useTerminalFocus } from '@/lib/terminalLayout'
+import { DEFAULT_FONT_SIZE, FONT_SIZE_EVENT, GRID_EVENT, MAX_FONT_SIZE, MIN_FONT_SIZE, clampFontSize } from '@/lib/terminalFont'
 import MobileTerminalBar from '@/components/MobileTerminalBar'
 import { Sheet, SheetContent, SheetTitle } from '@/components/ui/sheet'
 import type { TerminalSessionElement } from '@/pages/terminal/components/TerminalSession'
@@ -31,9 +32,6 @@ const accountKey = () => `sfpanel_ai_account:${nodeSuffix()}`
 const activeStorageKey = () => `sfpanel_terminal_active:${nodeSuffix()}`
 const RAIL_KEY = 'sfpanel_terminal_rail'
 const FONT_SIZE_KEY = 'sfpanel_terminal_fontsize'
-const MIN_FONT_SIZE = 10
-const MAX_FONT_SIZE = 24
-const DEFAULT_FONT_SIZE = 14
 
 function readLS(key: string): string {
   try { return localStorage.getItem(key) || '' } catch { return '' }
@@ -261,7 +259,20 @@ export default function TerminalPage() {
   // Toolbar: font size applies to every mounted session; search and clear
   // reach the active one.
   const adjustFontSize = useCallback((delta: number) => {
-    setFontSize((prev) => Math.min(MAX_FONT_SIZE, Math.max(MIN_FONT_SIZE, prev + delta)))
+    setFontSize((prev) => clampFontSize(prev + delta))
+  }, [])
+  // A session's pinch ends on a size of its own choosing, and the active
+  // session says how many columns the size in use comes to (lib/terminalFont).
+  const [cols, setCols] = useState<number | null>(null)
+  useEffect(() => {
+    const onSize = (e: Event) => setFontSize(clampFontSize((e as CustomEvent<number>).detail))
+    const onGrid = (e: Event) => setCols((e as CustomEvent<{ cols: number }>).detail.cols)
+    window.addEventListener(FONT_SIZE_EVENT, onSize)
+    window.addEventListener(GRID_EVENT, onGrid)
+    return () => {
+      window.removeEventListener(FONT_SIZE_EVENT, onSize)
+      window.removeEventListener(GRID_EVENT, onGrid)
+    }
   }, [])
   const handleSearch = useCallback((query: string) => {
     setSearchQuery(query)
@@ -354,7 +365,7 @@ export default function TerminalPage() {
       </aside>
 
       <div className={cn('flex-1 flex flex-col min-h-0 min-w-0 overflow-clip bg-console', !compact && 'rounded-r-2xl border border-console-border')}>
-        <SessionHeader item={activeItem} hostInfo={hostInfo} fontSize={fontSize} onFontSize={adjustFontSize} search={search}
+        <SessionHeader item={activeItem} hostInfo={hostInfo} fontSize={fontSize} cols={activeItem ? cols : null} onFontSize={adjustFontSize} search={search}
           onClear={clearTerminal} onSelectText={openSelectText} onRename={onRename} onAction={onAction}
           compact={compact}
           drawer={compact ? { onOpen: () => setDrawerOpen(true), waiting } : undefined}
