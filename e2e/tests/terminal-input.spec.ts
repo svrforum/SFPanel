@@ -11,10 +11,17 @@ const S = (id: string, tool: string, title: string) => ({ id, tool, title, run_a
 const AGENT = S('aaaaaaaaaaa1', 'claude', 'Agent')
 const SHELL = S('aaaaaaaaaaa2', 'shell', 'Shell')
 
-async function openTerminal(page: Page, active = AGENT.id) {
+async function openTerminal(page: Page, active = AGENT.id, { uploads = true, uploadFails = '' }: {
+  /** the panel takes attachments (GET /ai/tools session_uploads); false: one from before them */
+  uploads?: boolean
+  /** the upload route answers with this error code */
+  uploadFails?: string
+} = {}) {
   // What reached the session, frame by frame: input as text, control as JSON.
   const input: string[] = []
   const control: string[] = []
+  // The files the page sent to the upload route: session id and file name.
+  const uploaded: string[] = []
   await page.addInitScript((active) => {
     sessionStorage.setItem('token', 'fixture-token')
     localStorage.setItem('i18nextLng', 'en')
@@ -28,7 +35,18 @@ async function openTerminal(page: Page, active = AGENT.id) {
     else if (url.pathname.endsWith('/cluster/status')) data = { enabled: false }
     else if (url.pathname.endsWith('/system/overview')) data = { version: 'test' }
     else if (url.pathname.endsWith('/ai/sessions')) data = [AGENT, SHELL]
-    else if (url.pathname.endsWith('/ai/tools')) data = { tmux: { installed: true, supported: true, version: '3.4', min_version: '3.2' }, systemd_run: true, accounts: ['tester'], panel_account: 'tester', account: 'tester', tools: {}, attach_latest: true }
+    else if (url.pathname.endsWith('/ai/tools')) data = { tmux: { installed: true, supported: true, version: '3.4', min_version: '3.2' }, systemd_run: true, accounts: ['tester'], panel_account: 'tester', account: 'tester', tools: {}, attach_latest: true, ...(uploads ? { session_uploads: true } : {}) }
+    else if (url.pathname.endsWith('/upload')) {
+      const id = url.pathname.split('/').at(-2)!
+      const name = /filename="([^"]*)"/.exec(route.request().postDataBuffer()?.toString('latin1') ?? '')?.[1] ?? ''
+      uploaded.push(`${id}:${name}`)
+      if (uploadFails) {
+        await route.fulfill({ status: uploadFails === 'FILE_TOO_LARGE' ? 413 : 500, json: { success: false, error: { code: uploadFails, message: 'x' } } })
+        return
+      }
+      // As the panel answers (internal/feature/ai SessionUpload): the path on the session's node.
+      data = { path: `/home/tester/.sfpanel-ai/uploads/${id}/20261114-093005-${name}`, name: `20261114-093005-${name}`, size: 3 }
+    }
     else if (url.pathname.endsWith('/terminal/info')) data = { shell_user: 'tester', is_root: false, hostname: 'fixture' }
     else if (url.pathname.endsWith('/terminal/sessions')) data = { sessions: [] }
     await route.fulfill({ json: { success: true, data } })
@@ -53,7 +71,7 @@ async function openTerminal(page: Page, active = AGENT.id) {
     const el = document.activeElement
     return el?.closest('[data-terminal-composer]') ? 'composer' : el?.classList.contains('xterm-helper-textarea') ? 'terminal' : el?.tagName ?? 'none'
   })
-  return { terminal, area, key, nextKeys, composer, send, focused, input, control }
+  return { terminal, area, key, nextKeys, composer, send, focused, input, control, uploaded }
 }
 
 test('what the composer wrote goes out as one paste and one Enter', async ({ page }) => {
@@ -296,6 +314,70 @@ test('the app\'s "paste and edit" reaches the composer', async ({ page }) => {
   await t.area.evaluate(el => (el as any).__compose('from the clipboard'))
   await expect(t.composer).toHaveValue('before from the clipboard')
   await expect.poll(t.focused).toBe('composer')
+})
+
+test('a file attached from the sheet is uploaded to the session and its path goes into the draft', async ({ page }) => {
+  const t = await openTerminal(page)
+  await t.composer.fill('look at ')
+  await t.area.getByRole('button', { name: 'Composer tools' }).tap()
+  await expect(page.getByRole('dialog').getByRole('button', { name: /Attach a photo or a file/ })).toBeVisible()
+  await page.locator('[data-terminal-attach]').setInputFiles([
+    { name: 'shot.png', mimeType: 'image/png', buffer: Buffer.from('png') },
+    { name: 'error.log', mimeType: 'text/plain', buffer: Buffer.from('log') },
+  ])
+  // To the session on screen, each file; the paths as the panel gave them, ready to send.
+  await expect(t.composer).toHaveValue('look at /home/tester/.sfpanel-ai/uploads/aaaaaaaaaaa1/20261114-093005-shot.png /home/tester/.sfpanel-ai/uploads/aaaaaaaaaaa1/20261114-093005-error.log ')
+  expect(t.uploaded).toEqual(['aaaaaaaaaaa1:shot.png', 'aaaaaaaaaaa1:error.log'])
+  await expect(page.getByRole('dialog')).toHaveCount(0)
+  await expect.poll(t.focused).toBe('composer')
+  // Nothing went to the session on its own.
+  expect(t.input).toEqual([])
+})
+
+test('an image pasted into the composer is attached, and pasted text stays text', async ({ page }) => {
+  const t = await openTerminal(page)
+  await t.composer.tap()
+  const paste = (kind: 'image' | 'text') => t.composer.evaluate((el, kind) => {
+    const data = new DataTransfer()
+    if (kind === 'image') data.items.add(new File(['png'], 'clipboard.png', { type: 'image/png' }))
+    else data.setData('text/plain', 'plain words')
+    return el.dispatchEvent(new ClipboardEvent('paste', { clipboardData: data, bubbles: true, cancelable: true }))
+  }, kind)
+  // dispatchEvent answers false when the page took the paste for itself.
+  expect(await paste('image')).toBe(false)
+  await expect(t.composer).toHaveValue('/home/tester/.sfpanel-ai/uploads/aaaaaaaaaaa1/20261114-093005-clipboard.png ')
+  expect(t.uploaded).toEqual(['aaaaaaaaaaa1:clipboard.png'])
+  expect(await paste('text')).toBe(true)
+  expect(t.uploaded.length).toBe(1)
+})
+
+test('a file the panel refuses says why and leaves the draft alone', async ({ page }) => {
+  const t = await openTerminal(page, AGENT.id, { uploadFails: 'FILE_TOO_LARGE' })
+  await t.composer.fill('draft')
+  await t.area.getByRole('button', { name: 'Composer tools' }).tap()
+  await page.locator('[data-terminal-attach]').setInputFiles({ name: 'video.mp4', mimeType: 'video/mp4', buffer: Buffer.from('x') })
+  await expect(page.getByText('video.mp4: larger than 25 MB')).toBeVisible()
+  // The sheet stays, to pick another; the draft behind it is as it was.
+  await expect(page.getByRole('dialog').getByRole('button', { name: /Attach a photo or a file/ })).toBeEnabled()
+  await page.keyboard.press('Escape')
+  await expect(t.composer).toHaveValue('draft')
+})
+
+test('a panel from before attachments offers none', async ({ page }) => {
+  const t = await openTerminal(page, AGENT.id, { uploads: false })
+  await t.area.getByRole('button', { name: 'Composer tools' }).tap()
+  await expect(page.getByRole('dialog').getByText('Recently sent')).toBeVisible()
+  await expect(page.locator('[data-terminal-attach]')).toHaveCount(0)
+  await page.keyboard.press('Escape')
+  // Nor does a pasted image go anywhere: there is no route to send it to.
+  await t.composer.tap()
+  await t.composer.evaluate((el) => {
+    const data = new DataTransfer()
+    data.items.add(new File(['png'], 'clipboard.png', { type: 'image/png' }))
+    el.dispatchEvent(new ClipboardEvent('paste', { clipboardData: data, bubbles: true, cancelable: true }))
+  })
+  await page.waitForTimeout(300)
+  expect(t.uploaded).toEqual([])
 })
 
 // A flick as a finger makes one: the events' own clock a 16 ms frame apart,

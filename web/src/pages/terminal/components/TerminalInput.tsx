@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
-import { ArrowUp, Keyboard, PenLine, Plus } from 'lucide-react'
+import { ArrowUp, Keyboard, Loader2, Paperclip, PenLine, Plus } from 'lucide-react'
+import { toast } from 'sonner'
 import { api } from '@/lib/api'
 import { cn } from '@/lib/utils'
 import { Checkbox } from '@/components/ui/checkbox'
@@ -54,13 +55,16 @@ const ROUND = 'flex h-12 w-12 short:h-9 short:w-9 shrink-0 items-center justify-
  * key rows of their own — so they keep working unchanged; 0.1.7 leaves this
  * one in place and draws none.
  */
-export function TerminalInput({ kind, sessionKey, onSendKey, onSubmit }: {
+export function TerminalInput({ kind, sessionKey, onSendKey, onSubmit, onAttach }: {
   kind: KeysetKind
   /** whose draft the composer holds; null with no session open */
   sessionKey: string | null
   onSendKey: (data: string) => void
   /** the composed text, and whether the Enter that submits it follows */
   onSubmit: (text: string, enter: boolean) => void
+  /** uploads a file to the session's node and resolves to its path there;
+   *  absent where the session cannot take one (a temporary shell, an older panel) */
+  onAttach?: (file: File) => Promise<string>
 }) {
   const { t } = useTranslation()
   const rootRef = useRef<HTMLDivElement>(null)
@@ -193,6 +197,28 @@ export function TerminalInput({ kind, sessionKey, onSendKey, onSubmit }: {
     return () => { delete el.__compose }
   }, [compose])
 
+  // Attachments: each file goes up to the session's node, and its path there
+  // goes into the draft — what a prompt points an AI CLI at. From the sheet's
+  // picker, or pasted into the composer (a screenshot from the clipboard).
+  const fileRef = useRef<HTMLInputElement>(null)
+  const [attaching, setAttaching] = useState(0)
+  const attach = async (files: File[]) => {
+    if (!onAttach || files.length === 0) return
+    setAttaching((n) => n + files.length)
+    const paths: string[] = []
+    for (const file of files) {
+      try {
+        paths.push(await onAttach(file))
+      } catch (err: unknown) {
+        const tooLarge = (err as { code?: string }).code === 'FILE_TOO_LARGE'
+        toast.error(t(tooLarge ? 'terminal.input.attachTooLarge' : 'terminal.input.attachFailed', { name: file.name || t('terminal.input.attachUnnamed') }))
+      } finally {
+        setAttaching((n) => n - 1)
+      }
+    }
+    if (paths.length > 0) compose(paths.map((p) => `${p} `).join(''))
+  }
+
   const keepFocus = (e: React.PointerEvent) => e.preventDefault()
   const pageLabel = `${(page % pages.length) + 1}/${pages.length}`
 
@@ -207,6 +233,13 @@ export function TerminalInput({ kind, sessionKey, onSendKey, onSubmit }: {
           rows={1}
           value={draft}
           onChange={(e) => setDraft(e.target.value)}
+          onPaste={(e) => {
+            // A pasted image is a file, not text: it is attached. Text pastes as it does anywhere.
+            const files = Array.from(e.clipboardData.files)
+            if (!onAttach || files.length === 0) return
+            e.preventDefault()
+            void attach(files)
+          }}
           onKeyDown={(e) => {
             // A hardware keyboard's way to send; plain Enter is a new line.
             if (e.key === 'Enter' && (e.ctrlKey || e.metaKey) && !e.nativeEvent.isComposing) { e.preventDefault(); send() }
@@ -276,6 +309,20 @@ export function TerminalInput({ kind, sessionKey, onSendKey, onSubmit }: {
             <Checkbox checked={sendEnter} onCheckedChange={(v) => { const on = v === true; setSendEnter(on); writeJSON(SEND_ENTER_KEY, on) }} />
             {t('terminal.input.sendEnter')}
           </label>
+          {onAttach && (
+            <>
+              <button type="button" disabled={attaching > 0} onClick={() => fileRef.current?.click()}
+                className="flex min-h-12 items-center gap-3 rounded-xl border border-border bg-secondary px-3 text-left text-[14px] active:bg-accent focus-visible:outline-2 focus-visible:outline-ring disabled:opacity-60">
+                {attaching > 0 ? <Loader2 className="h-4 w-4 animate-spin" aria-hidden="true" /> : <Paperclip className="h-4 w-4" aria-hidden="true" />}
+                <span className="flex flex-col">
+                  {attaching > 0 ? t('terminal.input.attaching', { n: attaching }) : t('terminal.input.attach')}
+                  <span className="text-[12px] text-muted-foreground">{t('terminal.input.attachHint')}</span>
+                </span>
+              </button>
+              <input ref={fileRef} type="file" multiple hidden data-terminal-attach
+                onChange={(e) => { const files = Array.from(e.target.files ?? []); e.target.value = ''; void attach(files) }} />
+            </>
+          )}
           <section aria-labelledby="terminal-input-recent" className="flex flex-col gap-1.5">
             <h3 id="terminal-input-recent" className="text-[12px] font-semibold text-muted-foreground">{t('terminal.input.recent')}</h3>
             {recent.length === 0 && <p className="text-[13px] text-muted-foreground">{t('terminal.input.recentEmpty')}</p>}

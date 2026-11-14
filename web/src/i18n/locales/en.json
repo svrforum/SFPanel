@@ -2504,7 +2504,13 @@
       "recentEmpty": "Nothing yet. What you send collects here.",
       "compose": "Write",
       "showKeys": "Show the keys",
-      "nextKeys": "Next keys ({{page}})"
+      "nextKeys": "Next keys ({{page}})",
+      "attach": "Attach a photo or a file",
+      "attachHint": "Uploaded to this session's server; its path goes into what you write",
+      "attaching": "Uploading… ({{n}})",
+      "attachFailed": "{{name}}: could not be uploaded",
+      "attachTooLarge": "{{name}}: larger than 25 MB",
+      "attachUnnamed": "The file"
     }
   },
   "ai": {

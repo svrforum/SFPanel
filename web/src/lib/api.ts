@@ -1904,6 +1904,28 @@ class ApiClient {
     return this.request<{ alternate: boolean; copy_mode: boolean; cols: number; rows: number; text: string }>(`/ai/sessions/${encodeURIComponent(id)}/scrollback`)
   }
 
+  // One file into the session's upload directory on the node it runs on
+  // (POST /ai/sessions/:id/upload); answers with its absolute path there. The
+  // error carries the server's code, for the page to say what went wrong.
+  uploadAISessionFile(id: string, file: File): Promise<{ path: string; name: string; size: number }> {
+    return new Promise((resolve, reject) => {
+      const xhr = new XMLHttpRequest()
+      xhr.open('POST', this.withNode(`/ai/sessions/${encodeURIComponent(id)}/upload`))
+      for (const [k, v] of Object.entries(this.streamHeaders())) xhr.setRequestHeader(k, v)
+      const fail = (message: string, code = '') => reject(Object.assign(new Error(message), { code }))
+      xhr.onload = () => {
+        let json: { success?: boolean; data?: { path: string; name: string; size: number }; error?: { code?: string; message?: string } } = {}
+        try { json = JSON.parse(xhr.responseText) } catch { /* not the panel's envelope */ }
+        if (xhr.status >= 200 && xhr.status < 300 && json.success && json.data) resolve(json.data)
+        else fail(json.error?.message || `Upload failed (${xhr.status})`, json.error?.code || (xhr.status === 413 ? 'FILE_TOO_LARGE' : ''))
+      }
+      xhr.onerror = () => fail('Network error')
+      const form = new FormData()
+      form.append('file', file)
+      xhr.send(form)
+    })
+  }
+
   // Disk Management - Tool Status
   checkSmartmontools() {
     return this.request<{ installed: boolean }>('/disks/smartmontools-status')

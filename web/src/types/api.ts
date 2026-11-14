@@ -1962,6 +1962,8 @@ export interface AITools {
   touch_history?: boolean
   /** the attach takes the {"type":"latest"} frame and leaves tmux's copy mode; a panel without it writes the frame into the session as text */
   attach_latest?: boolean
+  /** POST /ai/sessions/:id/upload exists, for what the composer attaches */
+  session_uploads?: boolean
 }
 
 /**

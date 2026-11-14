@@ -479,7 +479,9 @@ export default function TerminalPage() {
         {compact && (
           <TerminalInput kind={keysetKind(activeItem?.kind === 'tmux' ? activeItem.session.tool : undefined)}
             sessionKey={activeItem && !(activeItem.kind === 'tmux' && activeItem.session.state === 'ended') ? activeKey(activeItem) : null}
-            onSendKey={sendKey} onSubmit={submit} />
+            onSendKey={sendKey} onSubmit={submit}
+            onAttach={activeTmuxId && tools?.session_uploads === true
+              ? (file) => api.uploadAISessionFile(activeTmuxId, file).then((r) => r.path) : undefined} />
         )}
       </div>
 
