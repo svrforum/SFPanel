@@ -22,39 +22,147 @@ export interface BarKey {
   repeat?: boolean
   /** its spoken name, a key under terminal.mobile; the label says enough when absent */
   name?: string
+  /** or the name itself, where it needs no translating ("Ctrl+B") */
+  spoken?: string
   /** drawn as the one key that stops things */
   danger?: boolean
+  /** a key of the operator's own: `send` is the text it types */
+  own?: boolean
+  /** and whether Enter follows that text */
+  enter?: boolean
 }
 
-const ESC: BarKey = { label: 'Esc', send: '\x1b', name: 'escape' }
-const TAB: BarKey = { label: 'Tab', send: '\t', name: 'tab' }
-const UP: BarKey = { label: '↑', send: '\x1b[A', repeat: true, name: 'up' }
-const DOWN: BarKey = { label: '↓', send: '\x1b[B', repeat: true, name: 'down' }
-const LEFT: BarKey = { label: '←', send: '\x1b[D', repeat: true, name: 'left' }
-const RIGHT: BarKey = { label: '→', send: '\x1b[C', repeat: true, name: 'right' }
-const INTERRUPT: BarKey = { label: '^C', send: '\x03', name: 'interrupt', danger: true }
-const CTRL: BarKey = { label: 'Ctrl', modifier: 'ctrl' }
-const ALT: BarKey = { label: 'Alt', modifier: 'alt' }
-const SHIFT: BarKey = { label: 'Shift', modifier: 'shift' }
-const HOME: BarKey = { label: 'Home', send: '\x1b[H', name: 'home' }
-const END: BarKey = { label: 'End', send: '\x1b[F', name: 'end' }
-const PAGE_UP: BarKey = { label: 'PgUp', send: '\x1b[5~', name: 'pageUp' }
-const PAGE_DOWN: BarKey = { label: 'PgDn', send: '\x1b[6~', name: 'pageDown' }
-const char = (c: string): BarKey => ({ label: c, send: c })
+/**
+ * A key as it is saved (GET /ai/prefs, internal/feature/ai prefs.go): one of
+ * the catalog's by its id, or one of the operator's own that types a text.
+ */
+export type StoredKey = { id: string } | { label: string; text: string; enter?: boolean }
+export type StoredKeysets = Partial<Record<KeysetKind, StoredKey[][]>>
 
-export const KEYSETS: Record<KeysetKind, BarKey[][]> = {
+// The panel's limits, which the editor keeps to.
+export const PAGE_KEYS = 7
+export const PAGES_MAX = 6
+export const KEY_LABEL_MAX = 8
+export const KEY_TEXT_MAX = 64
+
+const NAMED: Record<string, BarKey> = {
+  esc: { label: 'Esc', send: '\x1b', name: 'escape' },
+  tab: { label: 'Tab', send: '\t', name: 'tab' },
+  shiftTab: { label: '⇧Tab', send: '\x1b[Z', name: 'shiftTab' },
+  enter: { label: '⏎', send: '\r', name: 'enter' },
+  up: { label: '↑', send: '\x1b[A', repeat: true, name: 'up' },
+  down: { label: '↓', send: '\x1b[B', repeat: true, name: 'down' },
+  left: { label: '←', send: '\x1b[D', repeat: true, name: 'left' },
+  right: { label: '→', send: '\x1b[C', repeat: true, name: 'right' },
+  home: { label: 'Home', send: '\x1b[H', name: 'home' },
+  end: { label: 'End', send: '\x1b[F', name: 'end' },
+  pageUp: { label: 'PgUp', send: '\x1b[5~', name: 'pageUp' },
+  pageDown: { label: 'PgDn', send: '\x1b[6~', name: 'pageDown' },
+  ctrl: { label: 'Ctrl', modifier: 'ctrl' },
+  alt: { label: 'Alt', modifier: 'alt' },
+  shift: { label: 'Shift', modifier: 'shift' },
+}
+// Ctrl and a letter as one key. Four of them have a name worth saying.
+const CONTROL_NAMES: Record<string, string> = { c: 'interrupt', d: 'endOfInput', z: 'suspend', r: 'searchHistory' }
+const LETTERS = 'abcdefghijklmnopqrstuvwxyz'
+
+/** The keys there are to pick from, as the editor groups them. */
+export const KEY_CATALOG: { group: 'basic' | 'move' | 'modifier' | 'control'; ids: string[] }[] = [
+  { group: 'basic', ids: ['esc', 'tab', 'shiftTab', 'enter'] },
+  { group: 'move', ids: ['up', 'down', 'left', 'right', 'home', 'end', 'pageUp', 'pageDown'] },
+  { group: 'modifier', ids: ['ctrl', 'alt', 'shift'] },
+  { group: 'control', ids: [...LETTERS].map((c) => `ctrl-${c}`) },
+]
+
+/** The key a saved one draws as; null for one this page cannot draw. */
+export function barKey(key: StoredKey): BarKey | null {
+  if (!key || typeof key !== 'object') return null
+  if ('id' in key) {
+    if (typeof key.id !== 'string') return null
+    if (Object.hasOwn(NAMED, key.id)) return NAMED[key.id]
+    const letter = /^ctrl-([a-z])$/.exec(key.id)?.[1]
+    if (!letter) return null
+    return {
+      label: `^${letter.toUpperCase()}`,
+      send: String.fromCharCode(letter.charCodeAt(0) - 96),
+      ...(CONTROL_NAMES[letter] ? { name: CONTROL_NAMES[letter] } : { spoken: `Ctrl+${letter.toUpperCase()}` }),
+      ...(letter === 'c' ? { danger: true } : {}),
+    }
+  }
+  if (typeof key.label !== 'string' || typeof key.text !== 'string' || !key.label.trim() || !key.text) return null
+  return { label: key.label, send: key.text, own: true, enter: key.enter === true }
+}
+
+const char = (c: string): StoredKey => ({ label: c, text: c })
+const id = (...ids: string[]): StoredKey[] => ids.map((i) => ({ id: i }))
+
+/** The keys a session has until the operator arranges their own. */
+export const DEFAULT_KEYSETS: Record<KeysetKind, StoredKey[][]> = {
   // Stop it, change its permission mode, move through its menus and history,
   // answer it, start a command; then its numbered choices; then the rest.
   agent: [
-    [ESC, { label: '⇧Tab', send: '\x1b[Z', name: 'shiftTab' }, UP, DOWN, { label: '⏎', send: '\r', name: 'enter' }, INTERRUPT, char('/')],
-    [char('1'), char('2'), char('3'), LEFT, RIGHT, TAB, char('@')],
-    [CTRL, ALT, SHIFT, PAGE_UP, PAGE_DOWN, HOME, END],
+    [...id('esc', 'shiftTab', 'up', 'down', 'enter', 'ctrl-c'), char('/')],
+    [char('1'), char('2'), char('3'), ...id('left', 'right', 'tab'), char('@')],
+    id('ctrl', 'alt', 'shift', 'pageUp', 'pageDown', 'home', 'end'),
   ],
   shell: [
-    [ESC, TAB, CTRL, UP, DOWN, LEFT, RIGHT],
-    [INTERRUPT, { label: '^D', send: '\x04', name: 'endOfInput' }, { label: '^Z', send: '\x1a', name: 'suspend' }, { label: '^R', send: '\x12', name: 'searchHistory' }, char('|'), char('~'), char('/')],
-    [HOME, END, PAGE_UP, PAGE_DOWN, SHIFT, ALT, char('-')],
+    id('esc', 'tab', 'ctrl', 'up', 'down', 'left', 'right'),
+    [...id('ctrl-c', 'ctrl-d', 'ctrl-z', 'ctrl-r'), char('|'), char('~'), char('/')],
+    [...id('home', 'end', 'pageUp', 'pageDown', 'shift', 'alt'), char('-')],
   ],
+}
+
+// What of a saved arrangement this page can draw: no key it does not know, no
+// page left empty, nothing past the panel's limits.
+function drawable(pages: unknown): StoredKey[][] {
+  if (!Array.isArray(pages)) return []
+  return pages
+    .map((page) => (Array.isArray(page) ? (page as StoredKey[]).filter((k) => barKey(k) !== null).slice(0, PAGE_KEYS) : []))
+    .filter((page) => page.length > 0)
+    .slice(0, PAGES_MAX)
+}
+const draw = (pages: StoredKey[][]): BarKey[][] => pages.map((page) => page.map((k) => barKey(k)!))
+
+export const KEYSETS: Record<KeysetKind, BarKey[][]> = {
+  agent: draw(DEFAULT_KEYSETS.agent),
+  shell: draw(DEFAULT_KEYSETS.shell),
+}
+
+/**
+ * The arrangement a session of this kind has, as it is saved: what was saved
+ * for it, less what this page cannot draw, or the panel's own where that
+ * leaves nothing. What the editor starts from.
+ */
+export function storedPages(kind: KeysetKind, saved: StoredKeysets | undefined): StoredKey[][] {
+  const mine = drawable(saved?.[kind])
+  return mine.length > 0 ? mine : DEFAULT_KEYSETS[kind]
+}
+
+/** The same, as the keys the row draws. */
+export function keysetPages(kind: KeysetKind, saved: StoredKeysets | undefined): BarKey[][] {
+  return draw(storedPages(kind, saved))
+}
+
+/**
+ * A cap is some forty pixels wide. What fits it in one line is four characters
+ * or so; a longer label — an operator's "/compact" — is set smaller and breaks
+ * into two lines rather than being cut off.
+ */
+export function longLabel(label: string): boolean {
+  return [...label].length > 4
+}
+export const LONG_LABEL = 'px-0.5 text-[10px] leading-[1.15] whitespace-normal break-all'
+
+/** A key's name for a screen reader; `t` is the page's translator. */
+export function barKeyName(key: BarKey, t: (key: string, options?: Record<string, unknown>) => string): string {
+  if (key.modifier) return t('terminal.mobile.modifier', { key: key.modifier })
+  if (key.name) return t(`terminal.mobile.${key.name}`)
+  return key.spoken ?? key.label
+}
+
+/** Whether an arrangement is the panel's own, which is saved as nothing at all. */
+export function isDefaultKeyset(kind: KeysetKind, pages: StoredKey[][]): boolean {
+  return JSON.stringify(pages) === JSON.stringify(DEFAULT_KEYSETS[kind])
 }
 
 /** The AI CLIs get their own keys; a shell, and a temporary shell (no tool), the shell's. */

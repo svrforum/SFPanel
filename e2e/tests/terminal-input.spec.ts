@@ -11,12 +11,21 @@ const S = (id: string, tool: string, title: string) => ({ id, tool, title, run_a
 const AGENT = S('aaaaaaaaaaa1', 'claude', 'Agent')
 const SHELL = S('aaaaaaaaaaa2', 'shell', 'Shell')
 
-async function openTerminal(page: Page, active = AGENT.id, { uploads = true, uploadFails = '' }: {
+type Prefs = { snippets?: { kind: string; body: string }[]; keysets?: Record<string, unknown[][]> }
+
+async function openTerminal(page: Page, active = AGENT.id, { uploads = true, uploadFails = '', prefs = {}, prefsFail = false }: {
   /** the panel takes attachments (GET /ai/tools session_uploads); false: one from before them */
   uploads?: boolean
   /** the upload route answers with this error code */
   uploadFails?: string
+  /** what the panel has kept (GET /ai/prefs) */
+  prefs?: Prefs
+  /** saving them fails */
+  prefsFail?: boolean
 } = {}) {
+  // The panel's side of the snippets and key rows, and every save it was sent.
+  const kept = { snippets: prefs.snippets ?? [], keysets: prefs.keysets ?? {} }
+  const saves: { what: string; node: string | null; body: any }[] = []
   // What reached the session, frame by frame: input as text, control as JSON.
   const input: string[] = []
   const control: string[] = []
@@ -47,6 +56,18 @@ async function openTerminal(page: Page, active = AGENT.id, { uploads = true, upl
       // As the panel answers (internal/feature/ai SessionUpload): the path on the session's node.
       data = { path: `/home/tester/.sfpanel-ai/uploads/${id}/20261114-093005-${name}`, name: `20261114-093005-${name}`, size: 3 }
     }
+    else if (url.pathname.endsWith('/ai/prefs')) data = kept
+    else if (url.pathname.includes('/ai/prefs/')) {
+      const what = url.pathname.split('/').at(-1) as 'snippets' | 'keysets'
+      const body = route.request().postDataJSON()
+      saves.push({ what, node: url.searchParams.get('node'), body })
+      if (prefsFail) {
+        await route.fulfill({ status: 500, json: { success: false, error: { code: 'INTERNAL_ERROR', message: 'x' } } })
+        return
+      }
+      kept[what] = body[what]
+      data = { [what]: body[what] }
+    }
     else if (url.pathname.endsWith('/terminal/info')) data = { shell_user: 'tester', is_root: false, hostname: 'fixture' }
     else if (url.pathname.endsWith('/terminal/sessions')) data = { sessions: [] }
     await route.fulfill({ json: { success: true, data } })
@@ -71,7 +92,9 @@ async function openTerminal(page: Page, active = AGENT.id, { uploads = true, upl
     const el = document.activeElement
     return el?.closest('[data-terminal-composer]') ? 'composer' : el?.classList.contains('xterm-helper-textarea') ? 'terminal' : el?.tagName ?? 'none'
   })
-  return { terminal, area, key, nextKeys, composer, send, focused, input, control, uploaded }
+  const sheet = page.getByRole('dialog')
+  const openTools = () => area.getByRole('button', { name: 'Composer tools' }).tap()
+  return { terminal, area, key, nextKeys, composer, send, focused, input, control, uploaded, saves, sheet, openTools }
 }
 
 test('what the composer wrote goes out as one paste and one Enter', async ({ page }) => {
@@ -378,6 +401,185 @@ test('a panel from before attachments offers none', async ({ page }) => {
   })
   await page.waitForTimeout(300)
   expect(t.uploaded).toEqual([])
+})
+
+test('what is written can be kept as a snippet, put back with a tap, and removed with a way back', async ({ page }) => {
+  const t = await openTerminal(page)
+  const words = 'run the tests\nand fix only what fails'
+  await t.composer.fill(`  ${words}\n`)
+  await t.openTools()
+  await expect(t.sheet.getByText('Keep what you send often')).toBeVisible()
+  await t.sheet.getByRole('button', { name: 'Save what is written' }).tap()
+  await expect(page.getByText('Saved as a snippet')).toBeVisible()
+  // Kept by the panel, for this kind of session, without the blank edges.
+  expect(t.saves).toEqual([{ what: 'snippets', node: null, body: { snippets: [{ kind: 'agent', body: words }] } }])
+  const row = t.sheet.locator('[data-snippet]')
+  await expect(row).toHaveText(words)
+  // The same words are not kept twice.
+  await t.sheet.getByRole('button', { name: 'Save what is written' }).tap()
+  await expect(page.getByText('Already a snippet')).toBeVisible()
+  expect(t.saves).toHaveLength(1)
+
+  await page.keyboard.press('Escape')
+  await t.composer.fill('')
+  await t.openTools()
+  await row.tap()
+  // Into the draft, not to the session.
+  await expect(t.composer).toHaveValue(words)
+  await expect(t.sheet).toHaveCount(0)
+  expect(t.input).toEqual([])
+
+  await t.openTools()
+  await t.sheet.getByRole('button', { name: 'Remove the snippet' }).tap()
+  await expect(row).toHaveCount(0)
+  expect(t.saves.at(-1)?.body).toEqual({ snippets: [] })
+  // The way back is in the sheet: nothing outside an open sheet can be pressed.
+  await expect(t.sheet.getByRole('status')).toContainText('Snippet removed')
+  await t.sheet.getByRole('button', { name: 'Undo' }).tap()
+  await expect(row).toHaveText(words)
+  expect(t.saves.at(-1)?.body).toEqual({ snippets: [{ kind: 'agent', body: words }] })
+  await expect(t.sheet.getByRole('status')).toHaveCount(0)
+})
+
+test('snippets are those of the kind of session, and what was sent can be kept as one', async ({ page }) => {
+  const prefs = { snippets: [{ kind: 'agent', body: 'review the diff' }, { kind: 'shell', body: 'docker compose logs -f' }] }
+  const t = await openTerminal(page, SHELL.id, { prefs })
+  await t.composer.fill('df -h')
+  await t.send.tap()
+  await t.openTools()
+  await expect(t.sheet.locator('[data-snippet]')).toHaveText(['docker compose logs -f'])
+  const keep = t.sheet.getByRole('button', { name: 'Save as a snippet' })
+  await keep.tap()
+  // Newest first, and the other kind's stay in the list that is saved.
+  await expect(t.sheet.locator('[data-snippet]')).toHaveText(['df -h', 'docker compose logs -f'])
+  expect(t.saves.at(-1)?.body).toEqual({ snippets: [{ kind: 'shell', body: 'df -h' }, ...prefs.snippets] })
+  await expect(keep).toBeDisabled()
+})
+
+test('a snippet the panel does not keep says so and is not shown as kept', async ({ page }) => {
+  const t = await openTerminal(page, AGENT.id, { prefsFail: true })
+  await t.composer.fill('keep me')
+  await t.openTools()
+  await t.sheet.getByRole('button', { name: 'Save what is written' }).tap()
+  await expect(page.getByText('Could not be saved')).toBeVisible()
+  await expect(t.sheet.locator('[data-snippet]')).toHaveCount(0)
+  await page.keyboard.press('Escape')
+  await expect(t.composer).toHaveValue('keep me')
+})
+
+test('the keys the operator arranged replace the panel\'s, and a key of their own types its text', async ({ page }) => {
+  const t = await openTerminal(page, AGENT.id, { prefs: { keysets: { agent: [[{ id: 'esc' }, { label: '/compact', text: '/compact', enter: true }, { id: 'ctrl-b' }, { id: 'hyper' }, { label: 'y', text: 'y' }]] } } })
+  const row = t.area.locator('[data-terminal-keys]')
+  // What a later panel may have saved and this page cannot draw is left out;
+  // one page of four keys, and the cell that turns it is still the last.
+  await expect(row.getByRole('button')).toHaveText(['Esc', '/compact', '^B', 'y', '1/1'])
+  const gap = await row.evaluate(el => el.getBoundingClientRect().right - el.querySelector('button:last-of-type')!.getBoundingClientRect().right)
+  expect(gap).toBeLessThan(12)
+  await t.key('Ctrl+B').tap()
+  expect(t.input).toEqual(['\x02'])
+  // Its text as a paste, on the live screen, and the Enter it asks for.
+  await t.key('/compact').tap()
+  await expect.poll(() => t.input).toEqual(['\x02', '/compact', '\r'])
+  expect(t.control).toEqual(['{"type":"latest"}'])
+  // One character is a key like any other: the modifiers apply.
+  await t.key('y').tap()
+  await expect.poll(() => t.input.at(-1)).toBe('y')
+  // The shell's keys were not arranged: the panel's own.
+  await page.unrouteAll({ behavior: 'ignoreErrors' })
+})
+
+test('the key editor moves, removes and adds keys, and saves the arrangement', async ({ page }) => {
+  const t = await openTerminal(page)
+  await t.openTools()
+  await t.sheet.getByRole('button', { name: /Edit the keys/ }).tap()
+  const editor = page.locator('[data-keys-editor]')
+  await expect(editor.getByRole('button', { name: 'AI tools' })).toHaveAttribute('aria-pressed', 'true')
+  const page1 = editor.locator('[data-keys-page="1"]')
+  const chips = page1.locator('.grid-cols-7').first().getByRole('button')
+  await expect(chips).toHaveText(['Esc', '⇧Tab', '↑', '↓', '⏎', '^C', '/'])
+  // A full page takes no more.
+  await expect(page1.getByRole('button', { name: 'Add a key to page 1' })).toHaveCount(0)
+
+  // ^C to the front.
+  await page1.getByRole('button', { name: 'Interrupt (Ctrl+C)' }).tap()
+  for (let i = 0; i < 5; i++) await page1.getByRole('button', { name: 'Move earlier' }).tap()
+  await expect(chips).toHaveText(['^C', 'Esc', '⇧Tab', '↑', '↓', '⏎', '/'])
+  // First of the first page: nowhere earlier to go.
+  await expect(page1.getByRole('button', { name: 'Move earlier' })).toBeDisabled()
+  // Two keys out.
+  await page1.getByRole('button', { name: '/', exact: true }).tap()
+  await page1.getByRole('button', { name: 'Remove the key' }).tap()
+  await page1.getByRole('button', { name: 'Enter', exact: true }).tap()
+  await page1.getByRole('button', { name: 'Remove the key' }).tap()
+  // Two in: one from the catalog, one of their own.
+  await page1.getByRole('button', { name: 'Add a key to page 1' }).tap()
+  const picker = page1.locator('[data-keys-picker]')
+  await picker.getByRole('button', { name: 'Ctrl+B', exact: true }).tap()
+  const add = picker.getByRole('button', { name: 'Add', exact: true })
+  await expect(add).toBeDisabled()
+  await picker.getByRole('textbox', { name: 'What it types' }).fill('/compact')
+  await picker.getByRole('checkbox').check()
+  await add.tap()
+  await expect(chips).toHaveText(['^C', 'Esc', '⇧Tab', '↑', '↓', '^B', '/compact'])
+  // Full again: the picker has gone with the cell that opened it.
+  await expect(picker).toHaveCount(0)
+
+  expect(t.saves).toEqual([])
+  await editor.getByRole('button', { name: 'Save', exact: true }).tap()
+  await expect(page.getByText('Keys saved')).toBeVisible()
+  await expect(editor).toHaveCount(0)
+  const id = (...ids: string[]) => ids.map(i => ({ id: i }))
+  const char = (c: string) => ({ label: c, text: c })
+  // The shell's keys were not touched: nothing is saved for them.
+  expect(t.saves).toEqual([{ what: 'keysets', node: null, body: { keysets: { agent: [
+    [...id('ctrl-c', 'esc', 'shiftTab', 'up', 'down', 'ctrl-b'), { label: '/compact', text: '/compact', enter: true }],
+    [char('1'), char('2'), char('3'), ...id('left', 'right', 'tab'), char('@')],
+    id('ctrl', 'alt', 'shift', 'pageUp', 'pageDown', 'home', 'end'),
+  ] } } }])
+  // And the row under the terminal is the new one.
+  await expect(t.area.locator('[data-terminal-keys]').getByRole('button')).toHaveText(['^C', 'Esc', '⇧Tab', '↑', '↓', '^B', '/compact', '1/3'])
+})
+
+test('a key at its page\'s edge moves to the next page, and the panel\'s keys come back as nothing saved', async ({ page }) => {
+  const t = await openTerminal(page, SHELL.id, { prefs: { keysets: { shell: [[{ id: 'esc' }, { id: 'tab' }], [{ id: 'up' }]], agent: [[{ id: 'enter' }]] } } })
+  await t.openTools()
+  await t.sheet.getByRole('button', { name: /Edit the keys/ }).tap()
+  const editor = page.locator('[data-keys-editor]')
+  // On the keys of the session on screen.
+  await expect(editor.getByRole('button', { name: 'Shell', exact: true })).toHaveAttribute('aria-pressed', 'true')
+  const chipsOf = (n: number) => editor.locator(`[data-keys-page="${n}"] .grid-cols-7`).first().getByRole('button', { pressed: undefined }).filter({ hasNotText: /^$/ })
+  await editor.locator('[data-keys-page="1"]').getByRole('button', { name: 'Tab', exact: true }).tap()
+  await editor.getByRole('button', { name: 'Move later' }).tap()
+  await expect(chipsOf(1)).toHaveText(['Esc'])
+  await expect(chipsOf(2)).toHaveText(['Tab', '↑'])
+  // It is still the key in hand, on its new page.
+  await expect(editor.locator('[data-keys-page="2"]').getByRole('button', { name: 'Tab', exact: true })).toHaveAttribute('aria-pressed', 'true')
+  // A third page, and a key on it.
+  await editor.getByRole('button', { name: 'Add a page' }).tap()
+  await editor.locator('[data-keys-page="3"] [data-keys-picker]').getByRole('button', { name: 'Ctrl+L', exact: true }).tap()
+  // The AI tools' keys go back to the panel's own.
+  await editor.getByRole('button', { name: 'AI tools' }).tap()
+  await expect(chipsOf(1)).toHaveText(['⏎'])
+  await editor.getByRole('button', { name: 'Back to the panel\'s keys' }).tap()
+  await expect(chipsOf(1)).toHaveText(['Esc', '⇧Tab', '↑', '↓', '⏎', '^C', '/'])
+  await editor.getByRole('button', { name: 'Save', exact: true }).tap()
+  await expect(editor).toHaveCount(0)
+  expect(t.saves).toEqual([{ what: 'keysets', node: null, body: { keysets: { shell: [[{ id: 'esc' }], [{ id: 'tab' }, { id: 'up' }], [{ id: 'ctrl-l' }]] } } }])
+})
+
+test('an arrangement the panel does not keep stays open to try again', async ({ page }) => {
+  const t = await openTerminal(page, AGENT.id, { prefsFail: true })
+  await t.openTools()
+  await t.sheet.getByRole('button', { name: /Edit the keys/ }).tap()
+  const editor = page.locator('[data-keys-editor]')
+  await editor.locator('[data-keys-page="1"]').getByRole('button', { name: 'Escape', exact: true }).tap()
+  await editor.getByRole('button', { name: 'Remove the key' }).tap()
+  await editor.getByRole('button', { name: 'Save', exact: true }).tap()
+  await expect(page.getByText('Could not be saved')).toBeVisible()
+  await expect(editor).toBeVisible()
+  await page.keyboard.press('Escape')
+  // Nothing changed under the terminal.
+  await expect(t.area.locator('[data-terminal-keys]').getByRole('button').first()).toHaveText('Esc')
 })
 
 // A flick as a finger makes one: the events' own clock a 16 ms frame apart,

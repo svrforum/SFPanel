@@ -73,6 +73,8 @@ import type {
   AISession,
   AILaunchOptions,
   AITools,
+  TerminalPrefs,
+  TerminalSnippet,
   AIDirs,
   AIProfile,
   AIProfiles,
@@ -1902,6 +1904,21 @@ class ApiClient {
   // or a pane scrolled back in copy mode.
   getAISessionScrollback(id: string) {
     return this.request<{ alternate: boolean; copy_mode: boolean; cols: number; rows: number; text: string }>(`/ai/sessions/${encodeURIComponent(id)}/scrollback`)
+  }
+
+  // The terminal page's snippets and key rows. They belong to the operator,
+  // not to a node's sessions: always asked of the node the page came from,
+  // whichever node is being looked at.
+  getTerminalPrefs() {
+    return this.request<TerminalPrefs>('/ai/prefs', { local: true })
+  }
+
+  putTerminalSnippets(snippets: TerminalSnippet[]) {
+    return this.request<{ snippets: TerminalSnippet[] }>('/ai/prefs/snippets', { method: 'PUT', body: JSON.stringify({ snippets }), local: true })
+  }
+
+  putTerminalKeysets(keysets: TerminalPrefs['keysets']) {
+    return this.request<{ keysets: TerminalPrefs['keysets'] }>('/ai/prefs/keysets', { method: 'PUT', body: JSON.stringify({ keysets }), local: true })
   }
 
   // One file into the session's upload directory on the node it runs on

@@ -1966,6 +1966,19 @@ export interface AITools {
   session_uploads?: boolean
 }
 
+/** A text kept to send again: a prompt for an AI CLI, or a command for a shell. */
+export interface TerminalSnippet {
+  kind: 'agent' | 'shell'
+  body: string
+}
+
+/** GET /ai/prefs: what the terminal page keeps on the node it is served from. */
+export interface TerminalPrefs {
+  snippets: TerminalSnippet[]
+  /** the key rows by session kind (lib/terminalKeysets StoredKeysets); a kind left out has the panel's own */
+  keysets: import('@/lib/terminalKeysets').StoredKeysets
+}
+
 /**
  * One selectable tool configuration directory — CODEX_HOME for Codex,
  * CLAUDE_CONFIG_DIR for Claude — so one CLI can hold several logins. The

@@ -1,13 +1,17 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
-import { ArrowUp, Keyboard, Loader2, Paperclip, PenLine, Plus } from 'lucide-react'
+import { ArrowUp, BookmarkPlus, Keyboard, Loader2, Paperclip, PenLine, Plus, Settings2, X } from 'lucide-react'
 import { toast } from 'sonner'
 import { api } from '@/lib/api'
 import { cn } from '@/lib/utils'
 import { Checkbox } from '@/components/ui/checkbox'
 import { Sheet, SheetContent, SheetTitle } from '@/components/ui/sheet'
 import { MODIFIERS_CONSUMED_EVENT, MODIFIERS_EVENT, terminalKey } from '@/lib/terminalKeys'
-import { KEYSETS, NO_BAR_MODIFIERS, activeModifiers, afterKey, tapModifier, type BarKey, type BarModifiers, type KeysetKind } from '@/lib/terminalKeysets'
+import { LONG_LABEL, NO_BAR_MODIFIERS, activeModifiers, afterKey, barKeyName, keysetPages, longLabel, tapModifier, type BarKey, type BarModifiers, type KeysetKind } from '@/lib/terminalKeysets'
+import { snippetBody, snippetRefusal } from '@/lib/terminalPrefs'
+import { useTerminalPrefs } from '@/hooks/useTerminalPrefs'
+import { KeysEditor } from '@/pages/terminal/components/KeysEditor'
+import type { TerminalSnippet } from '@/types/api'
 
 /** What the Android app reaches on the input area's element. */
 export interface TerminalInputElement extends HTMLElement {
@@ -34,7 +38,9 @@ function writeJSON(key: string, value: unknown) {
   try { localStorage.setItem(key, JSON.stringify(value)) } catch { /* private mode */ }
 }
 
-const KEY = 'min-w-0 min-h-12 short:min-h-9 rounded-lg border border-border bg-secondary text-[13px] font-semibold text-foreground select-none active:bg-accent focus-visible:outline-2 focus-visible:outline-ring'
+const KEY = 'min-w-0 min-h-12 short:min-h-9 overflow-hidden rounded-lg border border-border bg-secondary text-[13px] font-semibold text-foreground select-none active:bg-accent focus-visible:outline-2 focus-visible:outline-ring'
+const ROW = 'min-h-12 min-w-0 flex-1 rounded-xl border border-border bg-secondary px-3 py-2 text-left text-[14px] line-clamp-3 whitespace-pre-wrap break-words active:bg-accent focus-visible:outline-2 focus-visible:outline-ring'
+const ROW_ACTION = 'flex min-h-12 w-11 shrink-0 items-center justify-center rounded-xl border border-border bg-secondary text-muted-foreground active:bg-accent focus-visible:outline-2 focus-visible:outline-ring disabled:opacity-40'
 const ROUND = 'flex h-12 w-12 short:h-9 short:w-9 shrink-0 items-center justify-center rounded-xl border border-border bg-secondary text-foreground active:bg-accent focus-visible:outline-2 focus-visible:outline-ring'
 
 /**
@@ -48,8 +54,14 @@ const ROUND = 'flex h-12 w-12 short:h-9 short:w-9 shrink-0 items-center justify-
  * submits it.
  *
  * The keys are seven to a page and a cell that turns the page, by what the
- * session runs (lib/terminalKeysets). A press never takes the focus: the
- * keyboard stays with the composer or the terminal, whichever had it.
+ * session runs (lib/terminalKeysets) — the panel's own until the operator
+ * arranges theirs. A press never takes the focus: the keyboard stays with the
+ * composer or the terminal, whichever had it.
+ *
+ * The + sheet holds what goes with writing: attaching a file, the snippets
+ * the operator keeps, what was sent lately, and the key editor. Snippets and
+ * key rows are kept by the panel (lib/terminalPrefs), so a phone and a desk
+ * have the same ones.
  *
  * `data-mobile-terminal-bar` is what Android apps up to 0.1.6 hide — they draw
  * key rows of their own — so they keep working unchanged; 0.1.7 leaves this
@@ -75,6 +87,8 @@ export function TerminalInput({ kind, sessionKey, onSendKey, onSubmit, onAttach 
   const [sendEnter, setSendEnter] = useState(() => readJSON(SEND_ENTER_KEY, true))
   const [recent, setRecent] = useState<string[]>(() => readJSON<string[]>(recentKey(), []))
   const [sheetOpen, setSheetOpen] = useState(false)
+  const [editingKeys, setEditingKeys] = useState(false)
+  const { prefs, saveSnippets, saveKeysets } = useTerminalPrefs()
   // Where the window is short the composer and the keys take turns.
   const [composing, setComposing] = useState(false)
 
@@ -91,7 +105,7 @@ export function TerminalInput({ kind, sessionKey, onSendKey, onSubmit, onAttach 
     setPagesOf(kind)
     setPage(0)
   }
-  const pages = KEYSETS[kind]
+  const pages = keysetPages(kind, prefs.keysets)
   const keys = pages[page % pages.length]
 
   // The modifiers in force are told to the session, which applies them to
@@ -123,7 +137,11 @@ export function TerminalInput({ kind, sessionKey, onSendKey, onSubmit, onAttach 
       return
     }
     if (key.send === undefined) return
-    onSendKey(terminalKey(key.send, activeModifiers(mods)))
+    // A text of the operator's own goes as the composer's does — a paste, and
+    // the Enter after it when the key says so. One character alone is a key
+    // like any other, and takes the modifiers.
+    if (key.own && (key.enter || key.send.length > 1)) onSubmit(key.send, key.enter === true)
+    else onSendKey(terminalKey(key.send, activeModifiers(mods)))
     changeMods(afterKey(mods))
   }
 
@@ -219,6 +237,42 @@ export function TerminalInput({ kind, sessionKey, onSendKey, onSubmit, onAttach 
     if (paths.length > 0) compose(paths.map((p) => `${p} `).join(''))
   }
 
+  // Snippets: what the operator keeps to send again, for this kind of
+  // session. The list is saved whole, newest first.
+  const snippets = prefs.snippets.filter((s) => s.kind === kind)
+  // The list as it was before the last removal, for the way back. It is
+  // offered in the sheet itself: a toast's button cannot be pressed while a
+  // sheet is open — everything outside it is inert.
+  const [removedFrom, setRemovedFrom] = useState<TerminalSnippet[] | null>(null)
+  const keepSnippet = async (text: string) => {
+    const snippet: TerminalSnippet = { kind, body: snippetBody(text) }
+    const refusal = snippetRefusal(prefs.snippets, snippet)
+    if (refusal === 'empty') return
+    if (refusal === 'there') { toast(t('terminal.input.snippetThere')); return }
+    if (refusal === 'long') { toast.error(t('terminal.input.snippetTooLong')); return }
+    if (refusal === 'full') { toast.error(t('terminal.input.snippetsFull')); return }
+    if (!(await saveSnippets([snippet, ...prefs.snippets]))) {
+      toast.error(t('terminal.input.saveFailed'))
+      return
+    }
+    setRemovedFrom(null)
+    toast.success(t('terminal.input.snippetSaved'))
+  }
+  const dropSnippet = async (snippet: TerminalSnippet) => {
+    const before = prefs.snippets
+    if (!(await saveSnippets(before.filter((s) => s !== snippet)))) {
+      toast.error(t('terminal.input.saveFailed'))
+      return
+    }
+    // A long prompt is not something to lose to a slip of the thumb.
+    setRemovedFrom(before)
+  }
+  const restoreSnippets = async () => {
+    if (!removedFrom) return
+    if (await saveSnippets(removedFrom)) setRemovedFrom(null)
+    else toast.error(t('terminal.input.saveFailed'))
+  }
+
   const keepFocus = (e: React.PointerEvent) => e.preventDefault()
   const pageLabel = `${(page % pages.length) + 1}/${pages.length}`
 
@@ -277,14 +331,13 @@ export function TerminalInput({ kind, sessionKey, onSendKey, onSubmit, onAttach 
           // The click that ends a hold or a swipe is not a press.
           if (hold.current.fired || hold.current.swiped) { e.stopPropagation(); hold.current.fired = false; hold.current.swiped = false }
         }}>
-        {keys.map((key) => {
+        {keys.map((key, i) => {
           const state = key.modifier ? mods[key.modifier] : 0
-          const name = key.modifier ? t('terminal.mobile.modifier', { key: key.modifier }) : key.name ? t(`terminal.mobile.${key.name}`) : key.label
           return (
-            <button key={key.label} type="button" aria-label={name}
+            <button key={`${page}:${i}`} type="button" aria-label={barKeyName(key, t)}
               aria-pressed={key.modifier ? state > 0 : undefined}
               data-locked={state === 2 ? '' : undefined}
-              className={cn(KEY, /^[↑↓←→⏎]$/.test(key.label) && 'text-[17px] font-normal', key.danger && 'text-destructive',
+              className={cn(KEY, /^[↑↓←→⏎]$/.test(key.label) && 'text-[17px] font-normal', longLabel(key.label) && LONG_LABEL, key.danger && 'text-destructive',
                 state === 1 && 'border-primary bg-primary/15', state === 2 && 'border-primary bg-primary text-primary-foreground')}
               onPointerDown={(e) => { e.preventDefault(); startHold(key) }}
               onClick={() => press(key)}>
@@ -292,6 +345,8 @@ export function TerminalInput({ kind, sessionKey, onSendKey, onSubmit, onAttach 
             </button>
           )
         })}
+        {/* A page of fewer keys keeps the cells that turn it where they always are. */}
+        {keys.length < 7 && <span aria-hidden="true" style={{ gridColumn: `span ${7 - keys.length}` }} />}
         <button type="button" className={cn(KEY, 'hidden short:flex items-center justify-center')} aria-label={t('terminal.input.compose')}
           onPointerDown={keepFocus} onClick={() => { setComposing(true); setTimeout(() => draftRef.current?.focus(), 0) }}>
           <PenLine className="h-4 w-4" aria-hidden="true" />
@@ -302,7 +357,7 @@ export function TerminalInput({ kind, sessionKey, onSendKey, onSubmit, onAttach 
         </button>
       </div>
 
-      <Sheet open={sheetOpen} onOpenChange={setSheetOpen}>
+      <Sheet open={sheetOpen} onOpenChange={(open) => { setSheetOpen(open); if (!open) setRemovedFrom(null) }}>
         <SheetContent side="bottom" className="max-h-[75dvh] gap-3 overflow-y-auto rounded-t-2xl p-4">
           <SheetTitle>{t('terminal.input.tools')}</SheetTitle>
           <label className="flex min-h-12 items-center gap-3 text-[14px]">
@@ -323,18 +378,57 @@ export function TerminalInput({ kind, sessionKey, onSendKey, onSubmit, onAttach 
                 onChange={(e) => { const files = Array.from(e.target.files ?? []); e.target.value = ''; void attach(files) }} />
             </>
           )}
+          <section aria-labelledby="terminal-input-snippets" className="flex flex-col gap-1.5">
+            <div className="flex items-center justify-between gap-2">
+              <h3 id="terminal-input-snippets" className="text-[12px] font-semibold text-muted-foreground">{t('terminal.input.snippets')}</h3>
+              <button type="button" disabled={!snippetBody(draft)} onClick={() => void keepSnippet(draft)}
+                className="flex min-h-9 items-center gap-1 rounded-lg px-2 text-[13px] font-medium text-primary active:bg-accent focus-visible:outline-2 focus-visible:outline-ring disabled:text-muted-foreground disabled:opacity-60">
+                <BookmarkPlus className="h-4 w-4" aria-hidden="true" />{t('terminal.input.snippetSave')}
+              </button>
+            </div>
+            {removedFrom && (
+              <p role="status" className="flex min-h-11 items-center justify-between gap-2 rounded-xl bg-accent px-3 text-[13px]">
+                {t('terminal.input.snippetRemoved')}
+                <button type="button" onClick={() => void restoreSnippets()}
+                  className="min-h-9 rounded-lg px-2 font-medium text-primary active:bg-background focus-visible:outline-2 focus-visible:outline-ring">
+                  {t('terminal.input.undo')}
+                </button>
+              </p>
+            )}
+            {snippets.length === 0 && !removedFrom && <p className="text-[13px] text-muted-foreground">{t('terminal.input.snippetsEmpty')}</p>}
+            {snippets.map((snippet) => (
+              <div key={snippet.body} className="flex items-stretch gap-1">
+                <button type="button" data-snippet onClick={() => compose(snippet.body)} className={ROW}>{snippet.body}</button>
+                <button type="button" aria-label={t('terminal.input.snippetRemove')} onClick={() => void dropSnippet(snippet)} className={ROW_ACTION}>
+                  <X className="h-4 w-4" aria-hidden="true" />
+                </button>
+              </div>
+            ))}
+          </section>
           <section aria-labelledby="terminal-input-recent" className="flex flex-col gap-1.5">
             <h3 id="terminal-input-recent" className="text-[12px] font-semibold text-muted-foreground">{t('terminal.input.recent')}</h3>
             {recent.length === 0 && <p className="text-[13px] text-muted-foreground">{t('terminal.input.recentEmpty')}</p>}
             {recent.map((text) => (
-              <button key={text} type="button" data-recent onClick={() => compose(text)}
-                className="min-h-12 rounded-xl border border-border bg-secondary px-3 py-2 text-left text-[14px] line-clamp-3 whitespace-pre-wrap break-words active:bg-accent focus-visible:outline-2 focus-visible:outline-ring">
-                {text}
-              </button>
+              <div key={text} className="flex items-stretch gap-1">
+                <button type="button" data-recent onClick={() => compose(text)} className={ROW}>{text}</button>
+                <button type="button" aria-label={t('terminal.input.snippetSaveThis')} onClick={() => void keepSnippet(text)} className={ROW_ACTION}
+                  disabled={snippets.some((s) => s.body === snippetBody(text))}>
+                  <BookmarkPlus className="h-4 w-4" aria-hidden="true" />
+                </button>
+              </div>
             ))}
           </section>
+          <button type="button" onClick={() => { setSheetOpen(false); setEditingKeys(true) }}
+            className="flex min-h-12 items-center gap-3 rounded-xl border border-border bg-secondary px-3 text-left text-[14px] active:bg-accent focus-visible:outline-2 focus-visible:outline-ring">
+            <Settings2 className="h-4 w-4" aria-hidden="true" />
+            <span className="flex flex-col">
+              {t('terminal.input.editKeys')}
+              <span className="text-[12px] text-muted-foreground">{t('terminal.input.editKeysHint')}</span>
+            </span>
+          </button>
         </SheetContent>
       </Sheet>
+      {editingKeys && <KeysEditor kind={kind} saved={prefs.keysets} onSave={saveKeysets} onClose={() => setEditingKeys(false)} />}
     </div>
   )
 }
