@@ -6,6 +6,16 @@ The format is loosely based on [Keep a Changelog](https://keepachangelog.com/), 
 
 ---
 
+## [0.87.1] – 2026-11-15
+
+### Fixed
+
+- **A key pressed after Korean typed straight into the terminal no longer overtakes its last character.** On a phone a Hangul syllable is still being composed by the keyboard until the next one starts, and the terminal sends it only when the composition ends. A key of the row, the send button of an empty composer, a snippet or a key of your own went ahead of it: "분석" followed by Enter reached the program as "분", Enter, "석" — the message was submitted without its last character, which was left for the next one. What the terminal is still composing is now sent first, and a modifier armed on the row stays with the key pressed after it.
+
+### Upgrading
+
+- Update every node; the cluster update takes them one at a time. The Android app needs no update.
+
 ## [0.87.0] – 2026-11-15
 
 ### Added
