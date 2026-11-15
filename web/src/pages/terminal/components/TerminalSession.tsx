@@ -476,12 +476,43 @@ export function TerminalSession({
     }
     // The socket's own send, for this component's senders. What everyone else
     // sends through __wsRef — the key bar, the Android app's keys — goes through
-    // the socket's replaced send, which leaves the history view first: input is
-    // for the live screen. onData stays out of it, as it carries the terminal's
-    // answers to tmux's queries; the keyboard, a paste and touch scrolling
-    // close or keep the view themselves.
+    // the socket's replaced send, which leaves the history view first (input is
+    // for the live screen) and sends what the field was still composing. onData
+    // stays out of it, as it carries the terminal's answers to tmux's queries;
+    // the keyboard, a paste and touch scrolling close or keep the view
+    // themselves.
     const sendDirect = new WeakMap<WebSocket, WebSocket['send']>()
     const send = (sock: WebSocket, data: Parameters<WebSocket['send']>[0]) => (sendDirect.get(sock) ?? sock.send.bind(sock))(data)
+
+    // A character still being composed in the terminal's own field has not
+    // been sent: xterm sends it when the composition ends, and under an
+    // on-screen keyboard a Hangul syllable is composed until the next one
+    // starts. What comes from outside the field — a key of the row, the Enter
+    // of an empty composer, the Android app's keys, a pasted prompt — was
+    // pressed after it and has to arrive after it: "분석" and the row's Enter
+    // reached the program as "분", Enter, "석". So the composition goes first,
+    // as typed, and is ended: it is taken out of the field, which has the
+    // keyboard drop it, and xterm is told it is over — it reads the field from
+    // where the composition began, a moment later, and finds nothing to send.
+    // Only the composition is taken out: xterm keeps the place it began at,
+    // and in an emptied field a character typed before that moment has passed
+    // would be read from the wrong end and sent twice. It goes out as it is,
+    // not through onData: a modifier armed on the row is for the key pressed
+    // after it.
+    let composingFrom = -1
+    const onComposeStart = () => { composingFrom = term.textarea?.value.length ?? -1 }
+    const onComposeEnd = () => { composingFrom = -1 }
+    term.textarea?.addEventListener('compositionstart', onComposeStart)
+    term.textarea?.addEventListener('compositionend', onComposeEnd)
+    const settleTyping = () => {
+      const field = term.textarea
+      if (!field || composingFrom < 0) return
+      const composed = field.value.slice(composingFrom)
+      field.value = field.value.slice(0, composingFrom)
+      field.dispatchEvent(new CompositionEvent('compositionend'))
+      const sock = wsRef.current
+      if (composed && sock && sock.readyState === WebSocket.OPEN) send(sock, new TextEncoder().encode(composed))
+    }
 
     let mobileModifiers: TerminalModifiers = NO_MODIFIERS
     const onModifiers = (event: Event) => {
@@ -527,6 +558,8 @@ export function TerminalSession({
       sendDirect.set(ws, direct)
       ws.send = (data) => {
         closeView()
+        // Input is binary; a control frame is not typed after anything.
+        if (typeof data !== 'string') settleTyping()
         direct(data)
       }
 
@@ -921,6 +954,7 @@ export function TerminalSession({
     const pasteDirect = term.paste.bind(term)
     term.paste = (data: string) => {
       closeView()
+      settleTyping()
       pasteDirect(data)
     }
 
@@ -958,6 +992,8 @@ export function TerminalSession({
       window.visualViewport?.removeEventListener('resize', handleResize)
       detachTouch()
       typing.forEach((type) => textarea?.removeEventListener(type, onType, true))
+      textarea?.removeEventListener('compositionstart', onComposeStart)
+      textarea?.removeEventListener('compositionend', onComposeEnd)
       closeView()
       if (container) {
         delete (container as TerminalSessionElement).__latest

@@ -797,3 +797,93 @@ test.describe('sideways', () => {
     await expect(t.composer).toBeHidden()
   })
 })
+
+// A Hangul syllable under an on-screen keyboard is composed until the next one
+// starts: the last character of what was typed is still the keyboard's when
+// the next thing is pressed. An IME is driven here as the browser is by one.
+async function ime(page: Page) {
+  const cdp = await page.context().newCDPSession(page)
+  return {
+    /** text the keyboard has settled */
+    commit: (text: string) => cdp.send('Input.insertText', { text }),
+    /** a character it is still composing */
+    compose: (text: string) => cdp.send('Input.imeSetComposition', { text, selectionStart: text.length, selectionEnd: text.length }),
+  }
+}
+
+test('what the composer sends carries the character still being composed, and leaves none behind', async ({ page }) => {
+  const t = await openTerminal(page)
+  const keyboard = await ime(page)
+  await t.composer.tap()
+  await keyboard.commit('상세히 분')
+  await keyboard.compose('석')
+  await expect(t.composer).toHaveValue('상세히 분석')
+  await t.send.tap()
+  await expect.poll(() => t.input).toEqual(['상세히 분석', '\r'])
+  await expect(t.composer).toHaveValue('')
+  // The next character is a composition of its own.
+  await keyboard.compose('다')
+  await keyboard.commit('다')
+  await expect(t.composer).toHaveValue('다')
+})
+
+type Opened = Awaited<ReturnType<typeof openTerminal>>
+for (const [name, press, sent] of [
+  ['a key of the row', (t: Opened) => t.key('Enter').tap(), ['\r']],
+  ['the Enter of an empty composer', (t: Opened) => t.send.tap(), ['\r']],
+  ['the text of a key of the operator\'s own', (t: Opened) => t.key('/compact').tap(), ['/compact', '\r']],
+] as const) {
+  test(`${name} comes after the character the terminal was still composing`, async ({ page }) => {
+    const t = await openTerminal(page, AGENT.id, { prefs: { keysets: { agent: [[{ id: 'enter' }, { label: '/compact', text: '/compact', enter: true }]] } } })
+    await expect(t.key('/compact')).toBeVisible()
+    const keyboard = await ime(page)
+    // A program has written its prompt, as any has: xterm sizes its field when
+    // the cursor first moves, and in a field of no size the browser keeps the
+    // caret at the start — what is composed would not follow what was typed.
+    await t.terminal.evaluate(el => new Promise<void>(done => (el as any).__termRef.current.write('› ', done)))
+    await t.terminal.tap()
+    await expect.poll(t.focused).toBe('terminal')
+    await keyboard.commit('상세히 분')
+    await expect.poll(() => t.input).toEqual(['상세히 분'])
+    await keyboard.compose('석')
+    await page.waitForTimeout(100)
+    // Not sent yet: it is the keyboard's until the composition ends, and
+    // xterm draws it over the cursor meanwhile.
+    expect(t.input).toEqual(['상세히 분'])
+    const drawn = t.terminal.locator('.composition-view')
+    await expect(drawn).toHaveClass(/active/)
+    await expect(drawn).toHaveText('석')
+    await press(t)
+    // "분석" and then the key — not "분", the key, and a "석" left for the next message.
+    await expect.poll(() => t.input).toEqual(['상세히 분', '석', ...sent])
+    expect(await t.focused()).toBe('terminal')
+    // Sent, it is the program's to draw: xterm's copy over the cursor is gone.
+    await expect(drawn).not.toHaveClass(/active/)
+    // The composition is over for the keyboard too: the next character is sent
+    // once, and the one before it is not sent again.
+    await keyboard.compose('다')
+    await keyboard.commit('다')
+    await expect.poll(() => t.input).toEqual(['상세히 분', '석', ...sent, '다'])
+    await page.waitForTimeout(300)
+    expect(t.input).toEqual(['상세히 분', '석', ...sent, '다'])
+  })
+}
+
+test('a modifier armed for a key of the row is not spent on the character composed before it', async ({ page }) => {
+  const t = await openTerminal(page, AGENT.id, { prefs: { keysets: { agent: [[{ id: 'alt' }, { id: 'enter' }]] } } })
+  const alt = t.key('Toggle alt for the next key')
+  await expect(alt).toBeVisible()
+  const keyboard = await ime(page)
+  await t.terminal.evaluate(el => new Promise<void>(done => (el as any).__termRef.current.write('› ', done)))
+  await t.terminal.tap()
+  await expect.poll(t.focused).toBe('terminal')
+  await keyboard.commit('분')
+  await keyboard.compose('석')
+  await page.waitForTimeout(100)
+  // Alt is for the key pressed next; the character was typed before it.
+  await alt.tap()
+  await expect(alt).toHaveAttribute('aria-pressed', 'true')
+  await t.key('Enter').tap()
+  await expect.poll(() => t.input).toEqual(['분', '석', '\x1b\r'])
+  await expect(alt).toHaveAttribute('aria-pressed', 'false')
+})
