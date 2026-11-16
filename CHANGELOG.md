@@ -6,6 +6,20 @@ The format is loosely based on [Keep a Changelog](https://keepachangelog.com/), 
 
 ---
 
+## [0.87.2] – 2026-11-16
+
+### Added
+
+- **Shift+← as one key for AI tools.** Codex inside the panel's tmux names the key it waits for — "shift+← to answer" a queued question, and to take the last queued message back to edit — and on a phone that was Shift on the third page of the key row, two page turns, then ←, with nothing on screen saying that an armed Shift goes along. `⇧←` is now a key of its own on the second page of the AI tools' keys, next to the arrows, and in the key editor's catalog.
+
+### Changed
+
+- `@` is no longer on the AI tools' default key row: `⇧←` took its place. It is typed in the composer like any other character, and can be put back as a key of your own in the key editor. A key row you arranged yourself is left as it is; `⇧←` is in the catalog to add to it.
+
+### Upgrading
+
+- Update every node; the cluster update takes them one at a time. The Android app needs no update.
+
 ## [0.87.1] – 2026-11-15
 
 ### Fixed
