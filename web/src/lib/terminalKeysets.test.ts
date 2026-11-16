@@ -34,6 +34,9 @@ describe('KEYSETS', () => {
     expect(key('agent', '⇧Tab')?.send).toBe('\x1b[Z')
     expect(key('agent', '⏎')?.send).toBe('\r')
     expect(key('agent', '^C')?.send).toBe('\x03')
+    // What Codex inside tmux answers a queued question on, and takes the last
+    // queued message back to edit: Shift and the left arrow, as one key.
+    expect(key('agent', '⇧←')?.send).toBe('\x1b[1;2D')
     expect(key('shell', '^D')?.send).toBe('\x04')
     expect(key('shell', '^Z')?.send).toBe('\x1a')
     expect(key('shell', '^R')?.send).toBe('\x12')
@@ -45,6 +48,13 @@ describe('KEYSETS', () => {
 
   it('keeps what an agent session is steered with on its first page', () => {
     expect(KEYSETS.agent[0].map((k) => k.label)).toEqual(['Esc', '⇧Tab', '↑', '↓', '⏎', '^C', '/'])
+  })
+
+  it('has Shift and the left arrow next to the arrows, not two pages apart', () => {
+    // Shift is on the third page and ← on the second: the combination an AI
+    // CLI asks for by name ("shift+← to answer") took a tap, two page turns
+    // and another tap, with nothing on screen saying so.
+    expect(KEYSETS.agent[1].map((k) => k.label)).toEqual(['1', '2', '3', '←', '→', '⇧←', 'Tab'])
   })
 })
 
@@ -72,6 +82,9 @@ describe('barKey', () => {
   it('knows the keys of the catalog by their id', () => {
     expect(barKey({ id: 'esc' })).toMatchObject({ label: 'Esc', send: '\x1b' })
     expect(barKey({ id: 'shiftTab' })).toMatchObject({ label: '⇧Tab', send: '\x1b[Z' })
+    expect(barKey({ id: 'shiftLeft' })).toMatchObject({ label: '⇧←', send: '\x1b[1;2D' })
+    // One press, not a movement to hold down.
+    expect(barKey({ id: 'shiftLeft' })?.repeat).toBeUndefined()
     expect(barKey({ id: 'ctrl' })).toMatchObject({ label: 'Ctrl', modifier: 'ctrl' })
     expect(barKey({ id: 'up' })).toMatchObject({ send: '\x1b[A', repeat: true })
   })

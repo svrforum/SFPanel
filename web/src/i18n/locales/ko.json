@@ -2383,6 +2383,7 @@
       "scrollDown": "기록 아래로",
       "latest": "최신 출력",
       "shiftTab": "Shift+Tab",
+      "shiftLeft": "Shift+왼쪽 화살표",
       "interrupt": "중단 (Ctrl+C)",
       "endOfInput": "입력 끝 (Ctrl+D)",
       "suspend": "일시 중지 (Ctrl+Z)",

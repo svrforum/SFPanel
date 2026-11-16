@@ -2394,6 +2394,7 @@
       "scrollDown": "Scroll down",
       "latest": "Latest output",
       "shiftTab": "Shift+Tab",
+      "shiftLeft": "Shift+Left arrow",
       "interrupt": "Interrupt (Ctrl+C)",
       "endOfInput": "End of input (Ctrl+D)",
       "suspend": "Suspend (Ctrl+Z)",

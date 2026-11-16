@@ -259,13 +259,58 @@ test('an arrow held down repeats, and a tap is one', async ({ page }) => {
   expect(t.input.filter(i => i === '\x1b[A').length - 1).toBe(held)
 })
 
+// An AI CLI names the key it waits for — Codex inside tmux: "shift+← to
+// answer" — and Shift is a page away from the arrows.
+test('Shift and the left arrow is one key, next to the arrows of an AI CLI', async ({ page }) => {
+  const t = await openTerminal(page)
+  await t.nextKeys.tap()
+  await t.key('Shift+Left arrow').tap()
+  await expect.poll(() => t.input.at(-1)).toBe('\x1b[1;2D')
+  // An operator who went for Shift first and then found the key: still that key.
+  await t.nextKeys.tap()
+  const shift = t.key('Toggle shift for the next key')
+  await shift.tap()
+  await t.nextKeys.tap()
+  await t.nextKeys.tap()
+  const sent = t.input.length
+  await t.key('Shift+Left arrow').tap()
+  await expect.poll(() => t.input.length).toBe(sent + 1)
+  expect(t.input.at(-1)).toBe('\x1b[1;2D')
+  await t.nextKeys.tap()
+  await expect(shift).toHaveAttribute('aria-pressed', 'false')
+})
+
+test('a modifier armed on one page goes with a key of another, whatever the composer holds', async ({ page }) => {
+  const t = await openTerminal(page)
+  // As it was found: the composer has the keyboard and a stray character.
+  await t.composer.tap()
+  await page.keyboard.type('+')
+  await t.nextKeys.tap()
+  await t.nextKeys.tap()
+  const shift = t.key('Toggle shift for the next key')
+  await shift.tap()
+  await expect(shift).toHaveAttribute('aria-pressed', 'true')
+  // Shift is not on these pages, and is still on.
+  await t.nextKeys.tap()
+  await t.nextKeys.tap()
+  const sent = t.input.length
+  await t.key('Move cursor left').tap()
+  await expect.poll(() => t.input.length).toBe(sent + 1)
+  expect(t.input.at(-1)).toBe('\x1b[1;2D')
+  // Nothing of the draft went with it, and the keyboard stayed where it was.
+  await expect(t.composer).toHaveValue('+')
+  expect(await t.focused()).toBe('composer')
+  await t.nextKeys.tap()
+  await expect(shift).toHaveAttribute('aria-pressed', 'false')
+})
+
 test('the keys are those of what the session runs, a page at a time', async ({ page }) => {
   const t = await openTerminal(page)
   const labels = () => t.area.locator('[data-terminal-keys] button').allTextContents()
   // An AI CLI: stop, permission mode, its menus, answer, interrupt, a command.
   expect(await labels()).toEqual(['Esc', '⇧Tab', '↑', '↓', '⏎', '^C', '/', '', '1/3'])
   await t.nextKeys.tap()
-  expect((await labels()).slice(0, 7)).toEqual(['1', '2', '3', '←', '→', 'Tab', '@'])
+  expect((await labels()).slice(0, 7)).toEqual(['1', '2', '3', '←', '→', '⇧←', 'Tab'])
   await t.key('2').tap()
   await expect.poll(() => t.input.at(-1)).toBe('2')
   // A sideways drag across the row turns the page as well, either way.
@@ -609,7 +654,7 @@ test('the key editor moves, removes and adds keys, and saves the arrangement', a
   // The shell's keys were not touched: nothing is saved for them.
   expect(t.saves).toEqual([{ what: 'keysets', node: null, body: { keysets: { agent: [
     [...id('ctrl-c', 'esc', 'shiftTab', 'up', 'down', 'ctrl-b'), { label: '/compact', text: '/compact', enter: true }],
-    [char('1'), char('2'), char('3'), ...id('left', 'right', 'tab'), char('@')],
+    [char('1'), char('2'), char('3'), ...id('left', 'right', 'shiftLeft', 'tab')],
     id('ctrl', 'alt', 'shift', 'pageUp', 'pageDown', 'home', 'end'),
   ] } } }])
   // And the row under the terminal is the new one.

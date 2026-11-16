@@ -14,6 +14,12 @@ describe('terminal modifier encoding', () => {
     expect(terminalKey('\x1b[D', { shift: true, ctrl: true, alt: false })).toBe('\x1b[1;6D')
     expect(terminalKey('\x1b[5~', { shift: false, ctrl: true, alt: false })).toBe('\x1b[5;5~')
   })
+  it('leaves a key that already carries its modifier as it is', () => {
+    // Shift armed and then the row's own Shift+← — what an operator who went
+    // for Shift first presses next — is still Shift+←.
+    expect(terminalKey('\x1b[1;2D', { ...NO_MODIFIERS, shift: true })).toBe('\x1b[1;2D')
+    expect(terminalKey('\x1b[Z', { ...NO_MODIFIERS, shift: true })).toBe('\x1b[Z')
+  })
   it('encodes controls and symbols without altering composed text', () => {
     expect(terminalKey('c', { ...NO_MODIFIERS, ctrl: true })).toBe('\x03')
     expect(terminalKey('c', { shift: false, ctrl: true, alt: true })).toBe('\x1b\x03')

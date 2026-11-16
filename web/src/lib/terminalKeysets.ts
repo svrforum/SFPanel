@@ -49,6 +49,10 @@ const NAMED: Record<string, BarKey> = {
   esc: { label: 'Esc', send: '\x1b', name: 'escape' },
   tab: { label: 'Tab', send: '\t', name: 'tab' },
   shiftTab: { label: '⇧Tab', send: '\x1b[Z', name: 'shiftTab' },
+  // Codex inside tmux answers a queued question and edits its last queued
+  // message on this; with Shift on one page and ← on another it was four
+  // presses nobody was told about.
+  shiftLeft: { label: '⇧←', send: '\x1b[1;2D', name: 'shiftLeft' },
   enter: { label: '⏎', send: '\r', name: 'enter' },
   up: { label: '↑', send: '\x1b[A', repeat: true, name: 'up' },
   down: { label: '↓', send: '\x1b[B', repeat: true, name: 'down' },
@@ -69,7 +73,7 @@ const LETTERS = 'abcdefghijklmnopqrstuvwxyz'
 /** The keys there are to pick from, as the editor groups them. */
 export const KEY_CATALOG: { group: 'basic' | 'move' | 'modifier' | 'control'; ids: string[] }[] = [
   { group: 'basic', ids: ['esc', 'tab', 'shiftTab', 'enter'] },
-  { group: 'move', ids: ['up', 'down', 'left', 'right', 'home', 'end', 'pageUp', 'pageDown'] },
+  { group: 'move', ids: ['up', 'down', 'left', 'right', 'shiftLeft', 'home', 'end', 'pageUp', 'pageDown'] },
   { group: 'modifier', ids: ['ctrl', 'alt', 'shift'] },
   { group: 'control', ids: [...LETTERS].map((c) => `ctrl-${c}`) },
 ]
@@ -99,10 +103,11 @@ const id = (...ids: string[]): StoredKey[] => ids.map((i) => ({ id: i }))
 /** The keys a session has until the operator arranges their own. */
 export const DEFAULT_KEYSETS: Record<KeysetKind, StoredKey[][]> = {
   // Stop it, change its permission mode, move through its menus and history,
-  // answer it, start a command; then its numbered choices; then the rest.
+  // answer it, start a command; then its numbered choices and what it queued;
+  // then the rest.
   agent: [
     [...id('esc', 'shiftTab', 'up', 'down', 'enter', 'ctrl-c'), char('/')],
-    [char('1'), char('2'), char('3'), ...id('left', 'right', 'tab'), char('@')],
+    [char('1'), char('2'), char('3'), ...id('left', 'right', 'shiftLeft', 'tab')],
     id('ctrl', 'alt', 'shift', 'pageUp', 'pageDown', 'home', 'end'),
   ],
   shell: [
