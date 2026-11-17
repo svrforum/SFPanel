@@ -1558,7 +1558,9 @@ test.describe('editor', () => {
     await editor.getByTestId('task-input-0').getByLabel('Name', { exact: true }).fill('version')
     await editor.getByRole('button', { name: 'Remove input 1' }).click()
     await expect(editor.getByTestId('task-input-0')).toHaveCount(0)
-    await page.getByRole('button', { name: 'Undo' }).click()
+    // The step's toast is still fading out when this one arrives: the Undo
+    // meant is this toast's own.
+    await page.getByRole('listitem').filter({ hasText: 'Input 1 removed.' }).getByRole('button', { name: 'Undo' }).click()
     await expect(editor.getByTestId('task-input-0').getByLabel('Name', { exact: true })).toHaveValue('version')
   })
 
