@@ -8,6 +8,7 @@ import {
   emptyOutput,
   focusStep,
   runActions,
+  runReasonText,
   runStepCount,
   stepHeader,
   unsuccessfulNodes,
@@ -146,5 +147,45 @@ describe('stepHeader', () => {
   it('numbers a step with no name, or a run whose steps could not be read', () => {
     expect(stepHeader(t, 't-1', [{ kind: 'service' }], 0)).toBe('cluster.tasks.plan.step:{"n":1}')
     expect(stepHeader(t, 't-1', undefined, 2)).toBe('cluster.tasks.plan.step:{"n":3}')
+  })
+})
+
+describe('runReasonText', () => {
+  // Every sentence internal/feature/tasks writes as a run's reason or a node's.
+  it.each<[string, string]>([
+    ['stopped by admin', 'cluster.tasks.run.reason.stoppedBy:{"user":"admin"}'],
+    ['stopped by the operator', 'cluster.tasks.run.reason.stoppedByOperator'],
+    ['stopped by ', 'cluster.tasks.run.reason.stoppedByOperator'],
+    ['a node failed and the run stops on failure: no further nodes were started', 'cluster.tasks.run.reason.earlierFail'],
+    ['quorum: rebooting manager-2 would leave the managers without a quorum', 'cluster.tasks.run.reason.quorumStop:{"node":"manager-2"}'],
+    ['quorum', 'cluster.tasks.run.reason.quorumSkip'],
+    ["the task's document could not be read: revision rev-1 not found", 'cluster.tasks.run.reason.documentUnreadable:{"error":"revision rev-1 not found"}'],
+    ["the task's document does not parse", 'cluster.tasks.run.reason.documentInvalid'],
+    ["the task's document does not parse: line 7: unknown step kind", 'cluster.tasks.run.reason.documentInvalidLine:{"line":"7","message":"unknown step kind"}'],
+    ["the run ended before the node's turn", 'cluster.tasks.run.reason.endedBeforeTurn'],
+    ['leadership could not be handed over to manager-2: timed out: no answer', 'cluster.tasks.run.reason.notHandedOver:{"node":"manager-2","error":"timed out: no answer"}'],
+    ['the node is no longer in the cluster', 'cluster.tasks.run.reason.notInCluster'],
+    ['the node was offline when its turn came', 'cluster.tasks.run.reason.offline'],
+    ['this leader does not reach the node', 'cluster.tasks.run.reason.unreachable'],
+    ['busy with job r-7-0 of run r-7 (Deploy web (v2))', 'cluster.tasks.run.reason.busy:{"job":"r-7-0","run":"r-7","task":"Deploy web (v2)"}'],
+    ['step 2 (Restart nginx) failed', 'cluster.tasks.run.reason.stepFailed:{"n":"2","step":"Restart nginx"}'],
+  ])('words %j', (reason, want) => {
+    expect(runReasonText(reason, t)).toBe(want)
+  })
+
+  it('words a step left unknown, and the sentence the leader wrote inside it', () => {
+    const noAnswer = 'cluster.tasks.run.reason.noAnswer:{"error":"dial tcp: i/o timeout"}'
+    expect(runReasonText('step 1: the node did not answer: dial tcp: i/o timeout', t))
+      .toBe(`cluster.tasks.run.reason.stepUnknown:${JSON.stringify({ n: '1', summary: noAnswer })}`)
+    const notKnown = 'cluster.tasks.run.reason.resultUnknown:{"status":"interrupted"}'
+    expect(runReasonText("step 3: the job's result is not known (interrupted)", t))
+      .toBe(`cluster.tasks.run.reason.stepUnknown:${JSON.stringify({ n: '3', summary: notKnown })}`)
+    // A node's own summary stays as the node wrote it.
+    expect(runReasonText('step 2: exit status 3', t)).toBe('cluster.tasks.run.reason.stepUnknown:{"n":"2","summary":"exit status 3"}')
+  })
+
+  it('shows a sentence it does not know as sent', () => {
+    expect(runReasonText('template: step 1: map has no entry for key "x"', t)).toBe('template: step 1: map has no entry for key "x"')
+    expect(runReasonText('the node was offline when its turn came, and more', t)).toBe('the node was offline when its turn came, and more')
   })
 })

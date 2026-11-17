@@ -158,3 +158,43 @@ export function nodeStatusText(status: RunNodeStatus, t: TFunction): string {
 export function nodeStatusTone(status: RunNodeStatus): StatusPillTone {
   return Object.hasOwn(NODE_TONE, status) ? NODE_TONE[status] : 'muted'
 }
+
+// The sentences internal/feature/tasks (run.go, handler.go) writes as a run's
+// reason or a node's, matched whole, in the screen's words. Literal keys, so
+// locales.test sees each one.
+const REASONS: [RegExp, (t: TFunction, m: RegExpMatchArray) => string][] = [
+  [/^stopped by (?:the operator)?$/, (t) => t('cluster.tasks.run.reason.stoppedByOperator')],
+  [/^stopped by (.+)$/s, (t, m) => t('cluster.tasks.run.reason.stoppedBy', { user: m[1] })],
+  [/^a node failed and the run stops on failure: no further nodes were started$/, (t) => t('cluster.tasks.run.reason.earlierFail')],
+  [/^quorum: rebooting (.+) would leave the managers without a quorum$/s, (t, m) => t('cluster.tasks.run.reason.quorumStop', { node: m[1] })],
+  [/^quorum$/, (t) => t('cluster.tasks.run.reason.quorumSkip')],
+  [/^the task's document could not be read: (.*)$/s, (t, m) => t('cluster.tasks.run.reason.documentUnreadable', { error: m[1] })],
+  [/^the task's document does not parse$/, (t) => t('cluster.tasks.run.reason.documentInvalid')],
+  [/^the task's document does not parse: line (\d+): (.*)$/s, (t, m) => t('cluster.tasks.run.reason.documentInvalidLine', { line: m[1], message: m[2] })],
+  [/^the run ended before the node's turn$/, (t) => t('cluster.tasks.run.reason.endedBeforeTurn')],
+  [/^leadership could not be handed over to (.*?): (.*)$/s, (t, m) => t('cluster.tasks.run.reason.notHandedOver', { node: m[1], error: m[2] })],
+  [/^the node is no longer in the cluster$/, (t) => t('cluster.tasks.run.reason.notInCluster')],
+  [/^the node was offline when its turn came$/, (t) => t('cluster.tasks.run.reason.offline')],
+  [/^this leader does not reach the node$/, (t) => t('cluster.tasks.run.reason.unreachable')],
+  [/^busy with job (\S+) of run (\S+) \((.*)\)$/s, (t, m) => t('cluster.tasks.run.reason.busy', { job: m[1], run: m[2], task: m[3] })],
+  [/^step (\d+) \((.*)\) failed$/s, (t, m) => t('cluster.tasks.run.reason.stepFailed', { n: m[1], step: m[2] })],
+  // A step left unknown: the leader's summary of it is one of the two
+  // sentences below, or the node's own.
+  [/^step (\d+): (.*)$/s, (t, m) => t('cluster.tasks.run.reason.stepUnknown', { n: m[1], summary: runReasonText(m[2], t) })],
+  [/^the node did not answer: (.*)$/s, (t, m) => t('cluster.tasks.run.reason.noAnswer', { error: m[1] })],
+  [/^the job's result is not known \((.*)\)$/s, (t, m) => t('cluster.tasks.run.reason.resultUnknown', { status: m[1] })],
+]
+
+/**
+ * Why a run or a node ended as it did, in the screen's words. The server
+ * gives an English sentence (an agent install gives a code, which installRun
+ * words); one this screen does not know, such as why a step could not be
+ * filled in for a node, is shown as sent.
+ */
+export function runReasonText(reason: string, t: TFunction): string {
+  for (const [pattern, words] of REASONS) {
+    const m = reason.match(pattern)
+    if (m) return words(t, m)
+  }
+  return reason
+}

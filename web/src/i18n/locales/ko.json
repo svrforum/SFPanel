@@ -1554,7 +1554,27 @@
         "rerunFailedDescription": "노드 {{count}}대가 성공하지 못한 첫 단계부터, 이 실행의 입력값과 확인 그대로 다시 돕니다.",
         "rerunChosen": "노드 골라 다시 실행",
         "rerunChosenTitle": "고른 노드에서 다시 실행",
-        "rerunChosenDescription": "노드마다 성공하지 못한 첫 단계부터 다시 돕니다. 성공한 노드는 모든 단계를 다시 돕니다. 이 실행의 입력값과 확인을 그대로 씁니다."
+        "rerunChosenDescription": "노드마다 성공하지 못한 첫 단계부터 다시 돕니다. 성공한 노드는 모든 단계를 다시 돕니다. 이 실행의 입력값과 확인을 그대로 씁니다.",
+        "reason": {
+          "stoppedBy": "{{user}}이(가) 중지했습니다.",
+          "stoppedByOperator": "운영자가 중지했습니다.",
+          "earlierFail": "실패한 노드가 있어 다음 노드를 시작하지 않았습니다. 이 실행은 실패하면 멈춥니다.",
+          "quorumStop": "{{node}}을(를) 재부팅하면 매니저가 정족수를 잃어 실행을 멈췄습니다.",
+          "quorumSkip": "재부팅하면 매니저가 정족수를 잃어 이 노드는 건너뛰었습니다.",
+          "documentUnreadable": "작업 문서를 읽지 못했습니다: {{error}}",
+          "documentInvalid": "작업 문서를 작업으로 읽을 수 없습니다.",
+          "documentInvalidLine": "작업 문서를 작업으로 읽을 수 없습니다. {{line}}번째 줄: {{message}}",
+          "endedBeforeTurn": "이 노드의 차례가 오기 전에 실행이 끝났습니다.",
+          "notHandedOver": "리더 자리를 {{node}}에 넘기지 못했습니다: {{error}}",
+          "notInCluster": "노드가 더는 클러스터에 없습니다.",
+          "offline": "차례가 왔을 때 노드가 오프라인이었습니다.",
+          "unreachable": "이 리더가 노드에 닿지 못합니다.",
+          "busy": "노드가 다른 실행 {{run}}({{task}})의 잡 {{job}}을(를) 돌리고 있었습니다.",
+          "stepFailed": "단계 {{n}}({{step}})이(가) 실패했습니다.",
+          "stepUnknown": "단계 {{n}}: {{summary}}",
+          "noAnswer": "노드가 응답하지 않았습니다: {{error}}",
+          "resultUnknown": "잡의 결과를 알 수 없습니다({{status}})."
+        }
       },
       "output": {
         "title": "{{node}} · {{step}}",

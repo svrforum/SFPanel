@@ -1108,10 +1108,11 @@ test.describe('run progress', () => {
     // a-2 failed; with stop on failure, the leader never ran.
     const FAILED_NODES = {
       'a-1': A1_DONE,
-      'a-2': rec('failed', [st('succeeded', { job_id: 'j-a2-0', changed: true }), st('failed', { job_id: 'j-a2-1', summary: 'exit 1' })], { reason: 'Restart nginx failed' }),
+      'a-2': rec('failed', [st('succeeded', { job_id: 'j-a2-0', changed: true }), st('failed', { job_id: 'j-a2-1', summary: 'exit 1' })], { reason: 'step 2 (Restart nginx) failed' }),
       'm-1': rec('pending'),
     }
-    const failedRun = liveRun({ status: 'failed', ended_at: seen, reason: 'agent-02 failed' })
+    // The reason as the leader writes it (internal/feature/tasks/run.go).
+    const failedRun = liveRun({ status: 'failed', ended_at: seen, reason: 'a node failed and the run stops on failure: no further nodes were started' })
     const NEW_RUN = '20261101-130000-123456'
     const fixture = (): Fixture => ({
       runDetails: { [RUN_ID]: runDetail(failedRun, FAILED_NODES) },
@@ -1124,6 +1125,8 @@ test.describe('run progress', () => {
       await page.goto(`/cluster/tasks/runs/${RUN_ID}`)
       const pane = runPane(page)
       await expect(pane.getByTestId('task-run-status')).toHaveText('Failed')
+      // Why, in the screen's words rather than the leader's English.
+      await expect(pane).toContainText('A node failed and this run stops on failure, so no further nodes were started.')
       await expect(pane.getByRole('button', { name: 'Stop', exact: true })).toHaveCount(0)
       await expect(pane.getByRole('button', { name: 'Force stop' })).toHaveCount(0)
 

@@ -1561,7 +1561,27 @@
         "rerunFailedDescription_other": "{{count}} nodes run again from their first step that did not succeed, with this run's inputs and confirmations.",
         "rerunChosen": "Choose nodes to rerun",
         "rerunChosenTitle": "Rerun on the nodes you choose",
-        "rerunChosenDescription": "Each node runs again from its first step that did not succeed; a node that succeeded runs every step again. This run's inputs and confirmations are used again."
+        "rerunChosenDescription": "Each node runs again from its first step that did not succeed; a node that succeeded runs every step again. This run's inputs and confirmations are used again.",
+        "reason": {
+          "stoppedBy": "Stopped by {{user}}.",
+          "stoppedByOperator": "Stopped by the operator.",
+          "earlierFail": "A node failed and this run stops on failure, so no further nodes were started.",
+          "quorumStop": "Rebooting {{node}} would leave the managers without a quorum, so the run stopped.",
+          "quorumSkip": "Skipped: rebooting this node would leave the managers without a quorum.",
+          "documentUnreadable": "The task's document could not be read: {{error}}",
+          "documentInvalid": "The task's document does not parse.",
+          "documentInvalidLine": "The task's document does not parse. Line {{line}}: {{message}}",
+          "endedBeforeTurn": "The run ended before this node's turn.",
+          "notHandedOver": "The leadership could not be handed over to {{node}}: {{error}}",
+          "notInCluster": "The node is no longer in the cluster.",
+          "offline": "The node was offline when its turn came.",
+          "unreachable": "This leader does not reach the node.",
+          "busy": "The node was busy with job {{job}} of run {{run}} ({{task}}).",
+          "stepFailed": "Step {{n}} ({{step}}) failed.",
+          "stepUnknown": "Step {{n}}: {{summary}}",
+          "noAnswer": "The node did not answer: {{error}}",
+          "resultUnknown": "The job's result is not known ({{status}})."
+        }
       },
       "output": {
         "title": "{{node}} · {{step}}",

@@ -15,7 +15,7 @@ import { builtinText } from './taskBuiltins'
 import { runMatrix, type RunMatrix, type RunState } from './taskRunProgress'
 import { runStatusText, runStatusTone } from './taskRunStatus'
 import {
-  CELL_ORDER, cellText, cellTone, focusStep, nodeStatusText, nodeStatusTone, runActions, runStepCount, stepHeader, unsuccessfulNodes,
+  CELL_ORDER, cellText, cellTone, focusStep, nodeStatusText, nodeStatusTone, runActions, runReasonText, runStepCount, stepHeader, unsuccessfulNodes,
 } from './taskRunViewModel'
 import { useTaskRun } from './useTaskRun'
 import { useMounted } from './useMounted'
@@ -81,9 +81,10 @@ export function TaskRunView({ runId, onStatus }: TaskRunViewProps) {
   const count = install ? INSTALL_STEP_COUNT : runStepCount(steps, state)
   const matrix = useMemo(() => {
     const m = runMatrix(state, count, nodeName)
-    // An install's row reason is a code, worded below the table.
-    return install ? { ...m, rows: m.rows.map((row) => ({ ...row, reason: undefined })) } : m
-  }, [state, count, nodeName, install])
+    // An install's row reason is a code, worded below the table; a task's is
+    // the leader's sentence.
+    return { ...m, rows: m.rows.map((row) => ({ ...row, reason: install || !row.reason ? undefined : runReasonText(row.reason, t) })) }
+  }, [state, count, nodeName, install, t])
   const headers = useMemo(
     () => (run ? Array.from({ length: count }, (_, i) => stepHeader(t, run.task_id, steps, i)) : []),
     [run, count, steps, t],
@@ -197,7 +198,7 @@ function RunHead({ run, state, wave, counts }: RunHeadProps) {
           </div>
         )}
       </dl>
-      {run.reason && <p className="text-[12px] text-muted-foreground break-words">{run.reason}</p>}
+      {run.reason && <p className="text-[12px] text-muted-foreground break-words">{runReasonText(run.reason, t)}</p>}
       <ul data-testid="task-run-counts" aria-label={t('cluster.tasks.run.counts')} className="flex flex-wrap gap-1.5">
         {CELL_ORDER.filter((c) => counts[c] > 0).map((c) => (
           <li key={c}>
