@@ -525,7 +525,7 @@ export default function NetworkTailscale() {
 
             <Button className="w-full" onClick={handleConnect} disabled={connecting}>
               {connecting ? <Loader2 className="h-4 w-4 animate-spin" /> : <Power className="h-4 w-4" />}
-              {connecting ? t('network.tailscale.installing') : t('network.tailscale.connect')}
+              {connecting ? t('network.tailscale.connecting') : t('network.tailscale.connect')}
             </Button>
 
             {authURL && (

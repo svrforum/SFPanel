@@ -177,7 +177,7 @@ export function ExpandFilesystemDialog({ open, onOpenChange, onExpanded }: {
                       </span>
                     </div>
                     <p className="text-[12px] text-muted-foreground mt-1">
-                      {c.steps.length} {t('disk.filesystems.expandSteps').toLowerCase()}
+                      {t('disk.filesystems.expandStepCount', { count: c.steps.length })}
                     </p>
                   </div>
                   <ChevronRight className="h-4 w-4 text-muted-foreground group-hover:text-foreground transition-colors flex-shrink-0" />

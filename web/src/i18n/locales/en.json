@@ -3363,6 +3363,7 @@
       "authKeyPlaceholder": "tskey-auth-… (optional)",
       "authKeyHint": "Auth key from the Tailscale admin console. Leave empty for browser authentication.",
       "connect": "Connect",
+      "connecting": "Connecting…",
       "authRequired": "Browser authentication required",
       "connected": "Connected to Tailscale",
       "connectFailed": "Failed to connect",
@@ -3694,7 +3695,8 @@
       "readBytes": "Read Bytes",
       "writeBytes": "Write Bytes",
       "ioTime": "I/O Time",
-      "diskCount": "{{count}} disks",
+      "diskCount_one": "{{count}} disk",
+      "diskCount_other": "{{count}} disks",
       "unknownModel": "Unknown Model",
       "ioStats": "I/O Statistics",
       "fetchFailed": "Failed to load disk info",
@@ -3838,6 +3840,8 @@
       "expandChecking": "Analyzing…",
       "expandCheckFailed": "Could not check for file systems to expand",
       "expandSteps": "Execution Steps",
+      "expandStepCount_one": "{{count}} step",
+      "expandStepCount_other": "{{count}} steps",
       "expandFreeSpace": "Expandable Space",
       "expandCurrentSize": "Current Size",
       "expandSuccess": "Filesystem expanded successfully",
@@ -3975,7 +3979,8 @@
       "toolMissing": "mdadm is not installed.",
       "noUnusedDisks": "No unused disks or partitions available (only devices without a mount point can be selected).",
       "addDiskDescription": "Add a disk to array {{array}}.",
-      "arrayCount": "{{count}} arrays"
+      "arrayCount_one": "{{count}} array",
+      "arrayCount_other": "{{count}} arrays"
     },
     "swap": {
       "title": "Swap Management",
