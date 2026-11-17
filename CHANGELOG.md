@@ -6,6 +6,51 @@ The format is loosely based on [Keep a Changelog](https://keepachangelog.com/), 
 
 ---
 
+## [0.88.0] – 2026-11-17
+
+A review of every screen — 42 routes measured on a phone and at a desk, and the source behind them read — and its findings fixed.
+
+### Fixed
+
+- **Screens that showed something untrue.**
+  - A process's priority read 20 for an ordinary process and 24 for one at nice −4: the list passed on the kernel's raw `20 − nice`. It is the nice value now (−20…19), and the priority dialog sends only a value you picked — opened and confirmed as it was, it would have sent 19. While a node still runs the previous version its list is read back the same way.
+  - The process table's headings stood over the wrong columns at a desk, and on a phone a card hid the last line of the one above it.
+  - The cluster's Docker tab summed its stacks as 0 / 0 / 0 beside a list of them, and drew a red dot on nodes that had answered.
+  - A stack whose deploy, start or update failed was also announced as done; a batch action on containers said "N done" whatever had happened to each. A failure is a failure now, the containers that failed stay selected, and the rollback point of a failed update is shown.
+  - The first-run and change-password screens asked for 8 characters and then refused fewer than 12.
+  - A link to a directory in the file manager was drawn as a 7-byte file and opened in the editor.
+  - Two confirmations (removing a RAID member, removing a physical volume) showed a translation key instead of a sentence.
+  - Deleting a file said it could not be undone while it went to the trash for seven days — and said nothing when, on another file system, it was removed outright. It says which happened.
+  - Swap "removal" only ever switched swap off; it is called that, and warns when RAM cannot take what is in swap.
+- **A list that could not be loaded no longer reads as empty.** A failed request used to leave "no ports open", "Fail2ban is not installed" (with an install button), "this folder is empty", "2FA is not set up" or default values that a save would then write. About twenty-five such places now show what failed, why, and a way to retry; a tool that is not installed (LVM, RAID) says so and names the package.
+- **Actions that ran on one tap now ask first**, naming what they act on and what is lost: removing or upgrading packages, deleting or stopping several containers, disconnecting Tailscale or bringing a WireGuard interface down (which can cut off the page you are on), running a cron job now, changing permissions of everything under a folder, switching off the sshd jail. A group task's Run always shows its plan and says how many nodes it runs on.
+- **Confirmations say what the button does.** "Confirm" on a destructive dialog is gone: the button names the action ("Delete rule", "Remove node"), the title names the object, and the text says what goes with it — a stack's folder and `.env`, a manager's copies of the cluster secrets.
+- Controls that could not be reached: the delete column of the volumes table sat 425px off-screen at a desk; a container's actions on a phone were behind a word that did not look like a control; row actions that appear on hover never appeared on a tablet; four firewall tables had no phone layout; the netplan "apply" button sat under the phone's tab bar.
+- At 320px wide (or zoomed to 200%) four pages no longer scroll sideways, a disk's name is no longer squeezed to nothing, a tab strip no longer cuts off its first tab, and the key row's ⇧Tab is no longer cut to "⇧Tal".
+- Names and values that were cut with "…" and could not be read in full — volume and container names, a log line, an audit path, why a node failed in a task run or a cluster update — wrap, or can be copied.
+- The file manager took Enter, Space and Backspace away from every button on the page, dialogs included. Arrow keys move real focus through the list now.
+- The terminal: when reconnecting gives up there is a "reconnect" button instead of only the words "disconnected"; what was sent through the composer can be removed from "recently sent", one entry or all (a password typed at a sudo prompt stayed there in plain text).
+
+### Changed
+
+- **Colour.** In the light theme the secondary text, the primary blue and the reds were 2.8–3.7:1 against their backgrounds; they are darker, and pass 4.5:1. Status colours keep their bright fills and get a darker shade as text. Measured across all 42 routes, text under 4.5:1 went from 1,262 places at a desk and 799 on a phone to none, and from 75 to none in the dark theme.
+- **Text is never under 12px.** A third of the text on a phone was 11px or smaller (nine tenths of the file manager).
+- **Focus is visible.** Rings were drawn at 30–50% opacity (1.4–1.9:1); they are solid. There is a "skip to content" link, each page has its own title, and moving to another section moves focus to it.
+- **Errors in your language.** 54 more of the server's refusals are worded in Korean and English (160 of 302 now); the rest carry a reason that only the server's own sentence holds, and keep it. An answer that is not the panel's — a proxy's 502 page — reads as that instead of `Unexpected token '<'`.
+- Reduced motion is honoured everywhere; a dialog's scroll no longer pulls the page behind it.
+- State is no longer told by colour alone: a node's status, the current tab of the phone's bar, a risky row of the port map, sent against received bytes.
+- A table wider than its box can be scrolled from the keyboard.
+- Fields have names. Dialog inputs that a screen reader read as "edit text" are tied to their labels; a field that fails says so beside itself rather than in a toast, and a form's button no longer greys out without saying why.
+- One word per thing in Korean: 스택, 셸, 디렉터리, 삭제/제거, 작업, 미리보기.
+- Formatting, creating a physical volume and creating swap pick the device from a list of what nothing uses — with its size, file system, label and model shown before you confirm — instead of a typed name; a device the list cannot know (a logical volume, a crypt mapping) can still be typed.
+- A WireGuard interface shows whether it starts at boot, as one switch.
+- The new-stack dialog and the App Store name the configured stacks folder, not `/opt/stacks`.
+
+### Upgrading
+
+- Update every node; the cluster update takes them one at a time. The Android app needs no update.
+- The light theme's blue, red and grey text are darker than before. Nothing is configurable about it.
+
 ## [0.87.2] – 2026-11-16
 
 ### Added
