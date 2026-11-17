@@ -24,3 +24,18 @@ export function reniceToSend(value: number | null, current: number): number | nu
   const nice = clampNice(value)
   return nice === current ? null : nice
 }
+
+// The server sends gopsutil's state words (process.go: running, sleep, stop,
+// idle, zombie, blocked for Linux's D). A state with no key shows as sent.
+const STATUS_KEYS: Record<string, string> = {
+  running: 'processes.running',
+  sleep: 'processes.sleeping',
+  stop: 'processes.stopped',
+  idle: 'processes.idle',
+  zombie: 'processes.zombie',
+  blocked: 'processes.blocked',
+}
+
+export function statusLabelKey(status: string): string | null {
+  return Object.hasOwn(STATUS_KEYS, status) ? STATUS_KEYS[status] : null
+}

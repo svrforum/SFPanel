@@ -310,6 +310,7 @@
     "zombie": "Zombie",
     "stopped": "Stopped",
     "idle": "Idle",
+    "blocked": "Waiting on I/O",
     "rss": "RSS",
     "nice": "Nice",
     "renice": "Renice",

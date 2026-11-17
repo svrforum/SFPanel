@@ -308,6 +308,7 @@
     "zombie": "좀비",
     "stopped": "중지",
     "idle": "유휴",
+    "blocked": "I/O 대기",
     "rss": "RSS",
     "nice": "우선순위",
     "renice": "우선순위 변경",

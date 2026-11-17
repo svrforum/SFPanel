@@ -30,7 +30,7 @@ import { Input } from '@/components/ui/input'
 import { ListLoadState } from '@/components/ListLoadState'
 import { StatusPill, type StatusPillTone } from '@/components/StatusPill'
 import type { Metrics, ProcessInfo } from '@/types/api'
-import { clampNice, reniceStart, reniceToSend } from './processes/processView'
+import { clampNice, reniceStart, reniceToSend, statusLabelKey } from './processes/processView'
 import {
   Table,
   TableBody,
@@ -233,14 +233,8 @@ export default function Processes() {
   }
 
   const statusLabel = (s: string) => {
-    switch (s) {
-      case 'running': return t('processes.running')
-      case 'sleeping': return t('processes.sleeping')
-      case 'zombie': return t('processes.zombie')
-      case 'stopped': return t('processes.stopped')
-      case 'idle': return t('processes.idle')
-      default: return s
-    }
+    const key = statusLabelKey(s)
+    return key ? t(key) : s || '—'
   }
 
   const niceBadge = (nice: number) => {

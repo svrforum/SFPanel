@@ -6,7 +6,7 @@ import { test, expect, type Page } from '@playwright/test'
 test.use({ viewport: { width: 1280, height: 800 }, locale: 'en-US' })
 
 const proc = (pid: number, name: string, extra: Record<string, unknown> = {}) => ({
-  pid, ppid: 1, name, cpu: 1, memory: 1, rss: 1 << 20, nice: 0, status: 'sleeping', user: 'root', command: name, ...extra,
+  pid, ppid: 1, name, cpu: 1, memory: 1, rss: 1 << 20, nice: 0, status: 'sleep', user: 'root', command: name, ...extra,
 })
 const processes = [
   proc(4100, 'kvm', { command: '/usr/bin/kvm -id 100 -name vm100', vmid: 100 }),
