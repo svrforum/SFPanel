@@ -2,6 +2,8 @@
 // tab). These used to be verbatim copies in both pages and had already
 // drifted (regex pre-compilation only landed on one side).
 
+import type { LogEntry } from '@/lib/logParsers'
+
 export type LineCount = 100 | 500 | 1000 | 5000
 
 export const LINE_COUNT_OPTIONS: LineCount[] = [100, 500, 1000, 5000]
@@ -14,6 +16,13 @@ export const ROW_HEIGHT = 20
 export function appendLogLines(prev: string[], batch: string[]): string[] {
   const next = prev.concat(batch)
   return next.length > 5500 ? next.slice(-5000) : next
+}
+
+// The parsed view draws its columns only when some line parsed. Counting any
+// entry drew the column headers over rows of raw JSON for a source whose
+// parser read none of its lines.
+export function showsParsedView(viewMode: 'raw' | 'parsed', hasParser: boolean, entries: LogEntry[]): boolean {
+  return viewMode === 'parsed' && hasParser && entries.some((e) => e.parsed)
 }
 
 export function highlightText(text: string, query: string) {

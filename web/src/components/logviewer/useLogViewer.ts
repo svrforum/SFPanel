@@ -8,7 +8,7 @@ import {
   type LogParser,
   type ParsedLogEntry,
 } from '@/lib/logParsers'
-import { getLogLevel, ROW_HEIGHT, type LogLevel } from './logViewUtils'
+import { getLogLevel, ROW_HEIGHT, showsParsedView, type LogLevel } from './logViewUtils'
 
 export interface UseLogViewerOptions {
   sourceId: string | null
@@ -48,7 +48,7 @@ export function useLogViewer({ sourceId, lines, viewMode, autoScroll }: UseLogVi
   const activeParser: LogParser<ParsedLogEntry> | null = sourceId ? getParser(sourceId) : null
 
   // Determine which data the virtualizer operates on
-  const isParsedMode = viewMode === 'parsed' && !!activeParser && parsedEntries.length > 0
+  const isParsedMode = showsParsedView(viewMode, !!activeParser, parsedEntries)
   const rowCount = !sourceId || lines.length === 0 ? 0 : isParsedMode ? parsedEntries.length : lines.length
 
   // Virtual scrolling

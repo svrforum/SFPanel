@@ -4,6 +4,7 @@ import {
   getLogLevel,
   LOG_LEVEL_COLORS,
   LOG_LEVEL_TEXT_COLORS,
+  showsParsedView,
   type LogLevel,
 } from './logViewUtils'
 
@@ -86,5 +87,25 @@ describe('log level color maps', () => {
       expect(LOG_LEVEL_COLORS[level]).toBeTruthy()
       expect(LOG_LEVEL_TEXT_COLORS[level]).toBeTruthy()
     }
+  })
+})
+
+// The parsed view drew its column headers over rows of raw JSON when not one
+// line parsed (the panel's own log, for one): any entry at all counted.
+describe('showsParsedView', () => {
+  const raw = { parsed: false as const, rawLine: '{"level":"info"}' }
+  const parsed = { parsed: true as const, timestamp: '10:00', rawLine: 'x' }
+
+  it('is off when no line parsed', () => {
+    expect(showsParsedView('parsed', true, [raw, raw])).toBe(false)
+  })
+
+  it('is on when one line parsed', () => {
+    expect(showsParsedView('parsed', true, [raw, parsed])).toBe(true)
+  })
+
+  it('is off in the raw view and without a parser', () => {
+    expect(showsParsedView('raw', true, [parsed])).toBe(false)
+    expect(showsParsedView('parsed', false, [parsed])).toBe(false)
   })
 })
