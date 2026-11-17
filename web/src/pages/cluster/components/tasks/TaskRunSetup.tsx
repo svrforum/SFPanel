@@ -214,8 +214,9 @@ function RunForm({ task }: { task: TaskView }) {
     const n = Number(batch)
     return Number.isInteger(n) && n >= 1 ? n : model.batch || 1
   })()
-  // Nothing to take: Preview and Run wait for a target. When the nodes could
-  // not be read the count means nothing, and the server is left to judge.
+  // Nothing to take: Preview and Run say so beside them rather than ask the
+  // server. When the nodes could not be read the count means nothing, and
+  // the server is left to judge.
   const noTargets = nodes !== null && !nodesError && countTargets(nodes, targets) === 0
 
   const request = (): TaskRunRequest => ({
@@ -278,14 +279,22 @@ function RunForm({ task }: { task: TaskView }) {
     }
   }
 
-  // [Preview] and [Run] both open the preview. A preview that answers once
-  // the operator has left this task opens nothing.
+  // [Preview] and [Run] both open the preview. A value missing or too large
+  // holds them back: it is said under its field, which takes the focus, and
+  // beside the buttons, which may be a screen below it on a phone. A preview
+  // that answers once the operator has left this task opens nothing.
   const go = async () => {
     setAttempted(true)
-    if (problems.length > 0) return
+    setError(null)
+    if (problems.length > 0) {
+      // The total's problem has no field of its own: the first input takes it.
+      const first = problems.find((p) => p.name !== '*')?.name ?? model.inputs?.[0]?.name
+      document.getElementById(`${id}-input-${first}`)?.focus()
+      return
+    }
+    if (noTargets) return
     const req = request()
     setBusy(true)
-    setError(null)
     try {
       const plan = await api.planTaskRun(req)
       if (!mounted.current) return
@@ -310,6 +319,8 @@ function RunForm({ task }: { task: TaskView }) {
 
   const inputs = model.inputs ?? []
   const total = problemOf('*')
+  // What held [Preview] and [Run] back, once one was pressed.
+  const held = attempted && (problems.length > 0 || noTargets)
 
   return (
     <div className="space-y-5">
@@ -383,20 +394,22 @@ function RunForm({ task }: { task: TaskView }) {
       </section>
 
       <div className="flex flex-wrap gap-2">
-        <Button variant="outline" onClick={() => go()} disabled={busy || noTargets}>
+        <Button variant="outline" onClick={() => go()} disabled={busy}>
           <Eye className="h-4 w-4" />
           {t('cluster.tasks.setup.preview')}
         </Button>
-        <Button onClick={() => go()} disabled={busy || noTargets}>
+        <Button onClick={() => go()} disabled={busy}>
           {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : <Play className="h-4 w-4" />}
           {t('cluster.tasks.setup.run')}
         </Button>
       </div>
 
-      {error && (
+      {(error || held) && (
         <div role="alert" data-testid="task-run-error" className="rounded-xl bg-destructive/10 px-3 py-2 text-[13px] text-destructive space-y-1">
-          <p className="break-words">{error.text}</p>
-          {error.server && <p className="text-[12px] font-mono break-words opacity-80">{error.server}</p>}
+          {held && problems.length > 0 && <p className="break-words">{t('cluster.tasks.install.setup.fixProblems')}</p>}
+          {held && noTargets && <p className="break-words">{t('cluster.tasks.setup.noTargets')}</p>}
+          {error && <p className="break-words">{error.text}</p>}
+          {error?.server && <p className="text-[12px] font-mono break-words opacity-80">{error.server}</p>}
         </div>
       )}
 

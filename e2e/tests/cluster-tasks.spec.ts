@@ -547,13 +547,17 @@ test.describe('run setup', () => {
     })
     await page.goto('/cluster/tasks/builtin%2Fcommand')
     const pane = setup(page)
-    // A built-in takes no node until some are chosen.
+    // A built-in takes no node until some are chosen: Run says so beside it,
+    // and asks the server nothing.
     await expect(pane.getByTestId('task-target-count')).toHaveText('0 nodes targeted')
-    await expect(pane.getByRole('button', { name: 'Run' })).toBeDisabled()
     await pane.getByLabel('Command to run').fill('uptime')
+    await pane.getByRole('button', { name: 'Run' }).click()
+    await expect(pane.getByTestId('task-run-error')).toHaveText('Choose at least one group, kind or node to run on.')
+    expect(posts(calls, '/cluster/task-runs/plan')).toHaveLength(0)
     await pane.getByRole('checkbox', { name: 'agent-01' }).click()
     await pane.getByRole('checkbox', { name: 'agent-02' }).click()
     await expect(pane.getByTestId('task-target-count')).toHaveText('2 nodes targeted')
+    await expect(pane.getByTestId('task-run-error')).toHaveCount(0)
     await pane.getByRole('button', { name: 'Run' }).click()
 
     // A root command on every node: shown before it starts, whatever the
@@ -819,6 +823,9 @@ test.describe('run setup', () => {
     await page.goto(`/cluster/tasks/${DEPLOY_ID}`)
     await setup(page).getByRole('button', { name: 'Preview' }).click()
     await expect(setup(page).getByTestId('task-input-version')).toContainText('This value is required.')
+    // Beside the buttons too, which may be a screen below the field; the field takes the focus.
+    await expect(setup(page).getByTestId('task-run-error')).toHaveText('Correct the fields marked above.')
+    await expect(setup(page).getByLabel('Version')).toBeFocused()
     expect(posts(calls, '/cluster/task-runs/plan')).toHaveLength(0)
     // The warning about what happens to the values sits above them.
     await expect(setup(page)).toContainText('Input values are kept in the run history and copied to every manager. Do not enter passwords.')

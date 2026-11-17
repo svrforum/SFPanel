@@ -1473,6 +1473,7 @@
         "recent": "Recent runs",
         "noRecent": "This task has not run yet.",
         "targetBusy": "{{node}} is held by another run under way. Try again once that run has finished.",
+        "noTargets": "Choose at least one group, kind or node to run on.",
         "source": {
           "repo": "Repository",
           "branch": "Branch",
