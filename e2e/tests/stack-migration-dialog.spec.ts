@@ -156,3 +156,21 @@ test('shows the kind of each node', async ({ page }) => {
   await expect(page.getByRole('option', { name: /^m-2\b/ })).toContainText('Manager')
   await expect(page.getByRole('option', { name: /^agent-2\b/ })).toContainText('Agent')
 })
+
+// The overview beside the cluster list counted the single-node list, which is
+// empty in cluster mode: 0 / 0 / 0 next to the stacks. The groups also came in
+// the server's map order; this node is first whatever order they arrive in.
+test('the cluster overview counts every node’s stacks and lists this node first', async ({ page }) => {
+  await mock(page, { report: { blocks: [], warnings: [] } })
+  await page.route('**/api/v1/docker/compose/cluster-stacks', (route) =>
+    route.fulfill({ json: { success: true, data: [...stacks].reverse() } }))
+  await page.goto('/cluster/stacks')
+  const overview = page.getByRole('heading', { name: 'Stack overview' }).locator('..')
+  await expect(overview.getByRole('button', { name: /^1\s*All$/ })).toBeVisible()
+  await expect(overview.getByRole('button', { name: /^1\s*Running$/ })).toBeVisible()
+  await expect(overview.getByRole('button', { name: /^0\s*Stopped$/ })).toBeVisible()
+  const thisNode = page.getByText('· This node')
+  const agent = page.getByRole('button', { name: 'demo', exact: true })
+  const [a, b] = [await thisNode.boundingBox(), await agent.boundingBox()]
+  expect(a!.y).toBeLessThan(b!.y)
+})

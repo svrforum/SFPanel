@@ -18,6 +18,7 @@ import { ContainerStateBadge } from '@/components/docker/ContainerStateBadge'
 import { api } from '@/lib/api'
 import { cn, nodeStatusColor } from '@/lib/utils'
 import { isRiskyRefusal, riskLines } from '@/lib/composeRisk'
+import { matchesStackFilter, sortNodeGroups, stackCounts, type StackFilter } from '@/pages/docker/stackList'
 import { useConfirm } from '@/components/ConfirmDialog'
 import type { ComposeProjectWithStatus, ComposeService, StackUpdateCheck, RollbackInfo, ClusterNodeStacks } from '@/types/api'
 import { Button } from '@/components/ui/button'
@@ -281,7 +282,7 @@ export default function DockerStacks({ clusterMode = false }: { clusterMode?: bo
   const [editorAttempt, setEditorAttempt] = useState(0)
   const [servicesError, setServicesError] = useState<string | null>(null)
   const [stackSearch, setStackSearch] = useState('')
-  const [stackFilter, setStackFilter] = useState('all')
+  const [stackFilter, setStackFilter] = useState<StackFilter>('all')
   const [drafts] = useState(() => {
     if (draftSession !== api.getToken()) { stackDrafts.clear(); draftSession = api.getToken() }
     return { current: stackDrafts }
@@ -655,6 +656,14 @@ export default function DockerStacks({ clusterMode = false }: { clusterMode?: bo
     }
   }
 
+  // The overview counts and links what the list beside it shows: in cluster
+  // mode that is every node's stacks, and `projects` is empty there.
+  const overviewStacks = clusterMode
+    ? sortNodeGroups(clusterStacks).flatMap((n) => n.stacks.map((p) => ({ node: n.node_id as string | undefined, p })))
+    : projects.map((p) => ({ node: undefined as string | undefined, p }))
+  const overviewCounts = stackCounts(overviewStacks.map(({ p }) => p))
+  const overviewNotRunning = overviewStacks.filter(({ p }) => p.real_status !== 'running')
+
   const handleServiceAction = async (action: 'restart' | 'stop' | 'start', service: string) => {
     if (!selectedName) return
     setActionLoading(service)
@@ -692,8 +701,8 @@ export default function DockerStacks({ clusterMode = false }: { clusterMode?: bo
 
         <ResourceStatus resource={{ loading: clusterMode ? clusterLoading : loading, error: !!(clusterMode ? clusterError : listError), updatedAt, retry: () => { void refreshList() } }} />
         <Input aria-label={t('docker.improvements.search')} placeholder={t('docker.improvements.search')} value={stackSearch} onChange={e => setStackSearch(e.target.value)} />
-        <select className="min-h-11 w-full rounded-xl bg-secondary px-3 text-sm" aria-label={t('common.status')} value={stackFilter} onChange={e => setStackFilter(e.target.value)}>
-          <option value="all">{t('docker.improvements.all')}</option><option value="running">{t('docker.improvements.running')}</option><option value="attention">{t('docker.improvements.attention')}</option>
+        <select className="min-h-11 w-full rounded-xl bg-secondary px-3 text-base md:text-sm" aria-label={t('common.status')} value={stackFilter} onChange={e => setStackFilter(e.target.value as StackFilter)}>
+          <option value="all">{t('docker.improvements.all')}</option><option value="running">{t('docker.stacks.running')}</option><option value="partial">{t('docker.stacks.partial')}</option><option value="stopped">{t('docker.stacks.stopped')}</option>
         </select>
         {clusterMode ? (
           /* Cluster-wide list: every node's stacks grouped by node (responsive) */
@@ -707,12 +716,12 @@ export default function DockerStacks({ clusterMode = false }: { clusterMode?: bo
             {!clusterLoading && !clusterError && clusterStacks.length === 0 && (
               <p className="text-[13px] text-muted-foreground py-4 text-center">{t('docker.stacks.noStacks')}</p>
             )}
-            {clusterStacks.map(node => (
+            {sortNodeGroups(clusterStacks).map(node => (
               <div key={node.node_id} className="space-y-0.5">
                 <div className="flex items-center gap-1.5 px-2 pt-2 text-[12px] font-medium text-muted-foreground">
                   <span className={`h-1.5 w-1.5 rounded-full shrink-0 ${nodeDot(node.status, node.error)}`} />
                   <span className="truncate">{node.node_name}</span>
-                  {node.local && <span className="text-muted-foreground/70 shrink-0">· {t('layout.cluster.localNode')}</span>}
+                  {node.local && <span className="shrink-0">· {t('layout.cluster.localNode')}</span>}
                   {node.error && (
                     <span className="shrink-0 inline-flex items-center gap-0.5 text-warning">
                       <AlertTriangle className="h-3 w-3" />
@@ -720,26 +729,30 @@ export default function DockerStacks({ clusterMode = false }: { clusterMode?: bo
                     </span>
                   )}
                 </div>
-                {node.stacks.filter(p => p.name.toLowerCase().includes(stackSearch.toLowerCase()) && (stackFilter === 'all' || (stackFilter === 'running' ? p.real_status === 'running' : p.real_status !== 'running'))).map(p => {
+                {node.stacks.filter(p => matchesStackFilter(p, stackSearch, stackFilter)).map(p => {
                   const isSel = selectedName === p.name && routeNode === node.node_id
                   return (
-                    <div key={node.node_id + '/' + p.name} className={`group flex items-center gap-2 px-3 py-2 rounded-xl ${isSel ? 'bg-primary/10 ring-1 ring-primary/20' : 'hover:bg-secondary/50'}`}>
+                    // The name button fills the row's height, so the whole row
+                    // is pressable and not a 20px band of it.
+                    <div key={node.node_id + '/' + p.name} className={`flex items-center gap-2 px-3 rounded-xl ${isSel ? 'bg-primary/10 ring-1 ring-primary' : 'hover:bg-secondary/50'}`}>
                       {statusIcon(p.real_status)}
                       <button
                         type="button"
-                        className="text-[13px] font-medium truncate min-w-0 flex-1 text-left rounded hover:text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                        aria-current={isSel ? 'true' : undefined}
+                        className="text-[13px] font-medium truncate min-w-0 flex-1 self-stretch py-2 text-left rounded hover:text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
                         onClick={() => navigate(`${basePath}/${node.node_id}/${p.name}`)}
                       >{p.name}</button>
                       <span className="text-[12px] text-muted-foreground shrink-0">{p.running_count}/{p.service_count}</span>
-                      <button
-                        type="button"
+                      <Button
+                        variant="ghost"
+                        size="icon-xs"
                         title={t('docker.migrate.action')}
                         aria-label={t('docker.migrate.action')}
-                        className="shrink-0 rounded text-muted-foreground opacity-60 transition hover:text-primary group-hover:opacity-100 focus-visible:opacity-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                        className="text-muted-foreground hover:text-primary"
                         onClick={() => openMigrate(p.name, node.node_id)}
                       >
-                        <ArrowRightLeft className="h-3.5 w-3.5" />
-                      </button>
+                        <ArrowRightLeft />
+                      </Button>
                     </div>
                   )
                 })}
@@ -760,14 +773,15 @@ export default function DockerStacks({ clusterMode = false }: { clusterMode?: bo
           {projects.length === 0 && !loading && !listError && (
             <p className="text-[13px] text-muted-foreground py-4 text-center">{t('docker.stacks.noStacks')}</p>
           )}
-          {projects.filter(p => p.name.toLowerCase().includes(stackSearch.toLowerCase()) && (stackFilter === 'all' || (stackFilter === 'running' ? p.real_status === 'running' : p.real_status !== 'running'))).map(p => (
+          {projects.filter(p => matchesStackFilter(p, stackSearch, stackFilter)).map(p => (
             <div
               key={p.name}
               role="button"
               tabIndex={0}
+              aria-current={selectedName === p.name ? 'true' : undefined}
               className={`flex items-center gap-2 px-3 py-2 rounded-xl cursor-pointer transition duration-200 outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-0 ${
                 selectedName === p.name
-                  ? 'bg-primary/10 ring-1 ring-primary/20'
+                  ? 'bg-primary/10 ring-1 ring-primary'
                   : 'hover:bg-secondary/50'
               }`}
               onClick={() => navigate(`${basePath}/${p.name}`)}
@@ -787,7 +801,7 @@ export default function DockerStacks({ clusterMode = false }: { clusterMode?: bo
           {projects.length === 0 && !loading && !listError && (
             <p className="text-[13px] text-muted-foreground py-4 text-center">{t('docker.stacks.noStacks')}</p>
           )}
-          {projects.filter(p => p.name.toLowerCase().includes(stackSearch.toLowerCase()) && (stackFilter === 'all' || (stackFilter === 'running' ? p.real_status === 'running' : p.real_status !== 'running'))).map(p => (
+          {projects.filter(p => matchesStackFilter(p, stackSearch, stackFilter)).map(p => (
             <div
               key={p.name}
               className={`bg-card rounded-2xl p-4 card-shadow ${
@@ -867,8 +881,13 @@ export default function DockerStacks({ clusterMode = false }: { clusterMode?: bo
           <section className="hidden md:block space-y-4 rounded-2xl bg-card p-5 card-shadow">
             <h2 className="text-lg font-semibold">{t('docker.improvements.overview')}</h2>
             <p className="text-sm text-muted-foreground">{t('docker.improvements.stackFlow')}</p>
-            <div className="grid grid-cols-3 gap-3">{[['all', projects.length], ['running', projects.filter(p => p.real_status === 'running').length], ['attention', projects.filter(p => p.real_status !== 'running').length]].map(([key, count]) => <button key={key} className="rounded-xl bg-secondary/50 p-4 text-left" onClick={() => setStackFilter(String(key))}><span className="block text-2xl font-semibold">{count}</span><span className="text-sm">{t(`docker.improvements.${key}`)}</span></button>)}</div>
-            {projects.filter(p => p.real_status !== 'running').slice(0, 5).map(p => <Button key={p.name} variant="outline" onClick={() => navigate(`${basePath}/${encodeURIComponent(p.name)}`)}>{p.name} · {p.running_count}/{p.service_count}</Button>)}
+            <div className="grid grid-cols-4 gap-3">{([
+              ['all', t('docker.improvements.all')],
+              ['running', t('docker.stacks.running')],
+              ['partial', t('docker.stacks.partial')],
+              ['stopped', t('docker.stacks.stopped')],
+            ] as const).map(([key, label]) => <button key={key} type="button" aria-pressed={stackFilter === key} className={`rounded-xl p-4 text-left outline-none focus-visible:ring-2 focus-visible:ring-ring ${stackFilter === key ? 'bg-primary/10 ring-1 ring-primary' : 'bg-secondary/50'}`} onClick={() => setStackFilter(key)}><span className="block text-2xl font-semibold">{overviewCounts[key]}</span><span className="text-sm">{label}</span></button>)}</div>
+            {overviewNotRunning.slice(0, 5).map(({ node, p }) => <Button key={`${node ?? ''}/${p.name}`} variant="outline" onClick={() => navigate(`${basePath}/${node ? `${node}/` : ''}${encodeURIComponent(p.name)}`)}>{p.name} · {p.running_count}/{p.service_count}</Button>)}
           </section>
         ) : (
           <div className="space-y-4">
@@ -878,6 +897,7 @@ export default function DockerStacks({ clusterMode = false }: { clusterMode?: bo
                 <Button
                   variant="ghost" size="icon"
                   className="md:hidden"
+                  aria-label={t('docker.stacks.backToList')}
                   onClick={() => navigate(basePath)}
                 >
                   <ChevronLeft className="h-4 w-4" />
@@ -897,7 +917,6 @@ export default function DockerStacks({ clusterMode = false }: { clusterMode?: bo
                     <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-[12px] font-medium shrink-0 ${
                       selectedProject.real_status === 'running' ? 'bg-success/10 text-success' :
                       selectedProject.real_status === 'partial' ? 'bg-warning/10 text-warning' :
-                  aria-label={t('docker.stacks.backToList')}
                       'bg-secondary text-muted-foreground'
                     }`}>
                       {t(`docker.stacks.${selectedProject.real_status}`)}
