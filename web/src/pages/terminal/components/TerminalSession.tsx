@@ -277,7 +277,8 @@ export function TerminalSession({
     if (!containerRef.current) return
 
     const term = new XTerm({
-      cursorBlink: true,
+      // Not where the system asks for less motion.
+      cursorBlink: !window.matchMedia('(prefers-reduced-motion: reduce)').matches,
       fontSize,
       fontFamily: '"JetBrains Mono", "Fira Code", Menlo, Monaco, "Courier New", monospace',
       theme: currentTermTheme(),
