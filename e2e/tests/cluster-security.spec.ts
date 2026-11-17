@@ -137,7 +137,9 @@ test('shows where each rotation stands', async ({ page }) => {
 
   const proxy = card(page, 'proxy')
   await expect(proxy).toContainText('Generation 2')
-  await expect(proxy.getByTestId('phase')).toHaveText('next')
+  // The phase in the panel's words, the leader's own word kept as the title.
+  await expect(proxy.getByTestId('phase')).toHaveText('Distributing')
+  await expect(proxy.getByTestId('phase').getByTitle('next')).toBeVisible()
   await expect(proxy.getByRole('list', { name: 'Waiting for' })).toHaveText('manager-02: offline')
 
   const keys = card(page, 'agent-keys')
@@ -174,7 +176,7 @@ test('starts a proxy rotation and follows it', async ({ page }) => {
   })
   await page.goto('/cluster/security')
   const proxy = card(page, 'proxy')
-  await expect(proxy.getByTestId('phase')).toHaveText('next')
+  await expect(proxy.getByTestId('phase')).toHaveText('Distributing')
 
   await proxy.getByRole('button', { name: 'Rotate' }).click()
   const dialog = page.getByRole('dialog')
@@ -183,7 +185,7 @@ test('starts a proxy rotation and follows it', async ({ page }) => {
   await dialog.getByRole('button', { name: 'Rotate' }).click()
 
   await expect.poll(() => posts(calls)).toEqual(['/cluster/rotate/proxy'])
-  await expect(proxy.getByTestId('phase')).toHaveText('switched')
+  await expect(proxy.getByTestId('phase')).toHaveText('Switched')
   await expect(proxy.getByRole('list', { name: 'Waiting for' })).toHaveCount(0)
   // Still signed in: no session ends with this one.
   await expect(page).toHaveURL(/\/cluster\/security$/)
@@ -328,12 +330,12 @@ test('keeps the last state when the leader cannot be confirmed', async ({ page }
   let leaderLost = false
   await mock(page, { rotation: () => (leaderLost ? 503 : state()) })
   await page.goto('/cluster/security')
-  await expect(card(page, 'proxy').getByTestId('phase')).toHaveText('next')
+  await expect(card(page, 'proxy').getByTestId('phase')).toHaveText('Distributing')
 
   leaderLost = true
   await page.clock.runFor(5100)
   await expect(page.getByRole('status').filter({ hasText: 'Could not reach the leader' })).toContainText('this node could not confirm it leads the cluster')
-  await expect(card(page, 'proxy').getByTestId('phase')).toHaveText('next')
+  await expect(card(page, 'proxy').getByTestId('phase')).toHaveText('Distributing')
 
   leaderLost = false
   await page.clock.runFor(5100)
@@ -376,5 +378,14 @@ test.describe('phone', () => {
       if (!t || !r) return 'unmeasured'
       return t.x >= r.x - 0.5 && t.x + t.width <= r.x + r.width + 0.5 ? 'inside' : `tab ${t.x}..${t.x + t.width}, row ${r.x}..${r.x + r.width}`
     }).toBe('inside')
+  })
+
+  // A phone's card showed the tick or cross with no heading: "supports
+  // rotation" was a desktop column header only.
+  test("a node's card says what its tick or cross is", async ({ page }) => {
+    await mock(page)
+    await page.goto('/cluster/security')
+    const keys = card(page, 'agent-keys')
+    await expect(keys.getByText('Supports rotation', { exact: true }).filter({ visible: true }).first()).toBeVisible()
   })
 })

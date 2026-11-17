@@ -239,8 +239,10 @@ export default function ClusterSecurity() {
               <span className="inline-flex items-center gap-1.5">
                 · {t('cluster.security.phase')}
                 <span data-testid="phase">
-                  <StatusPill tone={rotation.proxy.phase === 'done' ? 'success' : 'primary'} className="font-mono">
-                    {rotation.proxy.phase}
+                  <StatusPill tone={rotation.proxy.phase === 'done' ? 'success' : 'primary'}>
+                    <span title={rotation.proxy.phase}>
+                      {t(`cluster.security.proxyPhase.${rotation.proxy.phase}`, { defaultValue: rotation.proxy.phase })}
+                    </span>
                   </StatusPill>
                 </span>
               </span>

@@ -106,15 +106,14 @@ export function RotationCard<R extends RotationRow>({ id, icon: Icon, title, sum
               </TableBody>
             </Table>
           </div>
+          {/* A phone's card wraps a long name rather than cutting it, and
+              gives "follows" a row with its heading like the other columns. */}
           <div className="md:hidden space-y-2">
             {rows.map((row) => (
               <div key={row.id} className="rounded-xl border border-border p-3 space-y-2">
-                <div className="flex items-center justify-between gap-2">
-                  <span className="text-[13px] font-medium truncate">{row.name}</span>
-                  <div className="flex items-center gap-2 shrink-0">
-                    {online(row)}
-                    {follows(row)}
-                  </div>
+                <div className="flex items-start justify-between gap-2">
+                  <span className="text-[13px] font-medium break-all min-w-0">{row.name}</span>
+                  <div className="shrink-0">{online(row)}</div>
                 </div>
                 {columns.map((c) => (
                   <div key={c.header} className="flex items-center justify-between gap-2 text-[13px]">
@@ -122,6 +121,10 @@ export function RotationCard<R extends RotationRow>({ id, icon: Icon, title, sum
                     <span className="min-w-0 text-right">{c.cell(row)}</span>
                   </div>
                 ))}
+                <div className="flex items-center justify-between gap-2 text-[13px]">
+                  <span className="text-muted-foreground">{t('cluster.security.followsColumn')}</span>
+                  {follows(row)}
+                </div>
               </div>
             ))}
           </div>

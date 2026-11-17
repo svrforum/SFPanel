@@ -1284,6 +1284,11 @@
       "generationColumn": "세대",
       "rotatedAt": "마지막 교체 {{time}}",
       "phase": "단계",
+      "proxyPhase": {
+        "next": "배포 중",
+        "switched": "전환됨",
+        "done": "완료"
+      },
       "waiting": "기다리는 노드",
       "follows": "교체를 지원하는 버전",
       "followsNot": "교체를 지원하지 않는 버전",

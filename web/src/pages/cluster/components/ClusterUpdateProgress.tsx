@@ -68,16 +68,19 @@ export function ClusterUpdateProgress({ events }: { events: ClusterUpdateEvent[]
           <p className="break-words">{run.stopReason}</p>
         </div>
       )}
-      {/* Per-node stepper */}
+      {/* Per-node stepper. A node's name and why it failed wrap instead of
+          being cut: on a phone the message goes under the name. */}
       <div className="space-y-2">
         {run.nodes.map((n) => (
-          <div key={n.id} className="flex items-center gap-3">
-            <span className="shrink-0">{stepIcon(n.step)}</span>
-            <span className="text-[13px] font-medium w-40 truncate shrink-0">{n.name}</span>
-            <span className="text-[12px] text-muted-foreground truncate">
-              {stepLabel(n.step)}
-              {n.message ? ` — ${n.message}` : ''}
-            </span>
+          <div key={n.id} className="flex items-start gap-3">
+            <span className="shrink-0 mt-0.5">{stepIcon(n.step)}</span>
+            <div className="min-w-0 flex-1 sm:flex sm:items-start sm:gap-3">
+              <p className="text-[13px] font-medium break-all sm:w-40 sm:shrink-0">{n.name}</p>
+              <p className="text-[12px] text-muted-foreground min-w-0 break-words sm:mt-px">
+                {stepLabel(n.step)}
+                {n.message ? ` — ${n.message}` : ''}
+              </p>
+            </div>
           </div>
         ))}
         {run.overall === 'complete' && (

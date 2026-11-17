@@ -1286,6 +1286,11 @@
       "generationColumn": "Generation",
       "rotatedAt": "Last rotated {{time}}",
       "phase": "Phase",
+      "proxyPhase": {
+        "next": "Distributing",
+        "switched": "Switched",
+        "done": "Done"
+      },
       "waiting": "Waiting for",
       "follows": "Runs a version that supports rotation",
       "followsNot": "Runs a version that does not support rotation",
