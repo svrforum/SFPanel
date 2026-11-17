@@ -38,7 +38,7 @@ test('a new peer routes the VPN subnet, not everything', async ({ page }) => {
   await page.getByRole('button', { name: 'Add Peer' }).first().click()
   const dialog = page.getByRole('dialog')
   await expect(dialog.getByLabel('Routed through the VPN (AllowedIPs)')).toHaveValue('10.8.0.0/24')
-  await dialog.getByPlaceholder('10.0.0.2/32').fill('10.8.0.2/32')
+  await dialog.getByLabel('Client address', { exact: true }).fill('10.8.0.2/32')
   await dialog.getByRole('button', { name: 'Create peer' }).click()
   await expect(dialog.locator('pre')).toContainText('AllowedIPs = 10.8.0.0/24')
   await expect(dialog.locator('pre')).not.toContainText('0.0.0.0/0')

@@ -233,6 +233,7 @@ export function SwapResizeDialog({ target, onOpenChange, onResized }: {
             {/* Slider */}
             <input
               type="range"
+              aria-label={t('disk.swap.newSizeMB')}
               min={64}
               max={maxSlider}
               step={64}
@@ -263,6 +264,7 @@ export function SwapResizeDialog({ target, onOpenChange, onResized }: {
             <div className="flex items-center gap-2">
               <Input
                 type="number"
+                aria-label={t('disk.swap.sizeMB')}
                 min={64}
                 placeholder="MB"
                 value={sizeMB}

@@ -324,7 +324,7 @@ export default function DiskNetworkShares() {
                   onChange={(e) => setForm((f) => ({ ...f, server: e.target.value }))}
                   placeholder="192.168.1.50"
                 />
-                <Button variant="outline" size="sm" onClick={() => void handleDiscover()} disabled={discovering}>
+                <Button variant="outline" size="sm" onClick={() => void handleDiscover()} disabled={discovering} aria-label={t('disk.shares.browse')}>
                   {discovering ? <Loader2 className="h-4 w-4 animate-spin" /> : <Search className="h-4 w-4" />}
                   <span className="ml-1.5 hidden sm:inline">{t('disk.shares.browse')}</span>
                 </Button>

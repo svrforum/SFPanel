@@ -511,8 +511,9 @@ export default function NetworkTailscale() {
 
           <div className="space-y-4">
             <div className="space-y-2">
-              <Label className="text-[13px]">{t('network.tailscale.authKey')}</Label>
+              <Label htmlFor="ts-auth-key" className="text-[13px]">{t('network.tailscale.authKey')}</Label>
               <Input
+                id="ts-auth-key"
                 value={authKey}
                 onChange={(e) => setAuthKey(e.target.value)}
                 placeholder={t('network.tailscale.authKeyPlaceholder')}

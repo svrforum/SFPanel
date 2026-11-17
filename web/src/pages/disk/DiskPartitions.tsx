@@ -164,10 +164,11 @@ export default function DiskPartitions() {
       <div className="flex flex-wrap items-center justify-between gap-2">
         <div className="flex items-center gap-3">
           <div className="flex items-center gap-2">
-            <HardDrive className="h-4 w-4 text-muted-foreground" />
-            <Label className="text-[13px]">{t('disk.partitions.selectDisk')}</Label>
+            <HardDrive className="h-4 w-4 text-muted-foreground" aria-hidden="true" />
+            <Label htmlFor="partitions-disk" className="text-[13px]">{t('disk.partitions.selectDisk')}</Label>
           </div>
           <NativeSelect
+            id="partitions-disk"
             value={selectedDisk}
             onChange={(e) => setSelectedDisk(e.target.value)}
           >

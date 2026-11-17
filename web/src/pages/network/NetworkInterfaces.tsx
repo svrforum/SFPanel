@@ -520,8 +520,9 @@ export default function NetworkInterfaces() {
           ) : (
             <div className="space-y-3">
               <div className="space-y-2">
-                <Label className="text-[13px]">{t('network.dnsServersLabel')}</Label>
+                <Label htmlFor="dns-servers" className="text-[13px]">{t('network.dnsServersLabel')}</Label>
                 <Input
+                  id="dns-servers"
                   value={dnsInput}
                   onChange={(e) => setDnsInput(e.target.value)}
                   placeholder="8.8.8.8, 8.8.4.4, 1.1.1.1"

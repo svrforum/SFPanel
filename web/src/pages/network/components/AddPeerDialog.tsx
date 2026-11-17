@@ -158,8 +158,9 @@ export function AddPeerDialog({
               </div>
 
               <div className="space-y-2">
-                <Label className="text-[13px]">{t('network.wireguard.peers.clientAddress')}</Label>
+                <Label htmlFor="peer-address" className="text-[13px]">{t('network.wireguard.peers.clientAddress')}</Label>
                 <Input
+                  id="peer-address"
                   value={peerAddress}
                   onChange={(e) => setPeerAddress(e.target.value)}
                   placeholder="10.0.0.2/32"
@@ -169,8 +170,9 @@ export function AddPeerDialog({
               </div>
 
               <div className="space-y-2">
-                <Label className="text-[13px]">{t('network.wireguard.peers.serverEndpoint')}</Label>
+                <Label htmlFor="peer-endpoint" className="text-[13px]">{t('network.wireguard.peers.serverEndpoint')}</Label>
                 <Input
+                  id="peer-endpoint"
                   value={peerEndpoint}
                   onChange={(e) => setPeerEndpoint(e.target.value)}
                   placeholder="vpn.example.com:51820"
@@ -193,8 +195,9 @@ export function AddPeerDialog({
 
               <div className="grid grid-cols-2 gap-3">
                 <div className="space-y-2">
-                  <Label className="text-[13px]">{t('network.wireguard.peers.dns')}</Label>
+                  <Label htmlFor="peer-dns" className="text-[13px]">{t('network.wireguard.peers.dns')}</Label>
                   <Input
+                    id="peer-dns"
                     value={peerDns}
                     onChange={(e) => setPeerDns(e.target.value)}
                     placeholder="1.1.1.1"
@@ -202,8 +205,9 @@ export function AddPeerDialog({
                   />
                 </div>
                 <div className="space-y-2">
-                  <Label className="text-[13px]">{t('network.wireguard.peers.keepalive')}</Label>
+                  <Label htmlFor="peer-keepalive" className="text-[13px]">{t('network.wireguard.peers.keepalive')}</Label>
                   <Input
+                    id="peer-keepalive"
                     type="number"
                     value={peerKeepalive}
                     onChange={(e) => setPeerKeepalive(e.target.value)}

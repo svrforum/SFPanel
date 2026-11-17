@@ -89,6 +89,7 @@ export default function DiskUsage() {
           }}
         >
           <Input
+            aria-label={t('disk.usage.path')}
             value={pathInput}
             onChange={(e) => { setPathInput(e.target.value); setPathInvalid(false) }}
             aria-invalid={pathInvalid || undefined}

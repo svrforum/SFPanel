@@ -565,8 +565,9 @@ export default function NetworkWireGuard() {
 
           <div className="space-y-4">
             <div className="space-y-2">
-              <Label className="text-[13px]">{t('network.wireguard.configName')}</Label>
+              <Label htmlFor="wg-create-name" className="text-[13px]">{t('network.wireguard.configName')}</Label>
               <Input
+                id="wg-create-name"
                 value={createName}
                 onChange={(e) => setCreateName(e.target.value)}
                 placeholder="wg0"
@@ -577,7 +578,7 @@ export default function NetworkWireGuard() {
 
             <div className="space-y-2">
               <div className="flex items-center justify-between">
-                <Label className="text-[13px]">{t('network.wireguard.configContent')}</Label>
+                <Label htmlFor="wg-create-content" className="text-[13px]">{t('network.wireguard.configContent')}</Label>
                 <label className="cursor-pointer">
                   <input
                     type="file"
@@ -592,6 +593,7 @@ export default function NetworkWireGuard() {
                 </label>
               </div>
               <textarea
+                id="wg-create-content"
                 value={createContent}
                 onChange={(e) => setCreateContent(e.target.value)}
                 placeholder={`[Interface]\nPrivateKey = ...\nAddress = 10.0.0.2/24\nDNS = 1.1.1.1\n\n[Peer]\nPublicKey = ...\nEndpoint = vpn.example.com:51820\nAllowedIPs = 0.0.0.0/0`}
@@ -628,6 +630,7 @@ export default function NetworkWireGuard() {
 
           <div className="space-y-4">
             <textarea
+              aria-label={t('network.wireguard.configContent')}
               value={editContent}
               onChange={(e) => setEditContent(e.target.value)}
               className="flex w-full rounded-xl border-0 bg-secondary/50 px-3 py-2 text-[13px] font-mono transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring min-h-[250px] resize-none"

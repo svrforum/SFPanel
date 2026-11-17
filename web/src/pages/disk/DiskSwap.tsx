@@ -249,7 +249,7 @@ export default function DiskSwap() {
       <div className="bg-card rounded-2xl card-shadow p-5">
         <div className="flex items-center justify-between mb-3">
           <div>
-            <h3 className="text-[14px] font-semibold">{t('disk.swap.swappiness')}</h3>
+            <h3 id="swappiness-title" className="text-[14px] font-semibold">{t('disk.swap.swappiness')}</h3>
             <p className="text-[12px] text-muted-foreground mt-0.5">{t('disk.swap.swappinessDescription')}</p>
           </div>
           <div className="flex items-center gap-3">
@@ -270,6 +270,7 @@ export default function DiskSwap() {
           <span className="text-xs text-muted-foreground w-4">0</span>
           <input
             type="range"
+            aria-labelledby="swappiness-title"
             min={0}
             max={100}
             value={swappiness}
