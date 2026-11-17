@@ -88,16 +88,20 @@ export default function Setup() {
 
         <div className="space-y-2">
           <Label htmlFor="password" className="text-xs font-medium text-muted-foreground">{t('setup.password')}</Label>
+          {/* The rule stays under the field while typing: it was a
+              placeholder that said 8 when the check is 12, and it went away
+              at the first key. No minLength either — the browser's own
+              bubble, in the browser's language, came before this page's. */}
           <Input
             id="password"
             type="password"
             value={password}
             onChange={(e) => setPassword(e.target.value)}
-            placeholder={t('setup.passwordPlaceholder')}
+            aria-describedby="password-hint"
             required
-            minLength={12}
             className={AUTH_INPUT_CLASS}
           />
+          <p id="password-hint" className="text-[12px] text-muted-foreground">{t('setup.passwordHint')}</p>
         </div>
 
         <div className="space-y-2">
@@ -109,7 +113,6 @@ export default function Setup() {
             onChange={(e) => setConfirmPassword(e.target.value)}
             placeholder={t('setup.confirmPlaceholder')}
             required
-            minLength={12}
             className={AUTH_INPUT_CLASS}
           />
         </div>

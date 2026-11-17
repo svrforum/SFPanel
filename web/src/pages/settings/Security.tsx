@@ -217,10 +217,13 @@ export default function Security() {
               value={newPassword}
               onChange={(e) => setNewPassword(e.target.value)}
               placeholder={t('settings.newPasswordPlaceholder')}
+              aria-describedby="new-password-hint"
               required
-              minLength={12}
               className="rounded-xl"
             />
+            {/* Under the field, where it stays while typing; it was a
+                placeholder that said 8 when the check is 12. */}
+            <p id="new-password-hint" className="text-[12px] text-muted-foreground">{t('settings.newPasswordHint')}</p>
           </div>
           <div className="space-y-2">
             <Label htmlFor="confirm-password" className="text-[13px]">{t('settings.confirmNewPassword')}</Label>
@@ -231,7 +234,6 @@ export default function Security() {
               onChange={(e) => setConfirmPassword(e.target.value)}
               placeholder={t('settings.confirmNewPasswordPlaceholder')}
               required
-              minLength={12}
               className="rounded-xl"
             />
           </div>
