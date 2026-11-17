@@ -1,8 +1,7 @@
 import { useState, useEffect, useCallback } from 'react'
 import { Trans, useTranslation } from 'react-i18next'
 import { Plus, Trash2, Shield, HardDrive, PlusCircle, MinusCircle, Loader2 } from 'lucide-react'
-import { toast } from 'sonner'
-import { api } from '@/lib/api'
+import { api, type ApiError } from '@/lib/api'
 import { formatBytes } from '@/lib/utils'
 import { useApiAction } from '@/hooks/useApiAction'
 import { Button } from '@/components/ui/button'
@@ -20,6 +19,7 @@ import { TypeToConfirmDialog } from '@/components/TypeToConfirmDialog'
 import { NativeSelect } from './components/NativeSelect'
 import { FreeDeviceSelect } from './components/FreeDeviceSelect'
 import { TabLoading, CountPill, RefreshButton } from './components/TabToolbar'
+import { LoadFailure } from './components/LoadFailure'
 import { useFreeDevices } from './useFreeDevices'
 
 import type { RAIDArray } from '@/types/api'
@@ -63,6 +63,9 @@ export default function DiskRAID() {
   const { t } = useTranslation()
   const [arrays, setArrays] = useState<RAIDArray[]>([])
   const [loading, setLoading] = useState(true)
+  // A failed read is not an empty one: no "no arrays" and no Create button
+  // until a read succeeds.
+  const [loadError, setLoadError] = useState<ApiError | null>(null)
 
   // Create dialog
   const [createOpen, setCreateOpen] = useState(false)
@@ -88,11 +91,11 @@ export default function DiskRAID() {
   const fetchArrays = useCallback(async () => {
     try {
       setLoading(true)
+      setLoadError(null)
       const data = await api.getRAIDArrays()
       setArrays(data || [])
     } catch (err: unknown) {
-      const message = err instanceof Error ? err.message : t('disk.raid.fetchFailed')
-      toast.error(message)
+      setLoadError(err instanceof Error ? err : new Error(t('disk.raid.fetchFailed')))
     } finally {
       setLoading(false)
     }
@@ -216,6 +219,20 @@ export default function DiskRAID() {
 
   if (loading) {
     return <TabLoading />
+  }
+
+  if (loadError) {
+    return (
+      <div className="mt-4">
+        <LoadFailure
+          error={loadError}
+          title={t('disk.raid.fetchFailed')}
+          toolTitle={t('disk.raid.toolMissing')}
+          command="apt install mdadm"
+          onRetry={fetchArrays}
+        />
+      </div>
+    )
   }
 
   return (

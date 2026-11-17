@@ -4,6 +4,7 @@ import { ArrowUpFromLine, ChevronRight, Loader2 } from 'lucide-react'
 import { api } from '@/lib/api'
 import { formatBytes } from '@/lib/utils'
 import { useApiAction } from '@/hooks/useApiAction'
+import { ListLoadState } from '@/components/ListLoadState'
 import { Button } from '@/components/ui/button'
 import {
   Dialog,
@@ -29,14 +30,12 @@ export function ExpandFilesystemDialog({ open, onOpenChange, onExpanded }: {
   const { t } = useTranslation()
   const [candidates, setCandidates] = useState<ExpandCandidate[]>([])
   const [target, setTarget] = useState<ExpandCandidate | null>(null)
-
-  const { run: runCheck, loading: checking } = useApiAction(
-    api.checkFilesystemExpand.bind(api),
-    {
-      errorMsg: t('disk.filesystems.expandFailed'),
-      onSuccess: (data) => setCandidates(data || []),
-    },
-  )
+  // A check that failed is not a check that found nothing: it said "no
+  // expandable file systems" under a toast saying otherwise.
+  const [checking, setChecking] = useState(open)
+  const [checkError, setCheckError] = useState<string | null>(null)
+  // Bumped by Retry to run the check again.
+  const [attempt, setAttempt] = useState(0)
 
   const { run: runExpand, loading: expanding } = useApiAction(
     api.expandFilesystem.bind(api),
@@ -59,13 +58,31 @@ export function ExpandFilesystemDialog({ open, onOpenChange, onExpanded }: {
     setPrevOpen(open)
     setTarget(null)
     setCandidates([])
+    setCheckError(null)
+    setChecking(open)
   }
 
   useEffect(() => {
-    if (open) void runCheck()
-    // runCheck is not referentially stable (see useApiAction); check once per open.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [open])
+    if (!open) return
+    let cancelled = false
+    api.checkFilesystemExpand()
+      .then((data) => {
+        if (!cancelled) setCandidates(data || [])
+      })
+      .catch((err: unknown) => {
+        if (!cancelled) setCheckError(err instanceof Error ? err.message : t('disk.filesystems.expandCheckFailed'))
+      })
+      .finally(() => {
+        if (!cancelled) setChecking(false)
+      })
+    return () => { cancelled = true }
+  }, [open, attempt, t])
+
+  const retryCheck = () => {
+    setCheckError(null)
+    setChecking(true)
+    setAttempt((n) => n + 1)
+  }
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -80,6 +97,8 @@ export function ExpandFilesystemDialog({ open, onOpenChange, onExpanded }: {
             <Loader2 className="h-4 w-4 animate-spin" />
             <span className="text-[13px]">{t('disk.filesystems.expandChecking')}</span>
           </div>
+        ) : checkError ? (
+          <ListLoadState loading={false} error={checkError} errorTitle={t('disk.filesystems.expandCheckFailed')} onRetry={retryCheck} />
         ) : target ? (
           /* Selected target: show steps and confirm */
           <div className="space-y-4">

@@ -3661,7 +3661,8 @@
       "up": "상위로",
       "empty": "하위 디렉토리 없음",
       "rootPrompt": "루트 전체를 훑는 스캔은 파일 수에 따라 몇 분이 걸릴 수 있습니다. 아래 경로에 하위 폴더를 입력하면 바로 조회됩니다.",
-      "scanRoot": "루트(/) 스캔 시작"
+      "scanRoot": "루트(/) 스캔 시작",
+      "pathAbsolute": "/로 시작하는 경로를 입력하세요."
     },
     "overview": {
       "title": "디스크 개요",
@@ -3815,6 +3816,7 @@
       "expandNoTarget": "확장 가능한 파일시스템이 없습니다",
       "expandNoTargetDesc": "모든 파일시스템이 이미 최대 크기를 사용하고 있거나, 디스크에 여유 공간이 없습니다.",
       "expandChecking": "분석 중…",
+      "expandCheckFailed": "확장할 수 있는 파일시스템을 확인하지 못했습니다",
       "expandSteps": "실행 단계",
       "expandFreeSpace": "확장 가능 용량",
       "expandCurrentSize": "현재 크기",
@@ -3836,6 +3838,7 @@
       "free": "여유",
       "attr": "속성",
       "fetchFailed": "LVM 정보를 불러올 수 없습니다",
+      "toolMissing": "LVM 도구(lvm2)가 설치되어 있지 않습니다.",
       "pv": {
         "title": "물리 볼륨 (PV)",
         "create": "PV 생성",
@@ -3947,6 +3950,7 @@
       "memberDisks": "멤버 디스크",
       "empty": "RAID 어레이가 없습니다",
       "fetchFailed": "RAID 정보를 불러올 수 없습니다",
+      "toolMissing": "mdadm이 설치되어 있지 않습니다.",
       "noUnusedDisks": "사용 가능한 미사용 디스크/파티션이 없습니다 (마운트포인트가 없는 장치만 선택할 수 있습니다).",
       "addDiskDescription": "어레이 {{array}}에 디스크를 추가합니다.",
       "arrayCount": "{{count}}개 어레이"
@@ -4068,6 +4072,7 @@
     "guestVolume": "{{device}}은(는) 가상 머신이나 컨테이너의 디스크({{owner}})라 바꿀 수 없습니다.",
     "bootPartition": "{{device}}은(는) 부팅 파티션(EFI 또는 BIOS boot)이라 바꿀 수 없습니다.",
     "bootBadge": "부팅",
+    "toolMissingHint": "터미널에서 아래 명령으로 설치한 뒤 다시 시도하세요.",
     "noFreeDevices": "고를 수 있는 장치가 없습니다. 마운트되지 않았고 파티션·LVM·RAID·스왑에 쓰이지 않는 디스크와 파티션만 나옵니다.",
     "pickDevice": "장치를 고르세요",
     "facts": {

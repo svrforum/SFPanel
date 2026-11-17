@@ -27,6 +27,7 @@ import { ApplyConfirmBar } from './ApplyConfirmBar'
  import { gatewayField } from './gatewayField'
 import { initialConfig } from './staticConfig'
 import { useConfirm } from '@/components/ConfirmDialog'
+import { ListLoadState } from '@/components/ListLoadState'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
@@ -85,6 +86,8 @@ export default function NetworkInterfaces() {
   const [routes, setRoutes] = useState<NetworkRoute[]>([])
   const [dnsConfig, setDnsConfig] = useState<DNSConfig>({ servers: [] })
   const [loading, setLoading] = useState(true)
+  // A failed read is said where the list would be, not as "no interfaces".
+  const [loadError, setLoadError] = useState<string | null>(null)
   // Session-local only: there is no backend endpoint reporting whether the
   // netplan config on disk differs from the running state, so a page reload
   // loses the "apply needed" flag (and the floating Apply button) even though
@@ -142,8 +145,9 @@ export default function NetworkInterfaces() {
       setInterfaces(status.interfaces || [])
       setRoutes(status.routes || [])
       setDnsConfig(status.dns || { servers: [] })
-    } catch {
-      toast.error(t('network.fetchFailed'))
+      setLoadError(null)
+    } catch (err: unknown) {
+      setLoadError(err instanceof Error ? err.message : t('common.error'))
     } finally {
       setLoading(false)
     }
@@ -379,6 +383,12 @@ export default function NetworkInterfaces() {
 
   const pveUrl = caps?.platform === 'pve' ? proxmoxUiUrl() : null
 
+  // Nothing was ever read: the DNS, route and bond sections would each say
+  // "none" about a host the page knows nothing about.
+  if (loadError && interfaces.length === 0 && !loading) {
+    return <ListLoadState loading={false} error={loadError} errorTitle={t('network.fetchFailed')} onRetry={fetchData} />
+  }
+
   return (
     <div className="space-y-6">
       {/* The network is someone else's to change here: Proxmox's, or a
@@ -412,6 +422,11 @@ export default function NetworkInterfaces() {
         </Button>
       </div>
 
+      {/* A refresh that failed over a list already shown. */}
+      {loadError && (
+        <ListLoadState loading={false} error={loadError} errorTitle={t('network.fetchFailed')} onRetry={fetchData} />
+      )}
+
       {/* Loading state */}
       {loading && interfaces.length === 0 && (
         <div className="flex items-center justify-center py-16">
@@ -421,7 +436,7 @@ export default function NetworkInterfaces() {
       )}
 
       {/* Empty state */}
-      {!loading && interfaces.length === 0 && (
+      {!loading && !loadError && interfaces.length === 0 && (
         <div className="bg-card rounded-2xl p-8 card-shadow text-center">
           <NetworkIcon className="h-10 w-10 text-muted-foreground mx-auto mb-3" />
           <p className="text-[13px] text-muted-foreground">{t('network.noInterfaces')}</p>

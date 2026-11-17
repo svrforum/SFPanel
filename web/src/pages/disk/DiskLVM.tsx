@@ -1,13 +1,13 @@
 import { useState, useEffect, useCallback } from 'react'
 import { useTranslation } from 'react-i18next'
 import { HardDrive, Layers, Box, AlertTriangle } from 'lucide-react'
-import { toast } from 'sonner'
-import { api } from '@/lib/api'
+import { api, type ApiError } from '@/lib/api'
 import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { PVSection } from './components/lvm/PVSection'
 import { VGSection } from './components/lvm/VGSection'
 import { LVSection } from './components/lvm/LVSection'
 import { TabLoading, RefreshButton } from './components/TabToolbar'
+import { LoadFailure } from './components/LoadFailure'
 
 import type { PhysicalVolume, VolumeGroup, LogicalVolume } from '@/types/api'
 
@@ -20,10 +20,14 @@ export default function DiskLVM() {
   // It emptied the whole tab when the server could not parse past it.
   const [warnings, setWarnings] = useState<string[]>([])
   const [loading, setLoading] = useState(true)
+  // A failed read is not an empty one: the lists stay unshown, and so do the
+  // Create buttons, until a read succeeds.
+  const [loadError, setLoadError] = useState<ApiError | null>(null)
 
   const fetchLVM = useCallback(async () => {
     try {
       setLoading(true)
+      setLoadError(null)
       const [pvData, vgData, lvData] = await Promise.all([
         api.getLVMPVs(),
         api.getLVMVGs(),
@@ -34,8 +38,7 @@ export default function DiskLVM() {
       setLvs(lvData.items)
       setWarnings([...new Set([...pvData.warnings, ...vgData.warnings, ...lvData.warnings])])
     } catch (err: unknown) {
-      const message = err instanceof Error ? err.message : t('disk.lvm.fetchFailed')
-      toast.error(message)
+      setLoadError(err instanceof Error ? err : new Error(t('disk.lvm.fetchFailed')))
     } finally {
       setLoading(false)
     }
@@ -47,6 +50,20 @@ export default function DiskLVM() {
 
   if (loading) {
     return <TabLoading />
+  }
+
+  if (loadError) {
+    return (
+      <div className="mt-4">
+        <LoadFailure
+          error={loadError}
+          title={t('disk.lvm.fetchFailed')}
+          toolTitle={t('disk.lvm.toolMissing')}
+          command="apt install lvm2"
+          onRetry={fetchLVM}
+        />
+      </div>
+    )
   }
 
   return (

@@ -104,3 +104,31 @@ test('a shrink is confirmed by name before it is sent', async ({ page }) => {
     { vg: 'pve', name: 'scratch', size: '4G', shrink: true },
   ])
 })
+
+// On a host without lvm2 the tab answered 503 and drew "No physical volumes"
+// under a live Create PV, the reason only in a toast that went away.
+test('missing LVM tools are said where the lists would be, with no Create', async ({ page }) => {
+  await page.addInitScript(() => {
+    sessionStorage.setItem('token', 'fixture-token')
+    localStorage.setItem('i18nextLng', 'en')
+    localStorage.setItem('sfpanel_language', 'en')
+  })
+  await page.route('**/api/v1/**', async route => {
+    const p = new URL(route.request().url()).pathname.replace('/api/v1', '')
+    if (p.startsWith('/lvm/')) {
+      await route.fulfill({ status: 503, json: { success: false, error: { code: 'TOOL_NOT_INSTALLED', message: 'LVM tools are not installed. Install lvm2: apt install lvm2' } } })
+      return
+    }
+    let data: unknown = {}
+    if (p === '/auth/setup-status') data = { setup_required: false }
+    else if (p === '/cluster/status') data = { enabled: false }
+    await route.fulfill({ json: { success: true, data } })
+  })
+  await page.routeWebSocket(/\/ws\//, () => {})
+  await page.goto('/disk/lvm')
+  const banner = page.getByRole('alert').filter({ hasText: 'The LVM tools (lvm2) are not installed.' })
+  await expect(banner).toBeVisible()
+  await expect(banner).toContainText('apt install lvm2')
+  await expect(page.getByRole('button', { name: 'Create PV' })).toHaveCount(0)
+  await expect(page.getByText('No physical volumes')).toHaveCount(0)
+})

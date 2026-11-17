@@ -3673,7 +3673,8 @@
       "up": "Up one level",
       "empty": "No subdirectories",
       "rootPrompt": "Scanning the whole root filesystem can take minutes, depending on how many files it holds. Enter a subdirectory above to look at that instead.",
-      "scanRoot": "Scan / now"
+      "scanRoot": "Scan / now",
+      "pathAbsolute": "Enter a path that starts with /."
     },
     "overview": {
       "title": "Disk Overview",
@@ -3828,6 +3829,7 @@
       "expandNoTarget": "No expandable filesystems",
       "expandNoTargetDesc": "All filesystems are already at maximum size, or there is no free space on the disk.",
       "expandChecking": "Analyzing…",
+      "expandCheckFailed": "Could not check for file systems to expand",
       "expandSteps": "Execution Steps",
       "expandFreeSpace": "Expandable Space",
       "expandCurrentSize": "Current Size",
@@ -3849,6 +3851,7 @@
       "free": "Free",
       "attr": "Attributes",
       "fetchFailed": "Failed to load LVM info",
+      "toolMissing": "The LVM tools (lvm2) are not installed.",
       "pv": {
         "title": "Physical Volumes (PV)",
         "create": "Create PV",
@@ -3961,6 +3964,7 @@
       "memberDisks": "Member Disks",
       "empty": "No RAID arrays",
       "fetchFailed": "Failed to load RAID info",
+      "toolMissing": "mdadm is not installed.",
       "noUnusedDisks": "No unused disks or partitions available (only devices without a mount point can be selected).",
       "addDiskDescription": "Add a disk to array {{array}}.",
       "arrayCount": "{{count}} arrays"
@@ -4082,6 +4086,7 @@
     "guestVolume": "{{device}} is a virtual machine's or container's disk ({{owner}}) and can't be changed here.",
     "bootPartition": "{{device}} is a boot partition (EFI or BIOS boot) and can't be changed.",
     "bootBadge": "Boot",
+    "toolMissingHint": "Install it from a terminal with the command below, then try again.",
     "noFreeDevices": "No device to pick. Only disks and partitions that are not mounted and not used by partitions, LVM, RAID or swap are listed.",
     "pickDevice": "Pick a device",
     "facts": {

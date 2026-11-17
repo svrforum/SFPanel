@@ -14,6 +14,8 @@ export default function DiskUsage() {
   const [data, setData] = useState<DiskUsageEntry | null>(null)
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  // A path not starting with / was ignored without a word.
+  const [pathInvalid, setPathInvalid] = useState(false)
 
   const load = useCallback(async (p: string) => {
     setLoading(true)
@@ -82,12 +84,15 @@ export default function DiskUsage() {
           onSubmit={(e) => {
             e.preventDefault()
             const v = pathInput.trim()
+            setPathInvalid(!v.startsWith('/'))
             if (v.startsWith('/')) setPath(v)
           }}
         >
           <Input
             value={pathInput}
-            onChange={(e) => setPathInput(e.target.value)}
+            onChange={(e) => { setPathInput(e.target.value); setPathInvalid(false) }}
+            aria-invalid={pathInvalid || undefined}
+            aria-describedby={pathInvalid ? 'usage-path-error' : undefined}
             className="font-mono text-[13px] rounded-xl"
             spellCheck={false}
           />
@@ -96,6 +101,9 @@ export default function DiskUsage() {
           <span className="text-[13px] font-semibold shrink-0">{formatBytes(data.size)}</span>
         )}
       </div>
+      {pathInvalid && (
+        <p id="usage-path-error" role="alert" className="text-[12px] text-destructive">{t('disk.usage.pathAbsolute')}</p>
+      )}
 
       {path === '/' && !rootRequested && !data ? (
         <div className="rounded-2xl bg-secondary/40 px-5 py-8 text-center">
