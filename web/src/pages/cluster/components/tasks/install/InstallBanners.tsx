@@ -136,11 +136,12 @@ function HostKeyQuestion({ runId, rowKey, name, hostKey, tailscale }: RowQuestio
         </p>
       )}
       <p className="text-[12px] text-muted-foreground break-words">{t('cluster.tasks.install.run.hostKeyHint')}</p>
+      {/* The filled button is the one the banner advises: not the approval of a key Tailscale contradicts. */}
       <div className="flex flex-wrap gap-2">
-        <Button size="sm" disabled={busy} onClick={() => send(() => api.answerHostKey(runId, rowKey, hostKey, true))}>
+        <Button size="sm" variant={tailscale === 'mismatch' ? 'outline' : 'default'} disabled={busy} onClick={() => send(() => api.answerHostKey(runId, rowKey, hostKey, true))}>
           {t('cluster.tasks.install.run.accept')}
         </Button>
-        <Button size="sm" variant="outline" disabled={busy} onClick={() => send(() => api.answerHostKey(runId, rowKey, hostKey, false))}>
+        <Button size="sm" variant={tailscale === 'mismatch' ? 'default' : 'outline'} disabled={busy} onClick={() => send(() => api.answerHostKey(runId, rowKey, hostKey, false))}>
           {t('cluster.tasks.install.run.reject')}
         </Button>
       </div>
