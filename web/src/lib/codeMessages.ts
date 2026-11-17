@@ -144,6 +144,73 @@ export const CODE_MESSAGES: Record<string, string> = {
   GIT_PATH_NOT_FOUND: 'common.git.pathNotFound',
   GIT_CLONE_FAILED: 'common.git.cloneFailed',
   GIT_RATE_LIMITED: 'common.git.rateLimited',
+
+  // The older codes, worded in apiErrors. Each is sent with one sentence, or a
+  // few that say the same thing, so the code alone says it. A code whose
+  // sentence carries its reason — a command's output, an OS error, a rule
+  // that differs from route to route — is not here and shows as sent. Where
+  // the sentence named the operator's own input (the name just typed, the
+  // process just picked) the wording leaves it out. TOOL_NOT_INSTALLED also
+  // leaves out which tool: the server names it only in its sentence.
+  CSRF_TOKEN_MISSING: 'apiErrors.csrfTokenMissing',
+  CSRF_TOKEN_MISMATCH: 'apiErrors.csrfTokenMismatch',
+  RATE_LIMITED: 'apiErrors.rateLimited',
+  INVALID_PASSWORD: 'apiErrors.invalidPassword',
+  INVALID_TOTP: 'apiErrors.invalidTotp',
+  TOTP_REQUIRED: 'apiErrors.totpRequired',
+  TOTP_ERROR: 'apiErrors.totpError',
+  HASH_ERROR: 'apiErrors.hashError',
+  USER_NOT_FOUND: 'apiErrors.userNotFound',
+  INVALID_ID: 'apiErrors.invalidId',
+  TOOL_NOT_INSTALLED: 'apiErrors.toolNotInstalled',
+  HOST_INFO_ERROR: 'apiErrors.hostInfoError',
+  METRICS_ERROR: 'apiErrors.metricsError',
+  TLS_DISABLED: 'apiErrors.tlsDisabled',
+  EMPTY_SETTINGS: 'apiErrors.emptySettings',
+  CLUSTER_NOT_RUNNING: 'apiErrors.clusterNotRunning',
+  CHANNEL_ERROR: 'apiErrors.channelError',
+  // Files.
+  DESTINATION_EXISTS: 'apiErrors.destinationExists',
+  IS_DIRECTORY: 'apiErrors.isDirectory',
+  NOT_TEXT_FILE: 'apiErrors.notTextFile',
+  READ_PROTECTED: 'apiErrors.readProtected',
+  UNSUPPORTED_FORMAT: 'apiErrors.unsupportedFormat',
+  INVALID_FILENAME: 'apiErrors.invalidFilename',
+  MISSING_FILE: 'apiErrors.missingFile',
+  // Firewall: UFW rules and Fail2ban jails.
+  INVALID_FROM_ADDRESS: 'apiErrors.invalidFromAddress',
+  INVALID_TO_ADDRESS: 'apiErrors.invalidToAddress',
+  INVALID_COMMENT: 'apiErrors.invalidComment',
+  INVALID_RULE_NUMBER: 'apiErrors.invalidRuleNumber',
+  MISSING_JAIL_NAME: 'apiErrors.missingJailName',
+  INVALID_JAIL_NAME: 'apiErrors.invalidJailName',
+  JAIL_EXISTS: 'apiErrors.jailExists',
+  UNKNOWN_TEMPLATE: 'apiErrors.unknownTemplate',
+  INVALID_FILTER_NAME: 'apiErrors.invalidFilterName',
+  INVALID_LOG_PATH: 'apiErrors.invalidLogPath',
+  INVALID_MAX_RETRY: 'apiErrors.invalidMaxRetry',
+  INVALID_BAN_TIME: 'apiErrors.invalidBanTime',
+  INVALID_FIND_TIME: 'apiErrors.invalidFindTime',
+  // Disk.
+  INVALID_PARTITION: 'apiErrors.invalidPartition',
+  INVALID_OPTIONS: 'apiErrors.invalidOptions',
+  NOT_A_FILE: 'apiErrors.notAFile',
+  MISSING_PATH: 'apiErrors.missingPath',
+  // Services, processes, logs, cron, packages, stacks, WireGuard, the AI
+  // sessions.
+  LOG_ERROR: 'apiErrors.logError',
+  PROCESS_NOT_FOUND: 'apiErrors.processNotFound',
+  INVALID_SIGNAL: 'apiErrors.invalidSignal',
+  MISSING_SOURCE: 'apiErrors.missingSource',
+  INVALID_LINES: 'apiErrors.invalidLines',
+  SOURCE_EXISTS: 'apiErrors.sourceExists',
+  INVALID_SCHEDULE: 'apiErrors.invalidSchedule',
+  CRON_CONFLICT: 'apiErrors.cronConflict',
+  MISSING_QUERY: 'apiErrors.missingQuery',
+  INVALID_QUERY: 'apiErrors.invalidQuery',
+  STACK_ALREADY_EXISTS: 'apiErrors.stackAlreadyExists',
+  EMPTY_CONTENT: 'apiErrors.emptyContent',
+  AI_SESSION_NOT_FOUND: 'apiErrors.aiSessionNotFound',
 }
 
 // What a placeholder reads, as an i18n key, when the details carry no value
