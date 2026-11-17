@@ -172,12 +172,13 @@ export function keysetPages(kind: KeysetKind, saved: StoredKeysets | undefined):
  * one line at full size is three characters: at four "⇧Tab" was cut to "⇧Tal"
  * there, and Home and PgUp with it. A longer label — four characters, or an
  * operator's "/compact" — is set smaller and breaks into two lines rather than
- * being cut off.
+ * being cut off. No side padding: with it a 35px cap had 29px for "Home" at
+ * 10px, which is 30, and broke it as "Hom" over "e".
  */
 export function longLabel(label: string): boolean {
   return [...label].length > 3
 }
-export const LONG_LABEL = 'px-0.5 text-[10px] leading-[1.15] whitespace-normal break-all'
+export const LONG_LABEL = 'text-[10px] leading-[1.15] whitespace-normal break-all'
 
 /** A key's name for a screen reader; `t` is the page's translator. */
 export function barKeyName(key: BarKey, t: (key: string, options?: Record<string, unknown>) => string): string {
