@@ -1,4 +1,4 @@
-import { createContext, useCallback, useContext, useState, type ReactNode } from 'react'
+import { createContext, useCallback, useContext, useRef, useState, type ReactNode } from 'react'
 import { useTranslation } from 'react-i18next'
 import {
   Dialog,
@@ -40,11 +40,6 @@ export function useConfirm(): ConfirmFn {
   return ctx
 }
 
-interface PendingState {
-  opts: ConfirmOptions
-  resolve: (result: boolean) => void
-}
-
 /**
  * ConfirmProvider renders a single shared confirmation dialog and exposes the
  * async confirm() via context. One instance wraps the app so every page can
@@ -52,27 +47,34 @@ interface PendingState {
  */
 export function ConfirmProvider({ children }: { children: ReactNode }) {
   const { t } = useTranslation()
-  const [pending, setPending] = useState<PendingState | null>(null)
-
-  const confirm = useCallback<ConfirmFn>((opts) => {
-    return new Promise<boolean>((resolve) => {
-      setPending({ opts, resolve })
-    })
-  }, [])
+  // The options outlive the answer: the dialog animates closed for 200ms, and
+  // clearing them on settle blanked its title and turned the red button into
+  // a blue default "Confirm" for that long. Only `open` drops on settle.
+  const [opts, setOpts] = useState<ConfirmOptions | null>(null)
+  const [open, setOpen] = useState(false)
+  const resolver = useRef<((result: boolean) => void) | null>(null)
 
   const settle = useCallback((result: boolean) => {
-    setPending((cur) => {
-      cur?.resolve(result)
-      return null
-    })
+    const resolve = resolver.current
+    resolver.current = null
+    resolve?.(result)
+    setOpen(false)
   }, [])
 
-  const opts = pending?.opts
+  const confirm = useCallback<ConfirmFn>((next) => {
+    return new Promise<boolean>((resolve) => {
+      // A second question replaces one still open, which counts as a no.
+      resolver.current?.(false)
+      resolver.current = resolve
+      setOpts(next)
+      setOpen(true)
+    })
+  }, [])
 
   return (
     <ConfirmContext.Provider value={confirm}>
       {children}
-      <Dialog open={!!pending} onOpenChange={(open) => { if (!open) settle(false) }}>
+      <Dialog open={open} onOpenChange={(next) => { if (!next) settle(false) }}>
         <DialogContent>
           <DialogHeader>
             <DialogTitle className={opts?.danger ? 'text-destructive' : undefined}>

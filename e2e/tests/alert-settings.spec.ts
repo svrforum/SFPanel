@@ -133,6 +133,33 @@ test('a rule of a type nothing evaluates is listed as not alerting, and can only
   await expect.poll(() => sent.deleted).toEqual([`/api/v1/alerts/rules/${dead.id}`])
 })
 
+// The shared confirmation cleared its words the moment it was answered, so
+// for the 200ms it animated away the title went blank and the red button
+// turned into a blue "Confirm". Animations slowed twentyfold hold it on screen.
+test('a confirmation keeps its title and its button while it closes', async ({ page }) => {
+  await mock(page)
+  await page.goto('/settings?tab=alerts')
+
+  const dead = contract.rule_rows.find(r => !r.evaluated)!
+  await page.getByRole('listitem').filter({ hasText: dead.name }).getByRole('button', { name: 'Delete', exact: true }).click()
+  const dialog = page.getByRole('dialog')
+  const title = dialog.getByRole('heading')
+  await expect(title).not.toHaveText('')
+  const titleText = await title.textContent()
+  const confirm = dialog.locator('[data-slot="dialog-footer"] [data-slot="button"]').last()
+  const label = await confirm.textContent()
+  await expect(confirm).toHaveAttribute('data-variant', 'destructive')
+
+  const cdp = await page.context().newCDPSession(page)
+  await cdp.send('Animation.enable')
+  await cdp.send('Animation.setPlaybackRate', { playbackRate: 0.05 })
+  await confirm.click()
+  await expect(dialog).toHaveAttribute('data-state', 'closed')
+  await expect(title).toHaveText(titleText!)
+  await expect(confirm).toHaveText(label!)
+  await expect(confirm).toHaveAttribute('data-variant', 'destructive')
+})
+
 test('the rule form offers the types the server evaluates, and only those', async ({ page }) => {
   const sent = await mock(page, { channels: [channel] })
   await page.goto('/settings?tab=alerts')

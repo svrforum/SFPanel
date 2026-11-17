@@ -1,4 +1,4 @@
-import { useState, type ReactNode } from 'react'
+import { useId, useState, type ReactNode } from 'react'
 import { useTranslation } from 'react-i18next'
 import { AlertTriangle } from 'lucide-react'
 import {
@@ -49,6 +49,7 @@ export function TypeToConfirmDialog({
 }: TypeToConfirmDialogProps) {
   const { t } = useTranslation()
   const [typed, setTyped] = useState('')
+  const fieldId = useId()
 
   // Reset the field whenever the dialog opens or closes so each appearance
   // starts blank. This is the "adjust state during render on prop change"
@@ -76,11 +77,14 @@ export function TypeToConfirmDialog({
         {children}
 
         <div className="space-y-2">
-          <p className="text-sm text-muted-foreground">
+          {/* The instruction is the field's label: it was a paragraph beside
+              it, and the field was announced by its placeholder alone. */}
+          <label htmlFor={fieldId} className="block text-sm text-muted-foreground">
             {prompt ? `${prompt}:` : t('common.typeToConfirm.prompt')}{' '}
             <span className="font-mono font-semibold text-foreground">{confirmPhrase}</span>
-          </p>
+          </label>
           <Input
+            id={fieldId}
             value={typed}
             onChange={(e) => setTyped(e.target.value)}
             placeholder={confirmPhrase}
