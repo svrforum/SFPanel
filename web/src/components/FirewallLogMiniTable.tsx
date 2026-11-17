@@ -1,18 +1,27 @@
 import { useTranslation } from 'react-i18next'
 import { cn } from '@/lib/utils'
-import { FIREWALL_ACTION_COLORS } from '@/lib/logParsers'
 import type { FirewallLogEntry } from '@/lib/logParsers'
 
 const PILL_CLASS = 'inline-flex items-center px-1.5 py-0.5 rounded-full text-[12px] font-medium'
+
+// The action pill in the theme's text-role colours. The log viewer's hex
+// palette (FIREWALL_ACTION_COLORS) is drawn for its dark surface; on this
+// white card its green and orange read about 2:1.
+const ACTION_TONES: Record<string, string> = {
+  BLOCK: 'bg-destructive/10 text-destructive',
+  DROP: 'bg-destructive/10 text-destructive',
+  ALLOW: 'bg-success/10 text-success',
+  ACCEPT: 'bg-success/10 text-success',
+  AUDIT: 'bg-primary/10 text-primary',
+  LIMIT: 'bg-warning/10 text-warning',
+}
 
 interface FirewallLogMiniTableProps {
   entries: FirewallLogEntry[]
 }
 
 // Compact firewall-log table for the dashboard's recent-logs card — a small
-// subset of the Logs page's parser-column pipeline, sharing the same action
-// palette (FIREWALL_ACTION_COLORS) and hex + '15' alpha-suffix tint recipe as
-// the Logs pill renderer.
+// subset of the Logs page's parser-column pipeline.
 export default function FirewallLogMiniTable({ entries }: FirewallLogMiniTableProps) {
   const { t } = useTranslation()
 
@@ -39,7 +48,9 @@ export default function FirewallLogMiniTable({ entries }: FirewallLogMiniTablePr
             // Composite key from timestamp + source + port stays
             // stable across the slide-window updates.
             const stableKey = `${entry.timestamp}-${entry.sourceIP}-${entry.destPort}-${i}`
-            const actionColor = FIREWALL_ACTION_COLORS[entry.action]
+            const actionTone = Object.hasOwn(ACTION_TONES, entry.action)
+              ? ACTION_TONES[entry.action]
+              : 'bg-secondary text-muted-foreground'
             return (
               <tr key={stableKey} className="border-b border-border/50 hover:bg-secondary/30">
                 <td className="py-1.5 pr-3 font-mono text-muted-foreground whitespace-nowrap">{ts}</td>
@@ -54,18 +65,9 @@ export default function FirewallLogMiniTable({ entries }: FirewallLogMiniTablePr
                   </span>
                 </td>
                 <td className="py-1.5 pr-3">
-                  {actionColor ? (
-                    <span
-                      className={PILL_CLASS}
-                      style={{ backgroundColor: actionColor + '15', color: actionColor }}
-                    >
-                      {entry.action}
-                    </span>
-                  ) : (
-                    <span className={cn(PILL_CLASS, 'bg-secondary text-muted-foreground')}>
-                      {entry.action}
-                    </span>
-                  )}
+                  <span className={cn(PILL_CLASS, actionTone)}>
+                    {entry.action}
+                  </span>
                 </td>
                 <td className="py-1.5 pr-3 font-mono">{entry.sourceIP}</td>
                 <td className="py-1.5 pr-3 font-mono">{entry.destPort}</td>

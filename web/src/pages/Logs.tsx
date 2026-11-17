@@ -521,7 +521,7 @@ export default function Logs() {
             placeholder={
               !selectedSource ? (
                 <div className="text-center space-y-2">
-                  <FileText className="h-12 w-12 mx-auto text-gray-600" />
+                  <FileText className="h-12 w-12 mx-auto text-gray-500" />
                   <p>{t('logs.selectSourcePrompt')}</p>
                 </div>
               ) : undefined

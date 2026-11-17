@@ -54,26 +54,27 @@ export function LogTable({
   const columns = (activeParser?.columns ?? []) as ColumnDef<ParsedLogEntry>[]
 
   return (
+    // The terminal's own surface tokens: the hard-coded #1e1e1e was a second
+    // dark log surface beside --terminal, and its greys failed contrast on it.
     <div
       ref={setContainerEl}
-      className={cn('min-h-[500px] overflow-auto rounded-b-xl border font-mono text-sm', className)}
-      style={{ backgroundColor: '#1e1e1e' }}
+      className={cn('min-h-[500px] overflow-auto rounded-b-xl border bg-terminal text-terminal-foreground font-mono text-sm', className)}
     >
       {placeholder ? (
-        <div className="flex items-center justify-center h-full min-h-[500px] text-gray-500">
+        <div className="flex items-center justify-center h-full min-h-[500px] text-gray-400">
           {placeholder}
         </div>
       ) : loading && lines.length === 0 ? (
-        <div className="flex items-center justify-center h-full min-h-[500px] text-gray-500">
+        <div className="flex items-center justify-center h-full min-h-[500px] text-gray-400">
           <div className="text-center space-y-2">
-            <RefreshCw className="h-8 w-8 mx-auto text-gray-600 animate-spin" />
+            <RefreshCw className="h-8 w-8 mx-auto text-gray-500 animate-spin" />
             <p>{loadingText}</p>
           </div>
         </div>
       ) : lines.length === 0 ? (
-        <div className="flex items-center justify-center h-full min-h-[500px] text-gray-500">
+        <div className="flex items-center justify-center h-full min-h-[500px] text-gray-400">
           <div className="text-center space-y-2">
-            <FileText className="h-12 w-12 mx-auto text-gray-600" />
+            <FileText className="h-12 w-12 mx-auto text-gray-500" />
             <p>{emptyText}</p>
           </div>
         </div>
@@ -85,11 +86,11 @@ export function LogTable({
               <col key={col.key} style={{ width: col.width }} />
             ))}
           </colgroup>
-          <thead className="sticky top-0 z-10" style={{ backgroundColor: '#2d2d2d' }}>
+          <thead className="sticky top-0 z-10 bg-[color-mix(in_srgb,var(--terminal)_94%,white)]">
             <tr>
               <th
-                className="select-none text-right px-3 py-1.5 text-gray-500 border-r border-gray-700/50 border-b border-b-gray-700/50 whitespace-nowrap"
-                style={{ fontSize: '11px' }}
+                className="select-none text-right px-3 py-1.5 text-gray-400 border-r border-gray-700/50 border-b border-b-gray-700/50 whitespace-nowrap"
+                style={{ fontSize: '12px' }}
               >
                 #
               </th>
@@ -123,7 +124,7 @@ export function LogTable({
                     className={`hover:bg-white/5 ${isCurrentMatch ? 'bg-yellow-500/20' : isMatch ? 'bg-yellow-500/10' : ''}`}
                   >
                     <td
-                      className="select-none text-right px-3 py-0 text-gray-600 border-r border-gray-700/50 align-top whitespace-nowrap"
+                      className="select-none text-right px-3 py-0 text-gray-400 border-r border-gray-700/50 align-top whitespace-nowrap"
                       style={{ minWidth: '3.5rem', fontSize: '12px', lineHeight: '20px' }}
                     >
                       {index + 1}
@@ -148,7 +149,7 @@ export function LogTable({
                   className={`hover:bg-white/5 ${isCurrentMatch ? 'bg-yellow-500/20' : isMatch ? 'bg-yellow-500/10' : ''}`}
                 >
                   <td
-                    className="select-none text-right px-3 py-0 text-gray-600 border-r border-gray-700/50 align-top whitespace-nowrap"
+                    className="select-none text-right px-3 py-0 text-gray-400 border-r border-gray-700/50 align-top whitespace-nowrap"
                     style={{ minWidth: '3.5rem', fontSize: '12px', lineHeight: '20px' }}
                   >
                     {index + 1}
@@ -165,9 +166,12 @@ export function LogTable({
                         {rendered.pill && rendered.color ? (
                           <span
                             className="inline-flex items-center px-1.5 py-0 rounded-full text-[12px] font-medium"
+                            // The palette's own hex read 3.0-3.9:1 on its tint
+                            // over the terminal surface; seven parts in ten of
+                            // it with white reads 5.3:1 or more on both themes.
                             style={{
                               backgroundColor: `${rendered.color}20`,
-                              color: rendered.color,
+                              color: `color-mix(in srgb, ${rendered.color} 70%, white)`,
                             }}
                           >
                             {rendered.text}
@@ -219,7 +223,7 @@ export function LogTable({
                     className={`hover:bg-white/5 ${isCurrentMatch ? 'bg-yellow-500/20' : isMatch ? 'bg-yellow-500/10' : ''} ${levelBorder}`}
                   >
                     <td
-                      className="select-none text-right px-3 py-0 text-gray-600 border-r border-gray-700/50 whitespace-nowrap shrink-0"
+                      className="select-none text-right px-3 py-0 text-gray-400 border-r border-gray-700/50 whitespace-nowrap shrink-0"
                       style={{ minWidth: '3.5rem', width: '3.5rem', fontSize: '12px', lineHeight: '20px' }}
                     >
                       {index + 1}

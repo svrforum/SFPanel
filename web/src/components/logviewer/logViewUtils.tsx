@@ -77,5 +77,5 @@ export const LOG_LEVEL_TEXT_COLORS: Record<string, string> = {
   error: 'text-red-400',
   warn: 'text-yellow-400',
   info: 'text-gray-200',
-  debug: 'text-gray-500',
+  debug: 'text-gray-400',
 }
