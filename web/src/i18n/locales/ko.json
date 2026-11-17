@@ -4160,7 +4160,13 @@
       "firewall": "방화벽",
       "container": "컨테이너",
       "process": "프로세스",
-      "noData": "데이터 없음"
+      "noData": "데이터 없음",
+      "listening": "수신 대기",
+      "bound": "바인드됨",
+      "riskAnywhere": "어디서나 허용",
+      "riskAnywhereHint": "방화벽이 모든 출발지에서 오는 접속을 컨테이너로 허용합니다.",
+      "riskNoRule": "규칙 없음",
+      "riskNoRuleHint": "호스트 프로세스가 듣고 있는데 이 포트에 방화벽 규칙이 없습니다."
     },
     "managedByPve": "이 호스트의 방화벽은 Proxmox(pve-firewall)가 관리합니다. Proxmox 웹 화면(:8006)의 데이터센터 → 방화벽에서 바꾸세요.",
     "pve": {

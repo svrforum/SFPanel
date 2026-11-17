@@ -4172,7 +4172,13 @@
       "firewall": "Firewall",
       "container": "Container",
       "process": "Process",
-      "noData": "No data"
+      "noData": "No data",
+      "listening": "Listening",
+      "bound": "Bound",
+      "riskAnywhere": "Open to anywhere",
+      "riskAnywhereHint": "The firewall lets connections from anywhere through to a container.",
+      "riskNoRule": "No rule",
+      "riskNoRuleHint": "A host process listens on this port, and no firewall rule covers it."
     },
     "managedByPve": "This host's firewall is managed by Proxmox (pve-firewall). Change it in the Proxmox web UI (:8006) under Datacenter → Firewall.",
     "pve": {
