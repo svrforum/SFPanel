@@ -61,13 +61,16 @@ export default function Connect() {
         signal: AbortSignal.timeout(5000),
       })
       const json = await res.json()
-      if (!json.success) throw new Error('Server returned error response')
+      if (!json.success) throw new Error('not an SFPanel health answer')
 
       api.setServerUrl(serverUrl)
       navigate('/login', { replace: true })
     } catch (err) {
-      const detail = err instanceof Error ? err.message : String(err)
-      setError(`${t('connect.connectionFailed')}\n${detail}`)
+      // What to do, not the browser's "Failed to fetch": the diagnostic
+      // below the form runs the same request and logs the raw cause.
+      setError(err instanceof DOMException && err.name === 'TimeoutError'
+        ? t('common.requestTimeout')
+        : t('connect.connectionFailed'))
     } finally {
       setLoading(false)
     }

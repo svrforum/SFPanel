@@ -185,8 +185,8 @@ export default function Maintenance({ clusterEnabled }: MaintenanceProps) {
       const blob = await api.downloadBackup()
       downloadBlob(blob, `sfpanel-backup-${new Date().toISOString().slice(0, 10)}.tar.gz`)
     } catch (err: unknown) {
-      const message = err instanceof Error ? err.message : t('settings.backupFailed')
-      toast.error(message)
+      // What failed, then the panel's reason (worded by its code).
+      toast.error(t('settings.backupFailed'), { description: err instanceof Error ? err.message : undefined })
     } finally {
       setBackupLoading(false)
     }
@@ -282,7 +282,7 @@ export default function Maintenance({ clusterEnabled }: MaintenanceProps) {
       const blob = await api.downloadBackupFile(name)
       downloadBlob(blob, name)
     } catch (err: unknown) {
-      toast.error(err instanceof Error ? err.message : String(err))
+      toast.error(t('settings.backupFailed'), { description: err instanceof Error ? err.message : undefined })
     }
   }
 

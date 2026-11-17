@@ -1,7 +1,7 @@
 import { useState, useEffect, type FormEvent } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useTranslation } from 'react-i18next'
-import { api } from '@/lib/api'
+import { api, type ApiError } from '@/lib/api'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
@@ -45,7 +45,9 @@ export default function Setup() {
       api.setTokenPair(result.token, result.refresh_token ?? null)
       navigate('/dashboard')
     } catch (err: unknown) {
-      const code = err instanceof Error ? (err as Error & { code?: string }).code : undefined
+      const failure = err instanceof Error ? (err as ApiError) : undefined
+      const code = failure?.code
+      const status = failure?.status
       // Known codes map to translated text (repo convention); unknown codes
       // fall back to the server's message. WEAK_PASSWORD stays on the raw
       // message intentionally — it carries the specific requirement that failed.
@@ -53,8 +55,11 @@ export default function Setup() {
         setError(t('setup.alreadySetup'))
       } else if (code === 'RATE_LIMITED') {
         setError(t('setup.rateLimited'))
+      } else if (!code && status) {
+        // A proxy's own error page, not the panel's answer.
+        setError(t('common.httpError', { status }))
       } else {
-        setError(err instanceof Error ? err.message : 'Setup failed')
+        setError(err instanceof Error ? err.message : t('common.error'))
       }
     } finally {
       setLoading(false)

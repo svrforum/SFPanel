@@ -1,7 +1,7 @@
 import { useState, type FormEvent } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useTranslation } from 'react-i18next'
-import { api } from '@/lib/api'
+import { api, type ApiError } from '@/lib/api'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
@@ -31,8 +31,10 @@ export default function Login() {
       api.setTokenPair(result.token, result.refresh_token ?? null)
       navigate('/dashboard')
     } catch (err: unknown) {
-      const code = err instanceof Error ? (err as Error & { code?: string }).code : undefined
-      const message = err instanceof Error ? err.message : 'Login failed'
+      const failure = err instanceof Error ? (err as ApiError) : undefined
+      const code = failure?.code
+      const status = failure?.status
+      const message = err instanceof Error ? err.message : t('common.error')
       // Prefer the structured err.code (repo convention: error code + frontend
       // translation). Message sniffing stays only as a fallback for servers
       // that predate the code contract.
@@ -45,6 +47,10 @@ export default function Login() {
         setError(t('login.invalidCredentials'))
       } else if (code === 'RATE_LIMITED') {
         setError(t('login.rateLimited'))
+      } else if (!code && status) {
+        // A proxy's own error page, not the panel's answer: "HTTP 502" alone
+        // said nothing about where to look.
+        setError(t('common.httpError', { status }))
       } else {
         setError(message)
       }
