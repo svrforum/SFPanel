@@ -23,7 +23,7 @@ export default function Maintenance({ clusterEnabled }: MaintenanceProps) {
 
   // System info state
   const [systemInfo, setSystemInfo] = useState<{ host: HostInfo; version?: string } | null>(null)
-  const [panelVersion, setPanelVersion] = useState('...')
+  const [panelVersion, setPanelVersion] = useState('…')
 
   // Update state
   const [updateInfo, setUpdateInfo] = useState<{ latest_version: string; update_available: boolean; release_notes: string } | null>(null)
