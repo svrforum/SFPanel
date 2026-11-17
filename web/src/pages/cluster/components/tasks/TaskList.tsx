@@ -128,7 +128,7 @@ export function TaskList({ tasks, chosen, onPick, onImport }: TaskListProps) {
                           onClick={() => onImport(from)}
                           aria-label={where}
                           title={where ?? `${from.branch} · ${from.path || '/'}`}
-                          className="inline-flex shrink-0 items-center gap-1 rounded-lg px-1.5 py-0.5 text-[12px] text-muted-foreground hover:bg-secondary hover:text-foreground outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                          className="inline-flex min-h-6 shrink-0 items-center gap-1 rounded-lg px-1.5 py-0.5 text-[12px] text-muted-foreground hover:bg-secondary hover:text-foreground outline-none focus-visible:ring-2 focus-visible:ring-ring"
                         >
                           <RefreshCw className="h-3 w-3" />
                           {t('cluster.tasks.list.pullAgain')}

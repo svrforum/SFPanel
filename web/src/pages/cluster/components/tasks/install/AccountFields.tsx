@@ -191,7 +191,7 @@ function SecretField({ id, label, showLabel, hideLabel, value, onChange, hint, e
         <button
           type="button"
           onClick={() => setVisible((v) => !v)}
-          className="absolute right-2 top-1/2 -translate-y-1/2 text-muted-foreground rounded-sm outline-none focus-visible:ring-2 focus-visible:ring-ring"
+          className="absolute right-1 top-1/2 -translate-y-1/2 inline-flex size-7 items-center justify-center text-muted-foreground rounded-sm outline-none focus-visible:ring-2 focus-visible:ring-ring"
           aria-label={visible ? hideLabel : showLabel}
         >
           {visible ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}

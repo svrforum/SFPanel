@@ -286,7 +286,7 @@ export function TaskGitImportDialog({ from, onClose, onChanged }: TaskGitImportD
             <button
               type="button"
               onClick={() => setTokenVisible((v) => !v)}
-              className="absolute right-2 top-1/2 -translate-y-1/2 text-muted-foreground rounded-sm outline-none focus-visible:ring-2 focus-visible:ring-ring"
+              className="absolute right-1 top-1/2 -translate-y-1/2 inline-flex size-7 items-center justify-center text-muted-foreground rounded-sm outline-none focus-visible:ring-2 focus-visible:ring-ring"
               aria-label={tokenVisible ? t('cluster.tasks.import.tokenHide') : t('cluster.tasks.import.tokenShow')}
             >
               {tokenVisible ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
