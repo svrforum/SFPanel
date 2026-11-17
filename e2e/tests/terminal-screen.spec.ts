@@ -5,7 +5,7 @@ import { test, expect, type Page, type WebSocketRoute } from '@playwright/test'
 
 const session = { id: 'abcdef123456', title: 'Screen test', tool: 'shell', run_as: 'tester', cwd: '/srv/app', state: 'shell', persistence: 'service', attached: true, created_at: '2026-01-01T00:00:00Z' }
 
-async function openTerminal(page: Page, path = '/terminal', onSocket?: (socket: WebSocketRoute) => void) {
+async function openTerminal(page: Page, path = '/terminal', onSocket?: (socket: WebSocketRoute) => void, sessions = [session]) {
   const resizes: { cols: number; rows: number }[] = []
   // What reached the session as input.
   const input: string[] = []
@@ -20,7 +20,7 @@ async function openTerminal(page: Page, path = '/terminal', onSocket?: (socket: 
     else if (url.pathname.endsWith('/auth/ws-ticket')) data = { ticket: 'fixture-ticket' }
     else if (url.pathname.endsWith('/cluster/status')) data = { enabled: false }
     else if (url.pathname.endsWith('/system/overview')) data = { version: 'test' }
-    else if (url.pathname.endsWith('/ai/sessions')) data = [session]
+    else if (url.pathname.endsWith('/ai/sessions')) data = sessions
     else if (url.pathname.endsWith('/ai/tools')) data = { tmux: { installed: true, supported: true, version: '3.4', min_version: '3.2' }, systemd_run: true, accounts: ['tester'], panel_account: 'tester', account: 'tester', tools: {} }
     else if (url.pathname.endsWith('/terminal/info')) data = { shell_user: 'tester', is_root: false, hostname: 'fixture' }
     else if (url.pathname.endsWith('/terminal/sessions')) data = { sessions: [] }
@@ -180,6 +180,25 @@ test.describe('a desktop', () => {
     await expect(rail(page).getByRole('link', { name: 'Dashboard' })).toHaveCount(0)
     // With a keyboard on the desk the terminal has it from the start.
     await expect.poll(() => page.evaluate(() => document.activeElement?.classList.contains('xterm-helper-textarea'))).toBe(true)
+  })
+  test('the rail is a tablist per directory, and the arrows walk across them', async ({ page }) => {
+    const other = { ...session, id: 'bbbbbb123456', title: 'Other dir', cwd: '/opt/other' }
+    await openTerminal(page, '/terminal', undefined, [session, other])
+    const lists = rail(page).getByRole('tablist')
+    await expect(lists).toHaveCount(2)
+    // A tablist holds its tabs and nothing else: the heading is outside it.
+    for (const list of await lists.all()) {
+      expect(await list.evaluate(el => [...el.children].every(c => c.getAttribute('role') === 'tab'))).toBe(true)
+    }
+    await expect(page.getByRole('heading', { level: 1, name: 'Terminal' })).toBeAttached()
+    const tabs = rail(page).getByRole('tab')
+    await tabs.first().focus()
+    await page.keyboard.press('ArrowDown')
+    await expect(tabs.nth(1)).toBeFocused()
+    await page.keyboard.press('Home')
+    await expect(tabs.first()).toBeFocused()
+    await page.keyboard.press('End')
+    await expect(tabs.nth(1)).toBeFocused()
   })
   test('focus hides the app sidebar on the terminal page only, and is remembered', async ({ page }) => {
     const t = await openTerminal(page)

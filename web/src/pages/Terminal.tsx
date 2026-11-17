@@ -493,6 +493,10 @@ export default function TerminalPage() {
       </aside>
 
       <div className={cn('flex-1 flex flex-col min-h-0 min-w-0 overflow-clip bg-console', !compact && 'rounded-r-2xl border border-console-border')}>
+        {/* The page's heading, for a screen reader's list of them; the
+            session's title in the header below is what is seen. Inside this
+            column, not beside the rail: the rail stays the first child. */}
+        <h1 className="sr-only">{t('layout.nav.terminal')}</h1>
         <SessionHeader item={activeItem} hostInfo={hostInfo} fontSize={fontSize} cols={activeItem ? cols : null} onFontSize={adjustFontSize} search={search}
           onClear={clearTerminal} onSelectText={openSelectText} onRename={onRename} onAction={onAction}
           compact={compact}

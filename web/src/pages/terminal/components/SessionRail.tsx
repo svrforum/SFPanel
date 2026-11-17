@@ -33,9 +33,12 @@ const ROW = 'relative flex items-center gap-2 h-10 w-full text-left select-none 
 
 /**
  * The left rail: one primary action, the sessions grouped by directory, the
- * temporary (PTY) group last, and the tools entry. It is a vertical tablist —
- * one row is showing in the pane — so arrow keys move between rows and the
- * Android app can find the active row by [role=tab][aria-selected=true].
+ * temporary (PTY) group last, and the tools entry. Each group's rows are a
+ * vertical tablist — one row is showing in the pane — named by the group, and
+ * holding its rows alone: the group's heading and the 다시 연결 buttons sit
+ * outside it, which a tablist may not contain. Arrow keys move between rows
+ * across the groups, and the Android app finds the active row by
+ * [role=tab][aria-selected=true].
  */
 export function SessionRail({ groups, active, collapsed, fallback, reattachable, onSelect, onNew, onReattach, onOpenTools, onToggleCollapsed, dashboardLink, onRename, onAction }: SessionRailProps) {
   const { t } = useTranslation()
@@ -81,10 +84,9 @@ export function SessionRail({ groups, active, collapsed, fallback, reattachable,
         </button>
       </div>
 
-      <div role="tablist" aria-orientation="vertical" aria-label={t('terminal.rail.sessions')} onKeyDown={onListKeyDown}
-        className="flex-1 min-h-0 overflow-y-auto no-scrollbar pb-2">
+      <div onKeyDown={onListKeyDown} className="flex-1 min-h-0 overflow-y-auto no-scrollbar pb-2">
         {groups.map((g) => (
-          <section key={g.key} aria-label={g.label}>
+          <div key={g.key}>
             <div className={cn('pt-3 pb-1', collapsed ? 'px-2' : 'px-3')}>
               {collapsed ? (
                 <div className="h-px bg-console-border" aria-hidden="true" />
@@ -97,6 +99,8 @@ export function SessionRail({ groups, active, collapsed, fallback, reattachable,
               )}
             </div>
 
+            {g.items.length > 0 && (
+            <div role="tablist" aria-orientation="vertical" aria-label={g.label}>
             {g.items.map((item) => {
               const key = activeKey(item)
               const isActive = key === active
@@ -192,6 +196,8 @@ export function SessionRail({ groups, active, collapsed, fallback, reattachable,
                 </ContextMenu>
               )
             })}
+            </div>
+            )}
 
             {g.temporary && reattachable.length > 0 && !collapsed && (
               <>
@@ -206,7 +212,7 @@ export function SessionRail({ groups, active, collapsed, fallback, reattachable,
                 ))}
               </>
             )}
-          </section>
+          </div>
         ))}
       </div>
 
