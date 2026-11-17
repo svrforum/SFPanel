@@ -60,8 +60,8 @@ export function InterfaceCard({
             </span>
           )}
           {iface.bond_info && (
-            <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[12px] font-medium bg-warning/10 text-warning shrink-0">
-              Bond
+            <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[12px] font-medium bg-secondary text-muted-foreground shrink-0">
+              {t('network.bond')}
             </span>
           )}
         </div>
@@ -111,12 +111,13 @@ export function InterfaceCard({
       {/* Traffic */}
       {!isLoopback && (
         <div className="flex items-center gap-4 mt-3 pt-3 border-t border-border">
+          {/* Sent and received were told apart by colour alone. */}
           <div className="flex items-center gap-1">
-            <ArrowUpDown className="h-3 w-3 text-muted-foreground" />
+            <ArrowUpDown className="h-3 w-3 text-muted-foreground" aria-hidden="true" />
             <span className="text-[12px] text-muted-foreground">
-              <span className="text-primary">{formatBytes(iface.tx_bytes)}</span>
-              {' / '}
-              <span className="text-success">{formatBytes(iface.rx_bytes)}</span>
+              {t('network.tx')} <span className="text-foreground">{formatBytes(iface.tx_bytes)}</span>
+              {' · '}
+              {t('network.rx')} <span className="text-foreground">{formatBytes(iface.rx_bytes)}</span>
             </span>
           </div>
           {(iface.tx_errors > 0 || iface.rx_errors > 0) && (

@@ -645,7 +645,7 @@ export default function NetworkInterfaces() {
                   <TableRow key={bond.name}>
                     <TableCell className="font-medium">{bond.name}</TableCell>
                     <TableCell className="text-[13px]">
-                      <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[12px] font-medium bg-warning/10 text-warning">
+                      <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[12px] font-medium bg-secondary text-muted-foreground">
                         {bond.bond_info?.mode || '-'}
                       </span>
                     </TableCell>

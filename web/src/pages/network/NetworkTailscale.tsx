@@ -755,7 +755,7 @@ export default function NetworkTailscale() {
                   <TableHead>OS</TableHead>
                   <TableHead>{t('common.status')}</TableHead>
                   <TableHead className="text-right">
-                    <ArrowUpDown className="h-3 w-3 inline" /> {t('network.tailscale.traffic')}
+                    <ArrowUpDown className="h-3 w-3 inline" aria-hidden="true" /> {t('network.tailscale.traffic')}
                   </TableHead>
                 </TableRow>
               </TableHeader>
@@ -804,10 +804,10 @@ export default function NetworkTailscale() {
                     </TableCell>
                     <TableCell className="text-right text-[12px]">
                       {(peer.tx_bytes > 0 || peer.rx_bytes > 0) ? (
-                        <span>
-                          <span className="text-primary">{formatBytes(peer.tx_bytes)}</span>
-                          {' / '}
-                          <span className="text-success">{formatBytes(peer.rx_bytes)}</span>
+                        <span className="text-muted-foreground whitespace-nowrap">
+                          {t('network.tx')} <span className="text-foreground">{formatBytes(peer.tx_bytes)}</span>
+                          {' · '}
+                          {t('network.rx')} <span className="text-foreground">{formatBytes(peer.rx_bytes)}</span>
                         </span>
                       ) : (
                         <span className="text-muted-foreground">-</span>

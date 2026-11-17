@@ -494,13 +494,13 @@ export default function NetworkWireGuard() {
                       </div>
                       <div className="flex items-center justify-between">
                         <span className="text-muted-foreground flex items-center gap-1">
-                          <ArrowUpDown className="h-3 w-3" />
+                          <ArrowUpDown className="h-3 w-3" aria-hidden="true" />
                           {t('network.wireguard.transfer')}
                         </span>
-                        <span>
-                          <span className="text-primary">{formatBytes(peer.transfer_tx)}</span>
-                          {' / '}
-                          <span className="text-success">{formatBytes(peer.transfer_rx)}</span>
+                        <span className="text-muted-foreground">
+                          {t('network.tx')} <span className="text-foreground">{formatBytes(peer.transfer_tx)}</span>
+                          {' · '}
+                          {t('network.rx')} <span className="text-foreground">{formatBytes(peer.transfer_rx)}</span>
                         </span>
                       </div>
                     </div>
