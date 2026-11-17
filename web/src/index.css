@@ -86,9 +86,12 @@
        path and the header meta, and the editor stop reads 2.5:1 there. These
        two are that stop darkened / lightened until they clear WCAG AA 4.5:1
        on the console surface and on an active row's 10% overlay (4.61:1 and
-       4.76:1 at the worst of the three backgrounds). */
+       4.76:1 at the worst of the three backgrounds). --console-foreground is
+       Tokyo Night Day's #3760bf darkened for the same reason: the active
+       row's name read 3.98:1 on its overlay. The terminal's own text, on the
+       plain surface, keeps the theme's colour. */
     --console: #e1e2e7;
-    --console-foreground: #3760bf;
+    --console-foreground: #3258af;
     --console-muted: #4f5986;
     --console-border: #c4c8da;
     --popover: #ffffff;
@@ -98,7 +101,7 @@
     --secondary: #f2f4f6;
     --secondary-foreground: #333d4b;
     --muted: #f2f4f6;
-    --muted-foreground: #65707d;
+    --muted-foreground: #5f6976;
     --accent: #f2f4f6;
     --accent-foreground: #333d4b;
     --destructive: #cc1020;

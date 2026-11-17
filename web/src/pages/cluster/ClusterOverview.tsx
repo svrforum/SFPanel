@@ -488,7 +488,7 @@ export default function ClusterOverview() {
               <card.icon className="h-4 w-4" style={{ color: card.color }} />
               <span className="text-[12px] text-muted-foreground">{card.label}</span>
             </div>
-            <p className="text-[22px] font-bold tracking-tight" style={{ color: card.color }}>{card.value}</p>
+            <p className="text-[22px] font-bold tracking-tight" style={{ color: asText(card.color) }}>{card.value}</p>
           </div>
         ))}
       </div>
@@ -632,13 +632,17 @@ export default function ClusterOverview() {
   )
 }
 
+// A status hue bright enough for a bar or an icon is too light to be read as
+// a number (2.1:1 for the amber): the number takes the hue's text shade.
+const asText = (fill: string) => fill.replace('--warning)', '--warning-text)').replace('--success)', '--success-text)')
+
 function MetricBar({ label, value }: { label: string; value: number }) {
   const color = value > 80 ? 'var(--destructive)' : value > 50 ? 'var(--warning)' : 'var(--primary)'
   return (
     <div className="min-w-0 flex-1 lg:flex-initial lg:min-w-[100px]">
       <div className="flex justify-between text-[12px] mb-1">
         <span className="text-muted-foreground">{label}</span>
-        <span className="font-medium" style={{ color }}>{value.toFixed(1)}%</span>
+        <span className="font-medium" style={{ color: asText(color) }}>{value.toFixed(1)}%</span>
       </div>
       <div className="h-1.5 rounded-full bg-secondary overflow-hidden">
         <div
