@@ -1,4 +1,5 @@
 import type { ComponentType } from 'react'
+import { useTranslation } from 'react-i18next'
 import { AlertTriangle, X, Play, Square, Check, Zap, RotateCw, Skull } from 'lucide-react'
 import type { ContainerEvent } from '@/types/api'
 
@@ -21,6 +22,18 @@ const iconMap = {
 } as const satisfies Record<ContainerEvent['event_type'], ComponentType<{ className?: string }>>
 
 export function EventTimelineRow({ event }: Props) {
+  const { t } = useTranslation()
+  // Docker's own event names, worded for the panel's language.
+  const label = {
+    oom: t('docker.containers.eventType.oom'),
+    die: t('docker.containers.eventType.die'),
+    start: t('docker.containers.eventType.start'),
+    restart: t('docker.containers.eventType.restart'),
+    stop: t('docker.containers.eventType.stop'),
+    healthy: t('docker.containers.eventType.healthy'),
+    unhealthy: t('docker.containers.eventType.unhealthy'),
+    kill: t('docker.containers.eventType.kill'),
+  }[event.event_type] ?? event.event_type
   const date = new Date(event.ts)
   const time = date.toLocaleTimeString()
   const IconComponent = iconMap[event.event_type]
@@ -33,9 +46,9 @@ export function EventTimelineRow({ event }: Props) {
       <div className="flex-1 text-[12px]">
         <div className="flex items-center gap-2">
           <span className="text-muted-foreground tabular-nums">{time}</span>
-          <span className="font-medium">{event.event_type}</span>
+          <span className="font-medium">{label}</span>
           {event.exit_code !== null && (
-            <span className="text-muted-foreground">exit {event.exit_code}</span>
+            <span className="text-muted-foreground">{t('docker.containers.exitCode', { code: event.exit_code })}</span>
           )}
         </div>
         {summary && <div className="text-muted-foreground mt-0.5">{summary}</div>}
@@ -53,9 +66,9 @@ function colorFor(t: ContainerEvent['event_type']): string {
       return 'text-destructive'
     case 'healthy':
     case 'start':
-      return 'text-emerald-600'
+      return 'text-success'
     case 'restart':
-      return 'text-amber-600'
+      return 'text-warning'
     default:
       return 'text-muted-foreground'
   }
