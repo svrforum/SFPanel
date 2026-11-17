@@ -43,3 +43,23 @@ test('a new peer routes the VPN subnet, not everything', async ({ page }) => {
   await expect(dialog.locator('pre')).toContainText('AllowedIPs = 10.8.0.0/24')
   await expect(dialog.locator('pre')).not.toContainText('0.0.0.0/0')
 })
+
+// Bringing an interface down ran on one tap; over the tunnel, it is the tap
+// that cuts the operator's own way in.
+test('bringing an interface down asks first', async ({ page }) => {
+  await open(page)
+  const downs: string[] = []
+  await page.route('**/api/v1/network/wireguard/interfaces/wg0/down', async route => {
+    downs.push(route.request().method())
+    await route.fulfill({ json: { success: true, data: { message: 'wg0 down' } } })
+  })
+  await page.getByRole('button', { name: 'Bring Down' }).click()
+  const dialog = page.getByRole('dialog', { name: 'Bring wg0 down' })
+  await expect(dialog).toContainText('If you reach this panel through this tunnel, you are cut off at once')
+  await dialog.getByRole('button', { name: 'Cancel' }).click()
+  expect(downs).toEqual([])
+
+  await page.getByRole('button', { name: 'Bring Down' }).click()
+  await page.getByRole('dialog', { name: 'Bring wg0 down' }).getByRole('button', { name: 'Bring Down' }).click()
+  await expect.poll(() => downs).toEqual(['POST'])
+})

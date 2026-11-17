@@ -25,6 +25,7 @@ import { useCopyFeedback } from '@/hooks/useCopyFeedback'
 import { useConfirm } from '@/components/ConfirmDialog'
 import { OutputDialog, streamErrorMessage, StreamReportedError, useSSEOutput } from '@/components/OutputDialog'
 import type { TailscaleStatus, TailscalePeer } from '@/types/api'
+import { panelHost, reachedOver } from './reachedOver'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
@@ -285,7 +286,25 @@ export default function NetworkTailscale() {
     }
   }
 
+  // Both cut a panel reached over Tailscale off at once, and Tailscale is often
+  // the only way in to a home server: the warning leads when it is this page.
+  const cutWarning = () => {
+    const self = status?.self
+    const here = !!self && reachedOver(
+      panelHost(api.serverUrl, api.currentNode),
+      [self.tailscale_ip, self.tailscale_ipv6],
+      status?.magic_dns_suffix,
+    )
+    return here ? t('network.tailscale.cutWarningHere') : t('network.tailscale.cutWarning')
+  }
+
   const handleDisconnect = async () => {
+    if (!(await confirm({
+      title: t('network.tailscale.disconnectTitle'),
+      description: `${t('network.tailscale.disconnectConfirm')} ${cutWarning()}`,
+      confirmLabel: t('network.tailscale.disconnect'),
+      danger: true,
+    }))) return
     setDisconnecting(true)
     try {
       await api.tailscaleDown()
@@ -302,7 +321,7 @@ export default function NetworkTailscale() {
   const handleLogout = async () => {
     if (!(await confirm({
       title: t('network.tailscale.logoutTitle'),
-      description: t('network.tailscale.logoutConfirm'),
+      description: `${t('network.tailscale.logoutConfirm')} ${cutWarning()}`,
       confirmLabel: t('network.tailscale.logout'),
       danger: true,
     }))) return

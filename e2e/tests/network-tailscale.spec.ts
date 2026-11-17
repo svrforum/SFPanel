@@ -62,3 +62,23 @@ test('declining leaves the routes alone', async ({ page }) => {
   await expect(page.getByRole('dialog')).toHaveCount(0)
   expect(puts).toEqual([''])
 })
+
+// Disconnect ran on one tap while Logout asked: over Tailscale, it is the tap
+// that cuts the operator's own way in.
+test('Disconnect asks first, and says it can cut this panel off', async ({ page }) => {
+  await open(page)
+  const downs: string[] = []
+  await page.route('**/api/v1/network/tailscale/down', async route => {
+    downs.push(route.request().method())
+    await route.fulfill({ json: { success: true, data: { message: 'Tailscale disconnected' } } })
+  })
+  await page.getByRole('button', { name: 'Disconnect', exact: true }).click()
+  const dialog = page.getByRole('dialog', { name: 'Disconnect Tailscale' })
+  await expect(dialog).toContainText('If you reach this panel over Tailscale, you are cut off at once')
+  await dialog.getByRole('button', { name: 'Cancel' }).click()
+  expect(downs).toEqual([])
+
+  await page.getByRole('button', { name: 'Disconnect', exact: true }).click()
+  await page.getByRole('dialog', { name: 'Disconnect Tailscale' }).getByRole('button', { name: 'Disconnect' }).click()
+  await expect.poll(() => downs).toEqual(['POST'])
+})

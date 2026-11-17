@@ -26,6 +26,7 @@ import { useCopyFeedback } from '@/hooks/useCopyFeedback'
 import type { WireGuardStatus, WireGuardInterface } from '@/types/api'
 import { useConfirm } from '@/components/ConfirmDialog'
 import { AddPeerDialog } from './components/AddPeerDialog'
+import { panelHost, reachedOver } from './reachedOver'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
@@ -111,7 +112,20 @@ export default function NetworkWireGuard() {
     }
   }
 
-  const handleToggle = async (name: string, active: boolean) => {
+  const handleToggle = async (iface: WireGuardInterface) => {
+    const { name, active } = iface
+    // Bringing a tunnel down cuts off whoever reaches this panel through it,
+    // and a VPN is often the only way in: asked first, the warning leading
+    // when it is this page.
+    if (active) {
+      const here = reachedOver(panelHost(api.serverUrl, api.currentNode), [iface.address])
+      if (!(await confirm({
+        title: t('network.wireguard.downTitle', { name }),
+        description: `${t('network.wireguard.downConfirm', { name })} ${here ? t('network.wireguard.cutWarningHere') : t('network.wireguard.cutWarning')}`,
+        confirmLabel: t('network.wireguard.down'),
+        danger: true,
+      }))) return
+    }
     setToggling(name)
     try {
       if (active) {
@@ -348,7 +362,7 @@ export default function NetworkWireGuard() {
                 <Button
                   variant="ghost"
                   size="icon-xs"
-                  onClick={() => handleToggle(iface.name, iface.active)}
+                  onClick={() => handleToggle(iface)}
                   disabled={toggling === iface.name}
                   title={iface.active ? t('network.wireguard.down') : t('network.wireguard.up')}
                   aria-label={iface.active ? t('network.wireguard.down') : t('network.wireguard.up')}
