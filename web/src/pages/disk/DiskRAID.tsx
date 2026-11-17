@@ -18,9 +18,11 @@ import {
 } from '@/components/ui/dialog'
 import { TypeToConfirmDialog } from '@/components/TypeToConfirmDialog'
 import { NativeSelect } from './components/NativeSelect'
+import { FreeDeviceSelect } from './components/FreeDeviceSelect'
 import { TabLoading, CountPill, RefreshButton } from './components/TabToolbar'
+import { useFreeDevices } from './useFreeDevices'
 
-import type { BlockDevice, RAIDArray } from '@/types/api'
+import type { RAIDArray } from '@/types/api'
 
 const RAID_LEVELS = ['raid0', 'raid1', 'raid5', 'raid6', 'raid10']
 
@@ -67,8 +69,6 @@ export default function DiskRAID() {
   const [newName, setNewName] = useState('')
   const [newLevel, setNewLevel] = useState('raid1')
   const [selectedDevices, setSelectedDevices] = useState<string[]>([])
-  const [candidates, setCandidates] = useState<BlockDevice[]>([])
-  const [candidatesLoading, setCandidatesLoading] = useState(false)
   // mdadm --create writes over every member: typed confirmation first.
   const [createConfirmOpen, setCreateConfirmOpen] = useState(false)
 
@@ -102,45 +102,12 @@ export default function DiskRAID() {
     fetchArrays()
   }, [fetchArrays])
 
-  // Load member candidates when the create dialog opens. Unused = a whole disk
-  // with no partitions and no mount point — picking from this list (VG-create
-  // pattern) replaces the old free-text device input so a typo can't pull an
-  // in-use disk into the array.
-  useEffect(() => {
-    if (!createOpen) return
-    let cancelled = false
-    setCandidatesLoading(true)
-    api.getDiskOverview()
-      .then((data) => {
-        if (cancelled) return
-        const unused: typeof data = []
-        for (const d of data || []) {
-          // A guest's volume on Proxmox VE (owner set), and the guest's own
-          // partitions inside it, are not the host's to put in an array.
-          if (d.owner) continue
-          if ((d.type === 'disk' || !d.type) && !(d.children && d.children.length > 0) && !d.mountpoint) {
-            unused.push(d)
-          }
-          // Unmounted partitions stay selectable too — partition RAID members
-          // (e.g. sdb1) are a legitimate layout the old free-text input allowed.
-          // A boot partition is never mounted on Proxmox VE and is still not
-          // free.
-          for (const c of d.children ?? []) {
-            if (c.type === 'part' && !c.mountpoint && !c.boot && !(c.children && c.children.length > 0)) {
-              unused.push(c)
-            }
-          }
-        }
-        setCandidates(unused)
-      })
-      .catch(() => {
-        if (!cancelled) setCandidates([])
-      })
-      .finally(() => {
-        if (!cancelled) setCandidatesLoading(false)
-      })
-    return () => { cancelled = true }
-  }, [createOpen])
+  // Members are picked from the devices nothing holds (VG-create pattern), not
+  // typed, so a typo can't pull an in-use disk into the array. Unmounted
+  // partitions are among them: partition members (e.g. sdb1) are a legitimate
+  // layout.
+  const { free: candidates, loading: candidatesLoading } = useFreeDevices(createOpen)
+  const addDiskDevices = useFreeDevices(addDiskOpen)
 
   const toggleDeviceSelection = (name: string) => {
     setSelectedDevices((prev) =>
@@ -487,13 +454,7 @@ export default function DiskRAID() {
           </DialogHeader>
           <div className="space-y-2">
             <Label htmlFor="add-disk-device">{t('disk.raid.devicePath')}</Label>
-            <Input
-              id="add-disk-device"
-              placeholder="e.g., sdd"
-              value={addDiskDevice}
-              onChange={(e) => setAddDiskDevice(e.target.value)}
-              onKeyDown={(e) => e.key === 'Enter' && handleAddDisk()}
-            />
+            <FreeDeviceSelect id="add-disk-device" value={addDiskDevice} onChange={setAddDiskDevice} {...addDiskDevices} />
           </div>
           <DialogFooter>
             <Button variant="outline" onClick={() => { setAddDiskOpen(false); setAddDiskArray(null); setAddDiskDevice('') }}>

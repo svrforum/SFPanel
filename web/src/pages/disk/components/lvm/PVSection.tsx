@@ -4,7 +4,6 @@ import { Plus, Trash2 } from 'lucide-react'
 import { api } from '@/lib/api'
 import { useApiAction } from '@/hooks/useApiAction'
 import { Button } from '@/components/ui/button'
-import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import {
   Table,
@@ -23,6 +22,8 @@ import {
   DialogTitle,
 } from '@/components/ui/dialog'
 import { TabsContent } from '@/components/ui/tabs'
+import { FreeDeviceSelect } from '../FreeDeviceSelect'
+import { useFreeDevices } from '../../useFreeDevices'
 
 import type { PhysicalVolume } from '@/types/api'
 
@@ -36,6 +37,8 @@ export function PVSection({ pvs, onChanged }: {
   const [createOpen, setCreateOpen] = useState(false)
   const [device, setDevice] = useState('')
   const [deleteTarget, setDeleteTarget] = useState<PhysicalVolume | null>(null)
+  // Picked from the devices nothing holds, not typed.
+  const devices = useFreeDevices(createOpen)
 
   // Single close-and-reset path, used by onOpenChange and the cancel button.
   const closeCreate = () => {
@@ -139,13 +142,7 @@ export function PVSection({ pvs, onChanged }: {
           </DialogHeader>
           <div className="space-y-2">
             <Label htmlFor="pv-device">{t('disk.lvm.pv.device')}</Label>
-            <Input
-              id="pv-device"
-              placeholder="/dev/sdb1"
-              value={device}
-              onChange={(e) => setDevice(e.target.value)}
-              onKeyDown={(e) => e.key === 'Enter' && handleCreate()}
-            />
+            <FreeDeviceSelect id="pv-device" value={device} onChange={setDevice} {...devices} />
           </div>
           <DialogFooter>
             <Button variant="outline" onClick={closeCreate}>

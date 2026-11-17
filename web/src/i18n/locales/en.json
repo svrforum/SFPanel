@@ -4081,7 +4081,14 @@
     },
     "guestVolume": "{{device}} is a virtual machine's or container's disk ({{owner}}) and can't be changed here.",
     "bootPartition": "{{device}} is a boot partition (EFI or BIOS boot) and can't be changed.",
-    "bootBadge": "Boot"
+    "bootBadge": "Boot",
+    "noFreeDevices": "No device to pick. Only disks and partitions that are not mounted and not used by partitions, LVM, RAID or swap are listed.",
+    "pickDevice": "Pick a device",
+    "facts": {
+      "fstype": "File system on it now",
+      "none": "None found",
+      "disk": "Disk"
+    }
   },
   "firewall": {
     "title": "Firewall",

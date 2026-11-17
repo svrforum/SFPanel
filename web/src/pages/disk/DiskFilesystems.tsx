@@ -28,7 +28,9 @@ import {
 import { TypeToConfirmDialog } from '@/components/TypeToConfirmDialog'
 import { ExpandFilesystemDialog } from './components/ExpandFilesystemDialog'
 import { NativeSelect } from './components/NativeSelect'
+import { DeviceFacts, FreeDeviceSelect } from './components/FreeDeviceSelect'
 import { TabLoading, CountPill, RefreshButton } from './components/TabToolbar'
+import { useFreeDevices } from './useFreeDevices'
 
 const FORMAT_FS_TYPES = ['ext4', 'xfs', 'btrfs']
 
@@ -59,6 +61,9 @@ export default function DiskFilesystems() {
   const [formatFsType, setFormatFsType] = useState('ext4')
   const [formatLabel, setFormatLabel] = useState('')
   const [formatConfirmOpen, setFormatConfirmOpen] = useState(false)
+  // The device is picked from those nothing holds, not typed: the typed-out
+  // confirmation only asked for the same typo again.
+  const formatDevices = useFreeDevices(formatOpen)
 
   // Mount dialog
   const [mountOpen, setMountOpen] = useState(false)
@@ -201,7 +206,7 @@ export default function DiskFilesystems() {
             <ArrowUpFromLine className="h-3.5 w-3.5" />
             {t('disk.filesystems.expand')}
           </Button>
-          <Button size="sm" onClick={() => setFormatOpen(true)} className="rounded-xl">
+          <Button variant="outline" size="sm" onClick={() => setFormatOpen(true)} className="rounded-xl">
             <HardDrive className="h-3.5 w-3.5" />
             {t('disk.filesystems.format')}
           </Button>
@@ -307,12 +312,7 @@ export default function DiskFilesystems() {
           <div className="space-y-4">
             <div className="space-y-2">
               <Label htmlFor="format-device">{t('disk.filesystems.device')}</Label>
-              <Input
-                id="format-device"
-                placeholder="e.g., sdb1"
-                value={formatDevice}
-                onChange={(e) => setFormatDevice(e.target.value)}
-              />
+              <FreeDeviceSelect id="format-device" value={formatDevice} onChange={setFormatDevice} {...formatDevices} />
             </div>
             <div className="space-y-2">
               <Label htmlFor="format-fs">{t('disk.filesystems.fsType')}</Label>
@@ -358,7 +358,9 @@ export default function DiskFilesystems() {
         confirmLabel={t('disk.filesystems.format')}
         loading={formatting}
         onConfirm={handleFormat}
-      />
+      >
+        <DeviceFacts device={formatDevices.free.find((d) => d.name === formatDevice)} disks={formatDevices.disks} />
+      </TypeToConfirmDialog>
 
       {/* Mount Dialog */}
       <Dialog open={mountOpen} onOpenChange={(open) => { setMountOpen(open); if (!open) resetMountForm() }}>

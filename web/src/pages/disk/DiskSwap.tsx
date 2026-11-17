@@ -26,7 +26,9 @@ import {
 } from '@/components/ui/dialog'
 import { TypeToConfirmDialog } from '@/components/TypeToConfirmDialog'
 import { SwapResizeDialog } from './components/SwapResizeDialog'
+import { DeviceFacts, FreeDeviceSelect } from './components/FreeDeviceSelect'
 import { TabLoading, RefreshButton } from './components/TabToolbar'
+import { useFreeDevices } from './useFreeDevices'
 
 import type { SwapEntry, SwapInfo } from '@/types/api'
 
@@ -51,6 +53,8 @@ export default function DiskSwap() {
   const [deviceConfirmOpen, setDeviceConfirmOpen] = useState(false)
   const [overwrite, setOverwrite] = useState<{ device: string; signature: string } | null>(null)
   const [creatingDevice, setCreatingDevice] = useState(false)
+  // Picked from the devices nothing holds, not typed.
+  const devices = useFreeDevices(createOpen && createMode === 'partition')
 
   // Remove
   const [removeTarget, setRemoveTarget] = useState<SwapEntry | null>(null)
@@ -386,12 +390,7 @@ export default function DiskSwap() {
             ) : (
               <div className="space-y-2">
                 <Label htmlFor="swap-device">{t('disk.swap.device')}</Label>
-                <Input
-                  id="swap-device"
-                  placeholder="e.g., /dev/sdb2"
-                  value={createDevice}
-                  onChange={(e) => setCreateDevice(e.target.value)}
-                />
+                <FreeDeviceSelect id="swap-device" value={createDevice} onChange={setCreateDevice} {...devices} />
               </div>
             )}
           </div>
@@ -423,7 +422,9 @@ export default function DiskSwap() {
         confirmLabel={t('common.create')}
         loading={creatingDevice}
         onConfirm={() => void createDeviceSwap(false)}
-      />
+      >
+        <DeviceFacts device={devices.free.find((d) => d.name === createDevice.trim())} disks={devices.disks} />
+      </TypeToConfirmDialog>
 
       {/* The device holds a file system or a partition table. */}
       <Dialog open={!!overwrite} onOpenChange={(open) => !open && setOverwrite(null)}>

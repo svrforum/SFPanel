@@ -4067,7 +4067,14 @@
     },
     "guestVolume": "{{device}}은(는) 가상 머신이나 컨테이너의 디스크({{owner}})라 바꿀 수 없습니다.",
     "bootPartition": "{{device}}은(는) 부팅 파티션(EFI 또는 BIOS boot)이라 바꿀 수 없습니다.",
-    "bootBadge": "부팅"
+    "bootBadge": "부팅",
+    "noFreeDevices": "고를 수 있는 장치가 없습니다. 마운트되지 않았고 파티션·LVM·RAID·스왑에 쓰이지 않는 디스크와 파티션만 나옵니다.",
+    "pickDevice": "장치를 고르세요",
+    "facts": {
+      "fstype": "지금 있는 파일시스템",
+      "none": "찾지 못함",
+      "disk": "디스크"
+    }
   },
   "firewall": {
     "title": "방화벽",

@@ -99,31 +99,37 @@ test('boot and extended partitions cannot be deleted from the list', async ({ pa
   await expect(page.getByRole('row', { name: /^sdb5/ }).getByRole('button', { name: 'Delete' })).toBeEnabled()
 })
 
-test('RAID offers neither guest volumes nor boot partitions', async ({ page }) => {
+test('RAID offers neither guest volumes nor boot or extended partitions', async ({ page }) => {
   await open(page, '/disk/raid')
   await page.getByRole('button', { name: 'Create Array' }).click()
   const dialog = page.getByRole('dialog')
   await expect(dialog.getByText('nvme0n1p3')).toBeVisible()
   await expect(dialog.getByText('sdb5')).toBeVisible()
-  for (const name of ['nvme0n1p1', 'nvme0n1p2', 'zd16', 'zd16p1', 'zd0']) {
+  for (const name of ['nvme0n1p1', 'nvme0n1p2', 'sdb2', 'zd16', 'zd16p1', 'zd0']) {
     await expect(dialog.getByText(name, { exact: true })).toHaveCount(0)
   }
 })
 
-// What the server refuses comes back worded in the panel's language, with
-// the device and its owner filled in.
-test('a refused change names the guest', async ({ page }) => {
+// Format took a typed device name, and its confirmation asked for the same
+// name again: a typo reached a guest's disk or a data disk. The device is now
+// picked from those nothing holds, and the confirmation shows what is on it.
+// What the server still refuses comes back worded in the panel's language.
+test('format offers only free devices, shows what is on one, and a refusal is worded', async ({ page }) => {
   await open(page, '/disk/filesystems')
   await page.route('**/api/v1/filesystems/format', route => route.fulfill({
     status: 409,
-    json: { success: false, error: { code: 'DISK_GUEST_VOLUME', message: 'zd16p1 belongs to a virtual machine or container (VMID 100)', details: { device: 'zd16p1', owner: 'VMID 100' } } },
+    json: { success: false, error: { code: 'DEVICE_IN_USE', message: '/dev/nvme0n1p3 is in use (LVM, RAID, ZFS or swap) — release it first' } },
   }))
   await page.getByRole('button', { name: 'Format', exact: true }).click()
   const form = page.getByRole('dialog')
-  await form.getByLabel('Device').fill('zd16p1')
+  // No guest volume, no boot partition, no extended partition.
+  await expect(form.getByLabel('Device').getByRole('option')).toHaveText(['Pick a device', /^nvme0n1p3 /, /^sdb1 /, /^sdb5 /])
+  await expect(form.getByRole('button', { name: 'Format' })).toBeDisabled()
+  await form.getByLabel('Device').selectOption('nvme0n1p3')
   await form.getByRole('button', { name: 'Format' }).click()
   const confirm = page.getByRole('dialog').filter({ hasText: 'To confirm, type:' })
-  await confirm.getByPlaceholder('zd16p1').fill('zd16p1')
+  await expect(confirm.getByRole('definition')).toHaveText(['1.8 TB', 'zfs_member', 'Solaris /usr & Apple ZFS', 'nvme0n1', 'Example NVMe 2TB'])
+  await confirm.getByPlaceholder('nvme0n1p3').fill('nvme0n1p3')
   await confirm.getByRole('button', { name: 'Format' }).click()
-  await expect(page.getByText("zd16p1 is a virtual machine's or container's disk (VMID 100) and can't be changed here.")).toBeVisible()
+  await expect(page.getByText('This device is in use (mounted, LVM, RAID, ZFS or swap). Release it first.')).toBeVisible()
 })
