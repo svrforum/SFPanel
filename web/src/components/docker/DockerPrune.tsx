@@ -116,7 +116,7 @@ export default function DockerPrune({ open, onOpenChange }: DockerPruneProps) {
           <DialogFooter>
             <Button variant="outline" onClick={() => setConfirmOpen(false)}>{t('common.cancel')}</Button>
             <Button variant="destructive" onClick={handlePrune} disabled={pruning}>
-              {pruning ? t('docker.prune.pruning') : t('common.delete')}
+              {pruning ? t('docker.prune.pruning') : t('docker.prune.pruneSelected')}
             </Button>
           </DialogFooter>
         </DialogContent>

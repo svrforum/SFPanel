@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback, useRef, lazy, Suspense } from 'react'
-import { Trans, useTranslation } from 'react-i18next'
+import { useTranslation } from 'react-i18next'
 import { useParams, useNavigate, useSearchParams } from 'react-router-dom'
 import {
   Plus, Play, Square, RotateCw, RefreshCw,
@@ -462,7 +462,14 @@ export default function DockerStacks({ clusterMode = false }: { clusterMode?: bo
     }
   }
 
+  // The same confirmation the containers screen asks before stopping a stack.
   const handleDown = async (name: string) => {
+    if (!await confirm({
+      title: t('docker.containers.stackDownTitle', { name }),
+      description: t('docker.containers.stackDownConfirm'),
+      confirmLabel: t('docker.containers.stackDown'),
+      danger: true,
+    })) return
     setActionLoading(name)
     try {
       await api.composeStop(name)
@@ -479,7 +486,7 @@ export default function DockerStacks({ clusterMode = false }: { clusterMode?: bo
   }
 
   const handleTeardown = async () => {
-    if (!selectedName || !await confirm({ title: t('docker.improvements.teardown'), description: t('docker.improvements.teardownConfirm'), danger: true })) return
+    if (!selectedName || !await confirm({ title: t('docker.improvements.teardownTitle', { name: selectedName }), description: t('docker.improvements.teardownConfirm'), confirmLabel: t('docker.improvements.teardownAction'), danger: true })) return
     setActionLoading(selectedName)
     try {
       await api.composeDown(selectedName)
@@ -623,7 +630,17 @@ export default function DockerStacks({ clusterMode = false }: { clusterMode?: bo
       const curr = e.curr_image_id ? e.curr_image_id.substring(7, 19) : '?'
       return `  ${e.service}: ${curr} → ${prev}`
     }).join('\n') || ''
-    if (!(await confirm({ title: t('docker.stacks.confirmRollback'), description: detailLines, danger: true }))) return
+    if (!(await confirm({
+      title: t('docker.stacks.rollbackTitle', { name: selectedName }),
+      description: (
+        <span>
+          {t('docker.stacks.confirmRollback')}
+          {detailLines && <span className="mt-2 block whitespace-pre-wrap font-mono text-[12px]">{detailLines}</span>}
+        </span>
+      ),
+      confirmLabel: t('docker.stacks.rollback'),
+      danger: true,
+    }))) return
     setRollingBack(true)
     try {
       await api.rollbackStack(selectedName)
@@ -1247,11 +1264,8 @@ export default function DockerStacks({ clusterMode = false }: { clusterMode?: bo
       }}>
         <DialogContent>
           <DialogHeader>
-            <DialogTitle>{t('docker.compose.deleteTitle')}</DialogTitle>
-            <DialogDescription>
-              <Trans i18nKey="docker.compose.deleteConfirm" values={{ name: deleteTarget?.name ?? '' }}
-                components={{ strong: <span className="font-semibold" /> }} />
-            </DialogDescription>
+            <DialogTitle className="break-all">{t('docker.compose.deleteTitle', { name: deleteTarget?.name ?? '' })}</DialogTitle>
+            <DialogDescription>{t('docker.compose.deleteConfirm')}</DialogDescription>
           </DialogHeader>
           <div className="space-y-3 py-2">
             <label className="flex items-center gap-3 cursor-pointer group">
@@ -1289,7 +1303,7 @@ export default function DockerStacks({ clusterMode = false }: { clusterMode?: bo
           <DialogFooter>
             <Button variant="outline" onClick={() => setDeleteTarget(null)}>{t('common.cancel')}</Button>
             <Button variant="destructive" onClick={handleDelete} disabled={actionLoading === deleteTarget?.name}>
-              {t('common.delete')}
+              {t('docker.compose.deleteAction')}
             </Button>
           </DialogFooter>
         </DialogContent>

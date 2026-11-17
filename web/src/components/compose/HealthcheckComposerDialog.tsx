@@ -194,7 +194,7 @@ export function HealthcheckComposerDialog({
 
   async function onRemove() {
     if (!hasExisting) return
-    if (!(await confirm({ title: t('compose.healthcheck.removeConfirm', { service }), danger: true }))) return
+    if (!(await confirm({ title: t('compose.healthcheck.removeConfirm', { service }), confirmLabel: t('compose.healthcheck.remove'), danger: true }))) return
     setRemoving(true)
     try {
       const baseHash = await sha256Hex(baseYaml)

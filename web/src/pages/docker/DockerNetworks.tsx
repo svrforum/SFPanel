@@ -111,7 +111,9 @@ export default function DockerNetworks() {
 
   const changeConnection = async (container: string, operation: 'connect' | 'disconnect') => {
     if (!inspectTarget || !container) return
-    if (operation === 'disconnect' && !await confirm({ title: t('docker.improvements.disconnect'), description: t('docker.improvements.disconnectConfirm'), danger: true })) return
+    // Named by what the operator sees in the list, the container's name.
+    const containerName = inspectTarget.containers.find((c) => c.id === container)?.name ?? container
+    if (operation === 'disconnect' && !await confirm({ title: t('docker.improvements.disconnectTitle', { container: containerName, network: inspectTarget.name }), description: t('docker.improvements.disconnectConfirm'), confirmLabel: t('docker.improvements.disconnect'), danger: true })) return
     setConnecting(true)
     try {
       await api.changeNetworkConnection(inspectTarget.id, container, operation)

@@ -361,7 +361,6 @@ function StackGroupHeader({
   onUp,
   onDown,
   onRestart,
-  onDelete,
   t,
 }: {
   stackName: string
@@ -372,7 +371,6 @@ function StackGroupHeader({
   onUp: () => void
   onDown: () => void
   onRestart: () => void
-  onDelete: () => void
   t: (key: string, opts?: Record<string, unknown>) => string
 }) {
   return (
@@ -421,16 +419,6 @@ function StackGroupHeader({
           onClick={onRestart}
         >
           <RotateCw />
-        </Button>
-        <Button
-          variant="ghost"
-          size="icon"
-          title={t('common.delete')}
-          aria-label={t('common.delete')}
-          disabled={loading}
-          onClick={onDelete}
-        >
-          <Trash2 className="text-destructive" />
         </Button>
       </div>
     </div>
@@ -614,7 +602,9 @@ export default function DockerContainers() {
 
 
 
-  const handleStackAction = async (action: 'up' | 'down' | 'restart' | 'delete', stackName: string) => {
+  // Deleting a stack is the stacks screen's: it removes the stack's folder,
+  // compose file and .env as well, and its dialog says so.
+  const handleStackAction = async (action: 'up' | 'down' | 'restart', stackName: string) => {
     setStackActionLoading(stackName)
     try {
       if (action === 'up') await api.composeUp(stackName)
@@ -622,10 +612,10 @@ export default function DockerContainers() {
       else if (action === 'restart') {
         await api.composeStop(stackName)
         await api.composeUp(stackName)
-      } else if (action === 'delete') {
-        await api.deleteComposeProject(stackName, { removeVolumes: false })
       }
-      toast.success(t('docker.containers.stackActionSuccess', { action, name: stackName }))
+      toast.success(action === 'up' ? t('docker.compose.upSuccess', { name: stackName })
+        : action === 'down' ? t('docker.compose.downSuccess', { name: stackName })
+        : t('docker.containers.stackRestartDone', { name: stackName }))
       await fetchContainers()
     } catch (err: unknown) {
       toast.error(err instanceof Error ? err.message : t('docker.containers.stackActionFailed'))
@@ -634,16 +624,12 @@ export default function DockerContainers() {
     }
   }
 
-  const confirmStackAction = async (action: 'down' | 'restart' | 'delete', stackName: string) => {
-    const label = action === 'delete' ? t('common.delete') : action === 'down' ? t('docker.improvements.stop') : t('docker.containers.restart')
-    const key = action === 'delete' ? 'docker.containers.stackDeleteConfirm'
-      : action === 'down' ? 'docker.containers.stackDownConfirm'
-      : 'docker.containers.stackRestartConfirm'
+  const confirmStackAction = async (action: 'down' | 'restart', stackName: string) => {
     const ok = await confirm({
-      title: label,
-      description: confirmText(key, { name: stackName }),
-      confirmLabel: label,
-      danger: action !== 'restart',
+      title: action === 'down' ? t('docker.containers.stackDownTitle', { name: stackName }) : t('docker.containers.stackRestartTitle', { name: stackName }),
+      description: action === 'down' ? t('docker.containers.stackDownConfirm') : t('docker.containers.stackRestartConfirm'),
+      confirmLabel: action === 'down' ? t('docker.containers.stackDown') : t('docker.containers.stackRestart'),
+      danger: action === 'down',
     })
     if (ok) await handleStackAction(action, stackName)
   }
@@ -995,7 +981,6 @@ export default function DockerContainers() {
                   onUp={() => { void handleStackAction('up', stackName) }}
                   onDown={() => { void confirmStackAction('down', stackName) }}
                   onRestart={() => { void confirmStackAction('restart', stackName) }}
-                  onDelete={() => { void confirmStackAction('delete', stackName) }}
                   t={t}
                 />
               </div>
@@ -1084,8 +1069,7 @@ export default function DockerContainers() {
                       onUp={() => { void handleStackAction('up', stackName) }}
                       onDown={() => { void confirmStackAction('down', stackName) }}
                       onRestart={() => { void confirmStackAction('restart', stackName) }}
-                      onDelete={() => { void confirmStackAction('delete', stackName) }}
-                      t={t}
+                          t={t}
                     />
                   </TableCell>
                 </TableRow>
