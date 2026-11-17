@@ -1127,6 +1127,10 @@ test.describe('run progress', () => {
       await expect(pane.getByTestId('task-run-status')).toHaveText('Failed')
       // Why, in the screen's words rather than the leader's English.
       await expect(pane).toContainText('A node failed and this run stops on failure, so no further nodes were started.')
+      // A node's own reason sits under its name in the table, not in a tooltip.
+      const failedRow = matrix(page).getByRole('rowheader').filter({ hasText: 'agent-02' })
+      await expect(failedRow).toContainText('Step 2 (Restart nginx) failed.')
+      await expect(failedRow.getByRole('button', { name: 'agent-02', exact: true })).not.toHaveAttribute('title', /failed/)
       await expect(pane.getByRole('button', { name: 'Stop', exact: true })).toHaveCount(0)
       await expect(pane.getByRole('button', { name: 'Force stop' })).toHaveCount(0)
 

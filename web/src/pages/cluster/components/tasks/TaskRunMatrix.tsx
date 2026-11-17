@@ -27,7 +27,8 @@ const isChosen = (chosen: ChosenCell | null, node: string, step: number) => chos
 
 // The run as a node × step table on a desktop, its first column held in place
 // while a long run scrolls sideways; on a phone, a card per node with its
-// steps listed. Every cell is a button that opens that step's output.
+// steps listed. Every cell is a button that opens that step's output. Why a
+// node stopped or failed is written under its name in both.
 export function TaskRunMatrix({ rows, steps, chosen, onChoose, onChooseNode, rowsHeader }: TaskRunMatrixProps) {
   const { t } = useTranslation()
   const label = (row: RunRow, i: number) =>
@@ -62,13 +63,13 @@ export function TaskRunMatrix({ rows, steps, chosen, onChoose, onChooseNode, row
                     <button
                       type="button"
                       onClick={() => onChooseNode(row.id)}
-                      title={row.reason}
                       className={cn('truncate text-[13px] font-medium hover:underline', chosen?.node === row.id && 'text-primary')}
                     >
                       {row.name}
                     </button>
                     <StatusPill tone={nodeStatusTone(row.status)} className="shrink-0">{nodeStatusText(row.status, t)}</StatusPill>
                   </div>
+                  {row.reason && <p className="mt-0.5 max-w-[220px] text-[12px] text-muted-foreground break-words">{row.reason}</p>}
                 </th>
                 {row.cells.map((c, i) => (
                   <td key={i} data-cell={`${row.id}/${i}`} className="px-1.5 py-1.5">
