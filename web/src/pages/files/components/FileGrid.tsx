@@ -188,7 +188,7 @@ function GridTile({ index, entry, selected, active, onToggleSelect, onOpen, acti
             <div className="aspect-square w-full overflow-hidden rounded-lg bg-secondary/40">
               <Thumbnail entry={entry} />
             </div>
-            <p className="mt-1.5 line-clamp-2 break-all text-center text-[12px] leading-tight">
+            <p className="mt-1.5 break-all text-center text-[12px] leading-tight">
               {entry.name}
             </p>
             <p className="text-center text-[12px] text-muted-foreground">

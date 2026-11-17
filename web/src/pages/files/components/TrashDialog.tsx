@@ -148,11 +148,12 @@ export function TrashDialog({ open, onOpenChange, onRestored }: {
                     ? <Folder className="h-4 w-4 shrink-0 text-blue-500" aria-hidden="true" />
                     : <FileText className="h-4 w-4 shrink-0 text-amber-500" aria-hidden="true" />}
                   <div className="min-w-0 flex-1">
-                    <p className="truncate text-[13px] font-medium">{entry.name}</p>
+                    <p className="break-all text-[13px] font-medium">{entry.name}</p>
                     {/* The original path is what makes the entry identifiable:
                         three files called config.yml are otherwise the same row
-                        three times. */}
-                    <p className="truncate font-mono text-[12px] text-muted-foreground">{entry.originalPath}</p>
+                        three times. Wrapped, so the part that tells them apart
+                        is not the part cut off. */}
+                    <p className="break-all font-mono text-[12px] text-muted-foreground">{entry.originalPath}</p>
                   </div>
                   <span className="hidden shrink-0 text-[12px] text-muted-foreground sm:block">
                     {formatDate(entry.deletedAt)}

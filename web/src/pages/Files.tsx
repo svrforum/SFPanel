@@ -1514,13 +1514,17 @@ export default function Files() {
                       ) : (
                         <File className="h-4 w-4 text-muted-foreground shrink-0" />
                       )}
-                      <div className="min-w-0">
-                        <span className="truncate block">{entry.name}</span>
+                      {/* A long name, path or link target wraps rather than being
+                          cut: the path and the target are shown nowhere else.
+                          A windowed list keeps its rows one height, which its
+                          arithmetic depends on, and the title carries the rest. */}
+                      <div className="min-w-0" title={virtualized ? `${searchActive ? entry.path : entry.name}${entry.linkTarget ? ` → ${entry.linkTarget}` : ''}` : undefined}>
+                        <span className={cn('block', virtualized ? 'truncate' : 'line-clamp-2 break-all')}>{entry.name}</span>
                         {searchActive && (
-                          <span className="truncate block text-xs text-muted-foreground font-mono">{entry.path}</span>
+                          <span className={cn('block text-xs text-muted-foreground font-mono', virtualized ? 'truncate' : 'break-all')}>{entry.path}</span>
                         )}
                         {entry.linkTarget && (
-                          <span className="block truncate font-mono text-[12px] text-muted-foreground">
+                          <span className={cn('block font-mono text-[12px] text-muted-foreground', virtualized ? 'truncate' : 'break-all')}>
                             → {entry.linkTarget}
                           </span>
                         )}
@@ -1664,7 +1668,7 @@ export default function Files() {
         <DialogContent className="sm:max-w-md" onPointerDownOutside={(e) => e.preventDefault()}>
           <DialogHeader>
             <DialogTitle>{t('files.deleting', { defaultValue: 'Deleting' })}</DialogTitle>
-            <DialogDescription className="truncate font-mono">
+            <DialogDescription className="break-all font-mono">
               {bulkProgress?.current}
             </DialogDescription>
           </DialogHeader>
@@ -1763,7 +1767,7 @@ export default function Files() {
         <DialogContent className="sm:max-w-md" onPointerDownOutside={(e) => e.preventDefault()}>
           <DialogHeader>
             <DialogTitle>{t('files.uploading')}</DialogTitle>
-            <DialogDescription className="truncate">
+            <DialogDescription className="break-all">
               {uploadProgress?.fileName}
             </DialogDescription>
           </DialogHeader>
