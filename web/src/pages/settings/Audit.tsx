@@ -174,7 +174,9 @@ export default function Audit() {
                           {log.method}
                         </span>
                       </TableCell>
-                      <TableCell className="text-[12px] font-mono max-w-[300px] truncate">{log.path.replace('/api/v1', '')}</TableCell>
+                      {/* Wrapped, as on the phone card: the path is what was done,
+                          and cut at 300px with no title it could not be read. */}
+                      <TableCell className="text-[12px] font-mono max-w-[300px] whitespace-normal break-all">{log.path.replace('/api/v1', '')}</TableCell>
                       <TableCell>
                         <span className={`text-[12px] ${log.status < 400 ? 'text-success' : 'text-destructive'}`}>
                           {log.status}

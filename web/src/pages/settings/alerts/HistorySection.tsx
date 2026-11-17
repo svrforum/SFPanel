@@ -137,7 +137,9 @@ export function HistorySection() {
                         {severityLabel(entry.severity)}
                       </span>
                     </TableCell>
-                    <TableCell className="text-[12px] max-w-[300px] truncate">{entry.message}</TableCell>
+                    {/* Wrapped, as on the phone card: cut at 300px with no
+                        title, the message could not be read. */}
+                    <TableCell className="text-[12px] max-w-[300px] whitespace-normal break-words">{entry.message}</TableCell>
                     <TableCell className="text-[12px] text-muted-foreground">{entry.node_id || '-'}</TableCell>
                     <TableCell>
                       {(() => {
