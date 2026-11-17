@@ -664,10 +664,18 @@ export default function Files() {
               danger: true,
             })
             if (replace) {
-              await api.uploadFile(pathAtStart, file, (percent) => {
-                setUploadProgress({ fileName: file.name, percent, index: index + 1, total: list.length })
-              }, { overwrite: true, signal: controller.signal })
-              toast.success(t('files.uploadSuccess', { name: file.name }))
+              // Its own try: a failure here used to leave the loop as an
+              // unhandled rejection, untold, with the rest of the batch never
+              // sent.
+              try {
+                await api.uploadFile(pathAtStart, file, (percent) => {
+                  setUploadProgress({ fileName: file.name, percent, index: index + 1, total: list.length })
+                }, { overwrite: true, signal: controller.signal })
+                toast.success(t('files.uploadSuccess', { name: file.name }))
+              } catch (again: unknown) {
+                if (controller.signal.aborted) break
+                toast.error(`${file.name}: ${again instanceof Error ? again.message : t('files.uploadFailed')}`)
+              }
             }
             continue
           }
