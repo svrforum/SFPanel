@@ -11,7 +11,7 @@ import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, D
 import { TypeToConfirmDialog } from '@/components/TypeToConfirmDialog'
 import { useConfirm } from '@/components/ConfirmDialog'
 import { usePrompt } from '@/components/PromptDialog'
-import { cn, nodeStatusColor } from '@/lib/utils'
+import { cn } from '@/lib/utils'
 import { waitForServerBack } from '@/lib/restart'
 import { ALL_NODES, filterNodes, isAgent, isManager, isOutdated, nodeRoleKind, referenceVersion, sortNodes } from '@/lib/clusterNodes'
 import { warningText, type ApiWarning } from '@/lib/warnings'
@@ -20,6 +20,7 @@ import { ClusterInitForm, RestartingCard } from './components/ClusterInitForm'
 import { ClusterUpdateProgress } from './components/ClusterUpdateProgress'
 import { EditNodeAddressDialog } from './components/EditNodeAddressDialog'
 import { KindBadge } from './components/KindBadge'
+import { NodeStatus } from './components/NodeCard'
 
 const message = (err: unknown) => (err instanceof Error ? err.message : String(err))
 
@@ -506,10 +507,10 @@ export default function ClusterOverview() {
             return (
               <div key={node.id} className="px-5 py-4 flex flex-wrap lg:flex-nowrap items-center gap-x-4 gap-y-3">
                 <div className="flex items-center gap-3 flex-1 min-w-0 lg:flex-initial lg:min-w-[200px]">
-                  <span className={cn('h-2.5 w-2.5 rounded-full shrink-0', nodeStatusColor(node.status))} />
                   <div className="min-w-0">
                     <div className="flex flex-wrap items-center gap-x-2 gap-y-0.5">
                       <span className="text-[13px] font-medium break-all">{node.name}</span>
+                      <NodeStatus status={node.status} />
                       <KindBadge kind={nodeRoleKind(node, leaderId)} />
                       {node.id === status.local_id && (
                         <span className="text-[12px] text-muted-foreground">({t('layout.cluster.localNode')})</span>

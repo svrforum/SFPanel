@@ -1313,7 +1313,6 @@
     "tree": {
       "datacenter": "Datacenter",
       "node": "Node",
-      "local": "local",
       "toggleNodes": "Toggle node list",
       "nodesUnavailable": "Node list unavailable",
       "managers": "Managers",

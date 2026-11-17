@@ -117,8 +117,9 @@ test('the collapsed rail scrolls and keeps sign-out', async ({ page }) => {
   // No stored choice: the rail is the default.
   await mock(page)
   await page.goto('/cluster/overview')
-  // The rail lists the managers, then db, web and the agents with no group.
-  const last = page.getByRole('button', { name: 'agent-38', exact: true })
+  // The rail lists the managers, then db, web and the agents with no group,
+  // each named with its state: its mark is a shape and a colour.
+  const last = page.getByRole('button', { name: 'agent-38 · Online', exact: true })
   await expect(last).toBeAttached()
   // Only with every node drawn: before the list answers, the rail is short.
   const signOut = page.getByRole('button', { name: 'Logout' })
@@ -130,6 +131,17 @@ test('the collapsed rail scrolls and keeps sign-out', async ({ page }) => {
   await expect(signOut).toBeInViewport()
   // The cluster's name is still the datacenter button's title.
   await expect(page.getByTitle('lab', { exact: true })).toBeVisible()
+})
+
+// The rail drew each node as a coloured dot named only by the node: a node
+// that went offline changed colour and nothing else.
+test('names each node with its state, not by colour alone', async ({ page }) => {
+  const list = nodes.map((n) => (n.id === 'agent-5' ? { ...n, status: 'offline' } : n.id === 'agent-6' ? { ...n, status: 'suspect' } : n))
+  await mock(page, { list: () => list })
+  await page.goto('/cluster/overview')
+  await expect(page.getByRole('button', { name: 'agent-5 · Offline', exact: true })).toBeAttached()
+  await expect(page.getByRole('button', { name: 'agent-6 · Slow to respond', exact: true })).toBeAttached()
+  await expect(page.getByRole('button', { name: 'm-2 · Online', exact: true })).toBeAttached()
 })
 
 test('falls back to this node when the selected one is gone', async ({ page }) => {

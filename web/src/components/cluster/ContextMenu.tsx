@@ -71,7 +71,7 @@ export default function ContextMenu({ selection, nodeName, collapsed, onToggleCo
           <p className="text-[12px] font-semibold text-muted-foreground uppercase tracking-wider">
             {isDatacenter ? t('cluster.tree.datacenter') : t('cluster.tree.node')}
           </p>
-          <p className="text-[13px] font-semibold text-foreground truncate mt-0.5">{title}</p>
+          <p className="text-[13px] font-semibold text-foreground truncate mt-0.5" title={title}>{title}</p>
         </div>
         <button onClick={onToggleCollapse} className="p-1.5 rounded-lg hover:bg-accent border border-border transition-colors mt-0.5 shrink-0 outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-0" title={t('layout.collapse')} aria-label={t('layout.collapse')}>
           <PanelLeftClose className="h-4 w-4 text-foreground/60" />

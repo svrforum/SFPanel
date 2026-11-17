@@ -5,10 +5,11 @@ import { useTranslation } from 'react-i18next'
 import GithubIcon from '@/components/GithubIcon'
 import Logo from '@/components/Logo'
 import { Input } from '@/components/ui/input'
-import { cn, nodeStatusColor } from '@/lib/utils'
+import { cn } from '@/lib/utils'
 import { isAgent, treeSections } from '@/lib/clusterNodes'
 import type { ClusterNode, ClusterStatus } from '@/types/api'
 import { sectionLabel } from './treeSection'
+import { NodeStatusMark } from './NodeStatusMark'
 
 export type TreeSelection =
   | { type: 'datacenter' }
@@ -71,6 +72,10 @@ export default function TreePanel({
   const headed = nodes.some(isAgent)
   const searching = query.trim() !== ''
 
+  // A node's name with its state in words: the mark beside it is no more
+  // than a shape, and in the rail it is all there is.
+  const nodeLabel = (node: ClusterNode) => `${node.name} · ${t(`cluster.status.${node.status}`, { defaultValue: node.status })}`
+
   const toggleFolded = (key: string) => {
     const next = folded.includes(key) ? folded.filter((k) => k !== key) : [...folded, key]
     setFolded(next)
@@ -87,6 +92,7 @@ export default function TreePanel({
         key={node.id}
         onClick={() => onSelect({ type: 'node', nodeId: node.id })}
         aria-current={isSelected ? 'true' : undefined}
+        title={nodeLabel(node)}
         className={cn(
           'w-full flex items-center gap-2 px-2 py-1.5 rounded-lg text-[12px] transition-colors outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-0',
           isSelected
@@ -94,13 +100,14 @@ export default function TreePanel({
             : 'text-foreground/80 hover:bg-accent'
         )}
       >
-        <span className={cn('h-2 w-2 rounded-full shrink-0', nodeStatusColor(node.status))} />
+        <NodeStatusMark status={node.status} />
         <span className="truncate" data-tree-node={node.id}>{node.name}</span>
+        <span className="sr-only">{t(`cluster.status.${node.status}`, { defaultValue: node.status })}</span>
         {isLeader && nodes.length > 1 && (
           <Crown className="h-2.5 w-2.5 text-primary shrink-0 ml-auto" />
         )}
         {isLocal && !isLeader && (
-          <span className="text-[12px] text-muted-foreground ml-auto shrink-0">{t('cluster.tree.local')}</span>
+          <span className="text-[12px] text-muted-foreground ml-auto shrink-0">{t('layout.cluster.localNode')}</span>
         )}
       </button>
     )
@@ -129,6 +136,7 @@ export default function TreePanel({
           {/* Datacenter icon */}
           <button
             onClick={() => onSelect({ type: 'datacenter' })}
+            aria-current={isDatacenterSelected ? 'true' : undefined}
             className={cn(
               'w-9 h-9 shrink-0 rounded-lg flex items-center justify-center transition-colors outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-0',
               isDatacenterSelected ? 'bg-primary/10 text-primary' : 'text-muted-foreground hover:bg-accent'
@@ -147,16 +155,17 @@ export default function TreePanel({
                 <button
                   key={node.id}
                   onClick={() => onSelect({ type: 'node', nodeId: node.id })}
+                  aria-current={selection.type === 'node' && selection.nodeId === node.id ? 'true' : undefined}
                   className={cn(
                     'w-9 h-9 shrink-0 rounded-lg flex items-center justify-center transition-colors outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-0',
                     selection.type === 'node' && selection.nodeId === node.id
                       ? 'bg-primary/10'
                       : 'hover:bg-accent'
                   )}
-                  title={node.name}
-                  aria-label={node.name}
+                  title={nodeLabel(node)}
+                  aria-label={nodeLabel(node)}
                 >
-                  <span className={cn('h-2.5 w-2.5 rounded-full', nodeStatusColor(node.status))} />
+                  <NodeStatusMark status={node.status} dotClassName="h-2.5 w-2.5" />
                 </button>
               ))}
             </div>
@@ -217,6 +226,8 @@ export default function TreePanel({
           </button>
           <button
             onClick={() => onSelect({ type: 'datacenter' })}
+            aria-current={isDatacenterSelected ? 'true' : undefined}
+            title={clusterStatus.name}
             className={cn(
               'flex-1 flex items-center gap-2 px-1.5 py-1.5 rounded-lg text-[12px] font-semibold transition-colors outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-0',
               isDatacenterSelected
