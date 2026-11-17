@@ -8,6 +8,7 @@ import { toastWarnings } from '@/lib/warnings'
 import type { PackageUpdate as PackageInfo } from '@/types/api'
 import { Button } from '@/components/ui/button'
 import { StatusPill } from '@/components/StatusPill'
+import { useConfirm } from '@/components/ConfirmDialog'
 import type { AptTransactions } from '@/pages/packages/useAptTransaction'
 import {
   Table,
@@ -23,6 +24,7 @@ import {
 // and the dialog streams it, keeping the cluster ?node= scope.
 export function SystemUpdatesCard({ tx }: { tx: AptTransactions }) {
   const { t } = useTranslation()
+  const confirm = useConfirm()
   const [updates, setUpdates] = useState<PackageInfo[]>([])
   const [lastChecked, setLastChecked] = useState<string | null>(null)
   const [selectedPackages, setSelectedPackages] = useState<Set<string>>(new Set())
@@ -63,6 +65,13 @@ export function SystemUpdatesCard({ tx }: { tx: AptTransactions }) {
 
   const handleUpgradePackages = useCallback(
     async (packages?: string[]) => {
+      const count = packages ? packages.length : updates.length
+      const ok = await confirm({
+        title: packages ? t('packages.upgradeSelectedTitle', { count }) : t('packages.upgradeAllTitle', { count }),
+        description: t('packages.upgradeDesc'),
+        confirmLabel: t('packages.upgradeAction'),
+      })
+      if (!ok) return
       setUpgradingHere(true)
       try {
         const done = await tx.upgrade(packages ?? [])
@@ -74,7 +83,7 @@ export function SystemUpdatesCard({ tx }: { tx: AptTransactions }) {
         setUpgradingHere(false)
       }
     },
-    [tx, handleCheckUpdates],
+    [confirm, t, updates.length, tx, handleCheckUpdates],
   )
 
   const togglePackageSelection = useCallback((name: string) => {

@@ -5,6 +5,7 @@ import { toast } from 'sonner'
 import { api } from '@/lib/api'
 import { Button } from '@/components/ui/button'
 import { StatusPill } from '@/components/StatusPill'
+import { useConfirm } from '@/components/ConfirmDialog'
 import { streamErrorMessage, StreamReportedError, type SSEOutput } from '@/components/OutputDialog'
 import {
   Dialog,
@@ -38,6 +39,7 @@ export function NodeVersionDialog({
   output: SSEOutput
 }) {
   const { t } = useTranslation()
+  const confirm = useConfirm()
   const [nodeVersions, setNodeVersions] = useState<{ version: string; active: boolean; lts: boolean }[]>([])
   const [remoteLTS, setRemoteLTS] = useState<string[]>([])
   const [loading, setLoading] = useState(false)
@@ -102,6 +104,13 @@ export function NodeVersionDialog({
   }, [output, fetchNodeVersions, onNodeChanged, t])
 
   const handleUninstallVersion = useCallback(async (version: string) => {
+    const ok = await confirm({
+      title: t('packages.nodeVersionRemoveTitle', { version }),
+      description: t('packages.nodeVersionRemoveDesc'),
+      confirmLabel: t('packages.nodeVersionRemoveAction'),
+      danger: true,
+    })
+    if (!ok) return
     setRemoving(version)
     try {
       await api.uninstallNodeVersion(version)
@@ -113,7 +122,7 @@ export function NodeVersionDialog({
     } finally {
       setRemoving(null)
     }
-  }, [fetchNodeVersions, onNodeChanged, t])
+  }, [confirm, fetchNodeVersions, onNodeChanged, t])
 
   const nvmInstalled = !!(nodeStatus as (DevToolStatus & { nvm_installed?: boolean }) | null)?.nvm_installed
 

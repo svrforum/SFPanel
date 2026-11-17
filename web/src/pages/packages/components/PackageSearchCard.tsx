@@ -7,6 +7,7 @@ import type { PackageSearchResult } from '@/types/api'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { StatusPill } from '@/components/StatusPill'
+import { useConfirm } from '@/components/ConfirmDialog'
 import type { SSEOutput } from '@/components/OutputDialog'
 import type { AptTransactions } from '@/pages/packages/useAptTransaction'
 import {
@@ -24,6 +25,7 @@ import {
 // the shared output dialog.
 export function PackageSearchCard({ output, tx }: { output: SSEOutput; tx: AptTransactions }) {
   const { t } = useTranslation()
+  const confirm = useConfirm()
   const [searchQuery, setSearchQuery] = useState('')
   const [searchResults, setSearchResults] = useState<PackageSearchResult[]>([])
   const [hasSearched, setHasSearched] = useState(false)
@@ -68,6 +70,13 @@ export function PackageSearchCard({ output, tx }: { output: SSEOutput; tx: AptTr
 
   const handleRemovePackage = useCallback(
     async (name: string) => {
+      const ok = await confirm({
+        title: t('packages.removeTitle', { name }),
+        description: t('packages.removeDesc', { name }),
+        confirmLabel: t('packages.removeAction'),
+        danger: true,
+      })
+      if (!ok) return
       setRemoveName(name)
       output.openOutput(t('packages.removingPackage', { name }))
       try {
@@ -92,7 +101,7 @@ export function PackageSearchCard({ output, tx }: { output: SSEOutput; tx: AptTr
         setRemoveName(null)
       }
     },
-    [output, t],
+    [confirm, output, t],
   )
 
   return (
