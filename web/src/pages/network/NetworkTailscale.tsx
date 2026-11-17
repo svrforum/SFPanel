@@ -483,7 +483,7 @@ export default function NetworkTailscale() {
   if (!isConnected) {
     return (
       <div className="space-y-6">
-        <div className="flex items-center justify-between">
+        <div className="flex flex-wrap items-center justify-between gap-2">
           {status?.version && (
             <VersionHeader
               version={status.version}
@@ -559,7 +559,7 @@ export default function NetworkTailscale() {
           updateInfo={updateInfo}
           onCheckUpdate={handleCheckUpdate}
         />
-        <div className="flex items-center gap-2">
+        <div className="flex flex-wrap items-center gap-2">
           <Button variant="outline" size="sm" onClick={fetchData} disabled={loading}>
             <RefreshCw className={loading ? 'animate-spin' : ''} />
             {t('common.refresh')}

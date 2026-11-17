@@ -260,8 +260,8 @@ export default function DiskRAID() {
             <div key={arr.name} className="bg-card rounded-2xl card-shadow overflow-hidden">
               {/* Array Header */}
               <div className="p-5 border-b border-border/50">
-                <div className="flex items-center justify-between">
-                  <div className="flex items-center gap-3">
+                <div className="flex flex-wrap items-center justify-between gap-3">
+                  <div className="flex items-center gap-3 min-w-0">
                     <div className="p-2 rounded-xl bg-primary/10">
                       <Shield className="h-5 w-5 text-primary" />
                     </div>
@@ -275,7 +275,7 @@ export default function DiskRAID() {
                       </div>
                     </div>
                   </div>
-                  <div className="flex items-center gap-2">
+                  <div className="flex flex-wrap items-center gap-2">
                     <Button
                       variant="outline"
                       size="sm"

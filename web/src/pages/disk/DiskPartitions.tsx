@@ -162,7 +162,7 @@ export default function DiskPartitions() {
     <div className="space-y-4 mt-4">
       {/* Toolbar */}
       <div className="flex flex-wrap items-center justify-between gap-2">
-        <div className="flex items-center gap-3">
+        <div className="flex flex-wrap items-center gap-3 min-w-0">
           <div className="flex items-center gap-2">
             <HardDrive className="h-4 w-4 text-muted-foreground" aria-hidden="true" />
             <Label htmlFor="partitions-disk" className="text-[13px]">{t('disk.partitions.selectDisk')}</Label>
@@ -171,6 +171,7 @@ export default function DiskPartitions() {
             id="partitions-disk"
             value={selectedDisk}
             onChange={(e) => setSelectedDisk(e.target.value)}
+            className="min-w-0 max-w-full"
           >
             {disks.map((d) => (
               <option key={d.name} value={d.name}>

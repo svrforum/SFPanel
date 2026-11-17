@@ -159,7 +159,9 @@ export default function DiskOverview() {
               <div key={disk.name} className="bg-card rounded-2xl card-shadow overflow-hidden" role="region" aria-label={`${disk.name} ${formatBytes(disk.size)}`}>
                 {/* Disk Header */}
                 <div className="p-5 border-b border-border/50">
-                  <div className="flex items-center justify-between gap-3">
+                  {/* Wraps on a phone: the size and S.M.A.R.T. button took the
+                      whole row and left the disk's name no width at all. */}
+                  <div className="flex flex-wrap items-center justify-between gap-3">
                     <div className="flex items-center gap-3 min-w-0">
                       <div className="p-2 rounded-xl bg-primary/10">
                         <HardDrive className="h-5 w-5 text-primary" aria-hidden="true" />
@@ -211,7 +213,7 @@ export default function DiskOverview() {
                       {disk.children.map((child) => (
                         <div
                           key={child.name}
-                          className="flex items-center gap-3 bg-muted/30 rounded-lg px-3 py-2 text-[13px] min-w-0"
+                          className="flex flex-wrap items-center gap-x-3 gap-y-1 bg-muted/30 rounded-lg px-3 py-2 text-[13px] min-w-0"
                         >
                           <ChevronRight className="h-3 w-3 text-muted-foreground shrink-0" aria-hidden="true" />
                           <span className="font-mono font-medium w-28 shrink-0 truncate">{child.name}</span>
@@ -223,7 +225,7 @@ export default function DiskOverview() {
                             </span>
                           )}
                           {child.mountpoint && (
-                            <span className="text-muted-foreground font-mono text-xs truncate min-w-0 flex-1" title={child.mountpoint}>
+                            <span className="text-muted-foreground font-mono text-xs truncate min-w-0 flex-1 basis-full sm:basis-0" title={child.mountpoint}>
                               {child.mountpoint}
                             </span>
                           )}
