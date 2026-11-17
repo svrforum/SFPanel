@@ -2022,6 +2022,7 @@
     "changing": "Changing…",
     "twoFA": "Two-Factor Authentication",
     "twoFAEnabled": "Enabled",
+    "twoFALoadFailed": "Could not load the 2FA status",
     "twoFANotConfigured": "Not Configured",
     "twoFADescription": "Add an extra layer of security with a TOTP authenticator app",
     "settingUp": "Setting up…",
@@ -2032,8 +2033,7 @@
     "restoreAgentNote": "This node is an agent: only its own backups restore here. A manager's backup is refused, and it holds the cluster's JWT key — do not upload one.",
     "restoreNoReturn": "Panel did not respond within 2 minutes of restore. Check journalctl -u sfpanel.",
     "disable2FA": "Disable 2FA",
-    "confirmDisable2FA": "Disable 2FA? After this, only your password will be required to log in.",
-    "disable2FAPasswordPrompt": "Enter your current password to confirm:",
+    "confirmDisable2FA": "After this, sign-in asks for your password only. To confirm, enter your current password and a code from your authenticator app.",
     "twoFADisabled": "2FA disabled",
     "twoFADisableFailed": "Failed to disable 2FA",
     "scanQR": "Scan this QR code with your authenticator app, or enter the secret manually:",
@@ -2346,7 +2346,6 @@
         "critical": "Critical"
       }
     },
-    "disable2FACodePrompt": "Enter your current 2FA code to confirm:",
     "updateCheckFailed": "Failed to check for updates",
     "updateConnectionLost": "The connection to the node dropped during the update. Check the node's version in a minute.",
     "updateStreamCut": "The update stream ended before the node said how it went. Check the node's version in a minute.",
