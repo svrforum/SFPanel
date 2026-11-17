@@ -94,7 +94,7 @@ export function TaskRunMatrix({ rows, steps, chosen, onChoose, onChooseNode, row
         {rows.map((row) => (
           <li key={row.id} data-testid="task-run-node-card" className="rounded-xl border border-border p-3 space-y-2">
             <div className="flex items-center gap-2">
-              <span className="flex-1 min-w-0 truncate text-[14px] font-semibold">{row.name}</span>
+              <span className="flex-1 min-w-0 break-words text-[14px] font-semibold">{row.name}</span>
               <StatusPill tone={nodeStatusTone(row.status)}>{nodeStatusText(row.status, t)}</StatusPill>
             </div>
             {row.reason && <p className="text-[12px] text-muted-foreground break-words">{row.reason}</p>}

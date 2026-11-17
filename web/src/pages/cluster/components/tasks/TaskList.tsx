@@ -50,7 +50,6 @@ export function TaskList({ tasks, chosen, onPick, onImport }: TaskListProps) {
           to={taskPath(x.task.id)}
           onClick={onPick}
           aria-current={on ? 'page' : undefined}
-          title={x.description || undefined}
           className={entryClass(on)}
         >
           <span className="truncate min-w-0">{x.name}</span>

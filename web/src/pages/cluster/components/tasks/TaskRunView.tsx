@@ -351,7 +351,7 @@ function RerunDialog({ nodes, initial, nodeName, state, busy, onCancel, onRerun 
             return (
               <li key={node} className="flex items-center gap-2 min-h-9">
                 <Checkbox id={field} checked={picked.includes(node)} disabled={busy} onCheckedChange={(on) => toggle(node, on === true)} />
-                <label htmlFor={field} className="flex-1 min-w-0 truncate text-[13px] cursor-pointer">{nodeName(node)}</label>
+                <label htmlFor={field} className="flex-1 min-w-0 break-words text-[13px] cursor-pointer">{nodeName(node)}</label>
                 <StatusPill tone={nodeStatusTone(status)}>{nodeStatusText(status, t)}</StatusPill>
               </li>
             )
