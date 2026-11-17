@@ -287,12 +287,13 @@ export default function DiskNetworkShares() {
 
           <div className="space-y-3">
             <div className="space-y-1.5">
-              <Label>{t('disk.shares.type')}</Label>
-              <div className="flex gap-2">
+              <Label id="share-type">{t('disk.shares.type')}</Label>
+              <div className="flex gap-2" role="group" aria-labelledby="share-type">
                 {(['cifs', 'nfs'] as const).map((v) => (
                   <button
                     key={v}
                     type="button"
+                    aria-pressed={form.type === v}
                     onClick={() => setForm((f) => ({ ...f, type: v, share: '' }))}
                     className={cn(
                       'flex-1 rounded-lg border px-3 py-2 text-[13px] font-medium transition-colors',
@@ -339,12 +340,13 @@ export default function DiskNetworkShares() {
 
             {discovered !== null && discovered.length > 0 && (
               <div className="rounded-lg border border-border bg-secondary/40 p-2">
-                <p className="text-[12px] text-muted-foreground mb-1.5 px-1">{t('disk.shares.pickShare')}</p>
-                <div className="flex flex-wrap gap-1.5">
+                <p id="share-picks" className="text-[12px] text-muted-foreground mb-1.5 px-1">{t('disk.shares.pickShare')}</p>
+                <div className="flex flex-wrap gap-1.5" role="group" aria-labelledby="share-picks">
                   {discovered.map((name) => (
                     <button
                       key={name}
                       type="button"
+                      aria-pressed={form.share === name}
                       onClick={() => { setForm((f) => ({ ...f, share: name })); suggestMountPoint(name) }}
                       className={cn(
                         'rounded-md border px-2 py-1 text-[12px] font-mono transition-colors',

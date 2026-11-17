@@ -359,10 +359,11 @@ export default function DiskSwap() {
           <div className="space-y-4">
             {/* Mode Toggle */}
             <div className="space-y-2">
-              <Label>{t('disk.swap.createMode')}</Label>
-              <div className="flex gap-2">
+              <Label id="swap-create-mode">{t('disk.swap.createMode')}</Label>
+              <div className="flex gap-2" role="group" aria-labelledby="swap-create-mode">
                 <button
                   type="button"
+                  aria-pressed={createMode === 'file'}
                   onClick={() => setCreateMode('file')}
                   className={`flex-1 rounded-xl px-4 py-2.5 text-[13px] font-medium transition-colors outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-0 ${
                     createMode === 'file'
@@ -374,6 +375,7 @@ export default function DiskSwap() {
                 </button>
                 <button
                   type="button"
+                  aria-pressed={createMode === 'partition'}
                   onClick={() => setCreateMode('partition')}
                   className={`flex-1 rounded-xl px-4 py-2.5 text-[13px] font-medium transition-colors outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-0 ${
                     createMode === 'partition'

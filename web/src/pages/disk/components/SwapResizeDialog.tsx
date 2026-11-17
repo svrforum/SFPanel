@@ -248,6 +248,7 @@ export function SwapResizeDialog({ target, onOpenChange, onResized }: {
                 <button
                   key={mb}
                   type="button"
+                  aria-pressed={newMB === mb}
                   onClick={() => setSizeMB(String(mb))}
                   className={`px-3 py-1.5 rounded-lg text-[12px] font-medium transition-colors outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-0 ${
                     newMB === mb
