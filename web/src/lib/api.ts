@@ -149,11 +149,14 @@ export function setApiTranslator(fn: Translator) {
 // codeText words an error by its code when the panel knows the code: the
 // details fill the message's placeholders, put in words first where
 // CODE_DETAIL_FORMATS says how, and CODE_DEFAULTS fills any they leave out
-// (or that do not read). Any other code keeps the server's sentence.
+// (or that do not read). Any other code keeps the server's sentence. A worded
+// message can still carry that sentence as {{serverMessage}}, where it holds
+// something the code alone does not: which tool is missing and the package
+// that brings it.
 function codeText(code: string | undefined, sent: string, details?: Record<string, string>): string {
   if (!code || !CODE_MESSAGES[code]) return sent
   const defaults = Object.fromEntries(Object.entries(CODE_DEFAULTS[code] ?? {}).map(([name, key]) => [name, translate(key, key)]))
-  return translate(CODE_MESSAGES[code], sent, { ...defaults, ...formatDetails(code, details) })
+  return translate(CODE_MESSAGES[code], sent, { serverMessage: sent, ...defaults, ...formatDetails(code, details) })
 }
 
 // The module's translator as the i18next t a detail formatter takes: a key

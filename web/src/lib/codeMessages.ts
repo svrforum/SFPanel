@@ -150,8 +150,9 @@ export const CODE_MESSAGES: Record<string, string> = {
   // sentence carries its reason — a command's output, an OS error, a rule
   // that differs from route to route — is not here and shows as sent. Where
   // the sentence named the operator's own input (the name just typed, the
-  // process just picked) the wording leaves it out. TOOL_NOT_INSTALLED also
-  // leaves out which tool: the server names it only in its sentence.
+  // process just picked) the wording leaves it out. TOOL_NOT_INSTALLED keeps
+  // the server's sentence beside its own ({{serverMessage}}): which tool, and
+  // the package that brings it, are named nowhere else.
   CSRF_TOKEN_MISSING: 'apiErrors.csrfTokenMissing',
   CSRF_TOKEN_MISMATCH: 'apiErrors.csrfTokenMismatch',
   RATE_LIMITED: 'apiErrors.rateLimited',

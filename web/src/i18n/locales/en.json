@@ -4362,7 +4362,7 @@
     "hashError": "Could not hash the password.",
     "userNotFound": "The user was not found.",
     "invalidId": "The ID in the request is not valid.",
-    "toolNotInstalled": "A tool this needs is not installed on this node.",
+    "toolNotInstalled": "{{serverMessage}}",
     "hostInfoError": "Could not read the host information.",
     "metricsError": "Could not read the system metrics.",
     "tlsDisabled": "This panel does not manage its own certificate authority.",

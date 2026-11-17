@@ -88,6 +88,7 @@ describe('error-code messages', () => {
   it.each([['ko', ko], ['en', en]] as const)('fill every placeholder from the details or a default in %s', (_lang, tree) => {
     const unfilled = Object.entries(CODE_MESSAGES).flatMap(([code, key]) => {
       const known = new Set([
+        'serverMessage', // the server's own sentence, which codeText always supplies
         ...Object.keys(CODE_DEFAULTS[code] ?? {}),
         ...(SERVER_DETAILS[code] ?? []),
         ...(SCREEN_DETAILS[code] ?? []),
@@ -152,10 +153,17 @@ describe('apiErrorFrom, on a Korean screen', () => {
   // The review saw this one in English on a Korean screen.
   it('words a code whose sentence is the same at every call', async () => {
     const api = await koreanApi()
+    expect(refusal(api, 409, 'DESTINATION_EXISTS', "'notes.txt' already exists").message).toBe(ko.apiErrors.destinationExists)
+  })
+
+  // Which tool is missing, and the package that brings it, are only in the
+  // server's sentence: the wording says what happened and keeps that beside it.
+  it('keeps the tool and its package when a tool is not installed', async () => {
+    const api = await koreanApi()
     const sent = 'LVM tools are not installed. Install lvm2: apt install lvm2'
     const err = refusal(api, 503, 'TOOL_NOT_INSTALLED', sent)
-    expect([err.message, err.serverMessage]).toEqual([ko.apiErrors.toolNotInstalled, sent])
-    expect(refusal(api, 409, 'DESTINATION_EXISTS', "'notes.txt' already exists").message).toBe(ko.apiErrors.destinationExists)
+    expect(err.message).toBe(`이 작업에 필요한 도구가 이 노드에 설치되어 있지 않습니다. (${sent})`)
+    expect(err.serverMessage).toBe(sent)
   })
 
   // Worded by its code, the sentence would lose the one thing it says: the
