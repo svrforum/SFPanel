@@ -719,7 +719,7 @@ export default function DockerStacks({ clusterMode = false }: { clusterMode?: bo
             {sortNodeGroups(clusterStacks).map(node => (
               <div key={node.node_id} className="space-y-0.5">
                 <div className="flex items-center gap-1.5 px-2 pt-2 text-[12px] font-medium text-muted-foreground">
-                  <span className={`h-1.5 w-1.5 rounded-full shrink-0 ${nodeDot(node.status, node.error)}`} />
+                  <span aria-hidden="true" className={`h-1.5 w-1.5 rounded-full shrink-0 ${nodeDot(node.status, node.error)}`} />
                   <span className="truncate">{node.node_name}</span>
                   {node.local && <span className="shrink-0">· {t('layout.cluster.localNode')}</span>}
                   {node.error && (

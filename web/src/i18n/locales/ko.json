@@ -2496,7 +2496,7 @@
       "searchHistory": "^R 명령 기록 검색 (Ctrl+R)"
     },
     "connectingLogs": "컨테이너 로그에 연결 중…",
-    "connectingShell": "컨테이너 쉘에 연결 중…",
+    "connectingShell": "컨테이너 셸에 연결 중…",
     "wsError": "WebSocket 오류가 발생했습니다.",
     "notAuthenticated": "오류: 인증되지 않음",
     "fontSmaller": "글꼴 크기 줄이기",
