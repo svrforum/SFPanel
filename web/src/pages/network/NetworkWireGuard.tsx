@@ -587,11 +587,13 @@ export default function NetworkWireGuard() {
             <div className="space-y-2">
               <div className="flex items-center justify-between">
                 <Label htmlFor="wg-create-content" className="text-[13px]">{t('network.wireguard.configContent')}</Label>
-                <label className="cursor-pointer">
+                {/* sr-only, not hidden: a display:none input leaves the tab
+                    order, and the label around it never takes focus. */}
+                <label className="cursor-pointer rounded-sm focus-within:ring-2 focus-within:ring-ring">
                   <input
                     type="file"
                     accept=".conf"
-                    className="hidden"
+                    className="sr-only"
                     onChange={handleFileUpload}
                   />
                   <span className="inline-flex items-center gap-1 text-[12px] text-primary hover:text-primary/80 font-medium">
