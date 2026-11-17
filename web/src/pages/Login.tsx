@@ -17,11 +17,17 @@ export default function Login() {
   const [useRecovery, setUseRecovery] = useState(false)
   const [recoveryCode, setRecoveryCode] = useState('')
   const [error, setError] = useState('')
+  // Which fields the error is about (aria-invalid, and the banner as their
+  // description), and whether it is a step rather than a failure.
+  const [failed, setFailed] = useState<'credentials' | 'code' | null>(null)
+  const [step, setStep] = useState(false)
   const [loading, setLoading] = useState(false)
 
   const handleSubmit = async (e: FormEvent) => {
     e.preventDefault()
     setError('')
+    setFailed(null)
+    setStep(false)
     setLoading(true)
 
     try {
@@ -40,10 +46,13 @@ export default function Login() {
       // that predate the code contract.
       if (code === 'TOTP_REQUIRED' || (!code && /totp|2fa/i.test(message))) {
         setShowTotp(true)
+        setStep(true)
         setError(t('login.totpRequired'))
       } else if (code === 'INVALID_TOTP') {
+        setFailed('code')
         setError(t(useRecovery ? 'login.invalidRecoveryCode' : 'login.invalidTotp'))
       } else if (code === 'INVALID_CREDENTIALS') {
+        setFailed('credentials')
         setError(t('login.invalidCredentials'))
       } else if (code === 'RATE_LIMITED') {
         setError(t('login.rateLimited'))
@@ -62,7 +71,7 @@ export default function Login() {
   return (
     <AuthShell title={t('login.signIn')} subtitle={t('login.subtitle')}>
       <form onSubmit={handleSubmit} className="space-y-5">
-        <AuthErrorBanner error={error} />
+        <AuthErrorBanner id="auth-error" error={error} tone={step ? 'info' : 'error'} />
 
         <div className="space-y-2">
           <Label htmlFor="username" className="text-xs font-medium text-muted-foreground">{t('login.username')}</Label>
@@ -72,6 +81,9 @@ export default function Login() {
             value={username}
             onChange={(e) => setUsername(e.target.value)}
             placeholder="admin"
+            autoComplete="username"
+            aria-invalid={failed === 'credentials' || undefined}
+            aria-describedby={failed === 'credentials' ? 'auth-error' : undefined}
             required
             autoFocus
             className={AUTH_INPUT_CLASS}
@@ -86,6 +98,9 @@ export default function Login() {
             value={password}
             onChange={(e) => setPassword(e.target.value)}
             placeholder={t('login.passwordPlaceholder')}
+            autoComplete="current-password"
+            aria-invalid={failed === 'credentials' || undefined}
+            aria-describedby={failed === 'credentials' ? 'auth-error' : undefined}
             required
             className={AUTH_INPUT_CLASS}
           />
@@ -102,6 +117,10 @@ export default function Login() {
                   value={recoveryCode}
                   onChange={(e) => setRecoveryCode(e.target.value)}
                   placeholder={t('login.recoveryCodePlaceholder')}
+                  autoComplete="one-time-code"
+                  spellCheck={false}
+                  aria-invalid={failed === 'code' || undefined}
+                  aria-describedby={failed === 'code' ? 'auth-error' : undefined}
                   autoFocus
                   className={`${AUTH_INPUT_CLASS} text-center font-mono tracking-[0.15em]`}
                 />
@@ -116,6 +135,10 @@ export default function Login() {
                   onChange={(e) => setTotpCode(e.target.value)}
                   placeholder="000000"
                   maxLength={6}
+                  inputMode="numeric"
+                  autoComplete="one-time-code"
+                  aria-invalid={failed === 'code' || undefined}
+                  aria-describedby={failed === 'code' ? 'auth-error' : undefined}
                   autoFocus
                   className={`${AUTH_INPUT_CLASS} text-center text-lg tracking-[0.3em]`}
                 />

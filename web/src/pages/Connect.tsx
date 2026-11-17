@@ -21,6 +21,7 @@ export default function Connect() {
   const { t, i18n } = useTranslation()
   const [url, setUrl] = useState(localStorage.getItem('sfpanel_server_url') || '')
   const [error, setError] = useState('')
+  const [badUrl, setBadUrl] = useState(false)
   const [loading, setLoading] = useState(false)
   const [showDiag, setShowDiag] = useState(false)
   const [diagLog, setDiagLog] = useState<string[]>([])
@@ -40,11 +41,13 @@ export default function Connect() {
       const parsed = new URL(serverUrl)
       if (!['http:', 'https:'].includes(parsed.protocol)) {
         setError(t('connect.invalidUrl'))
+        setBadUrl(true)
         return null
       }
       return parsed.origin
     } catch {
       setError(t('connect.invalidUrl'))
+      setBadUrl(true)
       return null
     }
   }
@@ -52,6 +55,7 @@ export default function Connect() {
   const handleSubmit = async (e: FormEvent) => {
     e.preventDefault()
     setError('')
+    setBadUrl(false)
     const serverUrl = getServerUrl()
     if (!serverUrl) return
 
@@ -160,7 +164,7 @@ export default function Connect() {
       ) : undefined}
     >
       <form onSubmit={handleSubmit} className="space-y-5">
-        <AuthErrorBanner error={error} />
+        <AuthErrorBanner id="auth-error" error={error} />
 
         <div className="space-y-2">
           <Label htmlFor="server-url" className="text-xs font-medium text-muted-foreground">
@@ -172,6 +176,9 @@ export default function Connect() {
             value={url}
             onChange={(e) => setUrl(e.target.value)}
             placeholder="https://192.168.1.100:3628"
+            autoComplete="url"
+            aria-invalid={badUrl || undefined}
+            aria-describedby={badUrl ? 'auth-error' : undefined}
             required
             autoFocus
             className={AUTH_INPUT_CLASS}

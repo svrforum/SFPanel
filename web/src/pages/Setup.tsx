@@ -1,4 +1,4 @@
-import { useState, useEffect, type FormEvent } from 'react'
+import { useState, useEffect, useRef, type FormEvent } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useTranslation } from 'react-i18next'
 import { api, type ApiError } from '@/lib/api'
@@ -14,6 +14,11 @@ export default function Setup() {
   const [password, setPassword] = useState('')
   const [confirmPassword, setConfirmPassword] = useState('')
   const [error, setError] = useState('')
+  // The field the error is about: marked invalid, described by the banner,
+  // and given focus.
+  const [failed, setFailed] = useState<'password' | 'confirm' | null>(null)
+  const passwordRef = useRef<HTMLInputElement>(null)
+  const confirmRef = useRef<HTMLInputElement>(null)
   const [loading, setLoading] = useState(false)
   const [gateBlocked, setGateBlocked] = useState(false)
 
@@ -28,14 +33,19 @@ export default function Setup() {
   const handleSubmit = async (e: FormEvent) => {
     e.preventDefault()
     setError('')
+    setFailed(null)
 
     if (password.length < 12) {
       setError(t('setup.passwordMinLength'))
+      setFailed('password')
+      passwordRef.current?.focus()
       return
     }
 
     if (password !== confirmPassword) {
       setError(t('setup.passwordMismatch'))
+      setFailed('confirm')
+      confirmRef.current?.focus()
       return
     }
 
@@ -75,7 +85,7 @@ export default function Setup() {
         </div>
       ) : (
       <form onSubmit={handleSubmit} className="space-y-5">
-        <AuthErrorBanner error={error} />
+        <AuthErrorBanner id="auth-error" error={error} />
 
         <div className="space-y-2">
           <Label htmlFor="username" className="text-xs font-medium text-muted-foreground">{t('setup.username')}</Label>
@@ -85,6 +95,7 @@ export default function Setup() {
             value={username}
             onChange={(e) => setUsername(e.target.value)}
             placeholder="admin"
+            autoComplete="username"
             required
             autoFocus
             className={AUTH_INPUT_CLASS}
@@ -102,7 +113,10 @@ export default function Setup() {
             type="password"
             value={password}
             onChange={(e) => setPassword(e.target.value)}
-            aria-describedby="password-hint"
+            ref={passwordRef}
+            autoComplete="new-password"
+            aria-invalid={failed === 'password' || undefined}
+            aria-describedby={failed === 'password' ? 'password-hint auth-error' : 'password-hint'}
             required
             className={AUTH_INPUT_CLASS}
           />
@@ -117,6 +131,10 @@ export default function Setup() {
             value={confirmPassword}
             onChange={(e) => setConfirmPassword(e.target.value)}
             placeholder={t('setup.confirmPlaceholder')}
+            ref={confirmRef}
+            autoComplete="new-password"
+            aria-invalid={failed === 'confirm' || undefined}
+            aria-describedby={failed === 'confirm' ? 'auth-error' : undefined}
             required
             className={AUTH_INPUT_CLASS}
           />
