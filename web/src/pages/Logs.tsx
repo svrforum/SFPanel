@@ -519,22 +519,23 @@ export default function Logs() {
           {/* Search bar */}
           <LogSearchBar viewer={viewer} className="mb-3" />
 
-          {/* Log info bar */}
-          <div className="flex items-center justify-between px-3 py-1.5 bg-secondary/50 border border-b-0 rounded-t-xl text-xs text-muted-foreground">
-            <div className="flex items-center gap-3">
+          {/* Log info bar: each item keeps its words on one line (a phone
+              broke "lines shown" mid-word); the path gives way first. */}
+          <div className="flex items-center justify-between gap-3 px-3 py-1.5 bg-secondary/50 border border-b-0 rounded-t-xl text-xs text-muted-foreground">
+            <div className="flex min-w-0 items-center gap-3">
               {selectedSourceData ? (
                 <>
-                  <span className="flex items-center gap-1.5">
+                  <span className="flex shrink-0 items-center gap-1.5 whitespace-nowrap">
                     <Eye className="h-3 w-3" />
                     {selectedSourceData.name}
                   </span>
-                  <span>{selectedSourceData.path}</span>
+                  <span className="min-w-0 truncate" title={selectedSourceData.path}>{selectedSourceData.path}</span>
                 </>
               ) : (
                 <span>{t('logs.selectSource')}</span>
               )}
             </div>
-            <div className="flex items-center gap-3">
+            <div className="flex shrink-0 items-center gap-3 whitespace-nowrap">
               {totalLines > 0 && totalLines !== logLines.length && (
                 <span>{t('logs.totalLines', { count: totalLines })}</span>
               )}
