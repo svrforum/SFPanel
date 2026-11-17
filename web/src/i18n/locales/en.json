@@ -1070,7 +1070,8 @@
       "disbanded": "Cluster disbanded. Restarting service.",
       "rollingUpdate": "Rolling Update",
       "simultaneousUpdate": "Simultaneous Update",
-      "confirmUpdate": "Start cluster-wide update?",
+      "confirmUpdate": "Update the whole cluster?",
+      "confirmUpdateTo": "Update the cluster to {{version}}?",
       "updateContinuesOnLeader": "This node restarted as part of the update, so the progress view was cut off. The update carries on at the leader.",
       "updateAlreadyRunning": "A cluster update is already running.",
       "updating": "Updating…",
@@ -1128,6 +1129,9 @@
       "joinedAt": "Joined",
       "confirmRemove": "Remove node {{name}} from the cluster?",
       "removed": "Node {{name}} removed",
+      "remove": "Remove node",
+      "removeManagerDesc": "This manager still holds the cluster's secrets, such as the JWT signing key and the CA key. After removing it, rotate them on the Security tab.",
+      "removeAgentDesc": "It stops being managed here. On that server, run sudo sfpanel agent reset --yes to turn it back into a standalone panel.",
       "editLabels": "Edit group and labels",
       "editLabelsTitle": "Edit group and labels for {{name}}",
       "noLabels": "No labels",
@@ -1136,6 +1140,7 @@
       "labelsUpdated": "Labels updated",
       "transferLeadership": "Transfer leadership",
       "confirmTransfer": "Transfer leadership to {{name}}?",
+      "transferDesc": "For the few seconds the new leader takes to take over, requests that change the cluster may wait or fail.",
       "leaderTransferred": "Leadership transferred to {{name}}",
       "editAddress": "Edit address",
       "addressUpdated": "Node address updated",
@@ -1159,9 +1164,8 @@
       "noMatch": "No node matches these filters.",
       "loadFailed": "Could not refresh the node list. Showing the last one.",
       "loadError": "Could not load the node list.",
-      "actions": "Node actions",
+      "actionsFor": "Node actions for {{name}}",
       "open": "Open node",
-      "confirmRemoveAgent": "Remove {{name}}? It stops being managed here. On that server, run sudo sfpanel agent reset --yes to turn it back into a standalone panel.",
       "groupHint": "Nodes with the same group are listed together."
     },
     "tokens": {
@@ -1177,7 +1181,9 @@
       "activeDescription": "Join tokens that have not yet expired or been revoked",
       "empty": "No active tokens",
       "revoke": "Revoke",
-      "revokeConfirm": "Revoke this join token? Nodes can no longer use it to join.",
+      "revokeConfirm": "Revoke this join token?",
+      "revokeDesc": "No node can join with it any more.",
+      "revokeAction": "Revoke token",
       "revoked": "Token revoked",
       "createdBy": "Created by",
       "copyFailed": "Failed to copy to clipboard",
@@ -1296,10 +1302,13 @@
     },
     "leave": {
       "action": "Leave cluster",
-      "confirm": "This node will leave the cluster and the service will restart. Continue?",
+      "confirm": "Leave the cluster?",
+      "confirmDesc": "This node restarts its service and becomes a standalone panel. It keeps the cluster's secrets, so rotate them on the Security tab of a remaining manager afterwards.",
       "forceConfirm": "Leaving would drop the cluster below quorum. Force leave anyway? Remaining nodes may lose quorum.",
+      "forceAction": "Leave anyway",
       "success": "Leaving cluster. The service will restart.",
-      "warningsTitle": "You left the cluster, with one thing left to do"
+      "warningsTitle": "You left the cluster, with one thing left to do",
+      "restartingDesc": "The service is restarting as a standalone panel. This page reloads once it answers again."
     },
     "tree": {
       "datacenter": "Datacenter",
@@ -1315,7 +1324,7 @@
     },
     "status": {
       "online": "Online",
-      "suspect": "Suspect",
+      "suspect": "Slow to respond",
       "offline": "Offline",
       "joining": "Joining"
     },

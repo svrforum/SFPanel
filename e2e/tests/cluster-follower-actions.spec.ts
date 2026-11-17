@@ -64,7 +64,7 @@ async function actions(page: Page, r: Locator) {
   const offered = {
     labels: await menu.getByRole('menuitem', { name: 'Edit group and labels' }).count(),
     transfer: await menu.getByRole('menuitem', { name: 'Transfer leadership' }).count(),
-    remove: await menu.getByRole('menuitem', { name: 'Delete' }).count(),
+    remove: await menu.getByRole('menuitem', { name: 'Remove node' }).count(),
   }
   await page.keyboard.press('Escape')
   await expect(menu).toHaveCount(0)
@@ -84,7 +84,7 @@ test('a follower offers the leader operations, and can take the leadership itsel
 
   await row(page, 'beta').getByRole('button', { name: 'Node actions' }).click()
   await page.getByRole('menu').getByRole('menuitem', { name: 'Transfer leadership' }).click()
-  await page.getByRole('dialog').getByRole('button', { name: 'Confirm' }).click()
+  await page.getByRole('dialog').getByRole('button', { name: 'Transfer leadership' }).click()
   await expect.poll(() => calls.find(c => c.path === '/cluster/leader-transfer')?.body).toEqual({ target_node_id: 'node-b' })
 })
 

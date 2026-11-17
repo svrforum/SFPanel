@@ -53,7 +53,7 @@ export function NodeRowMenu({ node, localId, leaderId, hasLeader, onLabels, onAd
   return (
     <DropdownMenu>
       <DropdownMenuTrigger asChild>
-        <Button variant="ghost" size="icon-xs" aria-label={t('cluster.nodes.actions')}>
+        <Button variant="ghost" size="icon-xs" aria-label={t('cluster.nodes.actionsFor', { name: node.name })}>
           <MoreHorizontal className="h-4 w-4" />
         </Button>
       </DropdownMenuTrigger>
@@ -109,7 +109,7 @@ export function NodeRowMenu({ node, localId, leaderId, hasLeader, onLabels, onAd
             <DropdownMenuSeparator />
             <DropdownMenuItem variant="destructive" onClick={() => onRemove(node)}>
               <Trash2 className="h-4 w-4 mr-2" />
-              {t('common.delete')}
+              {t('cluster.nodes.remove')}
             </DropdownMenuItem>
           </>
         )}

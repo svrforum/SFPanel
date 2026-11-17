@@ -141,11 +141,16 @@ export default function ClusterNodes() {
 
   const handleRemove = async (node: ClusterNode) => {
     // A removed agent stays an agent until it is reset on its own server: the
-    // operator needs the command that makes it a standalone panel again.
-    const title = isAgent(node)
-      ? t('cluster.nodes.confirmRemoveAgent', { name: node.name })
-      : t('cluster.nodes.confirmRemove', { name: node.name })
-    if (!(await confirm({ title, danger: true }))) return
+    // operator needs the command that makes it a standalone panel again. A
+    // removed manager still holds the cluster's secrets, which the security
+    // tab rotates.
+    const ok = await confirm({
+      title: t('cluster.nodes.confirmRemove', { name: node.name }),
+      description: isAgent(node) ? t('cluster.nodes.removeAgentDesc') : t('cluster.nodes.removeManagerDesc'),
+      confirmLabel: t('cluster.nodes.remove'),
+      danger: true,
+    })
+    if (!ok) return
     try {
       await api.removeClusterNode(node.id)
       toast.success(t('cluster.nodes.removed', { name: node.name }))
@@ -156,7 +161,12 @@ export default function ClusterNodes() {
   }
 
   const handleTransferLeadership = async (node: ClusterNode) => {
-    if (!(await confirm({ title: t('cluster.nodes.confirmTransfer', { name: node.name }) }))) return
+    const ok = await confirm({
+      title: t('cluster.nodes.confirmTransfer', { name: node.name }),
+      description: t('cluster.nodes.transferDesc'),
+      confirmLabel: t('cluster.nodes.transferLeadership'),
+    })
+    if (!ok) return
     try {
       await api.transferClusterLeadership(node.id)
       toast.success(t('cluster.nodes.leaderTransferred', { name: node.name }))

@@ -225,7 +225,7 @@ test('revoking a token that is gone keeps the operator signed in', async ({ page
   // Gone on the leader by the time it is revoked.
   pending = []
   await list.getByRole('button', { name: 'Revoke' }).click()
-  await page.getByRole('alertdialog').or(page.getByRole('dialog').last()).getByRole('button', { name: 'Confirm' }).click()
+  await page.getByRole('alertdialog').or(page.getByRole('dialog').last()).getByRole('button', { name: 'Revoke token' }).click()
 
   await expect(list.getByText('No active tokens')).toBeVisible()
   expect(calls.some((c) => c.method === 'DELETE' && c.path === '/cluster/tokens/tid-1')).toBe(true)

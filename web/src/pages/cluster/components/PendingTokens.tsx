@@ -28,7 +28,13 @@ export function PendingTokens({ reload }: { reload: number }) {
   }, [reload, ownReload])
 
   const handleRevoke = async (id: string) => {
-    if (!(await confirm({ title: t('cluster.tokens.revokeConfirm'), danger: true }))) return
+    const ok = await confirm({
+      title: t('cluster.tokens.revokeConfirm'),
+      description: t('cluster.tokens.revokeDesc'),
+      confirmLabel: t('cluster.tokens.revokeAction'),
+      danger: true,
+    })
+    if (!ok) return
     try {
       await api.revokeClusterToken(id)
       toast.success(t('cluster.tokens.revoked'))

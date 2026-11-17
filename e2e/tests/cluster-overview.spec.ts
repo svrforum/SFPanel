@@ -137,12 +137,12 @@ test('sends the wave size with a rolling update', async ({ page }) => {
   await page.getByLabel('Wave size').fill('2')
   await page.getByRole('button', { name: 'Rolling Update' }).click()
   await expect(dialog(page)).toContainText('Agents go first in waves')
-  await dialog(page).getByRole('button', { name: 'Confirm' }).click()
+  await dialog(page).getByRole('button', { name: 'Rolling Update' }).click()
   await expect.poll(() => calls.find((c) => c.path === '/cluster/update')?.body).toEqual({ mode: 'rolling', wave_size: 2 })
 
   await page.getByRole('button', { name: 'Simultaneous Update' }).click()
   await expect(dialog(page)).toContainText('Every agent goes in one wave')
-  await dialog(page).getByRole('button', { name: 'Confirm' }).click()
+  await dialog(page).getByRole('button', { name: 'Simultaneous Update' }).click()
   await expect.poll(() => calls.filter((c) => c.path === '/cluster/update').at(-1)?.body).toEqual({ mode: 'simultaneous' })
 })
 
@@ -163,7 +163,7 @@ test('shows the wave, the target and why the run stopped', async ({ page }) => {
   })
   await page.goto('/cluster/overview')
   await page.getByRole('button', { name: 'Rolling Update' }).click()
-  await dialog(page).getByRole('button', { name: 'Confirm' }).click()
+  await dialog(page).getByRole('button', { name: 'Rolling Update' }).click()
   const card = page.getByTestId('update-progress')
   await expect(card).toContainText('Updating to v0.80.0')
   await expect(card).toContainText('Wave 1 of 2: agent-01, agent-02')
@@ -180,13 +180,13 @@ test('says an update is already running on 409', async ({ page }) => {
   await mock(page, opts)
   await page.goto('/cluster/overview')
   await page.getByRole('button', { name: 'Rolling Update' }).click()
-  await dialog(page).getByRole('button', { name: 'Confirm' }).click()
+  await dialog(page).getByRole('button', { name: 'Rolling Update' }).click()
   await expect(page.getByText('A cluster update is already running.')).toBeVisible()
 
   // Another conflict is not an update in progress: its own words.
   opts.update = replies[1]
   await page.getByRole('button', { name: 'Rolling Update' }).click()
-  await dialog(page).getByRole('button', { name: 'Confirm' }).click()
+  await dialog(page).getByRole('button', { name: 'Rolling Update' }).click()
   await expect(page.getByText('the cluster is changing its members')).toBeVisible()
   await expect(page.getByText('A cluster update is already running.')).toHaveCount(1)
 })
@@ -197,11 +197,11 @@ test('offers to force a leave only for a quorum refusal', async ({ page }) => {
   const { calls } = await mock(page, opts)
   await page.goto('/cluster/overview')
   await page.getByRole('button', { name: 'Leave cluster' }).click()
-  await dialog(page).getByRole('button', { name: 'Confirm' }).click()
+  await dialog(page).getByRole('button', { name: 'Leave cluster' }).click()
   // The second question, with the server's reason under it.
   await expect(dialog(page)).toContainText('Force leave anyway?')
   await expect(dialog(page)).toContainText(why)
-  await dialog(page).getByRole('button', { name: 'Confirm' }).click()
+  await dialog(page).getByRole('button', { name: 'Leave anyway' }).click()
   await expect.poll(() => calls.filter((c) => c.path.startsWith('/cluster/leave')).map((c) => c.path)).toEqual(['/cluster/leave', '/cluster/leave?force=true'])
 })
 
@@ -209,7 +209,7 @@ test('does not offer to force a leave refused for another reason', async ({ page
   const { calls } = await mock(page, { leave: [fail(409, 'INVALID_REQUEST', 'the cluster is changing its members')] })
   await page.goto('/cluster/overview')
   await page.getByRole('button', { name: 'Leave cluster' }).click()
-  await dialog(page).getByRole('button', { name: 'Confirm' }).click()
+  await dialog(page).getByRole('button', { name: 'Leave cluster' }).click()
   await expect(page.getByText('the cluster is changing its members')).toBeVisible()
   await expect(dialog(page)).toHaveCount(0)
   expect(calls.filter((c) => c.path.startsWith('/cluster/leave')).map((c) => c.path)).toEqual(['/cluster/leave'])
@@ -255,7 +255,7 @@ test('keeps a leave no leader acknowledged on screen until it is read', async ({
   })
   await page.goto('/cluster/overview')
   await page.getByRole('button', { name: 'Leave cluster' }).click()
-  await dialog(page).getByRole('button', { name: 'Confirm' }).click()
+  await dialog(page).getByRole('button', { name: 'Leave cluster' }).click()
 
   const warning = dialog(page)
   await expect(warning).toContainText('You left the cluster, with one thing left to do')
@@ -286,12 +286,18 @@ test('keeps the disband warning when the page sees the node standalone', async (
   await dialog(page).getByRole('button', { name: 'Disband Cluster' }).click()
   await expect(dialog(page)).toContainText('agent-03')
 
+  // Behind the dialog the cluster it showed, buttons and all, is gone: the
+  // page says the service is restarting.
+  await expect(page.getByText('Restarting service…')).toBeAttached()
+  await expect(page.locator('button', { hasText: 'Disband Cluster' })).toHaveCount(0)
+
   // The operator looks at another tab; on return the page re-reads the
-  // status, and the node now answers as a standalone panel.
+  // status, and the node now answers as a standalone panel. Until the reload
+  // the page still says it is restarting, and the warnings stay.
   opts.standalone = true
   await page.evaluate(() => document.dispatchEvent(new Event('visibilitychange')))
-  // The page behind the dialog has turned into the standalone form.
-  await expect(page.getByText('Cluster not enabled')).toBeAttached()
+  await expect(page.getByText('Restarting service…')).toBeAttached()
+  await expect(page.getByText('Cluster not enabled')).toHaveCount(0)
   await expect(dialog(page)).toContainText('The cluster is disbanded, with one thing left to do')
   await expect(dialog(page)).toContainText('agent-03')
 })

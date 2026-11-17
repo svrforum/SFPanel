@@ -16,7 +16,7 @@ import { waitForServerBack } from '@/lib/restart'
 import { ALL_NODES, filterNodes, isAgent, isManager, isOutdated, nodeRoleKind, referenceVersion, sortNodes } from '@/lib/clusterNodes'
 import { warningText, type ApiWarning } from '@/lib/warnings'
 import { toast } from 'sonner'
-import { ClusterInitForm } from './components/ClusterInitForm'
+import { ClusterInitForm, RestartingCard } from './components/ClusterInitForm'
 import { ClusterUpdateProgress } from './components/ClusterUpdateProgress'
 import { EditNodeAddressDialog } from './components/EditNodeAddressDialog'
 import { KindBadge } from './components/KindBadge'
@@ -68,6 +68,9 @@ export default function ClusterOverview() {
   const [waveSize, setWaveSize] = useState('1')
   const [disbandOpen, setDisbandOpen] = useState(false)
   const [disbanding, setDisbanding] = useState(false)
+  // Set by a leave or a disband the server took: the node restarts on its
+  // own, and the cluster this page showed, buttons and all, is gone.
+  const [restarting, setRestarting] = useState(false)
   // What a leave or a disband could not do. It stays until it is read, and
   // the wait for the restart starts only then. It outlives `open`, so the
   // closing animation shows the warnings rather than an empty dialog.
@@ -167,6 +170,7 @@ export default function ClusterOverview() {
     try {
       const res = await api.disbandCluster()
       setDisbandOpen(false)
+      setRestarting(true)
       toast.success(t('cluster.overview.disbanded'))
       // The agents it could not tell need a command on their own servers. A
       // toast would go with the reload, so the names stay on screen and the
@@ -194,7 +198,14 @@ export default function ClusterOverview() {
     // in one.
     const wave = mode === 'rolling' && agentCount > 0 ? clampWave(waveSize, agentCount) : undefined
     const order = mode === 'rolling' ? t('cluster.overview.confirmRollingOrder') : t('cluster.overview.confirmSimultaneousOrder')
-    if (!(await confirm({ title: t('cluster.overview.confirmUpdate'), description: order }))) return
+    // The release the leader updates to, when this node has heard of one.
+    const target = overview?.latest_version
+    const ok = await confirm({
+      title: target ? t('cluster.overview.confirmUpdateTo', { version: target }) : t('cluster.overview.confirmUpdate'),
+      description: order,
+      confirmLabel: mode === 'rolling' ? t('cluster.overview.rollingUpdate') : t('cluster.overview.simultaneousUpdate'),
+    })
+    if (!ok) return
     setUpdating(true)
     setUpdateLog([])
     // From a follower the stream is relayed through this node, and this node
@@ -239,6 +250,7 @@ export default function ClusterOverview() {
   // warning names the node to remove on the leader, which a toast would take
   // away before it could be copied: it waits in the dialog like a disband's.
   const left = (warnings: ApiWarning[] | undefined) => {
+    setRestarting(true)
     toast.success(t('cluster.leave.success'))
     if (warnings?.length) {
       setExitWarnings({ title: t('cluster.leave.warningsTitle'), warnings, open: true })
@@ -271,7 +283,13 @@ export default function ClusterOverview() {
   )
 
   const handleLeave = async () => {
-    if (!(await confirm({ title: t('cluster.leave.confirm'), danger: true }))) return
+    const ok = await confirm({
+      title: t('cluster.leave.confirm'),
+      description: t('cluster.leave.confirmDesc'),
+      confirmLabel: t('cluster.leave.action'),
+      danger: true,
+    })
+    if (!ok) return
     try {
       left((await api.leaveCluster()).warnings)
     } catch (err) {
@@ -279,7 +297,13 @@ export default function ClusterOverview() {
       // Only a quorum refusal is one that forcing gets past. The reason (how
       // many voters would be left) is in the server's sentence.
       if (e.status === 409 && e.code === 'CLUSTER_QUORUM') {
-        if (!(await confirm({ title: t('cluster.leave.forceConfirm'), description: e.serverMessage, danger: true }))) return
+        const force = await confirm({
+          title: t('cluster.leave.forceConfirm'),
+          description: e.serverMessage,
+          confirmLabel: t('cluster.leave.forceAction'),
+          danger: true,
+        })
+        if (!force) return
         try {
           left((await api.leaveCluster(true)).warnings)
         } catch (forceErr) {
@@ -289,6 +313,10 @@ export default function ClusterOverview() {
       }
       toast.error(message(err))
     }
+  }
+
+  if (restarting) {
+    return <>{exitWarningsDialog}<RestartingCard description={t('cluster.leave.restartingDesc')} /></>
   }
 
   if (status?.configured) {
@@ -518,7 +546,7 @@ export default function ClusterOverview() {
                   </div>
                 )}
 
-                <div className="flex items-center gap-1 shrink-0">
+                <div className="flex items-center gap-3 shrink-0">
                   {/* An agent's certificate names the address it registered
                       with: the server would take a new one and break the link. */}
                   {isManager(node) && (

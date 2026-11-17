@@ -8,6 +8,19 @@ import { cn } from '@/lib/utils'
 import { waitForServerBack } from '@/lib/restart'
 import { toast } from 'sonner'
 
+// What the cluster page shows while this node restarts into a new mode: after
+// an init or a join here, after a leave or a disband on the overview.
+export function RestartingCard({ description }: { description: string }) {
+  const { t } = useTranslation()
+  return (
+    <div role="status" className="bg-card rounded-2xl p-8 card-shadow text-center space-y-4">
+      <Loader2 className="h-10 w-10 text-primary mx-auto animate-spin" aria-hidden />
+      <h2 className="text-[15px] font-semibold">{t('cluster.init.restarting')}</h2>
+      <p className="text-[13px] text-muted-foreground">{description}</p>
+    </div>
+  )
+}
+
 // Onboarding screen shown while cluster mode is disabled: initialize a new
 // cluster or join an existing one with a leader-issued token. Both paths
 // activate the cluster inside the running panel; on success we still wait for
@@ -77,15 +90,7 @@ export function ClusterInitForm() {
     }
   }
 
-  if (restarting) {
-    return (
-      <div className="bg-card rounded-2xl p-8 card-shadow text-center space-y-4">
-        <Loader2 className="h-10 w-10 text-primary mx-auto animate-spin" />
-        <h2 className="text-[15px] font-semibold">{t('cluster.init.restarting')}</h2>
-        <p className="text-[13px] text-muted-foreground">{t('cluster.init.restartingDesc')}</p>
-      </div>
-    )
-  }
+  if (restarting) return <RestartingCard description={t('cluster.init.restartingDesc')} />
 
   return (
     <div className="bg-card rounded-2xl p-8 card-shadow space-y-6 max-w-lg mx-auto">
