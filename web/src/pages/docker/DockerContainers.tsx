@@ -1,9 +1,10 @@
 import React, { useState, useEffect, useCallback } from 'react'
 import { useTranslation } from 'react-i18next'
-import { useNavigate, useSearchParams } from 'react-router-dom'
-import { Play, Square, RotateCw, Trash2, RefreshCw, Terminal, Info, Cpu, MemoryStick, Search, ChevronRight, ChevronDown, Plus, Layers, Pause, CheckSquare, Loader2, Activity, Box, AlertCircle, ChevronsDownUp, ChevronsUpDown } from 'lucide-react'
+import { useSearchParams } from 'react-router-dom'
+import { Play, Square, RotateCw, Trash2, RefreshCw, Terminal, Info, Cpu, MemoryStick, Search, ChevronRight, ChevronDown, Layers, Pause, CheckSquare, Loader2, Activity, Box, AlertCircle, ChevronsDownUp, ChevronsUpDown } from 'lucide-react'
 import { toast } from 'sonner'
 import { containerNeedsAttention } from '@/lib/containerState'
+import { relativeSince } from '@/lib/aiSessions'
 import { runEach } from '@/pages/docker/stackStream'
 import { ContainerStateBadge } from '@/components/docker/ContainerStateBadge'
 import { useDockerResource } from '@/hooks/useDockerResource'
@@ -51,17 +52,6 @@ function formatPorts(ports: Container['Ports']): string {
 function formatContainerName(names: string[]): string {
   if (!names || names.length === 0) return 'unknown'
   return names[0].replace(/^\//, '')
-}
-
-function timeAgo(timestamp: number): string {
-  const seconds = Math.floor(Date.now() / 1000 - timestamp)
-  if (seconds < 60) return `${seconds}s ago`
-  const minutes = Math.floor(seconds / 60)
-  if (minutes < 60) return `${minutes}m ago`
-  const hours = Math.floor(minutes / 60)
-  if (hours < 24) return `${hours}h ago`
-  const days = Math.floor(hours / 24)
-  return `${days}d ago`
 }
 
 
@@ -127,6 +117,7 @@ function ContainerRow({
   selected?: boolean
   onToggleSelect?: (id: string) => void
 }) {
+  const { i18n } = useTranslation()
   const serviceName = c.Labels?.['com.docker.compose.service']
   return (
     <TableRow>
@@ -162,7 +153,7 @@ function ContainerRow({
       <TableCell className="text-muted-foreground text-xs font-mono truncate" title={formatPorts(c.Ports)}>
         {formatPorts(c.Ports)}
       </TableCell>
-      <TableCell className="text-muted-foreground text-xs truncate" title={new Date(c.Created * 1000).toLocaleString()}>{timeAgo(c.Created)}</TableCell>
+      <TableCell className="text-muted-foreground text-xs truncate" title={new Date(c.Created * 1000).toLocaleString()}>{relativeSince(new Date(c.Created * 1000).toISOString(), i18n.language)}</TableCell>
       <TableCell className="text-right whitespace-nowrap">
         <div className="flex items-center justify-end gap-1">
           <Button
@@ -171,9 +162,6 @@ function ContainerRow({
             title={t('docker.containers.inspect')}
             aria-label={t('docker.containers.inspect')}
             onClick={() => onDetail(c)}
-        tabIndex={0}
-        role="button"
-        onKeyDown={e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); onDetail(c) } }}
           >
             <Info />
           </Button>
@@ -316,7 +304,7 @@ function MobileContainerCard({
         <Button variant="outline" onClick={() => onLogs(c)}>{t('docker.containers.logs')}</Button>
         <Button variant="outline" disabled={c.State !== 'running'} onClick={() => onTerminal(c)}><Terminal />{t('docker.containers.terminal')}</Button>
         <details className="w-full">
-          <summary className="flex min-h-11 cursor-pointer items-center text-sm text-muted-foreground">{t('common.actions')}</summary>
+          <summary className="cursor-pointer py-3 text-sm text-muted-foreground">{t('common.actions')}</summary>
           <div className="flex flex-wrap gap-1">
         <Button variant="ghost" size="icon" aria-label={t('docker.containers.inspect')} onClick={() => onDetail(c)}><Info /></Button>
         {c.State === 'running' ? (
@@ -358,6 +346,7 @@ function StackGroupHeader({
   total,
   collapsed,
   loading,
+  onToggle,
   onUp,
   onDown,
   onRestart,
@@ -368,25 +357,39 @@ function StackGroupHeader({
   total: number
   collapsed: boolean
   loading: boolean
+  onToggle: () => void
   onUp: () => void
   onDown: () => void
   onRestart: () => void
   t: (key: string, opts?: Record<string, unknown>) => string
 }) {
+  // The toggle is its own button beside the actions, not a wrapper around
+  // them: Enter on a nested "stop" used to fold the stack instead.
   return (
     <div className="flex items-center gap-2 min-w-0">
-      {collapsed ? (
-        <ChevronRight className="h-4 w-4 text-muted-foreground shrink-0" />
-      ) : (
-        <ChevronDown className="h-4 w-4 text-muted-foreground shrink-0" />
-      )}
-      <Layers className="h-4 w-4 text-primary shrink-0" />
-      <span className="text-[13px] font-semibold truncate">{stackName}</span>
-      <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[12px] font-medium bg-success/10 text-success">
-        {running}/{total}
-      </span>
-      <div className="flex-1 min-w-0" />
-      <div className="flex items-center gap-1 shrink-0" onClick={(e) => e.stopPropagation()}>
+      <button
+        type="button"
+        aria-expanded={!collapsed}
+        onClick={onToggle}
+        className="flex min-w-0 flex-1 items-center gap-2 self-stretch rounded-sm text-left outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-0"
+      >
+        {collapsed ? (
+          <ChevronRight className="h-4 w-4 text-muted-foreground shrink-0" />
+        ) : (
+          <ChevronDown className="h-4 w-4 text-muted-foreground shrink-0" />
+        )}
+        <Layers className="h-4 w-4 text-primary shrink-0" />
+        <span className="min-w-0 text-[13px] font-semibold break-all">{stackName}</span>
+        {/* The stacks screen's colours: green only when everything runs. */}
+        <span className={`inline-flex shrink-0 items-center px-2 py-0.5 rounded-full text-[12px] font-medium ${
+          total > 0 && running === total ? 'bg-success/10 text-success'
+            : running > 0 ? 'bg-warning/10 text-warning'
+            : 'bg-secondary text-muted-foreground'
+        }`}>
+          {running}/{total}
+        </span>
+      </button>
+      <div className="flex items-center gap-1 shrink-0">
         {running === 0 ? (
           <Button
             variant="ghost"
@@ -453,7 +456,6 @@ function writeExpandedStacks(names: Set<string>) {
 export default function DockerContainers() {
   const { t } = useTranslation()
   const confirm = useConfirm()
-  const navigate = useNavigate()
   const [searchParams, setSearchParams] = useSearchParams()
   const { data: containers, loading, error, refresh: fetchContainers, updatedAt } = useDockerResource(loadContainers, 15000)
   const [actionLoading, setActionLoading] = useState<string | null>(null)
@@ -815,56 +817,47 @@ export default function DockerContainers() {
 
   const runningCount = containers.filter(c => c.State === 'running').length
   const stoppedCount = containers.filter(c => ['exited', 'created'].includes(c.State)).length
+  const attentionCount = containers.filter(c => containerNeedsAttention(c.State, c.Status)).length
+  // The counts and "needs attention" all set the one filter, so they are one
+  // row of pressed/unpressed buttons rather than cards plus a button below.
+  const filters = [
+    { key: 'all', label: t('docker.containers.total'), count: containers.length, tone: '' },
+    { key: 'running', label: t('docker.containers.running'), count: runningCount, tone: 'text-success' },
+    { key: 'stopped', label: t('docker.containers.stopped'), count: stoppedCount, tone: '' },
+    { key: 'attention', label: t('docker.improvements.attention'), count: attentionCount, tone: attentionCount > 0 ? 'text-warning' : '' },
+  ] as const
 
   return (
     <div className="space-y-4">
-      {/* Summary cards */}
-      <div className="grid grid-cols-3 gap-2 md:gap-3">
-        <div
-          role="button"
-          tabIndex={0}
-          className={`cursor-pointer rounded-2xl p-4 transition duration-200 outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-0 ${filterState === 'all' ? 'bg-primary/10 ring-1 ring-primary/30' : 'bg-card card-shadow hover:card-shadow-hover'}`}
-          onClick={() => setFilterState('all')}
-          onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); setFilterState('all') } }}
-        >
-          <span className="text-[13px] text-muted-foreground">{t('docker.containers.total')}</span>
-          <div className="text-2xl font-bold mt-1">{containers.length}</div>
-        </div>
-        <div
-          role="button"
-          tabIndex={0}
-          className={`cursor-pointer rounded-2xl p-4 transition duration-200 outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-0 ${filterState === 'running' ? 'bg-success/10 ring-1 ring-success/30' : 'bg-card card-shadow hover:card-shadow-hover'}`}
-          onClick={() => setFilterState('running')}
-          onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); setFilterState('running') } }}
-        >
-          <span className="text-[13px] text-success">{t('docker.containers.running')}</span>
-          <div className="text-2xl font-bold text-success mt-1">{runningCount}</div>
-        </div>
-        <div
-          role="button"
-          tabIndex={0}
-          className={`cursor-pointer rounded-2xl p-4 transition duration-200 outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-0 ${filterState === 'stopped' ? 'bg-secondary ring-1 ring-border' : 'bg-card card-shadow hover:card-shadow-hover'}`}
-          onClick={() => setFilterState('stopped')}
-          onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); setFilterState('stopped') } }}
-        >
-          <span className="text-[13px] text-muted-foreground">{t('docker.containers.stopped')}</span>
-          <div className="text-2xl font-bold text-destructive mt-1">{stoppedCount}</div>
-        </div>
+      {/* Search first: this screen is for finding a container and acting on it. */}
+      <div className="relative sm:max-w-xs">
+        <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+        <Input
+          aria-label={t('docker.containers.search')}
+          placeholder={t('docker.containers.searchPlaceholder')}
+          value={searchQuery}
+          onChange={(e) => setSearchQuery(e.target.value)}
+          className="pl-9 h-9 rounded-xl bg-secondary/50 border-0 text-base md:text-[13px]"
+        />
       </div>
 
-      {/* Toolbar: wraps rather than squeezing the search box to a few letters. */}
+      <div className="grid grid-cols-4 gap-2 md:gap-3">
+        {filters.map((f) => (
+          <button
+            key={f.key}
+            type="button"
+            aria-pressed={filterState === f.key}
+            onClick={() => setFilterState(f.key)}
+            className={`rounded-2xl p-2 md:p-4 text-left transition duration-200 outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-0 ${filterState === f.key ? 'bg-primary/10 ring-2 ring-primary' : 'bg-card card-shadow hover:card-shadow-hover'}`}
+          >
+            <span className={`block text-[12px] md:text-[13px] ${f.tone || 'text-muted-foreground'}`}>{f.label}</span>
+            <span className={`block text-base md:text-2xl font-bold mt-0.5 md:mt-1 ${f.tone}`}>{f.count}</span>
+          </button>
+        ))}
+      </div>
+
+      {/* Toolbar: wraps rather than squeezing its buttons. */}
       <div className="flex flex-col sm:flex-row sm:flex-wrap sm:items-center gap-2">
-        <div className="relative flex-1 sm:min-w-[200px] sm:max-w-xs">
-          <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-          <Input
-            placeholder={t('docker.containers.searchPlaceholder')}
-            value={searchQuery}
-            onChange={(e) => setSearchQuery(e.target.value)}
-            className="pl-9 h-9 rounded-xl bg-secondary/50 border-0 text-[13px]"
-          />
-        </div>
-        <Button variant={filterState === 'attention' ? 'default' : 'outline'} onClick={() => setFilterState(filterState === 'attention' ? 'all' : 'attention')}>{t('docker.improvements.attention')} ({containers.filter(c => containerNeedsAttention(c.State, c.Status)).length})</Button>
-        <div className="hidden sm:block flex-1" />
         {batchMode && <Button variant="outline" className="md:hidden" onClick={toggleSelectAll}>{t('docker.improvements.selectVisible')}</Button>}
         {batchMode && selectedIds.size > 0 && (
           <div className="flex items-center gap-1 flex-wrap">
@@ -889,13 +882,14 @@ export default function DockerContainers() {
             </Button>
           </div>
         )}
-        <div className="flex flex-wrap items-center gap-2">
+        <div className="flex flex-wrap items-center gap-2 sm:ml-auto">
           <p className="text-[13px] text-muted-foreground mr-2 hidden sm:block">
             {t('docker.containers.count', { count: filteredContainers.length })}
           </p>
           <Button
             variant={batchMode ? 'default' : 'outline'}
             size="sm"
+            aria-pressed={batchMode}
             onClick={() => { setBatchMode(!batchMode); setSelectedIds(new Set()) }}
             className="rounded-xl"
           >
@@ -914,17 +908,16 @@ export default function DockerContainers() {
               {allStacksExpanded ? <ChevronsDownUp /> : <ChevronsUpDown />}
             </Button>
           )}
-          <Button variant="outline" size="sm" onClick={fetchContainers} disabled={loading} className="rounded-xl">
+          {/* Not on a phone: the list refreshes itself every 15 seconds and a
+              failed load offers its own retry. "New stack" is the stacks
+              screen's own +. */}
+          <Button variant="outline" size="sm" onClick={fetchContainers} disabled={loading} className="hidden rounded-xl md:inline-flex">
             <RefreshCw className={loading ? 'animate-spin' : ''} />
             <span>{t('common.refresh')}</span>
           </Button>
           <Button variant="outline" size="sm" onClick={() => setCreateOpen(true)} className="rounded-xl">
             <Box />
             <span>{t('docker.create.button')}</span>
-          </Button>
-          <Button size="sm" onClick={() => navigate('/docker/stacks?new=1')} className="rounded-xl">
-            <Plus />
-            <span>{t('docker.stacks.newStack')}</span>
           </Button>
         </div>
       </div>
@@ -965,19 +958,14 @@ export default function DockerContainers() {
           const isStackLoading = stackActionLoading === stackName
           return (
             <React.Fragment key={`mobile-stack-${stackName}`}>
-              <div
-                role="button"
-                tabIndex={0}
-                className="bg-secondary/30 rounded-2xl p-3 cursor-pointer outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-0"
-                onClick={() => toggleStack(stackName)}
-                onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); toggleStack(stackName) } }}
-              >
+              <div className="bg-secondary/30 rounded-2xl p-3">
                 <StackGroupHeader
                   stackName={stackName}
                   running={stackRunning}
                   total={stackContainers.length}
                   collapsed={isCollapsed}
                   loading={isStackLoading}
+                  onToggle={() => toggleStack(stackName)}
                   onUp={() => { void handleStackAction('up', stackName) }}
                   onDown={() => { void confirmStackAction('down', stackName) }}
                   onRestart={() => { void confirmStackAction('restart', stackName) }}
@@ -1055,10 +1043,7 @@ export default function DockerContainers() {
             const isStackLoading = stackActionLoading === stackName
             return (
               <React.Fragment key={`stack-${stackName}`}>
-                <TableRow
-                  className="bg-secondary/30 hover:bg-secondary/50 cursor-pointer border-border/50"
-                  onClick={() => toggleStack(stackName)}
-                >
+                <TableRow className="bg-secondary/30 hover:bg-secondary/50 border-border/50">
                   <TableCell colSpan={batchMode ? 8 : 7}>
                     <StackGroupHeader
                       stackName={stackName}
@@ -1066,6 +1051,7 @@ export default function DockerContainers() {
                       total={stackContainers.length}
                       collapsed={isCollapsed}
                       loading={isStackLoading}
+                      onToggle={() => toggleStack(stackName)}
                       onUp={() => { void handleStackAction('up', stackName) }}
                       onDown={() => { void confirmStackAction('down', stackName) }}
                       onRestart={() => { void confirmStackAction('restart', stackName) }}

@@ -564,6 +564,7 @@
       "volumes": "Volumes",
       "networkInfo": "Networks",
       "envVars": "Environment Variables",
+      "search": "Search containers",
       "searchPlaceholder": "Search containers…",
       "noResults": "No containers match your search",
       "empty": "No containers found",

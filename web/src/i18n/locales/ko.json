@@ -562,6 +562,7 @@
       "volumes": "볼륨",
       "networkInfo": "네트워크",
       "envVars": "환경 변수",
+      "search": "컨테이너 검색",
       "searchPlaceholder": "컨테이너 검색…",
       "noResults": "검색 결과가 없습니다",
       "empty": "컨테이너가 없습니다",
