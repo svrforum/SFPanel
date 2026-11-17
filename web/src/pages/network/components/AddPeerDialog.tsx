@@ -164,7 +164,7 @@ export function AddPeerDialog({
                   value={peerAddress}
                   onChange={(e) => setPeerAddress(e.target.value)}
                   placeholder="10.0.0.2/32"
-                  className="font-mono text-[13px]"
+                  className="font-mono text-base md:text-[13px]"
                 />
                 <p className="text-[12px] text-muted-foreground">{t('network.wireguard.peers.clientAddressHint')}</p>
               </div>
@@ -176,7 +176,7 @@ export function AddPeerDialog({
                   value={peerEndpoint}
                   onChange={(e) => setPeerEndpoint(e.target.value)}
                   placeholder="vpn.example.com:51820"
-                  className="font-mono text-[13px]"
+                  className="font-mono text-base md:text-[13px]"
                 />
                 <p className="text-[12px] text-muted-foreground">{t('network.wireguard.peers.serverEndpointHint')}</p>
               </div>
@@ -188,7 +188,7 @@ export function AddPeerDialog({
                   value={peerRoutes}
                   onChange={(e) => setPeerRoutes(e.target.value)}
                   placeholder="10.8.0.0/24"
-                  className="font-mono text-[13px]"
+                  className="font-mono text-base md:text-[13px]"
                 />
                 <p className="text-[12px] text-muted-foreground">{t('network.wireguard.peers.clientRoutesHint')}</p>
               </div>
@@ -201,7 +201,7 @@ export function AddPeerDialog({
                     value={peerDns}
                     onChange={(e) => setPeerDns(e.target.value)}
                     placeholder="1.1.1.1"
-                    className="font-mono text-[13px]"
+                    className="font-mono text-base md:text-[13px]"
                   />
                 </div>
                 <div className="space-y-2">
@@ -211,7 +211,7 @@ export function AddPeerDialog({
                     type="number"
                     value={peerKeepalive}
                     onChange={(e) => setPeerKeepalive(e.target.value)}
-                    className="font-mono text-[13px]"
+                    className="font-mono text-base md:text-[13px]"
                   />
                 </div>
               </div>

@@ -94,7 +94,7 @@ export default function DiskUsage() {
             onChange={(e) => { setPathInput(e.target.value); setPathInvalid(false) }}
             aria-invalid={pathInvalid || undefined}
             aria-describedby={pathInvalid ? 'usage-path-error' : undefined}
-            className="font-mono text-[13px] rounded-xl"
+            className="font-mono text-base md:text-[13px] rounded-xl"
             spellCheck={false}
           />
         </form>

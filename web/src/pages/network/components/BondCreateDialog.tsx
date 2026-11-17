@@ -99,7 +99,7 @@ export function BondCreateDialog({
               value={bondName}
               onChange={(e) => setBondName(e.target.value)}
               placeholder="bond0"
-              className="pl-3 h-9 rounded-xl bg-secondary/50 border-0 text-[13px] font-mono"
+              className="pl-3 h-9 rounded-xl bg-secondary/50 border-0 text-base md:text-[13px] font-mono"
             />
           </div>
 

@@ -517,7 +517,7 @@ export default function NetworkTailscale() {
                 value={authKey}
                 onChange={(e) => setAuthKey(e.target.value)}
                 placeholder={t('network.tailscale.authKeyPlaceholder')}
-                className="font-mono text-[13px]"
+                className="font-mono text-base md:text-[13px]"
                 type="password"
               />
               <p className="text-[12px] text-muted-foreground">{t('network.tailscale.authKeyHint')}</p>

@@ -526,7 +526,7 @@ export default function NetworkInterfaces() {
                   value={dnsInput}
                   onChange={(e) => setDnsInput(e.target.value)}
                   placeholder="8.8.8.8, 8.8.4.4, 1.1.1.1"
-                  className="pl-3 h-9 rounded-xl bg-secondary/50 border-0 text-[13px] font-mono"
+                  className="pl-3 h-9 rounded-xl bg-secondary/50 border-0 text-base md:text-[13px] font-mono"
                 />
                 <p className="text-[12px] text-muted-foreground">{t('network.dnsHint')}</p>
               </div>
@@ -762,7 +762,7 @@ export default function NetworkInterfaces() {
                     value={configAddresses}
                     onChange={(e) => setConfigAddresses(e.target.value)}
                     placeholder="192.168.1.100/24&#10;10.0.0.1/8"
-                    className="flex w-full rounded-xl border-0 bg-secondary/50 px-3 py-2 text-[13px] font-mono transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring min-h-[72px] resize-none"
+                    className="flex w-full rounded-xl border-0 bg-secondary/50 px-3 py-2 text-base md:text-[13px] font-mono transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring min-h-[72px] resize-none"
                     rows={3}
                   />
                   <p className="text-[12px] text-muted-foreground">{t('network.ipAddressesHint')}</p>
@@ -776,7 +776,7 @@ export default function NetworkInterfaces() {
                       value={configGateway4}
                       onChange={(e) => setConfigGateway4(e.target.value)}
                       placeholder="192.168.1.1"
-                      className="pl-3 h-9 rounded-xl bg-secondary/50 border-0 text-[13px] font-mono"
+                      className="pl-3 h-9 rounded-xl bg-secondary/50 border-0 text-base md:text-[13px] font-mono"
                     />
                   </div>
                   <div className="space-y-2">
@@ -786,7 +786,7 @@ export default function NetworkInterfaces() {
                       value={configGateway6}
                       onChange={(e) => setConfigGateway6(e.target.value)}
                       placeholder="fe80::1"
-                      className="pl-3 h-9 rounded-xl bg-secondary/50 border-0 text-[13px] font-mono"
+                      className="pl-3 h-9 rounded-xl bg-secondary/50 border-0 text-base md:text-[13px] font-mono"
                     />
                   </div>
                 </div>
@@ -798,7 +798,7 @@ export default function NetworkInterfaces() {
                     value={configDns}
                     onChange={(e) => setConfigDns(e.target.value)}
                     placeholder="8.8.8.8, 1.1.1.1"
-                    className="pl-3 h-9 rounded-xl bg-secondary/50 border-0 text-[13px] font-mono"
+                    className="pl-3 h-9 rounded-xl bg-secondary/50 border-0 text-base md:text-[13px] font-mono"
                   />
                 </div>
               </>
@@ -813,7 +813,7 @@ export default function NetworkInterfaces() {
                 onChange={(e) => setConfigMtu(e.target.value)}
                 placeholder="1500"
                 type="number"
-                className="pl-3 h-9 rounded-xl bg-secondary/50 border-0 text-[13px] font-mono"
+                className="pl-3 h-9 rounded-xl bg-secondary/50 border-0 text-base md:text-[13px] font-mono"
               />
               <p className="text-[12px] text-muted-foreground">{t('network.mtuHint')}</p>
             </div>
