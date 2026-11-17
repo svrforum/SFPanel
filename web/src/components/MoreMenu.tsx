@@ -90,7 +90,7 @@ export default function MoreMenu({ open, onOpenChange }: MoreMenuProps) {
         <Drawer.Overlay className="fixed inset-0 bg-black/40 z-50" />
         <Drawer.Content className="fixed bottom-0 left-0 right-0 z-50 bg-card rounded-t-2xl outline-none">
           <div className="mx-auto w-12 h-1.5 rounded-full bg-muted-foreground/20 mt-3 mb-2" />
-          <Drawer.Title className="sr-only">Menu</Drawer.Title>
+          <Drawer.Title className="sr-only">{t('layout.mobileNav.more')}</Drawer.Title>
 
           <div className="overflow-y-auto px-4 pb-safe" style={{ maxHeight: '70vh' }}>
             {/* Mobile node selector */}
