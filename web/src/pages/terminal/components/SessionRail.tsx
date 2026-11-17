@@ -93,7 +93,7 @@ export function SessionRail({ groups, active, collapsed, fallback, reattachable,
               ) : (
                 <>
                   <div className="text-[13px] font-semibold truncate">{g.label}</div>
-                  {g.path && <div className="text-[12px] font-mono text-console-muted truncate" title={g.path}>{g.path}</div>}
+                  {g.path && <div className="text-[12px] font-mono text-console-muted break-all">{g.path}</div>}
                   {g.temporary && <div className="text-[12px] text-console-muted">{t('terminal.rail.temporaryHint')}</div>}
                 </>
               )}

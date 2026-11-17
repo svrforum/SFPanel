@@ -245,7 +245,9 @@ export default function TerminalPage() {
     }
     const s: AISession = item.session
     switch (action) {
-      case 'info': toast.info(sessionInfoLine(s, t)); break
+      // Until it is closed: on a phone this is the only place the session's
+      // directory and account are shown, and four seconds was not enough to read them.
+      case 'info': toast.info(sessionInfoLine(s, t), { duration: Infinity, closeButton: true }); break
       case 'rerun': await act(() => api.rerunAISession(s.id)); break
       case 'restart': await act(() => api.restartAISession(s.id)); break
       case 'removeEnded': await act(() => api.deleteAISession(s.id)); break
