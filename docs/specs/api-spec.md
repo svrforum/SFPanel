@@ -702,7 +702,7 @@ CPU 사용률 기준 상위 10개 프로세스 (대시보드용).
 | `cpu` | number | CPU 사용률 (%) |
 | `memory` | number | 메모리 사용률 (%) |
 | `rss` | number | 절대 상주 메모리 (bytes, v0.20.0+) |
-| `nice` | number | nice 값 (스케줄링 우선순위, v0.20.0+) |
+| `nice` | number | nice 값, −20…19 (스케줄링 우선순위이자 renice가 받는 값, v0.20.0+) |
 | `status` | string | 프로세스 상태 코드 (예: "S", "R", "Z") |
 | `user` | string | 소유 사용자 |
 | `command` | string | 전체 명령줄 |
