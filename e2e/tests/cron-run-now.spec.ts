@@ -4,9 +4,10 @@ import { test, expect, type Locator, type Page } from '@playwright/test'
 // above. "Run now" was only ever on the cards, so a desktop browser could
 // disable, edit and delete a job but not run it (#133). Both layouts here run
 // the same job and must send the same request and open the same output
-// dialog. The rows are what ListJobs returns for the crontab below (the id is
-// the line number, so the job run is 3) and the answer is what RunJob returns
-// for it. Mocked API.
+// dialog. A job runs as root, so it is asked about first, with its command.
+// The rows are what ListJobs returns for the crontab below (the id is the
+// line number, so the job run is 3) and the answer is what RunJob returns for
+// it. Mocked API.
 //
 //   # m h  dom mon dow   command
 //   MAILTO=""
@@ -26,6 +27,7 @@ const jobs = [
 
 async function open(page: Page, width: number) {
   const posts: string[] = []
+  const puts: { path: string; body: unknown }[] = []
   await page.setViewportSize({ width, height: 900 })
   await page.addInitScript(() => {
     sessionStorage.setItem('token', 'fixture-token')
@@ -39,6 +41,8 @@ async function open(page: Page, width: number) {
     if (req.method() === 'POST') {
       posts.push(path)
       data = { output: 'heartbeat', success: true }
+    } else if (req.method() === 'PUT') {
+      puts.push({ path, body: req.postDataJSON() })
     } else if (path === '/auth/setup-status') data = { setup_required: false }
     else if (path === '/cluster/status') data = { enabled: false }
     else if (path === '/cron') data = jobs
@@ -46,25 +50,30 @@ async function open(page: Page, width: number) {
   })
   await page.routeWebSocket(/\/ws\//, () => {})
   await page.goto('/cron')
-  return posts
+  return { posts, puts }
 }
 
 const layouts: { name: string; width: number; action: (page: Page, name: string) => Locator }[] = [
-  { name: 'the desktop table', width: 1440, action: (page, name) => page.getByRole('row', { name: /echo heartbeat/ }).getByRole('button', { name, exact: true }) },
-  // A card has no role to scope by. The comment and MAILTO lines stay hidden
-  // until "Show all entries", so the cards are the three jobs in crontab
-  // order and job 3 is the second; the request below proves which one ran.
-  { name: 'a phone card', width: 700, action: (page, name) => page.getByRole('button', { name, exact: true }).nth(1) },
+  { name: 'the desktop table', width: 1440, action: (page, name) => page.getByRole('row', { name: /echo heartbeat/ }).getByRole('button', { name }) },
+  // A card has no role to scope by: each button names the job's command.
+  { name: 'a phone card', width: 700, action: (page, name) => page.getByRole('button', { name: `${name}: echo heartbeat`, exact: true }) },
 ]
 
 for (const { name, width, action } of layouts) {
   test(`${name} runs a job now and shows its output`, async ({ page }) => {
-    const posts = await open(page, width)
+    const { posts } = await open(page, width)
     // The job's other actions are on screen, so a missing Run now is the
     // button itself and not a page that never rendered.
     await expect(action(page, 'Edit')).toBeVisible()
     await expect(action(page, 'Run now')).toBeVisible()
     await action(page, 'Run now').click()
+
+    const ask = page.getByRole('dialog')
+    await expect(ask.getByRole('heading', { name: 'Run this job now?' })).toBeVisible()
+    await expect(ask).toContainText('as root')
+    await expect(ask.getByText('echo heartbeat', { exact: true })).toBeVisible()
+    expect(posts).toEqual([])
+    await ask.getByRole('button', { name: 'Run now' }).click()
 
     await expect.poll(() => posts).toEqual(['/cron/3/run'])
     const dialog = page.getByRole('dialog')
@@ -82,6 +91,21 @@ test('a long command in the desktop table wraps and leaves its actions on screen
   await open(page, 1440)
   const row = page.getByRole('row', { name: /example-app/ })
   for (const name of ['Run now', 'Edit', 'Delete']) {
-    await expect(row.getByRole('button', { name, exact: true })).toBeInViewport({ ratio: 1 })
+    await expect(row.getByRole('button', { name })).toBeInViewport({ ratio: 1 })
   }
 })
+
+// The switch was a play icon beside Run now; pressing it to run a job turned
+// the job off. It is a box that says whether the job runs on its schedule.
+for (const { name, width } of layouts) {
+  test(`${name} shows whether a job is enabled and turns it off`, async ({ page }) => {
+    const { posts, puts } = await open(page, width)
+    const on = page.getByRole('checkbox', { name: 'Enabled: echo heartbeat' })
+    const off = page.getByRole('checkbox', { name: 'Enabled: /usr/local/bin/rotate-logs.sh' })
+    await expect(on).toBeChecked()
+    await expect(off).not.toBeChecked()
+    await on.click()
+    await expect.poll(() => puts).toEqual([{ path: '/cron/3', body: { schedule: '*/15 * * * *', command: 'echo heartbeat', enabled: false } }])
+    expect(posts).toEqual([])
+  })
+}

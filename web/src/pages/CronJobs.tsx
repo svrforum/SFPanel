@@ -5,8 +5,6 @@ import {
   Pencil,
   Trash2,
   RefreshCw,
-  Play,
-  Pause,
   Zap,
   Loader2,
   CheckCircle2,
@@ -17,6 +15,7 @@ import { toast } from 'sonner'
 import { api } from '@/lib/api'
 import type { CronJob } from '@/types/api'
 import { Button } from '@/components/ui/button'
+import { Checkbox } from '@/components/ui/checkbox'
 import { useConfirm } from '@/components/ConfirmDialog'
 import { GuideAccordion } from '@/components/GuideAccordion'
 import { ListLoadState } from '@/components/ListLoadState'
@@ -141,7 +140,20 @@ export default function CronJobs() {
     setDialogOpen(true)
   }
 
+  // A job runs as root, and may be a cleanup or a reboot: the command is
+  // shown and asked about before it runs.
   const handleRunNow = async (job: CronJob) => {
+    const ok = await confirm({
+      title: t('cron.runNowTitle'),
+      description: (
+        <>
+          <span className="block">{t('cron.runNowDesc')}</span>
+          <code className="block mt-2 font-mono text-[12px] break-all">{job.command}</code>
+        </>
+      ),
+      confirmLabel: t('cron.runNow'),
+    })
+    if (!ok) return
     setRunJob(job)
     setRunResult(null)
     setRunLoading(true)
@@ -176,8 +188,13 @@ export default function CronJobs() {
   const handleDelete = async (job: CronJob) => {
     const ok = await confirm({
       title: t('cron.deleteTitle'),
-      description: `${t('cron.deleteConfirm')} — ${t('cron.schedule')}: ${job.schedule} · ${t('cron.command')}: ${job.command}`,
-      confirmLabel: t('common.delete'),
+      description: (
+        <>
+          <span className="block">{t('cron.deleteConfirm')}</span>
+          <code className="block mt-2 font-mono text-[12px] break-all">{job.schedule} {job.command}</code>
+        </>
+      ),
+      confirmLabel: t('cron.deleteAction'),
       danger: true,
     })
     if (!ok) return
@@ -193,6 +210,20 @@ export default function CronJobs() {
       setActionLoading(null)
     }
   }
+
+  // Whether the job runs on its schedule, as a box that shows it: the play
+  // and pause icons sat beside "Run now" and read as running it.
+  const enabledToggle = (job: CronJob) => (
+    <label className="inline-flex items-center gap-1.5 h-6 px-1 text-[12px] cursor-pointer">
+      <Checkbox
+        checked={job.enabled}
+        disabled={actionLoading === job.id}
+        onCheckedChange={() => handleToggleEnabled(job)}
+        aria-label={t('cron.enabledFor', { command: job.command })}
+      />
+      <span aria-hidden="true">{t('cron.enabledLabel')}</span>
+    </label>
+  )
 
   return (
     <div className="space-y-6">
@@ -280,12 +311,12 @@ export default function CronJobs() {
           </div>
         )}
         {filteredJobs.map((job) => (
-          <div key={job.id} className={`bg-card rounded-2xl p-4 card-shadow ${!job.enabled && job.type === 'job' ? 'opacity-60' : ''}`}>
+          <div key={job.id} className="bg-card rounded-2xl p-4 card-shadow">
             {job.type === 'job' ? (
               <div className="space-y-2">
                 <div className="flex items-start justify-between gap-2">
                   <div className="min-w-0 flex-1">
-                    <code className="text-[13px] font-mono break-all">{job.command}</code>
+                    <code className={`text-[13px] font-mono break-all ${job.enabled ? '' : 'text-muted-foreground'}`}>{job.command}</code>
                     <div className="flex items-center gap-2 mt-1.5">
                       <code className="text-[12px] font-mono bg-muted px-1.5 py-0.5 rounded">
                         {job.schedule}
@@ -298,35 +329,22 @@ export default function CronJobs() {
                     </div>
                   </div>
                   <div className="flex items-center gap-1 shrink-0">
-                    <Button
-                      variant="ghost"
-                      size="icon-xs"
-                      title={job.enabled ? t('cron.clickToDisable') : t('cron.clickToEnable')}
-                      aria-label={job.enabled ? t('cron.clickToDisable') : t('cron.clickToEnable')}
-                      disabled={actionLoading === job.id}
-                      onClick={() => handleToggleEnabled(job)}
-                    >
-                      {job.enabled ? (
-                        <Play className="h-4 w-4 text-green-600" />
-                      ) : (
-                        <Pause className="h-4 w-4 text-muted-foreground" />
-                      )}
-                    </Button>
+                    {enabledToggle(job)}
                     <Button
                       variant="ghost"
                       size="icon-xs"
                       title={t('cron.runNow')}
-                      aria-label={t('cron.runNow')}
+                      aria-label={t('cron.runJob', { command: job.command })}
                       disabled={actionLoading === job.id}
                       onClick={() => handleRunNow(job)}
                     >
-                      <Zap className="h-4 w-4 text-amber-500" />
+                      <Zap className="h-4 w-4" />
                     </Button>
                     <Button
                       variant="ghost"
                       size="icon-xs"
                       title={t('common.edit')}
-                      aria-label={t('common.edit')}
+                      aria-label={t('cron.editJob', { command: job.command })}
                       disabled={actionLoading === job.id}
                       onClick={() => openEditDialog(job)}
                     >
@@ -336,7 +354,7 @@ export default function CronJobs() {
                       variant="ghost"
                       size="icon-xs"
                       title={t('common.delete')}
-                      aria-label={t('common.delete')}
+                      aria-label={t('cron.deleteJob', { command: job.command })}
                       disabled={actionLoading === job.id}
                       onClick={() => handleDelete(job)}
                     >
@@ -348,7 +366,10 @@ export default function CronJobs() {
             ) : job.type === 'comment' ? (
               <span className="text-muted-foreground text-[13px] italic">{job.raw}</span>
             ) : (
-              <code className="text-[13px] font-mono text-amber-600">{job.raw}</code>
+              <div className="flex items-center gap-2 min-w-0">
+                <StatusPill tone="secondary">{t('cron.typeEnv')}</StatusPill>
+                <code className="text-[13px] font-mono break-all">{job.raw}</code>
+              </div>
             )}
           </div>
         ))}
@@ -359,7 +380,7 @@ export default function CronJobs() {
         <Table>
             <TableHeader>
               <TableRow>
-                <TableHead className="w-[80px]">{t('common.status')}</TableHead>
+                <TableHead className="w-[110px]">{t('common.status')}</TableHead>
                 <TableHead className="w-[200px]">{t('cron.schedule')}</TableHead>
                 <TableHead>{t('cron.command')}</TableHead>
                 {showAllTypes && <TableHead className="w-[80px]">{t('cron.type')}</TableHead>}
@@ -378,23 +399,10 @@ export default function CronJobs() {
                 </TableRow>
               )}
               {filteredJobs.map((job) => (
-                <TableRow key={job.id} className={!job.enabled && job.type === 'job' ? 'opacity-60' : ''}>
+                <TableRow key={job.id}>
                   <TableCell>
                     {job.type === 'job' ? (
-                      <Button
-                        variant="ghost"
-                        size="icon-xs"
-                        title={job.enabled ? t('cron.clickToDisable') : t('cron.clickToEnable')}
-                        aria-label={job.enabled ? t('cron.clickToDisable') : t('cron.clickToEnable')}
-                        disabled={actionLoading === job.id}
-                        onClick={() => handleToggleEnabled(job)}
-                      >
-                        {job.enabled ? (
-                          <Play className="h-4 w-4 text-green-600" />
-                        ) : (
-                          <Pause className="h-4 w-4 text-muted-foreground" />
-                        )}
-                      </Button>
+                      enabledToggle(job)
                     ) : (
                       <span className="text-muted-foreground text-xs">--</span>
                     )}
@@ -422,9 +430,9 @@ export default function CronJobs() {
                     {job.type === 'comment' ? (
                       <span className="text-muted-foreground text-xs italic">{job.raw}</span>
                     ) : job.type === 'env' ? (
-                      <code className="text-xs font-mono text-amber-600">{job.raw}</code>
+                      <code className="text-xs font-mono">{job.raw}</code>
                     ) : (
-                      <code className="text-xs font-mono break-all">{job.command}</code>
+                      <code className={`text-xs font-mono break-all ${job.enabled ? '' : 'text-muted-foreground'}`}>{job.command}</code>
                     )}
                   </TableCell>
                   {showAllTypes && (
@@ -447,17 +455,17 @@ export default function CronJobs() {
                           variant="ghost"
                           size="icon-xs"
                           title={t('cron.runNow')}
-                          aria-label={t('cron.runNow')}
+                          aria-label={t('cron.runJob', { command: job.command })}
                           disabled={actionLoading === job.id}
                           onClick={() => handleRunNow(job)}
                         >
-                          <Zap className="h-4 w-4 text-amber-500" />
+                          <Zap className="h-4 w-4" />
                         </Button>
                         <Button
                           variant="ghost"
                           size="icon-xs"
                           title={t('common.edit')}
-                          aria-label={t('common.edit')}
+                          aria-label={t('cron.editJob', { command: job.command })}
                           disabled={actionLoading === job.id}
                           onClick={() => openEditDialog(job)}
                         >
@@ -467,7 +475,7 @@ export default function CronJobs() {
                           variant="ghost"
                           size="icon-xs"
                           title={t('common.delete')}
-                          aria-label={t('common.delete')}
+                          aria-label={t('cron.deleteJob', { command: job.command })}
                           disabled={actionLoading === job.id}
                           onClick={() => handleDelete(job)}
                         >

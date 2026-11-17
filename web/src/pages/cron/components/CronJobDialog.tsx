@@ -14,6 +14,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from '@/components/ui/dialog'
+import { cronFormErrors, type CronFormErrors } from '@/pages/cron/cronForm'
 
 const PRESETS: { labelKey: string; value: string }[] = [
   { labelKey: 'cron.presetEveryMinute', value: '* * * * *' },
@@ -22,19 +23,6 @@ const PRESETS: { labelKey: string; value: string }[] = [
   { labelKey: 'cron.presetWeekly', value: '0 0 * * 0' },
   { labelKey: 'cron.presetMonthly', value: '0 0 1 * *' },
 ]
-
-// isPlausibleCronSchedule does a lightweight shape check so the most
-// common typos ('every 5 minutes' typed into the field, three-field
-// entries, etc.) get a clear error before round-tripping to the server.
-// The server still validates strictly — this is just to short-circuit
-// obvious garbage with a faster, localized error.
-function isPlausibleCronSchedule(s: string): boolean {
-  if (s.startsWith('@')) {
-    return /^@(reboot|yearly|annually|monthly|weekly|daily|midnight|hourly)$/.test(s)
-  }
-  const fields = s.split(/\s+/)
-  return fields.length === 5
-}
 
 // Create/edit form for a crontab entry. `job` null means create.
 export function CronJobDialog({
@@ -55,20 +43,21 @@ export function CronJobDialog({
   const [formSchedule, setFormSchedule] = useState('')
   const [formCommand, setFormCommand] = useState('')
   const [saving, setSaving] = useState(false)
+  // Set by a save that was refused here, cleared as the field is edited.
+  const [errors, setErrors] = useState<CronFormErrors>({})
 
   // Reset the form each time the dialog opens (create: blank, edit: job values)
   useEffect(() => {
     if (!open) return
     setFormSchedule(job?.schedule ?? '')
     setFormCommand(job?.command ?? '')
+    setErrors({})
   }, [open, job])
 
   const handleSave = async () => {
-    if (!formSchedule.trim() || !formCommand.trim()) return
-    if (!isPlausibleCronSchedule(formSchedule.trim())) {
-      toast.error(t('cron.invalidSchedule'))
-      return
-    }
+    const found = cronFormErrors(formSchedule, formCommand)
+    setErrors(found)
+    if (found.schedule || found.command) return
     setSaving(true)
     try {
       if (job) {
@@ -106,9 +95,17 @@ export function CronJobDialog({
               id="cron-schedule"
               placeholder="* * * * *"
               value={formSchedule}
-              onChange={(e) => setFormSchedule(e.target.value)}
+              onChange={(e) => { setFormSchedule(e.target.value); setErrors((x) => ({ ...x, schedule: undefined })) }}
+              aria-invalid={!!errors.schedule}
+              aria-describedby={errors.schedule ? 'cron-schedule-error' : undefined}
+              autoCapitalize="off"
+              autoCorrect="off"
+              spellCheck={false}
               className="font-mono"
             />
+            {errors.schedule && (
+              <p id="cron-schedule-error" className="text-xs text-destructive">{t(errors.schedule)}</p>
+            )}
             <p className="text-xs text-muted-foreground">
               {t('cron.scheduleHint')}: <code className="bg-muted px-1 py-0.5 rounded">* * * * *</code>{' '}
               ({t('cron.scheduleFormat')})
@@ -124,7 +121,8 @@ export function CronJobDialog({
                   type="button"
                   variant={formSchedule === preset.value ? 'default' : 'outline'}
                   size="sm"
-                  onClick={() => setFormSchedule(preset.value)}
+                  aria-pressed={formSchedule === preset.value}
+                  onClick={() => { setFormSchedule(preset.value); setErrors((x) => ({ ...x, schedule: undefined })) }}
                 >
                   {t(preset.labelKey)}
                 </Button>
@@ -138,9 +136,17 @@ export function CronJobDialog({
               id="cron-command"
               placeholder={t('cron.commandPlaceholder')}
               value={formCommand}
-              onChange={(e) => setFormCommand(e.target.value)}
+              onChange={(e) => { setFormCommand(e.target.value); setErrors((x) => ({ ...x, command: undefined })) }}
+              aria-invalid={!!errors.command}
+              aria-describedby={errors.command ? 'cron-command-error' : undefined}
+              autoCapitalize="off"
+              autoCorrect="off"
+              spellCheck={false}
               className="font-mono w-full"
             />
+            {errors.command && (
+              <p id="cron-command-error" className="text-xs text-destructive">{t(errors.command)}</p>
+            )}
           </div>
 
           {formSchedule && describeSchedule(formSchedule) && (
@@ -154,10 +160,7 @@ export function CronJobDialog({
           <Button variant="outline" onClick={() => onOpenChange(false)} disabled={saving}>
             {t('common.cancel')}
           </Button>
-          <Button
-            onClick={handleSave}
-            disabled={saving || !formSchedule.trim() || !formCommand.trim()}
-          >
+          <Button onClick={handleSave} disabled={saving}>
             {saving ? t('common.saving') : t('common.save')}
           </Button>
         </DialogFooter>
