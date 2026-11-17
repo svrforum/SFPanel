@@ -178,8 +178,19 @@ export function SystemUpdatesCard({ tx }: { tx: AptTransactions }) {
           )}
         </div>
 
-        {/* Mobile updates card view */}
+        {/* Mobile updates card view, with the table header's select-all */}
         <div className="md:hidden space-y-2">
+          {!checking && updates.length > 0 && (
+            <label className="flex items-center gap-3 px-4 py-1 text-[13px] cursor-pointer">
+              <input
+                type="checkbox"
+                className="h-4 w-4 rounded border-gray-300 accent-primary shrink-0"
+                checked={selectedPackages.size === updates.length}
+                onChange={toggleSelectAll}
+              />
+              {t('packages.selectAll')}
+            </label>
+          )}
           {checking ? (
             <div className="flex items-center justify-center gap-2 text-muted-foreground py-8">
               <Loader2 className="h-4 w-4 animate-spin" aria-hidden="true" />
@@ -187,7 +198,7 @@ export function SystemUpdatesCard({ tx }: { tx: AptTransactions }) {
             </div>
           ) : updates.length === 0 ? (
             <div className="text-center text-[13px] text-muted-foreground py-8">
-              {t('packages.noUpdates')}
+              {lastChecked ? t('packages.noUpdatesAvailable') : t('packages.noUpdates')}
             </div>
           ) : (
             updates.map((pkg) => (
@@ -201,7 +212,7 @@ export function SystemUpdatesCard({ tx }: { tx: AptTransactions }) {
                     aria-label={pkg.name}
                   />
                   <div className="min-w-0 flex-1">
-                    <p className="text-[13px] font-medium font-mono truncate">{pkg.name}</p>
+                    <p className="text-[13px] font-medium font-mono break-all">{pkg.name}</p>
                     <div className="flex items-center gap-2 mt-1 flex-wrap">
                       <span className="text-[12px] text-muted-foreground font-mono">{pkg.current_version}</span>
                       <span className="text-[12px] text-muted-foreground">→</span>
@@ -251,7 +262,7 @@ export function SystemUpdatesCard({ tx }: { tx: AptTransactions }) {
                     colSpan={5}
                     className="text-center text-[13px] text-muted-foreground py-8"
                   >
-                    {t('packages.noUpdates')}
+                    {lastChecked ? t('packages.noUpdatesAvailable') : t('packages.noUpdates')}
                   </TableCell>
                 </TableRow>
               ) : (

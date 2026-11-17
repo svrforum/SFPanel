@@ -122,8 +122,9 @@ export function PackageSearchCard({ output, tx }: { output: SSEOutput; tx: AptTr
           <div className="relative flex-1">
             <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" aria-hidden="true" />
             <Input
-              className="pl-9 h-9 rounded-xl bg-secondary/50 border-0 text-[13px]"
+              className="pl-9 h-9 rounded-xl bg-secondary/50 border-0 text-base md:text-[13px]"
               placeholder={t('packages.searchPlaceholder')}
+              aria-label={t('packages.searchLabel')}
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
               onKeyDown={(e) => {
@@ -162,7 +163,7 @@ export function PackageSearchCard({ output, tx }: { output: SSEOutput; tx: AptTr
                         )}
                       </div>
                       {pkg.description && (
-                        <p className="text-[12px] text-muted-foreground mt-0.5 line-clamp-2">{pkg.description}</p>
+                        <p className="text-[12px] text-muted-foreground mt-0.5 break-words">{pkg.description}</p>
                       )}
                     </div>
                     <div className="shrink-0">
@@ -172,7 +173,7 @@ export function PackageSearchCard({ output, tx }: { output: SSEOutput; tx: AptTr
                           className="rounded-xl"
                           onClick={() => handleInstallPackage(pkg.name)}
                           disabled={installName === pkg.name || tx.busy}
-                          aria-label={t('packages.install')}
+                          aria-label={t('packages.installName', { name: pkg.name })}
                         >
                           {installName === pkg.name ? (
                             <Loader2 className="animate-spin h-4 w-4" aria-hidden="true" />
@@ -187,7 +188,7 @@ export function PackageSearchCard({ output, tx }: { output: SSEOutput; tx: AptTr
                           className="rounded-xl"
                           onClick={() => handleRemovePackage(pkg.name)}
                           disabled={removeName === pkg.name || tx.busy}
-                          aria-label={t('packages.remove')}
+                          aria-label={t('packages.removeName', { name: pkg.name })}
                         >
                           {removeName === pkg.name ? (
                             <Loader2 className="animate-spin h-4 w-4" aria-hidden="true" />
@@ -223,7 +224,7 @@ export function PackageSearchCard({ output, tx }: { output: SSEOutput; tx: AptTr
                           )}
                         </div>
                       </TableCell>
-                      <TableCell className="text-muted-foreground text-[13px] max-w-md truncate">
+                      <TableCell className="text-muted-foreground text-[13px] max-w-md truncate" title={pkg.description}>
                         {pkg.description}
                       </TableCell>
                       <TableCell className="text-right">
@@ -234,6 +235,7 @@ export function PackageSearchCard({ output, tx }: { output: SSEOutput; tx: AptTr
                               className="rounded-xl"
                               onClick={() => handleInstallPackage(pkg.name)}
                               disabled={installName === pkg.name || tx.busy}
+                              aria-label={t('packages.installName', { name: pkg.name })}
                             >
                               {installName === pkg.name ? (
                                 <>
@@ -254,6 +256,7 @@ export function PackageSearchCard({ output, tx }: { output: SSEOutput; tx: AptTr
                               className="rounded-xl"
                               onClick={() => handleRemovePackage(pkg.name)}
                               disabled={removeName === pkg.name || tx.busy}
+                              aria-label={t('packages.removeName', { name: pkg.name })}
                             >
                               {removeName === pkg.name ? (
                                 <>

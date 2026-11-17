@@ -214,7 +214,7 @@ export function NodeVersionDialog({
                                 className="h-7 w-7 p-0 text-destructive hover:text-destructive"
                                 onClick={() => handleUninstallVersion(v.version)}
                                 disabled={removing !== null}
-                                aria-label={t('common.delete')}
+                                aria-label={t('packages.removeName', { name: v.version })}
                               >
                                 {removing === v.version ? (
                                   <Loader2 className="h-3 w-3 animate-spin" />
