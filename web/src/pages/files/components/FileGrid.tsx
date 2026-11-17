@@ -171,7 +171,8 @@ function GridTile({ index, entry, selected, active, onToggleSelect, onOpen, acti
               'absolute left-1 top-1 z-10 flex h-11 w-11 items-center justify-center',
               // Always visible once selected, or the only way to clear a
               // selection on touch would be to hover something.
-              !selected && 'opacity-0 focus-within:opacity-100 group-hover:opacity-100',
+              // A finger cannot hover: on a touch screen the box stays shown.
+              !selected && 'opacity-0 focus-within:opacity-100 group-hover:opacity-100 pointer-coarse:opacity-100',
             )}
             onClick={(e) => e.stopPropagation()}
           >

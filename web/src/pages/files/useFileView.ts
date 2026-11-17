@@ -79,6 +79,13 @@ export function useFileView() {
     })
   }, [])
 
+  // A chosen order outright, for the sort menu the phone and the grid have in
+  // place of the table's column headers.
+  const chooseSort = useCallback((next: SortState) => {
+    store(SORT_STORAGE_KEY, JSON.stringify(next))
+    setSort(next)
+  }, [])
+
   const toggleHidden = useCallback(() => {
     setShowHidden((prev) => {
       store(HIDDEN_STORAGE_KEY, String(!prev))
@@ -96,7 +103,7 @@ export function useFileView() {
     setModeState(next)
   }, [])
 
-  return { sort, toggleSort, showHidden, toggleHidden, mode, setMode }
+  return { sort, toggleSort, chooseSort, showHidden, toggleHidden, mode, setMode }
 }
 
 /** True for dotfiles, which the hidden toggle filters out. */

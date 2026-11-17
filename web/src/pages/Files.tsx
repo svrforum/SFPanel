@@ -41,6 +41,7 @@ import { formatBytes, formatDate, pathJoin, downloadBlob, cn } from '@/lib/utils
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Checkbox } from '@/components/ui/checkbox'
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -104,6 +105,10 @@ import type { FileEntry } from '@/types/api'
 // the overflow menu — eight icons in a line is a target-picking problem, not a
 // toolbar.
 const PRIMARY_ACTIONS = new Set(['edit', 'download', 'delete'])
+
+// The orders the sort menu offers, as `key:direction`. Size and time come
+// biggest and newest first, as a click on their column starts.
+const SORT_CHOICES = ['name:asc', 'name:desc', 'modTime:desc', 'modTime:asc', 'size:desc', 'size:asc'] as const
 
 // A row of the listing as it is drawn. The phone's cards and the desktop's
 // table are both rendered, one of them hidden by the breakpoint, and both carry
@@ -794,7 +799,7 @@ export default function Files() {
   }, [])
 
   // Ordering and the dotfile filter, both remembered per browser.
-  const { sort, toggleSort, showHidden, toggleHidden, mode, setMode } = useFileView()
+  const { sort, toggleSort, chooseSort, showHidden, toggleHidden, mode, setMode } = useFileView()
   const sortedFiles = useVisibleEntries(files, sort, showHidden)
 
   // Search results get the same ordering but keep every hit: a search for
@@ -931,6 +936,11 @@ export default function Files() {
     }
   }, [focusRequests, rowsStart, virtualized, rowsScrollRef])
 
+  // The column header's sort state. It belongs on the header cell: on the
+  // button inside it aria-sort is not allowed and was ignored.
+  const ariaSort = (column: SortKey) =>
+    sort.key === column ? (sort.direction === 'asc' ? 'ascending' : 'descending') : 'none'
+
   // A real button, so the column is reachable by keyboard and announced as
   // sortable rather than being a bare clickable heading.
   const SortHeader = ({ column, label }: { column: SortKey; label: string }) => {
@@ -939,7 +949,6 @@ export default function Files() {
       <button
         type="button"
         onClick={() => toggleSort(column)}
-        aria-sort={active ? (sort.direction === 'asc' ? 'ascending' : 'descending') : 'none'}
         className="inline-flex items-center gap-1 rounded-sm outline-none hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring"
       >
         {label}
@@ -949,6 +958,9 @@ export default function Files() {
       </button>
     )
   }
+
+  const allSelected = displayedFiles.length > 0 && displayedFiles.every((e) => selectedPaths.has(entryPath(e)))
+  const selectAll = (on: boolean) => setSelectedPaths(on ? new Set(displayedFiles.map((e) => entryPath(e))) : new Set())
 
   const entryActions = (entry: FileEntry): EntryAction[] => [
     {
@@ -1339,6 +1351,34 @@ export default function Files() {
         </div>
       )}
 
+      {/* The table's header holds select-all and the sort columns. The phone's
+          cards and the grid have no header, so they had neither: no way to
+          select a folder's worth at once, and no "recently modified first". */}
+      {displayedFiles.length > 0 && !(loadError && !searchActive) && (
+        <div className={cn('flex items-center justify-between gap-2', mode === 'list' && 'md:hidden')}>
+          <label className="flex min-h-11 items-center gap-2 px-1 text-[13px]">
+            <Checkbox checked={allSelected} onCheckedChange={(checked) => selectAll(checked === true)} />
+            {t('files.selectAll')}
+          </label>
+          <Select
+            value={`${sort.key}:${sort.direction}`}
+            onValueChange={(value) => {
+              const [key, direction] = value.split(':') as [SortKey, 'asc' | 'desc']
+              chooseSort({ key, direction })
+            }}
+          >
+            <SelectTrigger className="w-auto rounded-xl" aria-label={t('files.sortBy')}>
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              {SORT_CHOICES.map((choice) => (
+                <SelectItem key={choice} value={choice}>{t(`files.sort_${choice.replace(':', '_')}`)}</SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        </div>
+      )}
+
       {/* The whole listing area is the background context target.
           It used to be a 40-pixel strip below the table, so right-clicking
           "empty space" meant finding a thin band by eye — the menu was there
@@ -1400,23 +1440,14 @@ export default function Files() {
           <TableRow>
             <TableHead className="w-10">
               <Checkbox
-                checked={
-                  displayedFiles.length > 0 &&
-                  displayedFiles.every((e) => selectedPaths.has(entryPath(e)))
-                }
-                onCheckedChange={(checked) => {
-                  if (checked) {
-                    setSelectedPaths(new Set(displayedFiles.map((e) => entryPath(e))))
-                  } else {
-                    setSelectedPaths(new Set())
-                  }
-                }}
+                checked={allSelected}
+                onCheckedChange={(checked) => selectAll(checked === true)}
                 aria-label={t('files.selectAll')}
               />
             </TableHead>
-            <TableHead><SortHeader column="name" label={t('files.name')} /></TableHead>
-            <TableHead className="w-28"><SortHeader column="size" label={t('files.size')} /></TableHead>
-            <TableHead className="w-44"><SortHeader column="modTime" label={t('files.modified')} /></TableHead>
+            <TableHead aria-sort={ariaSort('name')}><SortHeader column="name" label={t('files.name')} /></TableHead>
+            <TableHead className="w-28" aria-sort={ariaSort('size')}><SortHeader column="size" label={t('files.size')} /></TableHead>
+            <TableHead className="w-44" aria-sort={ariaSort('modTime')}><SortHeader column="modTime" label={t('files.modified')} /></TableHead>
             <TableHead className="w-32">{t('files.owner', { defaultValue: 'Owner' })}</TableHead>
             <TableHead className="w-28">{t('files.permissions')}</TableHead>
             <TableHead className="text-right w-36">{t('common.actions')}</TableHead>
