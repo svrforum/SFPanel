@@ -115,16 +115,23 @@ export function PVSection({ pvs, onChanged }: {
                   <TableCell className="text-muted-foreground">{pv.free}</TableCell>
                   <TableCell className="font-mono text-xs text-muted-foreground">{pv.attr}</TableCell>
                   <TableCell className="text-right">
-                    <Button
-                      variant="ghost"
-                      size="icon-xs"
-                      title={t('common.delete')}
-                      aria-label={t('common.delete')}
-                      onClick={() => setDeleteTarget(pv)}
-                      disabled={!!pv.vg_name}
-                    >
-                      <Trash2 />
-                    </Button>
+                    {/* Why Delete is off, in the row: a disabled button's
+                        title reaches no touch, keyboard or screen reader. */}
+                    <div className="flex items-center justify-end gap-2">
+                      {pv.vg_name && (
+                        <span className="text-[12px] text-muted-foreground whitespace-normal text-right">{t('disk.lvm.pv.inVg')}</span>
+                      )}
+                      <Button
+                        variant="ghost"
+                        size="icon-xs"
+                        title={t('common.delete')}
+                        aria-label={t('common.delete')}
+                        onClick={() => setDeleteTarget(pv)}
+                        disabled={!!pv.vg_name}
+                      >
+                        <Trash2 />
+                      </Button>
+                    </div>
                   </TableCell>
                 </TableRow>
               ))}

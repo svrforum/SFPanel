@@ -56,6 +56,19 @@ test('LVM warnings are shown, once, over lists that still load', async ({ page }
   await expect(page.getByRole('tab', { name: /Physical Volumes \(PV\) \(1\)/ })).toBeVisible()
 })
 
+// A PV in a group and a group with volumes had a greyed Delete whose reason
+// was only a title, which no touch, keyboard or screen reader reaches.
+test('a Delete that is off says why in its row', async ({ page }) => {
+  await open(page)
+  const pv = page.getByRole('row', { name: /^\/dev\/sda3/ })
+  await expect(pv.getByRole('button', { name: 'Delete' })).toBeDisabled()
+  await expect(pv).toContainText('Take it out of its volume group first')
+  await page.getByRole('tab', { name: /Volume Groups \(VG\)/ }).click()
+  const vg = page.getByRole('row', { name: /^pve/ })
+  await expect(vg.getByRole('button', { name: 'Delete' })).toBeDisabled()
+  await expect(vg).toContainText('Remove its logical volumes first')
+})
+
 // A flat list put the pool among the guests' disks, with Delete and Resize on
 // every one of them.
 test('thin volumes sit under their pool, and Proxmox-owned volumes keep their hands off', async ({ page }) => {

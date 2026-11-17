@@ -3770,7 +3770,9 @@
       "createDescription": "{{disk}}에 새 파티션을 생성합니다.",
       "bootHint": "부팅 파티션(EFI 또는 BIOS boot)입니다. 없으면 호스트가 부팅하지 못할 수 있어 여기서 지우거나 포맷할 수 없습니다.",
       "extendedHolding": "확장 파티션 ({{names}} 포함)",
-      "extendedNoDelete": "안에 있는 논리 파티션을 먼저 지우세요."
+      "extendedNoDelete": "안에 있는 논리 파티션을 먼저 지우세요.",
+      "blockedMounted": "먼저 언마운트하세요",
+      "blockedBoot": "부팅에 필요합니다"
     },
     "filesystems": {
       "showOverlay": "Docker overlay {{count}}개 보기",
@@ -3853,7 +3855,8 @@
         "remove": "PV 제거",
         "deleteConfirm": "<strong>{{name}}</strong>에서 LVM 표식을 지웁니다. 어느 볼륨 그룹에도 속하지 않았으므로 잃는 논리 볼륨은 없습니다.",
         "deleted": "PV가 제거되었습니다",
-        "deleteFailed": "PV 제거에 실패했습니다"
+        "deleteFailed": "PV 제거에 실패했습니다",
+        "inVg": "볼륨 그룹에서 먼저 빼세요"
       },
       "vg": {
         "title": "볼륨 그룹 (VG)",
@@ -3872,7 +3875,7 @@
         "deleteTitle": "{{name}} 볼륨 그룹 삭제",
         "remove": "볼륨 그룹 삭제",
         "deleteDesc": "{{name}} 볼륨 그룹을 삭제합니다. 여기에 속한 물리 볼륨은 다시 사용할 수 있게 됩니다.",
-        "hasLvs": "논리 볼륨이 남아 있어 삭제할 수 없습니다"
+        "hasLvs": "논리 볼륨을 먼저 지우세요"
       },
       "lv": {
         "title": "논리 볼륨 (LV)",
@@ -4055,6 +4058,7 @@
       "unmount": "마운트 해제",
       "unmanaged": "외부",
       "unmanagedHint": "SFPanel이 만든 항목이 아닙니다. /etc/fstab에서 직접 수정하세요.",
+      "unmanagedShort": "/etc/fstab에서 수정하세요",
       "authenticated": "저장된 자격증명 사용",
       "emptyTitle": "연결된 네트워크 드라이브가 없습니다",
       "emptyHint": "NAS 공유를 드라이브로 연결하면 여기에서 자동으로 마운트됩니다.",

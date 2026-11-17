@@ -88,6 +88,8 @@ test('boot and extended partitions cannot be deleted from the list', async ({ pa
     const row = page.getByRole('row', { name: new RegExp(`^${name}`) })
     await expect(row.getByText('Boot', { exact: true })).toBeVisible()
     await expect(row.getByRole('button', { name: 'Delete' })).toBeDisabled()
+    // Why, in words in the row: a disabled button's title reaches no one.
+    await expect(row).toContainText('Needed to boot')
   }
   await expect(page.getByRole('row', { name: /^nvme0n1p2/ })).toContainText('EFI System')
   await expect(page.getByRole('row', { name: /^nvme0n1p3/ }).getByRole('button', { name: 'Delete' })).toBeEnabled()
@@ -96,6 +98,7 @@ test('boot and extended partitions cannot be deleted from the list', async ({ pa
   const extended = page.getByRole('row', { name: /^sdb2/ })
   await expect(extended).toContainText('Extended (holds sdb5)')
   await expect(extended.getByRole('button', { name: 'Delete' })).toBeDisabled()
+  await expect(extended).toContainText('Delete the logical partitions inside it first.')
   await expect(page.getByRole('row', { name: /^sdb5/ }).getByRole('button', { name: 'Delete' })).toBeEnabled()
 })
 

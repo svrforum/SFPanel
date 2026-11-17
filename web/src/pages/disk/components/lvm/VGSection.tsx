@@ -125,18 +125,24 @@ export function VGSection({ vgs, pvs, onChanged }: {
                   <TableCell className="text-right">
                     {/* Disabled while the group still holds logical volumes:
                         vgremove refuses that anyway, and a button that always
-                        errors is worse than one that says why. */}
-                    <Button
-                      variant="ghost"
-                      size="icon-xs"
-                      className="text-destructive hover:text-destructive"
-                      disabled={vg.lv_count > 0}
-                      title={vg.lv_count > 0 ? t('disk.lvm.vg.hasLvs') : t('common.delete')}
-                      aria-label={t('common.delete')}
-                      onClick={() => setDeleteTarget(vg)}
-                    >
-                      <Trash2 className="h-3.5 w-3.5" />
-                    </Button>
+                        errors is worse than one that says why — in the row,
+                        where touch, keyboard and screen readers find it. */}
+                    <div className="flex items-center justify-end gap-2">
+                      {vg.lv_count > 0 && (
+                        <span className="text-[12px] text-muted-foreground whitespace-normal text-right">{t('disk.lvm.vg.hasLvs')}</span>
+                      )}
+                      <Button
+                        variant="ghost"
+                        size="icon-xs"
+                        className="text-destructive hover:text-destructive"
+                        disabled={vg.lv_count > 0}
+                        title={t('common.delete')}
+                        aria-label={t('common.delete')}
+                        onClick={() => setDeleteTarget(vg)}
+                      >
+                        <Trash2 className="h-3.5 w-3.5" />
+                      </Button>
+                    </div>
                   </TableCell>
                 </TableRow>
               ))}

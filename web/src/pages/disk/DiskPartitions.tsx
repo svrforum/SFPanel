@@ -253,16 +253,25 @@ export default function DiskPartitions() {
                     {p.mountpoint || '-'}
                   </TableCell>
                   <TableCell className="text-right">
-                    <Button
-                      variant="ghost"
-                      size="icon-xs"
-                      title={blocked === 'boot' ? t('disk.partitions.bootHint') : blocked === 'extended' ? t('disk.partitions.extendedNoDelete') : t('common.delete')}
-                      aria-label={t('common.delete')}
-                      onClick={() => setDeleteTarget(p)}
-                      disabled={blocked !== null}
-                    >
-                      <Trash2 />
-                    </Button>
+                    {/* Why Delete is off, in the row: a disabled button's
+                        title reaches no touch, keyboard or screen reader. */}
+                    <div className="flex items-center justify-end gap-2">
+                      {blocked && (
+                        <span className="text-[12px] text-muted-foreground whitespace-normal text-right">
+                          {blocked === 'mounted' ? t('disk.partitions.blockedMounted') : blocked === 'boot' ? t('disk.partitions.blockedBoot') : t('disk.partitions.extendedNoDelete')}
+                        </span>
+                      )}
+                      <Button
+                        variant="ghost"
+                        size="icon-xs"
+                        title={t('common.delete')}
+                        aria-label={t('common.delete')}
+                        onClick={() => setDeleteTarget(p)}
+                        disabled={blocked !== null}
+                      >
+                        <Trash2 />
+                      </Button>
+                    </div>
                   </TableCell>
                 </TableRow>
               )

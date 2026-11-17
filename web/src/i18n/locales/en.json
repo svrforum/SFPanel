@@ -3782,7 +3782,9 @@
       "createDescription": "Create a new partition on {{disk}}.",
       "bootHint": "Boot partition (EFI or BIOS boot). The host may not start without it, so it can't be deleted or formatted here.",
       "extendedHolding": "Extended (holds {{names}})",
-      "extendedNoDelete": "Delete the logical partitions inside it first."
+      "extendedNoDelete": "Delete the logical partitions inside it first.",
+      "blockedMounted": "Unmount it first",
+      "blockedBoot": "Needed to boot"
     },
     "filesystems": {
       "showOverlay_one": "Show {{count}} Docker overlay",
@@ -3866,7 +3868,8 @@
         "remove": "Remove PV",
         "deleteConfirm": "Wipes the LVM label from <strong>{{name}}</strong>. It belongs to no volume group, so no logical volume is lost.",
         "deleted": "PV removed",
-        "deleteFailed": "Failed to remove PV"
+        "deleteFailed": "Failed to remove PV",
+        "inVg": "Take it out of its volume group first"
       },
       "vg": {
         "title": "Volume Groups (VG)",
@@ -3885,7 +3888,7 @@
         "deleteTitle": "Remove volume group {{name}}",
         "remove": "Remove volume group",
         "deleteDesc": "Remove the volume group {{name}}. Its physical volumes become free again.",
-        "hasLvs": "Still holds logical volumes"
+        "hasLvs": "Remove its logical volumes first"
       },
       "lv": {
         "title": "Logical Volumes (LV)",
@@ -4069,6 +4072,7 @@
       "unmount": "Unmount",
       "unmanaged": "external",
       "unmanagedHint": "This entry was not created by SFPanel. Edit it in /etc/fstab by hand.",
+      "unmanagedShort": "Edit it in /etc/fstab",
       "authenticated": "Uses stored credentials",
       "emptyTitle": "No network drives yet",
       "emptyHint": "Connect a NAS share as a drive to mount it here automatically.",

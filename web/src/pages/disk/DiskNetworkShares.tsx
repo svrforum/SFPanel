@@ -235,6 +235,11 @@ export default function DiskNetworkShares() {
                   </TableCell>
                   <TableCell className="text-right">
                     <div className="flex items-center justify-end gap-1">
+                      {/* Why Delete is off, in the row: a disabled button's
+                          title reaches no touch, keyboard or screen reader. */}
+                      {!s.managed && (
+                        <span className="mr-1 text-[12px] text-muted-foreground whitespace-normal text-right">{t('disk.shares.unmanagedShort')}</span>
+                      )}
                       {s.mounted ? (
                         <Button
                           variant="ghost" size="sm"
@@ -258,7 +263,7 @@ export default function DiskNetworkShares() {
                         variant="ghost" size="sm"
                         disabled={rowBusy === s.mount_point || !s.managed}
                         onClick={() => void handleRemove(s)}
-                        title={s.managed ? t('common.delete') : t('disk.shares.unmanagedHint')}
+                        title={t('common.delete')}
                         className={s.managed ? 'text-destructive hover:text-destructive' : ''}
                       >
                         <Trash2 className="h-4 w-4" />
