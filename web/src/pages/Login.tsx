@@ -54,7 +54,7 @@ export default function Login() {
   }
 
   return (
-    <AuthShell subtitle={t('login.subtitle')}>
+    <AuthShell title={t('login.signIn')} subtitle={t('login.subtitle')}>
       <form onSubmit={handleSubmit} className="space-y-5">
         <AuthErrorBanner error={error} />
 

@@ -125,6 +125,7 @@ export default function Connect() {
 
   return (
     <AuthShell
+      title={t('connect.title')}
       subtitle={t('connect.subtitle')}
       below={showDiag ? (
         <div className="mt-4 bg-card rounded-2xl card-shadow p-4">

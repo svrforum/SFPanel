@@ -62,7 +62,7 @@ export default function Setup() {
   }
 
   return (
-    <AuthShell subtitle={t('setup.subtitle')}>
+    <AuthShell title={t('setup.createAdmin')} subtitle={t('setup.subtitle')}>
       {gateBlocked ? (
         <div className="text-sm space-y-2 text-center">
           <p className="font-semibold text-foreground">{t('setup.restrictedTitle')}</p>

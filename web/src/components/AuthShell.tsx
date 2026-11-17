@@ -1,4 +1,4 @@
-import type { ReactNode } from 'react'
+import { useEffect, type ReactNode } from 'react'
 import { useTranslation } from 'react-i18next'
 import { Globe } from 'lucide-react'
 import { LANGUAGE_KEY } from '@/i18n'
@@ -13,16 +13,29 @@ export const AUTH_SUBMIT_CLASS =
 
 // Error banner placed inside each screen's form (kept as a separate piece so
 // it sits inside the form's space-y flow exactly where it always did).
-export function AuthErrorBanner({ error }: { error: string }) {
-  if (!error) return null
+//
+// The region is always there and only its text changes: a live region that
+// appears together with its message is often not read at all, and a screen
+// reader user heard nothing when sign-in failed. `id` is what a failed
+// field's aria-describedby points at. `info` is for a step, not a failure
+// (the server asking for the 2FA code), which is not drawn as an error.
+export function AuthErrorBanner({ error, id, tone = 'error' }: { error: string; id?: string; tone?: 'error' | 'info' }) {
   return (
-    <div className="bg-destructive/8 text-destructive text-sm p-3 rounded-xl text-center font-medium whitespace-pre-line">
+    <div
+      id={id}
+      role="alert"
+      className={error
+        ? `${tone === 'info' ? 'bg-secondary text-foreground' : 'bg-destructive/8 text-destructive'} text-sm p-3 rounded-xl text-center font-medium whitespace-pre-line`
+        : 'sr-only'}
+    >
       {error}
     </div>
   )
 }
 
 interface AuthShellProps {
+  /** The screen's name, for the browser tab. */
+  title: string
   subtitle: string
   children: ReactNode
   /** Extra content below the card, inside the centered column (e.g. Connect's diagnostics panel). */
@@ -33,9 +46,13 @@ interface AuthShellProps {
 // including the ko/en switcher that previously existed only on Connect —
 // web (non-Tauri) users otherwise had no way to change the detected language
 // before signing in.
-export default function AuthShell({ subtitle, children, below }: AuthShellProps) {
+export default function AuthShell({ title, subtitle, children, below }: AuthShellProps) {
   const { i18n } = useTranslation()
   const currentLang = i18n.language?.startsWith('ko') ? 'ko' : 'en'
+
+  useEffect(() => {
+    document.title = `${title} · SFPanel`
+  }, [title])
 
   const switchLanguage = (lang: string) => {
     i18n.changeLanguage(lang)
@@ -43,7 +60,7 @@ export default function AuthShell({ subtitle, children, below }: AuthShellProps)
   }
 
   return (
-    <div className="min-h-screen flex flex-col items-center justify-center bg-background">
+    <main className="min-h-screen flex flex-col items-center justify-center bg-background">
       <div className="w-full max-w-sm px-6">
         <div className="text-center mb-8">
           <LogoMark className="mx-auto mb-3 h-16 w-16" />
@@ -61,6 +78,8 @@ export default function AuthShell({ subtitle, children, below }: AuthShellProps)
         <button
           type="button"
           onClick={() => switchLanguage('ko')}
+          aria-pressed={currentLang === 'ko'}
+          lang="ko"
           className={`text-[12px] px-2 py-0.5 rounded-full transition-colors outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-0 ${
             currentLang === 'ko'
               ? 'bg-primary/10 text-primary font-medium'
@@ -73,6 +92,8 @@ export default function AuthShell({ subtitle, children, below }: AuthShellProps)
         <button
           type="button"
           onClick={() => switchLanguage('en')}
+          aria-pressed={currentLang === 'en'}
+          lang="en"
           className={`text-[12px] px-2 py-0.5 rounded-full transition-colors outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-0 ${
             currentLang === 'en'
               ? 'bg-primary/10 text-primary font-medium'
@@ -82,6 +103,6 @@ export default function AuthShell({ subtitle, children, below }: AuthShellProps)
           English
         </button>
       </div>
-    </div>
+    </main>
   )
 }
