@@ -120,7 +120,11 @@ export default function Tuning() {
   }
 
   async function handleReset() {
-    if (!(await confirm({ title: t('settings.tuning.resetConfirm'), danger: true }))) return
+    if (!(await confirm({
+      title: t('settings.tuning.resetConfirm'),
+      confirmLabel: t('settings.tuning.resetDefaults'),
+      danger: true,
+    }))) return
     setResetting(true)
     try {
       await api.resetTuning()
@@ -223,7 +227,7 @@ export default function Tuning() {
         {/* Rollback Countdown Banner */}
         {countdown > 0 && (
           <div className="mt-4 bg-warning/10 border border-warning/30 rounded-xl p-4">
-            <div className="flex items-center justify-between">
+            <div className="flex flex-wrap items-center justify-between gap-3">
               <div className="flex items-center gap-3">
                 <Timer className="h-5 w-5 text-warning animate-pulse" />
                 <div>
@@ -231,10 +235,12 @@ export default function Tuning() {
                   <p className="text-[12px] text-muted-foreground">{t('settings.tuning.rollbackHint')}</p>
                 </div>
               </div>
+              {/* The plain primary button: white on the bright success fill
+                  was 2.3:1, on the one button that stops the rollback. */}
               <Button
                 onClick={handleConfirm}
                 disabled={confirming}
-                className="rounded-xl bg-success hover:bg-success/90"
+                className="rounded-xl shrink-0"
               >
                 <Check className="h-4 w-4 mr-2" />
                 {confirming ? t('settings.tuning.confirming') : t('settings.tuning.keepChanges')}
@@ -277,12 +283,12 @@ export default function Tuning() {
           </div>
           <div className="divide-y divide-border border-t border-border">
             {status.managed.map(param => (
-              <div key={param.key} className="px-5 py-3 flex items-center justify-between gap-4">
-                <div className="min-w-0 flex-1">
-                  <code className="text-[12px] font-mono text-foreground/80">{param.key}</code>
+              <div key={param.key} className="px-5 py-3 flex flex-wrap items-center justify-between gap-x-4 gap-y-1">
+                <div className="min-w-0 flex-1 basis-48">
+                  <code className="text-[12px] font-mono text-foreground/80 break-all">{param.key}</code>
                   <p className="text-[12px] text-muted-foreground mt-0.5">{param.description}</p>
                 </div>
-                <span className="text-[12px] text-muted-foreground shrink-0">{param.current || '-'}</span>
+                <span className="text-[12px] text-muted-foreground break-all">{param.current || '-'}</span>
               </div>
             ))}
           </div>
@@ -303,12 +309,12 @@ export default function Tuning() {
           </div>
           <div className="divide-y divide-border border-t border-border">
             {status.operator.map(param => (
-              <div key={param.key} className="px-5 py-3 flex items-center justify-between gap-4">
-                <div className="min-w-0 flex-1">
-                  <code className="text-[12px] font-mono text-foreground/80">{param.key}</code>
+              <div key={param.key} className="px-5 py-3 flex flex-wrap items-center justify-between gap-x-4 gap-y-1">
+                <div className="min-w-0 flex-1 basis-48">
+                  <code className="text-[12px] font-mono text-foreground/80 break-all">{param.key}</code>
                   <p className="text-[12px] text-muted-foreground mt-0.5">{t('settings.tuning.operatorSetIn', { file: param.file, value: param.value })}</p>
                 </div>
-                <span className="text-[12px] text-muted-foreground shrink-0">{param.current || '-'}</span>
+                <span className="text-[12px] text-muted-foreground break-all">{param.current || '-'}</span>
               </div>
             ))}
           </div>
@@ -324,30 +330,38 @@ export default function Tuning() {
 
         return (
           <div key={cat.name} className="bg-card rounded-2xl card-shadow overflow-hidden">
-            {/* Category Header */}
-            <div
-              role="button"
-              tabIndex={0}
-              className="flex items-center justify-between p-5 cursor-pointer hover:bg-secondary/30 transition-colors outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring"
-              onClick={() => toggleExpand(cat.name)}
-              onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); toggleExpand(cat.name) } }}
-            >
-              <div className="flex items-center gap-3">
+            {/* Category Header. The toggle is a real button holding the title
+                and stretched over the row (after:inset-0), and Apply is its
+                sibling above that layer: the row used to be a role="button"
+                div with the Apply button inside it, which hid Apply from
+                assistive tech and said nothing about being expanded. */}
+            <div className="relative flex items-center justify-between gap-3 p-5 hover:bg-secondary/30 transition-colors">
+              <div className="flex min-w-0 items-center gap-3">
                 <div
-                  className="h-8 w-8 rounded-lg flex items-center justify-center"
+                  className="h-8 w-8 shrink-0 rounded-lg flex items-center justify-center"
                   style={{ backgroundColor: `${meta.color}15` }}
                 >
                   <Icon className="h-4 w-4" style={{ color: meta.color }} />
                 </div>
-                <div>
-                  <h3 className="text-[15px] font-semibold">{t(`settings.tuning.cat.${cat.name}`)}</h3>
+                <div className="min-w-0">
+                  <h3 className="text-[15px] font-semibold">
+                    <button
+                      type="button"
+                      aria-expanded={isExpanded}
+                      aria-controls={isExpanded ? `tuning-params-${cat.name}` : undefined}
+                      onClick={() => toggleExpand(cat.name)}
+                      className="cursor-pointer text-left outline-none after:absolute after:inset-0 after:content-[''] focus-visible:after:ring-2 focus-visible:after:ring-inset focus-visible:after:ring-ring"
+                    >
+                      {t(`settings.tuning.cat.${cat.name}`)}
+                    </button>
+                  </h3>
                   <p className="text-[12px] text-muted-foreground">
                     {t(`settings.tuning.catDesc.${cat.name}`)}
                   </p>
                 </div>
               </div>
 
-              <div className="flex items-center gap-3">
+              <div className="flex shrink-0 items-center gap-3">
                 {allApplied ? (
                   <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[12px] font-medium bg-success/10 text-success">
                     <Check className="h-3 w-3 mr-1" />
@@ -361,27 +375,24 @@ export default function Tuning() {
                     <Button
                       size="sm"
                       variant="outline"
-                      className="rounded-lg h-7 text-[12px]"
+                      className="relative z-10 rounded-lg h-7 text-[12px]"
                       disabled={applying !== null}
-                      onClick={(e) => {
-                        e.stopPropagation()
-                        handleApply([cat.name])
-                      }}
+                      onClick={() => handleApply([cat.name])}
                     >
                       {applying === cat.name ? t('settings.tuning.applying') : t('settings.tuning.apply')}
                     </Button>
                   </>
                 )}
                 {isExpanded
-                  ? <ChevronDown className="h-4 w-4 text-muted-foreground" />
-                  : <ChevronRight className="h-4 w-4 text-muted-foreground" />
+                  ? <ChevronDown className="h-4 w-4 text-muted-foreground" aria-hidden="true" />
+                  : <ChevronRight className="h-4 w-4 text-muted-foreground" aria-hidden="true" />
                 }
               </div>
             </div>
 
             {/* Parameter List */}
             {isExpanded && (
-              <div className="border-t border-border">
+              <div id={`tuning-params-${cat.name}`} className="border-t border-border">
                 {/* Benefit & Caution */}
                 <div className="px-5 py-3 bg-secondary/20 space-y-2">
                   <div className="flex items-start gap-2">
@@ -395,10 +406,12 @@ export default function Tuning() {
                 </div>
                 <div className="divide-y divide-border">
                   {cat.params.map(param => (
-                    <div key={param.key} className="px-5 py-3 flex items-center justify-between gap-4">
-                      <div className="min-w-0 flex-1">
+                    // Wraps on a phone: a long value ("4096 87380 6291456")
+                    // could not shrink and ran out past the clipped edge.
+                    <div key={param.key} className="px-5 py-3 flex flex-wrap items-center justify-between gap-x-4 gap-y-1">
+                      <div className="min-w-0 flex-1 basis-48">
                         <div className="flex items-center gap-2">
-                          <code className="text-[12px] font-mono text-foreground/80">{param.key}</code>
+                          <code className="text-[12px] font-mono text-foreground/80 break-all">{param.key}</code>
                           {param.applied ? (
                             <Check className="h-3.5 w-3.5 text-success shrink-0" />
                           ) : (
@@ -407,11 +420,11 @@ export default function Tuning() {
                         </div>
                         <p className="text-[12px] text-muted-foreground mt-0.5">{param.description}</p>
                       </div>
-                      <div className="text-right shrink-0">
-                        <div className="flex items-center gap-2 text-[12px]">
-                          <span className="text-muted-foreground">{param.current || '-'}</span>
+                      <div className="min-w-0 text-right ms-auto">
+                        <div className="flex flex-wrap items-center justify-end gap-x-2 text-[12px]">
+                          <span className="text-muted-foreground break-all">{param.current || '-'}</span>
                           <span className="text-muted-foreground/50">→</span>
-                          <span className={param.applied ? 'text-success font-medium' : 'text-primary font-medium'}>
+                          <span className={`break-all ${param.applied ? 'text-success font-medium' : 'text-primary font-medium'}`}>
                             {param.recommended}
                           </span>
                         </div>

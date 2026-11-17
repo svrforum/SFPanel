@@ -78,3 +78,25 @@ test('a tuning status that could not be read says so, with a retry', async ({ pa
   await page.getByRole('button', { name: 'Retry' }).click()
   await expect(page.getByRole('button', { name: 'Network', exact: true })).toBeVisible()
 })
+
+test('a tuning category opens from a real button, and Apply stands beside it', async ({ page }) => {
+  const m = await mock(page, {})
+  await page.goto('/settings?tab=system')
+  const toggle = page.getByRole('button', { name: 'Network', exact: true })
+  await expect(toggle).toHaveAttribute('aria-expanded', 'false')
+  // Apply is its own button, not a child of the toggle.
+  const apply = page.getByRole('button', { name: 'Apply', exact: true })
+  expect(await apply.evaluate(el => el.parentElement?.closest('button') === null)).toBe(true)
+  await toggle.press('Enter')
+  await expect(toggle).toHaveAttribute('aria-expanded', 'true')
+  await expect(page.getByText('net.ipv4.tcp_rmem', { exact: true })).toBeVisible()
+  // Apply does not fold the category it applies.
+  await apply.click()
+  await expect.poll(() => m.applied.length).toBe(1)
+  await expect(toggle).toHaveAttribute('aria-expanded', 'true')
+  // The button that stops the rollback: the primary button, not white on the
+  // bright success fill (2.3:1).
+  const keep = page.getByRole('button', { name: 'Keep Changes' })
+  await expect(keep).toBeVisible()
+  await expect(keep).not.toHaveClass(/bg-success/)
+})
