@@ -81,9 +81,10 @@ export function FileCardList({
 
   return (
     <div className="space-y-2 md:hidden">
-      {entries.map((entry) => (
+      {entries.map((entry, index) => (
         <FileCard
           key={entryPath(entry)}
+          index={index}
           entry={entry}
           rowPath={entryPath(entry)}
           selected={selectedPaths.has(entryPath(entry))}
@@ -97,7 +98,8 @@ export function FileCardList({
   )
 }
 
-function FileCard({ entry, rowPath, selected, actions, onToggleSelect, onOpen, searchActive }: {
+function FileCard({ index, entry, rowPath, selected, actions, onToggleSelect, onOpen, searchActive }: {
+  index: number
   entry: FileEntry
   rowPath: string
   selected: boolean
@@ -112,7 +114,7 @@ function FileCard({ entry, rowPath, selected, actions, onToggleSelect, onOpen, s
   return (
     <ContextMenu>
       <ContextMenuTrigger asChild>
-          <div {...innerTrigger} className="rounded-2xl bg-card p-3 card-shadow">
+          <div {...innerTrigger} data-row-index={index} className="rounded-2xl bg-card p-3 card-shadow">
             <div className="flex items-start gap-3">
               {/* A 44px hit area around the checkbox: the desktop one is a
                   16px square, which is a coin-flip with a thumb. */}
@@ -126,6 +128,7 @@ function FileCard({ entry, rowPath, selected, actions, onToggleSelect, onOpen, s
 
               <button
                 type="button"
+                data-row-open
                 onClick={() => onOpen(entry)}
                 className="min-w-0 flex-1 rounded-lg py-1 text-left outline-none focus-visible:ring-2 focus-visible:ring-ring"
               >

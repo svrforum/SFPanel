@@ -94,6 +94,7 @@ import { FolderPickerDialog } from './files/components/FolderPickerDialog'
 import { PermissionsDialog } from './files/components/PermissionsDialog'
 import { TrashDialog } from './files/components/TrashDialog'
 import type { EntryAction } from './files/entryActions'
+import { listKey } from './files/listKeys'
 
 import type { FileEntry } from '@/types/api'
 
@@ -102,6 +103,14 @@ import type { FileEntry } from '@/types/api'
 // the overflow menu — eight icons in a line is a target-picking problem, not a
 // toolbar.
 const PRIMARY_ACTIONS = new Set(['edit', 'download', 'delete'])
+
+// A row of the listing as it is drawn. The phone's cards and the desktop's
+// table are both rendered, one of them hidden by the breakpoint, and both carry
+// the row's index.
+function shownRow(root: HTMLElement | null, index: number): HTMLElement | undefined {
+  return Array.from(root?.querySelectorAll<HTMLElement>(`[data-row-index="${index}"]`) ?? [])
+    .find((el) => el.getClientRects().length > 0)
+}
 
 export default function Files() {
   const { t } = useTranslation()
@@ -806,9 +815,10 @@ export default function Files() {
   //
   // Every row's name was already a real button, so Tab reached them — but Tab
   // walks every control in every row, which on a directory of two hundred
-  // files means a hundred presses to reach the next name. Arrow keys move by
-  // row, Enter opens, Space selects. Bound on the page rather than per-row so
-  // it works before anything inside the list has focus.
+  // files means a hundred presses to reach the next name. Arrow keys move the
+  // focus from row name to row name; Enter then opens as the button does, and
+  // Space selects. Bound on the page rather than per-row so it works before
+  // anything inside the list has focus; which keys it may take is listKey's.
   const listRef = useRef<HTMLDivElement>(null)
   const [activeIndex, setActiveIndex] = useState(-1)
 
@@ -818,60 +828,47 @@ export default function Files() {
     setActiveIndex((prev) => (prev >= displayedFiles.length ? displayedFiles.length - 1 : prev))
   }, [displayedFiles.length])
 
-  const handleListKeyDown = (e: React.KeyboardEvent) => {
-    // Never steal keys from a field: the path editor and the search box both
-    // live on this page.
-    const target = e.target as HTMLElement
-    if (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA' || target.isContentEditable) return
-    if (displayedFiles.length === 0) return
+  // The row an arrow moved to, until its name has the focus.
+  const pendingFocus = useRef(-1)
+  const [focusRequests, setFocusRequests] = useState(0)
 
-    switch (e.key) {
-      case 'ArrowDown':
-        e.preventDefault()
-        setActiveIndex((prev) => Math.min(prev + 1, displayedFiles.length - 1))
-        break
-      case 'ArrowUp':
-        e.preventDefault()
-        setActiveIndex((prev) => Math.max(prev - 1, 0))
-        break
-      case 'Home':
-        e.preventDefault()
-        setActiveIndex(0)
-        break
-      case 'End':
-        e.preventDefault()
-        setActiveIndex(displayedFiles.length - 1)
-        break
-      case 'Enter':
-        if (activeIndex >= 0) {
-          e.preventDefault()
-          openEntry(displayedFiles[activeIndex])
-        }
-        break
-      case ' ':
-        if (activeIndex >= 0) {
-          e.preventDefault()
-          toggleSelected(entryPath(displayedFiles[activeIndex]))
-        }
-        break
-      case 'Backspace':
-        // Up a directory, the way a file manager is expected to behave.
-        if (!searchActive && currentPath !== '/') {
-          e.preventDefault()
-          navigateToSegment(pathSegments.length - 2)
-        }
-        break
-      default:
-        break
+  const handleListKeyDown = (e: React.KeyboardEvent<HTMLDivElement>) => {
+    if (displayedFiles.length === 0) return
+    const key = listKey({
+      key: e.key, ctrlKey: e.ctrlKey, altKey: e.altKey, metaKey: e.metaKey,
+      target: e.target as HTMLElement, currentTarget: e.currentTarget,
+    })
+    if (!key) return
+    if (key.action === 'parent') {
+      // Up a directory, the way a file manager is expected to behave.
+      if (searchActive || currentPath === '/') return
+      e.preventDefault()
+      navigateToSegment(pathSegments.length - 2)
+      return
     }
+    e.preventDefault()
+    if (key.action === 'toggle') {
+      const entry = displayedFiles[key.row]
+      if (!entry) return
+      setActiveIndex(key.row)
+      toggleSelected(entryPath(entry))
+      return
+    }
+    const from = key.row >= 0 ? key.row : activeIndex
+    const last = displayedFiles.length - 1
+    const next = key.to === 'first' ? 0
+      : key.to === 'last' ? last
+      : key.to === 'next' ? Math.min(from + 1, last)
+      : Math.max(from - 1, 0)
+    setActiveIndex(next)
+    pendingFocus.current = next
+    setFocusRequests((n) => n + 1)
   }
 
   // Keep the active row on screen when the arrows walk past the fold.
   useEffect(() => {
     if (activeIndex < 0) return
-    listRef.current
-      ?.querySelector(`[data-row-index="${activeIndex}"]`)
-      ?.scrollIntoView({ block: 'nearest' })
+    shownRow(listRef.current, activeIndex)?.scrollIntoView({ block: 'nearest' })
   }, [activeIndex])
 
   // Only window the list when it is big enough to be worth it. Windowing costs
@@ -884,6 +881,24 @@ export default function Files() {
     enabled: virtualized,
   })
   const windowedFiles = virtualized ? displayedFiles.slice(rows.start, rows.end) : displayedFiles
+
+  // Give the row an arrow moved to the focus. A long jump (Home, End) in a
+  // windowed list lands on a row that is not drawn yet: the list is scrolled to
+  // it first, and the focus follows once the window has moved.
+  const { scrollRef: rowsScrollRef, start: rowsStart } = rows
+  useEffect(() => {
+    const index = pendingFocus.current
+    if (index < 0) return
+    const name = shownRow(listRef.current, index)?.querySelector<HTMLElement>('[data-row-open]')
+    if (name) {
+      pendingFocus.current = -1
+      name.focus()
+    } else if (virtualized && rowsScrollRef.current) {
+      rowsScrollRef.current.scrollTop = index * 45
+    } else {
+      pendingFocus.current = -1
+    }
+  }, [focusRequests, rowsStart, virtualized, rowsScrollRef])
 
   // A real button, so the column is reachable by keyboard and announced as
   // sortable rather than being a bare clickable heading.
@@ -1417,6 +1432,7 @@ export default function Files() {
                         click anywhere on the row. */}
                     <button
                       type="button"
+                      data-row-open
                       onClick={(e) => { e.stopPropagation(); openEntry(entry) }}
                       className="flex items-center gap-2 w-full text-left rounded-sm outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-0"
                     >

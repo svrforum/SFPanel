@@ -128,6 +128,7 @@ export function FileGrid({
       {entries.map((entry, index) => (
         <GridTile
           key={entryPath(entry)}
+          index={index}
           entry={entry}
           selected={selectedPaths.has(entryPath(entry))}
           active={index === activeIndex}
@@ -140,7 +141,8 @@ export function FileGrid({
   )
 }
 
-function GridTile({ entry, selected, active, onToggleSelect, onOpen, actions }: {
+function GridTile({ index, entry, selected, active, onToggleSelect, onOpen, actions }: {
+  index: number
   entry: FileEntry
   selected: boolean
   active: boolean
@@ -154,6 +156,7 @@ function GridTile({ entry, selected, active, onToggleSelect, onOpen, actions }: 
     <ContextMenu>
       <ContextMenuTrigger asChild>
         <div
+          data-row-index={index}
           className={cn(
             'group relative rounded-2xl bg-card p-2 card-shadow transition-colors',
             selected && 'ring-2 ring-primary',
@@ -177,6 +180,7 @@ function GridTile({ entry, selected, active, onToggleSelect, onOpen, actions }: 
 
           <button
             type="button"
+            data-row-open
             onClick={onOpen}
             className="w-full rounded-xl outline-none focus-visible:ring-2 focus-visible:ring-ring"
           >
