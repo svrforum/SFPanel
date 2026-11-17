@@ -30,7 +30,7 @@ import {
   SelectValue,
 } from '@/components/ui/select'
 import { useConfirm } from '@/components/ConfirmDialog'
-import { normalizePort, portNeedsProtocol, validatePort, validateFrom } from './ruleValidation'
+import { normalizePort, ruleFormErrors } from './ruleValidation'
 import { useLockoutGuard } from './useLockoutGuard'
 
 interface FirewallStatus {
@@ -81,18 +81,26 @@ const initialRuleForm: RuleForm = {
   comment: '',
 }
 
+// The field the dialog's Add or Save moves to when the rule is not whole, so
+// the press says what is missing rather than the button sitting greyed out.
+function firstRuleErrorField(form: RuleForm): string | null {
+  const errors = ruleFormErrors(form, true)
+  return errors.port ? 'rule-port' : errors.protocol ? 'rule-protocol' : errors.from ? 'rule-from' : null
+}
+
 // Shared form fields component
 function RuleFormFields({
   form,
   setForm,
+  submitted,
 }: {
   form: RuleForm
   setForm: (f: RuleForm) => void
+  /** The dialog's button was pressed: an empty port now says so. */
+  submitted: boolean
 }) {
   const { t } = useTranslation()
-  const portError = form.port.trim() && !validatePort(form.port)
-  const protocolError = !portError && form.port.trim() && form.protocol === 'any' && portNeedsProtocol(form.port)
-  const fromError = form.from.trim() && !validateFrom(form.from)
+  const errors = ruleFormErrors(form, submitted)
 
   return (
     <div className="space-y-4">
@@ -120,10 +128,12 @@ function RuleFormFields({
           value={form.port}
           onChange={(e) => setForm({ ...form, port: e.target.value })}
           placeholder="80, 443, 8000:8080"
-          className={`h-9 rounded-xl bg-secondary/50 border-0 text-[13px] ${portError ? 'ring-1 ring-destructive' : ''}`}
+          aria-invalid={!!errors.port || undefined}
+          aria-describedby={errors.port ? 'rule-port-error' : undefined}
+          className={`h-9 rounded-xl bg-secondary/50 border-0 text-base md:text-[13px] ${errors.port ? 'ring-1 ring-destructive' : ''}`}
         />
-        {portError && (
-          <p className="text-[12px] text-destructive">{t('firewall.rules.invalidPort')}</p>
+        {errors.port && (
+          <p id="rule-port-error" className="text-[12px] text-destructive">{t(errors.port)}</p>
         )}
       </div>
 
@@ -131,7 +141,12 @@ function RuleFormFields({
       <div className="space-y-1.5">
         <label htmlFor="rule-protocol" className="text-[13px] font-medium">{t('firewall.rules.protocol')}</label>
         <Select value={form.protocol} onValueChange={(v) => setForm({ ...form, protocol: v })}>
-          <SelectTrigger id="rule-protocol" className="w-full rounded-xl">
+          <SelectTrigger
+            id="rule-protocol"
+            aria-invalid={!!errors.protocol || undefined}
+            aria-describedby={errors.protocol ? 'rule-protocol-error' : undefined}
+            className="w-full rounded-xl"
+          >
             <SelectValue />
           </SelectTrigger>
           <SelectContent>
@@ -140,8 +155,8 @@ function RuleFormFields({
             <SelectItem value="any">{t('firewall.rules.both')}</SelectItem>
           </SelectContent>
         </Select>
-        {protocolError && (
-          <p className="text-[12px] text-destructive">{t('firewall.rules.portNeedsProtocol')}</p>
+        {errors.protocol && (
+          <p id="rule-protocol-error" className="text-[12px] text-destructive">{t(errors.protocol)}</p>
         )}
       </div>
 
@@ -153,12 +168,14 @@ function RuleFormFields({
           value={form.from}
           onChange={(e) => setForm({ ...form, from: e.target.value })}
           placeholder={t('firewall.rules.any')}
-          className={`h-9 rounded-xl bg-secondary/50 border-0 text-[13px] ${fromError ? 'ring-1 ring-destructive' : ''}`}
+          aria-invalid={!!errors.from || undefined}
+          aria-describedby="rule-from-hint"
+          className={`h-9 rounded-xl bg-secondary/50 border-0 text-base md:text-[13px] ${errors.from ? 'ring-1 ring-destructive' : ''}`}
         />
-        {fromError ? (
-          <p className="text-[12px] text-destructive">{t('firewall.rules.invalidIP')}</p>
+        {errors.from ? (
+          <p id="rule-from-hint" className="text-[12px] text-destructive">{t(errors.from)}</p>
         ) : (
-          <p className="text-[12px] text-muted-foreground">{t('firewall.rules.fromIPHint')}</p>
+          <p id="rule-from-hint" className="text-[12px] text-muted-foreground">{t('firewall.rules.fromIPHint')}</p>
         )}
       </div>
 
@@ -170,7 +187,7 @@ function RuleFormFields({
           value={form.comment}
           onChange={(e) => setForm({ ...form, comment: e.target.value })}
           placeholder=""
-          className="h-9 rounded-xl bg-secondary/50 border-0 text-[13px]"
+          className="h-9 rounded-xl bg-secondary/50 border-0 text-base md:text-[13px]"
         />
       </div>
     </div>
@@ -199,6 +216,7 @@ export default function FirewallRules() {
   const [addOpen, setAddOpen] = useState(false)
   const [addForm, setAddForm] = useState<RuleForm>(initialRuleForm)
   const [adding, setAdding] = useState(false)
+  const [addTried, setAddTried] = useState(false)
 
   // Rule number currently being deleted (disables that row's delete button)
   const [deleting, setDeleting] = useState<number | null>(null)
@@ -207,6 +225,7 @@ export default function FirewallRules() {
   const [editTarget, setEditTarget] = useState<FirewallRule | null>(null)
   const [editForm, setEditForm] = useState<RuleForm>(initialRuleForm)
   const [editing, setEditing] = useState(false)
+  const [editTried, setEditTried] = useState(false)
 
   const fetchStatus = useCallback(async () => {
     try {
@@ -264,23 +283,19 @@ export default function FirewallRules() {
   }
   const handleToggleFirewall = async () => {
     if (!status) return
+    const action = status.active ? t('firewall.status.disableTitle') : t('firewall.status.enableTitle')
     if (!(await confirm({
-      title: status.active ? t('firewall.status.disable') : t('firewall.status.enable'),
+      title: action,
       description: status.active
         ? t('firewall.status.disableConfirm')
-        : t('firewall.status.enableConfirm'),
-      confirmLabel: status.active ? t('firewall.status.disable') : t('firewall.status.enable'),
+        : t('firewall.status.enableConfirm', { policy: status.default_incoming }),
+      confirmLabel: action,
       danger: status.active,
     }))) return
     await runToggleFirewall(false)
   }
 
-  const isFormValid = (form: RuleForm): boolean => {
-    if (!form.port.trim() || !validatePort(form.port)) return false
-    if (form.protocol === 'any' && portNeedsProtocol(form.port)) return false
-    if (form.from.trim() && !validateFrom(form.from)) return false
-    return true
-  }
+  const isFormValid = (form: RuleForm): boolean => firstRuleErrorField(form) === null
 
   const runAddRule = async (force: boolean) => {
     if (!isFormValid(addForm)) return
@@ -306,7 +321,15 @@ export default function FirewallRules() {
       setAdding(false)
     }
   }
-  const handleAddRule = () => runAddRule(false)
+  const handleAddRule = () => {
+    setAddTried(true)
+    const field = firstRuleErrorField(addForm)
+    if (field) {
+      document.getElementById(field)?.focus()
+      return
+    }
+    void runAddRule(false)
+  }
 
   const runDeleteRule = async (rule: FirewallRule, force: boolean) => {
     setDeleting(rule.number)
@@ -322,10 +345,17 @@ export default function FirewallRules() {
       setDeleting(null)
     }
   }
+  // The number alone could not tell which port, action and source go, and an
+  // IPv6 twin has a number of its own.
   const handleDeleteRule = async (rule: FirewallRule) => {
     if (!(await confirm({
-      title: t('firewall.rules.deleteRule'),
-      description: t('firewall.rules.deleteConfirm', { number: rule.number }),
+      title: t('firewall.rules.deleteTitle', { number: rule.number }),
+      description: t('firewall.rules.deleteConfirm', {
+        to: rule.v6 ? `${rule.to} (${t('firewall.rules.ipv6')})` : rule.to,
+        action: getActionLabel(rule.action),
+        from: rule.from,
+      }),
+      confirmLabel: t('firewall.rules.deleteRule'),
       danger: true,
     }))) return
     await runDeleteRule(rule, false)
@@ -357,7 +387,18 @@ export default function FirewallRules() {
       from: rule.from === 'Anywhere' ? '' : rule.from,
       comment: rule.comment || '',
     })
+    setEditTried(false)
     setEditTarget(rule)
+  }
+
+  const handleSaveEdit = () => {
+    setEditTried(true)
+    const field = firstRuleErrorField(editForm)
+    if (field) {
+      document.getElementById(field)?.focus()
+      return
+    }
+    void handleEditRule()
   }
 
   // force: the operator went ahead past the lockout guard, which covers both
@@ -418,6 +459,39 @@ export default function FirewallRules() {
     if (normalized.startsWith('LIMIT')) return t('firewall.rules.limit')
     return action
   }
+
+  // The rule's edit and delete, in its table row and on its phone card.
+  const ruleActions = (rule: FirewallRule, visibility: string) => (
+    <div className="flex items-center justify-end gap-1">
+      <Button
+        variant="ghost"
+        size="icon-xs"
+        className={visibility}
+        title={t('firewall.rules.editRule')}
+        aria-label={t('firewall.rules.editRule')}
+        onClick={() => handleOpenEdit(rule)}
+      >
+        <Pencil className="h-3.5 w-3.5" />
+      </Button>
+      <Button
+        variant="ghost"
+        size="icon-xs"
+        className={`${visibility} text-destructive hover:text-destructive/80`}
+        title={t('firewall.rules.deleteRule')}
+        aria-label={t('firewall.rules.deleteRule')}
+        onClick={() => handleDeleteRule(rule)}
+        disabled={deleting === rule.number}
+      >
+        <Trash2 className="h-4 w-4" />
+      </Button>
+    </div>
+  )
+
+  const v6Badge = (
+    <span className="ml-1.5 rounded-md bg-secondary px-1.5 py-0.5 font-sans text-[12px] text-muted-foreground">
+      {t('firewall.rules.ipv6')}
+    </span>
+  )
 
   if (statusLoading && rulesLoading) {
     return (
@@ -563,7 +637,7 @@ export default function FirewallRules() {
         <span className="inline-flex items-center px-3 py-1 rounded-full text-[13px] font-semibold bg-primary/10 text-primary">
           {t('firewall.rules.count', { count: rulesTotal })}
         </span>
-        <Button size="sm" onClick={() => setAddOpen(true)} className="rounded-xl">
+        <Button size="sm" onClick={() => { setAddTried(false); setAddOpen(true) }} className="rounded-xl">
           <Plus className="h-3.5 w-3.5" />
           {t('firewall.rules.addRule')}
         </Button>
@@ -594,7 +668,9 @@ export default function FirewallRules() {
         </div>
       ) : (
         <div className="bg-card rounded-2xl card-shadow overflow-hidden">
-          <Table>
+          {/* A table from md, cards below it: six columns put the action and
+              the buttons past a phone's edge. */}
+          <Table className="hidden md:table">
             <TableHeader>
               <TableRow>
                 <TableHead className="w-16 text-[12px]">{t('firewall.rules.number')}</TableHead>
@@ -611,11 +687,7 @@ export default function FirewallRules() {
                   <TableCell className="font-mono text-xs">{rule.number}</TableCell>
                   <TableCell className="text-[13px] font-mono">
                     {rule.to}
-                    {rule.v6 && (
-                      <span className="ml-1.5 rounded-md bg-secondary px-1.5 py-0.5 font-sans text-[12px] text-muted-foreground">
-                        {t('firewall.rules.ipv6')}
-                      </span>
-                    )}
+                    {rule.v6 && v6Badge}
                   </TableCell>
                   <TableCell>
                     <span className={getActionStyle(rule.action)}>
@@ -625,34 +697,32 @@ export default function FirewallRules() {
                   <TableCell className="text-[13px] font-mono">{rule.from}</TableCell>
                   <TableCell className="text-[13px] text-muted-foreground">{rule.comment || '-'}</TableCell>
                   <TableCell className="text-right">
-                    <div className="flex items-center justify-end gap-1">
-                      <Button
-                        variant="ghost"
-                        size="icon-xs"
-                        className="opacity-100 md:opacity-0 md:group-hover:opacity-100 md:group-focus-within:opacity-100 transition-opacity"
-                        title={t('firewall.rules.editRule')}
-                        aria-label={t('firewall.rules.editRule')}
-                        onClick={() => handleOpenEdit(rule)}
-                      >
-                        <Pencil className="h-3.5 w-3.5" />
-                      </Button>
-                      <Button
-                        variant="ghost"
-                        size="icon-xs"
-                        className="opacity-100 md:opacity-0 md:group-hover:opacity-100 md:group-focus-within:opacity-100 transition-opacity text-red-500 hover:text-red-600"
-                        title={t('firewall.rules.deleteRule')}
-                        aria-label={t('firewall.rules.deleteRule')}
-                        onClick={() => handleDeleteRule(rule)}
-                        disabled={deleting === rule.number}
-                      >
-                        <Trash2 className="h-4 w-4" />
-                      </Button>
-                    </div>
+                    {ruleActions(rule, 'opacity-100 md:can-hover:opacity-0 md:group-hover:opacity-100 md:group-focus-within:opacity-100 transition-opacity')}
                   </TableCell>
                 </TableRow>
               ))}
             </TableBody>
           </Table>
+          <ul className="md:hidden divide-y divide-border">
+            {rules.map((rule) => (
+              <li key={`${rule.number}-${rule.to}-${rule.action}-${rule.from}`} className="flex items-start gap-2 p-3">
+                <div className="min-w-0 flex-1 space-y-1">
+                  <div className="flex flex-wrap items-center gap-1.5">
+                    <span className="font-mono text-[13px] font-medium break-all">
+                      {rule.to}
+                      {rule.v6 && v6Badge}
+                    </span>
+                    <span className={getActionStyle(rule.action)}>{getActionLabel(rule.action)}</span>
+                  </div>
+                  <p className="text-[12px] text-muted-foreground break-words">
+                    #{rule.number} · {t('firewall.rules.from')} <span className="font-mono">{rule.from}</span>
+                    {rule.comment && <> · {rule.comment}</>}
+                  </p>
+                </div>
+                {ruleActions(rule, '')}
+              </li>
+            ))}
+          </ul>
         </div>
       )}
 
@@ -673,15 +743,15 @@ export default function FirewallRules() {
               {t('firewall.rules.editDescription', { number: editTarget?.number })}
             </DialogDescription>
           </DialogHeader>
-          <RuleFormFields form={editForm} setForm={setEditForm} />
+          <RuleFormFields form={editForm} setForm={setEditForm} submitted={editTried} />
           <DialogFooter className="gap-2">
             <Button variant="outline" onClick={() => setEditTarget(null)} disabled={editing} className="rounded-xl">
               {t('common.cancel')}
             </Button>
             <Button
               // Not onClick={handleEditRule}: the click event would arrive as force.
-              onClick={() => handleEditRule()}
-              disabled={editing || !isFormValid(editForm)}
+              onClick={handleSaveEdit}
+              disabled={editing}
               className="rounded-xl"
             >
               {editing && <Loader2 className="h-4 w-4 animate-spin" />}
@@ -703,14 +773,14 @@ export default function FirewallRules() {
             <DialogTitle>{t('firewall.rules.addRule')}</DialogTitle>
             <DialogDescription>{t('firewall.rules.title')}</DialogDescription>
           </DialogHeader>
-          <RuleFormFields form={addForm} setForm={setAddForm} />
+          <RuleFormFields form={addForm} setForm={setAddForm} submitted={addTried} />
           <DialogFooter className="gap-2">
             <Button variant="outline" onClick={() => setAddOpen(false)} disabled={adding} className="rounded-xl">
               {t('common.cancel')}
             </Button>
             <Button
               onClick={handleAddRule}
-              disabled={adding || !isFormValid(addForm)}
+              disabled={adding}
               className="rounded-xl"
             >
               {adding && <Loader2 className="h-4 w-4 animate-spin" />}

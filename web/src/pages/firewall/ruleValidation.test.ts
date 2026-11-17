@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { normalizePort, portNeedsProtocol, validateFrom, validatePort } from './ruleValidation'
+import { normalizePort, portNeedsProtocol, ruleFormErrors, validateFrom, validatePort } from './ruleValidation'
 
 // These two functions gate what reaches the UFW rule builder, so the cases
 // below lean on rejecting shell metacharacters and accepting the address
@@ -81,5 +81,34 @@ describe('portNeedsProtocol', () => {
     expect(portNeedsProtocol('80, 443')).toBe(true)
     expect(portNeedsProtocol('22')).toBe(false)
     expect(portNeedsProtocol('ssh')).toBe(false)
+  })
+})
+
+// The rule dialogs greyed out their Add button and never said why: an empty
+// port showed nothing at all. The press now says, under the field.
+describe('ruleFormErrors', () => {
+  const form = (over: Partial<{ port: string; protocol: string; from: string }> = {}) => ({
+    port: '22', protocol: 'tcp', from: '', ...over,
+  })
+
+  it('finds nothing wrong with a whole rule', () => {
+    expect(ruleFormErrors(form(), true)).toEqual({})
+  })
+
+  it('asks for a port once the form was submitted, not before', () => {
+    expect(ruleFormErrors(form({ port: '' }), false)).toEqual({})
+    expect(ruleFormErrors(form({ port: '  ' }), true)).toEqual({ port: 'firewall.rules.portRequired' })
+  })
+
+  it('names a malformed port', () => {
+    expect(ruleFormErrors(form({ port: '80/tcp' }), false)).toEqual({ port: 'firewall.rules.invalidPort' })
+  })
+
+  it('asks for tcp or udp for a range', () => {
+    expect(ruleFormErrors(form({ port: '8000:8080', protocol: 'any' }), false)).toEqual({ protocol: 'firewall.rules.portNeedsProtocol' })
+  })
+
+  it('names a malformed source', () => {
+    expect(ruleFormErrors(form({ from: 'example.com' }), false)).toEqual({ from: 'firewall.rules.invalidIP' })
   })
 })

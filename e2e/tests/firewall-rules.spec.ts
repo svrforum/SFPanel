@@ -45,7 +45,7 @@ async function open(page: Page, answer: (path: string) => { status: number; json
 
 test('an IPv6 rule is marked as one', async ({ page }) => {
   await open(page)
-  await expect(page.getByText('IPv6', { exact: true })).toHaveCount(1)
+  await expect(page.getByText('IPv6', { exact: true }).filter({ visible: true })).toHaveCount(1)
 })
 
 test('a lockout refusal is worded in the panel language', async ({ page }) => {

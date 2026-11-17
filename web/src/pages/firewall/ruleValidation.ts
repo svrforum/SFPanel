@@ -26,6 +26,25 @@ export function portNeedsProtocol(port: string): boolean {
   return /[,:]/.test(normalizePort(port))
 }
 
+export type RuleFormErrors = { port?: string; protocol?: string; from?: string }
+
+// ruleFormErrors names what is wrong with a rule form, field by field, as
+// locale keys. A port left empty counts only once the form was submitted, so
+// a fresh dialog does not open in red.
+export function ruleFormErrors(form: { port: string; protocol: string; from: string }, submitted: boolean): RuleFormErrors {
+  const errors: RuleFormErrors = {}
+  const port = form.port.trim()
+  if (!port) {
+    if (submitted) errors.port = 'firewall.rules.portRequired'
+  } else if (!validatePort(port)) {
+    errors.port = 'firewall.rules.invalidPort'
+  } else if (form.protocol === 'any' && portNeedsProtocol(port)) {
+    errors.protocol = 'firewall.rules.portNeedsProtocol'
+  }
+  if (form.from.trim() && !validateFrom(form.from)) errors.from = 'firewall.rules.invalidIP'
+  return errors
+}
+
 export function validateFrom(from: string): boolean {
   if (!from || from === 'any') return true
   const v = from.trim()
