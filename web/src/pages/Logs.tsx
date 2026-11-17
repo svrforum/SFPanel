@@ -43,6 +43,8 @@ export default function Logs() {
   // Sources
   const [sources, setSources] = useState<LogSource[]>([])
   const [sourcesLoading, setSourcesLoading] = useState(true)
+  // A failed first load: an empty list would read as "no sources".
+  const [sourcesError, setSourcesError] = useState<string | null>(null)
 
   // Log state
   const [selectedSource, setSelectedSource] = useState<string | null>(null)
@@ -80,6 +82,7 @@ export default function Logs() {
 
   async function loadSources() {
     setSourcesLoading(true)
+    setSourcesError(null)
     try {
       const data = await api.getLogSources()
       setSources(data)
@@ -92,7 +95,8 @@ export default function Logs() {
       }
     } catch (err: unknown) {
       const message = err instanceof Error ? err.message : t('logs.loadSourcesFailed')
-      toast.error(message)
+      if (sources.length === 0) setSourcesError(message)
+      else toast.error(message)
     } finally {
       setSourcesLoading(false)
     }
@@ -273,6 +277,13 @@ export default function Logs() {
                 <div key={i} className="h-20 bg-secondary animate-pulse rounded-xl" />
               ))}
             </div>
+          ) : sourcesError && sources.length === 0 ? (
+            <ListLoadState
+              loading={false}
+              error={sourcesError}
+              errorTitle={t('logs.loadSourcesFailed')}
+              onRetry={loadSources}
+            />
           ) : sources.length === 0 ? (
             <div className="bg-card rounded-2xl card-shadow py-6 text-center text-[13px] text-muted-foreground">
               {t('logs.noSources')}
