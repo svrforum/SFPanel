@@ -7,7 +7,6 @@ import {
   RefreshCw,
   Skull,
   Loader2,
-  ArrowUpDown,
   Cpu,
   MemoryStick,
   HardDrive,
@@ -340,7 +339,7 @@ export default function Processes() {
         </StatusPill>
       </TableCell>
       <TableCell className="text-right w-24">
-        {rowActions(proc, 'opacity-100 md:opacity-0 md:group-hover:opacity-100 md:group-focus-within:opacity-100 transition-opacity')}
+        {rowActions(proc, 'opacity-100 md:can-hover:opacity-0 md:group-hover:opacity-100 md:group-focus-within:opacity-100 transition-opacity')}
       </TableCell>
     </TableRow>
   )
@@ -477,14 +476,15 @@ export default function Processes() {
             placeholder={t('processes.searchPlaceholder')}
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
-            className="pl-9 h-9 rounded-xl bg-secondary/50 border-0 text-[13px]"
+            className="pl-9 h-9 rounded-xl bg-secondary/50 border-0 text-base md:text-[13px]"
           />
         </div>
-        <div className="inline-flex items-center rounded-xl bg-secondary/50 p-0.5">
+        <div role="group" aria-label={t('processes.viewMode')} className="inline-flex items-center rounded-xl bg-secondary/50 p-0.5">
           <Button
             variant={viewMode === 'list' ? 'default' : 'ghost'}
             size="sm"
             className="h-8 rounded-lg text-xs"
+            aria-pressed={viewMode === 'list'}
             onClick={() => setViewMode('list')}
           >
             <List className="h-3.5 w-3.5 mr-1" />
@@ -494,6 +494,7 @@ export default function Processes() {
             variant={viewMode === 'tree' ? 'default' : 'ghost'}
             size="sm"
             className="h-8 rounded-lg text-xs"
+            aria-pressed={viewMode === 'tree'}
             onClick={() => setViewMode('tree')}
           >
             <ListTree className="h-3.5 w-3.5 mr-1" />
@@ -506,18 +507,19 @@ export default function Processes() {
         </Button>
       </div>
 
-      {/* Sort buttons */}
-      <div className="flex items-center gap-2 flex-wrap">
-        <span className="text-xs text-muted-foreground">{t('processes.sortBy')}:</span>
+      {/* Sort buttons: each sorts one way only (CPU and memory highest first,
+          PID and name ascending), so they carry no up/down arrow. */}
+      <div role="group" aria-labelledby="process-sort-label" className="flex items-center gap-2 flex-wrap">
+        <span id="process-sort-label" className="text-xs text-muted-foreground">{t('processes.sortBy')}:</span>
         {(['cpu', 'memory', 'pid', 'name'] as SortField[]).map((field) => (
           <Button
             key={field}
             variant={sortField === field ? 'default' : 'outline'}
             size="sm"
+            aria-pressed={sortField === field}
             onClick={() => setSortField(field)}
             className="h-7 text-xs rounded-xl"
           >
-            <ArrowUpDown className="h-3 w-3 mr-1" />
             {t(`processes.sort_${field}`)}
           </Button>
         ))}

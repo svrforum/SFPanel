@@ -329,6 +329,7 @@
     "signalJobControl": "작업 제어",
     "viewList": "목록",
     "viewTree": "트리",
+    "viewMode": "보기 방식",
     "protected": "{{name}} 프로세스는 종료할 수 없습니다. Proxmox 노드가 재부팅되거나 클러스터에서 빠질 수 있습니다.",
     "isGuest": "이 프로세스는 VM {{vmid}}입니다. 종료하면 전원을 뽑는 것과 같습니다. Proxmox에서 'qm shutdown {{vmid}}'로 끄세요.",
     "vm": "VM {{vmid}}",

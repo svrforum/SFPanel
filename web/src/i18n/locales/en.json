@@ -331,6 +331,7 @@
     "signalJobControl": "Job Control",
     "viewList": "List",
     "viewTree": "Tree",
+    "viewMode": "View",
     "protected": "The {{name}} process can't be killed: the Proxmox node could reset or drop out of its cluster.",
     "isGuest": "This process is VM {{vmid}}: killing it is pulling its power. Shut it down from Proxmox with 'qm shutdown {{vmid}}'.",
     "vm": "VM {{vmid}}",
