@@ -5,10 +5,28 @@ import * as React from "react"
 import { cn } from "@/lib/utils"
 
 function Table({ className, ...props }: React.ComponentProps<"table">) {
+  // A table wider than its box scrolls sideways, and a box that scrolls must
+  // be reachable from the keyboard or its far columns are a mouse's alone. It
+  // takes a tab stop only while it actually overflows: a tab stop on every
+  // table of the product would be noise.
+  const box = React.useRef<HTMLDivElement>(null)
+  const [overflows, setOverflows] = React.useState(false)
+  React.useEffect(() => {
+    const el = box.current
+    if (!el || typeof ResizeObserver === 'undefined') return
+    const check = () => setOverflows(el.scrollWidth > el.clientWidth + 1)
+    check()
+    const watch = new ResizeObserver(check)
+    watch.observe(el)
+    if (el.firstElementChild) watch.observe(el.firstElementChild)
+    return () => watch.disconnect()
+  }, [])
   return (
     <div
+      ref={box}
       data-slot="table-container"
-      className="relative w-full overflow-x-auto"
+      tabIndex={overflows ? 0 : undefined}
+      className="relative w-full overflow-x-auto outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring"
     >
       <table
         data-slot="table"
