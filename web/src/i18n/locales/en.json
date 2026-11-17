@@ -1556,7 +1556,7 @@
         "forceStopTitle": "Force stop this run?",
         "forceStopDescription": "No new step starts, and force stop cancels the command and reboot jobs under way. Package, service, file and stack steps still run to their end.",
         "rerun": "Rerun",
-        "rerunFailed": "Rerun failed nodes only",
+        "rerunFailed": "Rerun nodes that did not succeed",
         "rerunFailedTitle": "Rerun the nodes that did not succeed?",
         "rerunFailedDescription_one": "{{count}} node runs again from its first step that did not succeed, with this run's inputs and confirmations.",
         "rerunFailedDescription_other": "{{count}} nodes run again from their first step that did not succeed, with this run's inputs and confirmations.",

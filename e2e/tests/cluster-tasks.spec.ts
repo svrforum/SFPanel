@@ -366,7 +366,7 @@ test.describe('Korean', () => {
       '패키지 업데이트', '패키지 설치', '서비스 재시작', '명령 실행', '재부팅 (필요할 때만)', '에이전트 설치 (SSH)',
     ])
     await expect(listKo.getByRole('region', { name: '내 작업', exact: true })).toBeVisible()
-    await expect(page.getByTestId('task-runs-active')).toContainText('실행 중 1건')
+    await expect(page.getByTestId('task-runs-active')).toContainText('진행 중인 실행 1건')
   })
 })
 
@@ -1142,7 +1142,7 @@ test.describe('run progress', () => {
       await expect(pane.getByRole('button', { name: 'Stop', exact: true })).toHaveCount(0)
       await expect(pane.getByRole('button', { name: 'Force stop' })).toHaveCount(0)
 
-      await pane.getByRole('button', { name: 'Rerun failed nodes only' }).click()
+      await pane.getByRole('button', { name: 'Rerun nodes that did not succeed' }).click()
       const dialog = page.getByRole('dialog')
       await expect(dialog).toContainText('2 nodes')
       await dialog.getByRole('button', { name: 'Rerun', exact: true }).click()
@@ -1343,7 +1343,7 @@ test.describe('history', () => {
     await expect(page).toHaveURL(/\/cluster\/tasks\/runs\/r-4$/)
     await expect(runPane(page).getByTestId('task-run-status')).toHaveText('Failed')
     await expect(cell(page, 'a-1', 0)).toHaveText('Failed')
-    await expect(runPane(page).getByRole('button', { name: 'Rerun failed nodes only' })).toBeVisible()
+    await expect(runPane(page).getByRole('button', { name: 'Rerun nodes that did not succeed' })).toBeVisible()
     // The snapshot and its end are all there is: nothing is opened again.
     const streams = () => requests.filter((r) => r === 'GET /cluster/task-runs/r-4/stream').length
     const opened = streams()
@@ -2991,7 +2991,7 @@ test.describe('agent install', () => {
         await expect(account(page).getByRole('checkbox', { name: '이 로그인 정보 저장' })).toBeVisible()
         await account(page).getByRole('button', { name: '관리' }).click()
         const d = page.getByRole('dialog', { name: '저장된 로그인' })
-        await expect(d.getByRole('button', { name: '기본 계정 수정' })).toHaveText('수정')
+        await expect(d.getByRole('button', { name: '기본 계정 고치기' })).toHaveText('고치기')
         await expect(d.getByRole('button', { name: '기본 계정 삭제' })).toHaveText('삭제')
       })
     })
@@ -3050,7 +3050,7 @@ test.describe('agent install', () => {
       await expect(p.getByRole('radio', { name: '비밀번호' })).toBeChecked()
       await expect(p.getByRole('radio', { name: '개인 키' })).toBeVisible()
       await expect(p.getByRole('checkbox', { name: 'sudo 비밀번호는 접속 비밀번호와 같음' })).toBeChecked()
-      await expect(p.getByRole('button', { name: '미리 보기' })).toBeVisible()
+      await expect(p.getByRole('button', { name: '미리보기' })).toBeVisible()
       await expect(p.getByRole('button', { name: '설치 시작' })).toBeVisible()
       await p.getByRole('button', { name: '여러 줄 붙여넣기' }).click()
       await p.getByRole('textbox', { name: '서버 목록 (한 줄에 하나)' }).fill('192.0.2.21\nnot/a/host')
@@ -3338,7 +3338,7 @@ test.describe('agent install', () => {
       await expect(p.getByTestId('task-run-status')).toHaveText('Failed')
       await expect(p.getByTestId('install-run-reason')).toContainText('The cluster leader changed during the install')
       await expect(p).not.toContainText('AGENT_INSTALL_LEADER_CHANGED')
-      for (const name of ['Rerun failed nodes only', 'Choose nodes to rerun', 'Rerun', 'Stop', 'Force stop']) {
+      for (const name of ['Rerun nodes that did not succeed', 'Choose nodes to rerun', 'Rerun', 'Stop', 'Force stop']) {
         await expect(p.getByRole('button', { name, exact: true })).toHaveCount(0)
       }
       // The leader that held the credentials is gone: an agent that registered
