@@ -152,12 +152,14 @@ export function keysetPages(kind: KeysetKind, saved: StoredKeysets | undefined):
 }
 
 /**
- * A cap is some forty pixels wide. What fits it in one line is four characters
- * or so; a longer label — an operator's "/compact" — is set smaller and breaks
- * into two lines rather than being cut off.
+ * A cap is some forty pixels wide, and 35 on a 320px screen. What fits it in
+ * one line at full size is three characters: at four "⇧Tab" was cut to "⇧Tal"
+ * there, and Home and PgUp with it. A longer label — four characters, or an
+ * operator's "/compact" — is set smaller and breaks into two lines rather than
+ * being cut off.
  */
 export function longLabel(label: string): boolean {
-  return [...label].length > 4
+  return [...label].length > 3
 }
 export const LONG_LABEL = 'px-0.5 text-[10px] leading-[1.15] whitespace-normal break-all'
 

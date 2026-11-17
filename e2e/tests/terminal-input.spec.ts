@@ -339,6 +339,27 @@ test('the keys are those of what the session runs, a page at a time', async ({ p
   await expect.poll(labels).toEqual(['Esc', 'Tab', 'Ctrl', '↑', '↓', '←', '→', '', '1/3'])
 })
 
+test('no cap is cut off on a 320px screen', async ({ page }) => {
+  // A cell is 35px there: "⇧Tab" at full size was cut to "⇧Tal".
+  await page.setViewportSize({ width: 320, height: 640 })
+  const t = await openTerminal(page)
+  const labels = () => t.area.locator('[data-terminal-keys] button').allTextContents()
+  const cut = () => t.area.locator('[data-terminal-keys] button').evaluateAll(buttons =>
+    buttons.filter(b => b.scrollWidth > b.clientWidth || b.scrollHeight > b.clientHeight).map(b => b.textContent))
+  for (const kind of ['Agent', 'Shell']) {
+    if (kind === 'Shell') {
+      await page.getByRole('button', { name: 'Sessions' }).tap()
+      await page.getByRole('tab', { name: /Shell/ }).tap()
+      await expect.poll(async () => (await labels())[1]).toBe('Tab')
+    }
+    for (let n = 1; n <= 3; n++) {
+      await expect.poll(async () => (await labels()).at(-1)).toBe(`${n}/3`)
+      expect(await cut(), `${kind}, page ${n}`).toEqual([])
+      await t.nextKeys.tap()
+    }
+  }
+})
+
 test('a draft stays with its session, and what was sent can be had again', async ({ page }) => {
   const t = await openTerminal(page)
   await t.composer.fill('for the agent')

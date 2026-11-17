@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import en from '@/i18n/locales/en.json'
 import ko from '@/i18n/locales/ko.json'
-import { DEFAULT_KEYSETS, KEYSETS, KEY_CATALOG, NO_BAR_MODIFIERS, activeModifiers, afterKey, barKey, barKeyName, isDefaultKeyset, keysetKind, keysetPages, tapModifier } from './terminalKeysets'
+import { DEFAULT_KEYSETS, KEYSETS, KEY_CATALOG, NO_BAR_MODIFIERS, activeModifiers, afterKey, barKey, barKeyName, isDefaultKeyset, keysetKind, keysetPages, longLabel, tapModifier } from './terminalKeysets'
 
 // i18next's t over one locale file, enough for the key names.
 function translator(locale: Record<string, unknown>) {
@@ -11,6 +11,15 @@ function translator(locale: Record<string, unknown>) {
     return found.replace(/\{\{(\w+)\}\}/g, (_, name: string) => String(options?.[name] ?? ''))
   }
 }
+
+describe('longLabel', () => {
+  // On a 320px screen a cap is 35px: "⇧Tab" at 13px bold was cut to "⇧Tal",
+  // and Home and PgUp did not fit either. Four characters are set smaller.
+  it('sets four characters and more smaller, and three at full size', () => {
+    for (const label of ['⇧Tab', 'Home', 'PgUp', 'PgDn', 'Ctrl', 'Shift', '/compact']) expect(longLabel(label), label).toBe(true)
+    for (const label of ['Esc', 'Tab', 'End', 'Alt', '^C', '⇧←', '↑', '/']) expect(longLabel(label), label).toBe(false)
+  })
+})
 
 describe('barKeyName', () => {
   // A voice user says what they see ("Esc"), and a name that does not contain
