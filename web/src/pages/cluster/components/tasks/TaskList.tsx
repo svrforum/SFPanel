@@ -1,7 +1,8 @@
-import { useState } from 'react'
+import { useRef, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { useTranslation } from 'react-i18next'
 import { ChevronDown, GitBranch, History, ListChecks, Plus, RefreshCw, Search } from 'lucide-react'
+import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { cn } from '@/lib/utils'
 import { taskSections, type ListedTask } from './taskListModel'
@@ -38,6 +39,7 @@ const entryClass = (on: boolean) =>
 export function TaskList({ tasks, chosen, onPick, onImport }: TaskListProps) {
   const { t } = useTranslation()
   const [query, setQuery] = useState('')
+  const search = useRef<HTMLInputElement>(null)
   const sections = taskSections(tasks, query)
   const none = sections.builtin.length + sections.mine.length + sections.git.length === 0
 
@@ -67,6 +69,7 @@ export function TaskList({ tasks, chosen, onPick, onImport }: TaskListProps) {
         <div className="relative flex-1 min-w-0">
           <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground pointer-events-none" />
           <Input
+            ref={search}
             type="search"
             value={query}
             onChange={(e) => setQuery(e.target.value)}
@@ -142,7 +145,25 @@ export function TaskList({ tasks, chosen, onPick, onImport }: TaskListProps) {
             })}
           </section>
         )}
-        {none && <p className="px-3 py-2 text-[13px] text-muted-foreground">{t('cluster.tasks.list.noMatch')}</p>}
+        {/* A search that matches nothing offers the way back; the field takes the focus the button had. */}
+        {none && (
+          <div className="px-3 py-2 space-y-2">
+            <p className="text-[13px] text-muted-foreground">{t('cluster.tasks.list.noMatch')}</p>
+            {query && (
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                onClick={() => {
+                  setQuery('')
+                  search.current?.focus()
+                }}
+              >
+                {t('cluster.tasks.list.clearSearch')}
+              </Button>
+            )}
+          </div>
+        )}
       </div>
 
       <div className="border-t border-border pt-2">

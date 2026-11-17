@@ -289,6 +289,11 @@ test('lists built-in, own and Git tasks apart, in English, and the search narrow
   await expect(section(page, 'Git').getByRole('link')).toHaveText(['Nightly backup'])
   await search.fill('no such thing')
   await expect(list(page)).toContainText('No tasks match')
+  // The way back: the search cleared, and the field to type in again.
+  await list(page).getByRole('button', { name: 'Clear the search' }).click()
+  await expect(search).toHaveValue('')
+  await expect(search).toBeFocused()
+  await expect(items(page, 'My tasks')).toHaveText(['Deploy web', 'Rotate logs'])
 })
 
 test('a run under way shows a band that leads back to it', async ({ page }) => {
@@ -1325,6 +1330,12 @@ test.describe('history', () => {
     await statusFilter(page).selectOption({ label: 'Stopped' })
     await expect(historyPane(page)).toContainText('No runs match these filters.')
     await expect(historyRows(page)).toHaveCount(0)
+    // The way back: both filters cleared.
+    await historyPane(page).getByRole('button', { name: 'Clear the filters' }).click()
+    await expect(historyRows(page)).toHaveCount(4)
+    await expect(statusFilter(page)).toHaveValue('')
+    await expect(taskFilter(page)).toHaveValue('')
+    await expect(statusFilter(page)).toBeFocused()
   })
 
   test('a row leads to that run, which ends at once when it has ended', async ({ page }) => {

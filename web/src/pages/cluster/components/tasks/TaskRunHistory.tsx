@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react'
+import { useMemo, useRef, useState } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
 import { useTranslation } from 'react-i18next'
 import type { TFunction } from 'i18next'
@@ -9,6 +9,7 @@ import { formatDate } from '@/lib/utils'
 import { ListLoadState } from '@/components/ListLoadState'
 import PaginationRow from '@/components/PaginationRow'
 import { StatusPill } from '@/components/StatusPill'
+import { Button } from '@/components/ui/button'
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
 import { builtinText } from './taskBuiltins'
 import { runStatusText, runStatusTone } from './taskRunStatus'
@@ -60,6 +61,7 @@ export function TaskRunHistory({
   const now = useNow(30_000)
   const [filter, setFilter] = useState<HistoryFilter>({ status: '', task: '' })
   const [page, setPage] = useState(1)
+  const statusSelect = useRef<HTMLSelectElement>(null)
 
   const tasks = useMemo(() => {
     const list = historyTasks(runs ?? []).map((x) => ({ id: x.id, name: builtinText(t, x.id, 'name', x.name) }))
@@ -105,6 +107,7 @@ export function TaskRunHistory({
       <>
         <div className="flex flex-wrap items-center gap-2">
           <select
+            ref={statusSelect}
             aria-label={t('cluster.tasks.history.statusFilter')}
             className={selectCls}
             value={filter.status}
@@ -126,8 +129,22 @@ export function TaskRunHistory({
             ))}
           </select>
         </div>
+        {/* Filters that match nothing offer the way back; the first filter takes the focus the button had. */}
         {shown.length === 0 ? (
-          <p className="text-[13px] text-muted-foreground py-4">{t('cluster.tasks.history.noMatch')}</p>
+          <div className="py-4 space-y-2">
+            <p className="text-[13px] text-muted-foreground">{t('cluster.tasks.history.noMatch')}</p>
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              onClick={() => {
+                choose({ status: '', task: '' })
+                statusSelect.current?.focus()
+              }}
+            >
+              {t('cluster.tasks.history.clearFilters')}
+            </Button>
+          </div>
         ) : null}
         {/* Desktop table: a row is a click anywhere, its name the link for keyboards. */}
         <div data-testid="task-history-table" className="hidden md:block">
