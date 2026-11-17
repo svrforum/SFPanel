@@ -15,6 +15,7 @@ import (
 	"time"
 
 	"github.com/labstack/echo/v4"
+	"github.com/shirou/gopsutil/v4/process"
 	"github.com/svrforum/SFPanel/internal/api/response"
 	"github.com/svrforum/SFPanel/internal/common/platform"
 )
@@ -355,5 +356,46 @@ func TestKillAllowsTheSameUnitOffProxmox(t *testing.T) {
 	fakeCgroup(t, pid, "/system.slice/watchdog-mux.service")
 	if r := kill(t, pid, "TERM"); r.status != http.StatusOK {
 		t.Errorf("TERM off Proxmox: status=%d, want 200 — body=%s", r.status, r.body)
+	}
+}
+
+// The nice column showed 20 for an ordinary process and 24 for one at nice -4,
+// and the renice dialog started from that number. gopsutil's Nice() on Linux
+// is the getpriority system call's own answer, which the kernel biases to
+// 20 - nice so that it is never negative (glibc undoes the bias; the raw call
+// does not). A child reniced to 7 must read back as 7, not 13.
+func TestProcessNiceIsTheNiceValue(t *testing.T) {
+	pid := startOwnGroupSleep(t)
+	// Raising a child's nice needs no privilege.
+	if err := syscall.Setpriority(syscall.PRIO_PROCESS, pid, 7); err != nil {
+		t.Skipf("cannot renice the child: %v", err)
+	}
+	p, err := process.NewProcess(int32(pid))
+	if err != nil {
+		t.Fatalf("NewProcess(%d): %v", pid, err)
+	}
+	if got := processNice(p); got != 7 {
+		t.Errorf("processNice of a child at nice 7 = %d, want 7", got)
+	}
+}
+
+func TestNiceFromPriority(t *testing.T) {
+	cases := []struct {
+		raw, want int32
+		why       string
+	}{
+		{40, -20, "highest priority"},
+		{24, -4, "the row that showed 24"},
+		{20, 0, "the default, which showed 20"},
+		{1, 19, "lowest priority"},
+		// A process that exited between the listing and the call: the error is
+		// dropped inside gopsutil and the raw value is 0, which no live process
+		// has. Report the default rather than 20.
+		{0, 0, "failed call"},
+	}
+	for _, c := range cases {
+		if got := niceFromPriority(c.raw); got != c.want {
+			t.Errorf("niceFromPriority(%d) (%s) = %d, want %d", c.raw, c.why, got, c.want)
+		}
 	}
 }

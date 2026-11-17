@@ -27,8 +27,8 @@ type ProcessInfo struct {
 	Name    string  `json:"name"`
 	CPU     float64 `json:"cpu"`
 	Memory  float64 `json:"memory"`
-	RSS     uint64  `json:"rss"` // resident set size in bytes (absolute, not %)
-	Nice    int32   `json:"nice"`
+	RSS     uint64  `json:"rss"`  // resident set size in bytes (absolute, not %)
+	Nice    int32   `json:"nice"` // -20..19, the value renice takes
 	Status  string  `json:"status"`
 	User    string  `json:"user"`
 	Command string  `json:"command"`
@@ -383,6 +383,27 @@ func init() {
 	process.EnableBootTimeCache(true)
 }
 
+// niceFromPriority turns what Linux's getpriority system call returns into a
+// nice value. The kernel answers 20 - nice (1..40) so that no success looks
+// like an error; glibc undoes that, but gopsutil v4.26.10's Nice() makes the
+// raw call through x/sys/unix and passes the 1..40 number on as it is. That
+// put 20 in the list for an ordinary process and 24 for one at nice -4, and
+// the renice dialog started from it. A 0 is gopsutil dropping the call's error
+// (the process exited mid-walk): no live process has it, so it reads as the
+// default rather than as 20.
+func niceFromPriority(raw int32) int32 {
+	if raw < 1 || raw > 40 {
+		return 0
+	}
+	return 20 - raw
+}
+
+// processNice is the process's nice value, -20..19, which is what renice takes.
+func processNice(p *process.Process) int32 {
+	raw, _ := p.Nice()
+	return niceFromPriority(raw)
+}
+
 // readCPUTimes takes a CPU-time reading for every process in procs. A process
 // that vanishes mid-walk is simply absent from the map, which cpuRate reads as
 // "no baseline" rather than as a rate.
@@ -463,7 +484,7 @@ func collectProcesses(prev cpuSnapshot) ([]ProcessInfo, cpuSnapshot, error) {
 		status, _ := p.Status()
 		cmdline, _ := p.Cmdline()
 		ppid, _ := p.Ppid()
-		nice, _ := p.Nice()
+		nice := processNice(p)
 
 		// Absolute resident memory complements the percentage: on a 64 GB host
 		// "1.2%" hides a 780 MB process. MemoryInfo can fail for a process that
