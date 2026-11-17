@@ -894,7 +894,7 @@ export default function Files() {
         type="button"
         onClick={() => toggleSort(column)}
         aria-sort={active ? (sort.direction === 'asc' ? 'ascending' : 'descending') : 'none'}
-        className="inline-flex items-center gap-1 rounded-sm outline-none hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring/40"
+        className="inline-flex items-center gap-1 rounded-sm outline-none hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring"
       >
         {label}
         {active && (sort.direction === 'asc'
@@ -1058,7 +1058,7 @@ export default function Files() {
               which one is not there on a phone. */}
           {nodeName && (
             <span
-              className="mr-1 inline-flex shrink-0 items-center gap-1 rounded-md bg-warning/10 px-1.5 py-0.5 font-mono text-[11px] text-warning"
+              className="mr-1 inline-flex shrink-0 items-center gap-1 rounded-md bg-warning/10 px-1.5 py-0.5 font-mono text-[12px] text-warning"
               title={t('files.browsingNode', { node: nodeName, defaultValue: 'Browsing {{node}}' })}
             >
               <Server className="h-3 w-3" aria-hidden="true" />
@@ -1067,7 +1067,7 @@ export default function Files() {
           )}
           <button
             onClick={(e) => { e.stopPropagation(); navigateToSegment(-1) }}
-            className="flex items-center gap-1 hover:text-foreground transition-colors shrink-0 rounded-sm outline-none focus-visible:ring-2 focus-visible:ring-ring/40 focus-visible:ring-offset-0"
+            className="flex items-center gap-1 hover:text-foreground transition-colors shrink-0 rounded-sm outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-0"
           >
             <Home className="h-4 w-4" />
             <span>/</span>
@@ -1078,7 +1078,7 @@ export default function Files() {
               <button
                 onClick={(e) => { e.stopPropagation(); navigateToSegment(index) }}
                 className={
-                  'rounded-sm outline-none focus-visible:ring-2 focus-visible:ring-ring/40 focus-visible:ring-offset-0 ' +
+                  'rounded-sm outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-0 ' +
                   (index === pathSegments.length - 1
                     ? 'font-medium text-foreground'
                     : 'hover:text-foreground transition-colors')
@@ -1093,7 +1093,7 @@ export default function Files() {
             onClick={(e) => { e.stopPropagation(); handlePathEditStart() }}
             title={t('files.editPath')}
             aria-label={t('files.editPath')}
-            className="ml-1 shrink-0 p-0.5 hover:text-foreground transition-colors rounded-sm outline-none focus-visible:ring-2 focus-visible:ring-ring/40 focus-visible:ring-offset-0"
+            className="ml-1 shrink-0 p-0.5 hover:text-foreground transition-colors rounded-sm outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-0"
           >
             <Pencil className="h-3 w-3" />
           </button>
@@ -1113,7 +1113,7 @@ export default function Files() {
               : t('files.count', { count: displayedFiles.length })}
           </span>
           {hiddenCount > 0 && (
-            <span className="hidden text-[11px] text-muted-foreground sm:inline">
+            <span className="hidden text-[12px] text-muted-foreground sm:inline">
               {t('files.hiddenCount', { count: hiddenCount, defaultValue: '{{count}} hidden' })}
             </span>
           )}
@@ -1135,7 +1135,7 @@ export default function Files() {
                 onClick={exitSearch}
                 title={t('files.searchClear')}
                 aria-label={t('files.searchClear')}
-                className="absolute right-2 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground rounded-sm outline-none focus-visible:ring-2 focus-visible:ring-ring/40 focus-visible:ring-offset-0"
+                className="absolute right-2 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground rounded-sm outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-0"
               >
                 {searchLoading ? <Loader2 className="h-4 w-4 animate-spin" /> : <X className="h-4 w-4" />}
               </button>
@@ -1418,7 +1418,7 @@ export default function Files() {
                     <button
                       type="button"
                       onClick={(e) => { e.stopPropagation(); openEntry(entry) }}
-                      className="flex items-center gap-2 w-full text-left rounded-sm outline-none focus-visible:ring-2 focus-visible:ring-ring/40 focus-visible:ring-offset-0"
+                      className="flex items-center gap-2 w-full text-left rounded-sm outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-0"
                     >
                       {entry.isDir ? (
                         <Folder className="h-4 w-4 text-blue-500 shrink-0" />
@@ -1433,7 +1433,7 @@ export default function Files() {
                           <span className="truncate block text-xs text-muted-foreground font-mono">{entry.path}</span>
                         )}
                         {entry.linkTarget && (
-                          <span className="block truncate font-mono text-[11px] text-muted-foreground">
+                          <span className="block truncate font-mono text-[12px] text-muted-foreground">
                             → {entry.linkTarget}
                           </span>
                         )}
@@ -1584,7 +1584,7 @@ export default function Files() {
           <div className="space-y-3 py-2">
             <div className="h-1.5 overflow-hidden rounded-full bg-secondary">
               <div
-                className="h-full rounded-full transition-all duration-200"
+                className="h-full rounded-full transition-[width] duration-200"
                 style={{
                   width: `${bulkProgress ? Math.round((bulkProgress.index / bulkProgress.total) * 100) : 0}%`,
                   backgroundColor: 'var(--destructive)',
@@ -1683,7 +1683,7 @@ export default function Files() {
           <div className="space-y-3 py-2">
             <div className="h-1.5 rounded-full bg-secondary overflow-hidden">
               <div
-                className="h-full rounded-full transition-all duration-300"
+                className="h-full rounded-full transition-[width] duration-300"
                 style={{
                   width: `${uploadProgress?.percent ?? 0}%`,
                   backgroundColor: 'var(--primary)',

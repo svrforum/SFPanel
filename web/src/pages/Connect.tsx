@@ -133,14 +133,14 @@ export default function Connect() {
             <button
               type="button"
               onClick={() => { setShowDiag(false); setDiagLog([]) }}
-              className="text-[11px] text-muted-foreground hover:text-foreground outline-none focus-visible:ring-2 focus-visible:ring-ring/40 focus-visible:ring-offset-0"
+              className="text-[12px] text-muted-foreground hover:text-foreground outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-0"
             >
               {t('common.close')}
             </button>
           </div>
           <div
             ref={logRef}
-            className="bg-secondary/50 rounded-xl p-3 max-h-60 overflow-y-auto font-mono text-[11px] leading-5 space-y-0.5"
+            className="bg-secondary/50 rounded-xl p-3 max-h-60 overflow-y-auto font-mono text-[12px] leading-5 space-y-0.5"
           >
             {diagLog.length === 0 ? (
               <p className="text-muted-foreground">{t('connect.diagEmpty')}</p>
@@ -173,14 +173,14 @@ export default function Connect() {
             className={AUTH_INPUT_CLASS}
           />
           <div className="space-y-1 pt-1">
-            <p className="text-[11px] text-muted-foreground">{t('connect.examples')}</p>
+            <p className="text-[12px] text-muted-foreground">{t('connect.examples')}</p>
             <div className="flex flex-wrap gap-1.5">
               {EXAMPLES.map((example) => (
                 <button
                   key={example}
                   type="button"
                   onClick={() => setUrl(example)}
-                  className="text-[11px] px-2 py-0.5 rounded-full bg-secondary/80 text-muted-foreground hover:text-foreground hover:bg-secondary transition-colors outline-none focus-visible:ring-2 focus-visible:ring-ring/40 focus-visible:ring-offset-0"
+                  className="text-[12px] px-2 py-0.5 rounded-full bg-secondary/80 text-muted-foreground hover:text-foreground hover:bg-secondary transition-colors outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-0"
                 >
                   {example}
                 </button>
@@ -202,7 +202,7 @@ export default function Connect() {
         <button
           type="button"
           onClick={runDiagnostic}
-          className="inline-flex items-center gap-1 text-[11px] text-muted-foreground hover:text-foreground transition-colors outline-none focus-visible:ring-2 focus-visible:ring-ring/40 focus-visible:ring-offset-0"
+          className="inline-flex items-center gap-1 text-[12px] text-muted-foreground hover:text-foreground transition-colors outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-0"
         >
           <Bug className="w-3 h-3" />
           {t('connect.diagnose')}

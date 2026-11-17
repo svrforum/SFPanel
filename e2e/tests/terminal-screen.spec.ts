@@ -210,12 +210,12 @@ test.describe('a desktop', () => {
     // A page down in vim and less: the terminal's, as it always was.
     await page.keyboard.press('Control+f')
     await expect.poll(() => t.input.at(-1)).toBe('\x06')
-    await expect(page.getByPlaceholder('Search in terminal...')).toHaveCount(0)
+    await expect(page.getByPlaceholder('Search in terminal…')).toHaveCount(0)
     // The search's own key did nothing while the terminal had the keyboard:
     // xterm took it, and the page never heard it.
     const sent = t.input.length
     await page.keyboard.press('Control+Shift+f')
-    await expect(page.getByPlaceholder('Search in terminal...')).toBeFocused()
+    await expect(page.getByPlaceholder('Search in terminal…')).toBeFocused()
     expect(t.input.length).toBe(sent)
   })
   test('a narrow window is the phone layout, as before', async ({ page }) => {

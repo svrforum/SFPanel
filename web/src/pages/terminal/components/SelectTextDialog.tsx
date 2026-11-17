@@ -62,7 +62,7 @@ export function SelectTextDialog({ open, text, onClose, returnFocus }: {
             ref={scrollToEnd}
             tabIndex={0}
             aria-label={t('terminal.selectText.title')}
-            className="min-h-0 overflow-auto overscroll-contain rounded-xl bg-secondary/50 p-3 outline-none focus-visible:ring-2 focus-visible:ring-ring/40 font-mono text-[12px] leading-relaxed whitespace-pre-wrap break-all select-text"
+            className="min-h-0 overflow-auto overscroll-contain rounded-xl bg-secondary/50 p-3 outline-none focus-visible:ring-2 focus-visible:ring-ring font-mono text-[12px] leading-relaxed whitespace-pre-wrap break-all select-text"
           >
             {text}
           </pre>

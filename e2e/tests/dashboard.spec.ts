@@ -127,7 +127,7 @@ test('loading, failure, empty and recovery differ; a later error retains last su
     return true
   })
   await page.goto('/dashboard')
-  await expect(panel(page).getByText('Loading...')).toBeVisible()
+  await expect(panel(page).getByText('Loading…')).toBeVisible()
   await expect(panel(page).getByText('No containers', { exact: true })).toHaveCount(0)
   mode = 'failed'
   await expect.poll(() => !!release).toBeTruthy()

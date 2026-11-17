@@ -99,13 +99,13 @@ test('a stack with an unhealthy container starts open', async ({ page }) => {
 
 test('a search shows what it found inside a collapsed stack', async ({ page }) => {
   await open(page, '/docker/containers', 1280)
-  await page.getByPlaceholder('Search containers...').fill('jellyfin')
+  await page.getByPlaceholder('Search containers…').fill('jellyfin')
   await expect(nameCell(page, 8)).toBeVisible()
 })
 
 test('a stack can still be closed during a search', async ({ page }) => {
   await open(page, '/docker/containers', 1280)
-  await page.getByPlaceholder('Search containers...').fill('service-number')
+  await page.getByPlaceholder('Search containers…').fill('service-number')
   await expect(nameCell(page, 7)).toBeVisible()
   await page.locator('table').getByText('media', { exact: true }).click()
   await expect(nameCell(page, 7)).toHaveCount(0)

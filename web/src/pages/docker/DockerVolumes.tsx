@@ -163,11 +163,11 @@ export default function DockerVolumes() {
               <div className="min-w-0 flex-1">
                 <p className="text-[13px] font-medium font-mono truncate">{v.Name}</p>
                 <div className="flex items-center gap-2 mt-1">
-                  <span className="text-[11px] text-muted-foreground">{v.Driver}</span>
+                  <span className="text-[12px] text-muted-foreground">{v.Driver}</span>
                   {typeof v.size_bytes === 'number' && (
-                    <span className="text-[11px] text-muted-foreground font-mono">{formatBytes(v.size_bytes)}</span>
+                    <span className="text-[12px] text-muted-foreground font-mono">{formatBytes(v.size_bytes)}</span>
                   )}
-                  <span className="text-[11px] text-muted-foreground">{formatDate(v.CreatedAt)}</span>
+                  <span className="text-[12px] text-muted-foreground">{formatDate(v.CreatedAt)}</span>
                 </div>
                 <div className="mt-1.5">
                   <UsagePill inUse={v.in_use} usedBy={v.used_by} />

@@ -244,7 +244,7 @@ export default function ClusterNodes() {
   const labelChips = (node: ClusterNode) => (
     <div className="flex items-center gap-1 flex-wrap">
       {Object.entries(node.labels ?? {}).filter(([k]) => k !== GROUP_LABEL).map(([k, v]) => (
-        <span key={k} className="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-medium bg-secondary text-muted-foreground">
+        <span key={k} className="inline-flex items-center px-1.5 py-0.5 rounded text-[12px] font-medium bg-secondary text-muted-foreground">
           {k}={v}
         </span>
       ))}
@@ -349,7 +349,7 @@ export default function ClusterNodes() {
                       <div className="flex items-center gap-2">
                         <span data-node-name className="text-[13px] font-medium">{node.name}</span>
                         {node.id === localId && (
-                          <span className="text-[10px] text-muted-foreground">({t('layout.cluster.localNode')})</span>
+                          <span className="text-[12px] text-muted-foreground">({t('layout.cluster.localNode')})</span>
                         )}
                       </div>
                     </TableCell>

@@ -104,7 +104,7 @@ export function CreateStackDialog({
               <Label htmlFor="project-name">{t('docker.compose.projectName')}</Label>
               <Input id="project-name" placeholder="e.g., my-project" value={newName}
                 onChange={(e) => setNewName(e.target.value)} />
-              <p className="text-[11px] text-muted-foreground">
+              <p className="text-[12px] text-muted-foreground">
                 {t('docker.stacks.createPathHint', { path: `/opt/stacks/${newName || '{name}'}` })}
               </p>
             </div>

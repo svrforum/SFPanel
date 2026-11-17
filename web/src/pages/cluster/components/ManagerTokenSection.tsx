@@ -40,7 +40,7 @@ export function ManagerTokenSection({ onCreated }: { onCreated: () => void }) {
     <div className="space-y-3">
       <div className="flex items-end gap-3">
         <div className="space-y-1">
-          <label htmlFor="manager-token-ttl" className="text-[11px] text-muted-foreground uppercase tracking-wider">{t('cluster.tokens.ttl')}</label>
+          <label htmlFor="manager-token-ttl" className="text-[12px] text-muted-foreground uppercase tracking-wider">{t('cluster.tokens.ttl')}</label>
           <Input
             id="manager-token-ttl"
             value={ttl}
@@ -58,7 +58,7 @@ export function ManagerTokenSection({ onCreated }: { onCreated: () => void }) {
         <div className="space-y-3">
           <div className="flex items-center justify-between gap-2">
             <span className="text-[13px] font-medium">{t('cluster.tokens.generatedToken')}</span>
-            <span className="text-[11px] text-muted-foreground">
+            <span className="text-[12px] text-muted-foreground">
               {t('cluster.tokens.expiresAt')}: {new Date(result.expires_at).toLocaleString()}
             </span>
           </div>
@@ -71,13 +71,13 @@ export function ManagerTokenSection({ onCreated }: { onCreated: () => void }) {
           </label>
 
           <div>
-            <span className="text-[11px] text-muted-foreground uppercase tracking-wider block mb-2">{t('cluster.tokens.joinCommand')}</span>
+            <span className="text-[12px] text-muted-foreground uppercase tracking-wider block mb-2">{t('cluster.tokens.joinCommand')}</span>
             <CopyBlock text={commands.join} />
           </div>
 
           {/* A server without SFPanel yet: the installer, then the same join */}
           <div>
-            <span className="text-[11px] text-muted-foreground uppercase tracking-wider block mb-2">{t('cluster.tokens.installAndJoin')}</span>
+            <span className="text-[12px] text-muted-foreground uppercase tracking-wider block mb-2">{t('cluster.tokens.installAndJoin')}</span>
             <CopyBlock text={commands.installAndJoin} />
           </div>
         </div>

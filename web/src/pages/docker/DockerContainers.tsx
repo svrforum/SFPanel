@@ -148,7 +148,7 @@ function ContainerRow({
             the image and status beside it. The full text is in the title. */}
         <div className="truncate" title={formatContainerName(c.Names)}>{formatContainerName(c.Names)}</div>
         {showService && serviceName && (
-          <div className="truncate text-[11px] text-muted-foreground font-normal" title={serviceName}>{serviceName}</div>
+          <div className="truncate text-[12px] text-muted-foreground font-normal" title={serviceName}>{serviceName}</div>
         )}
       </TableCell>
       <TableCell className="text-muted-foreground text-xs font-mono truncate" title={c.Image}>
@@ -286,11 +286,11 @@ function MobileContainerCard({
     <div className={`bg-card rounded-2xl p-4 card-shadow ${grouped ? 'ml-4' : ''}`}>
       <div className="flex items-start justify-between gap-2">
         {batchMode && <label className="flex min-h-11 min-w-11 items-center justify-center"><Checkbox aria-label={formatContainerName(c.Names)} checked={selected} onCheckedChange={() => onToggleSelect?.(c.Id)} /></label>}
-        <div role="button" tabIndex={0} className="min-w-0 flex-1 cursor-pointer rounded-sm outline-none focus-visible:ring-2 focus-visible:ring-ring/40 focus-visible:ring-offset-0" onClick={() => onDetail(c)} onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); onDetail(c) } }}>
+        <div role="button" tabIndex={0} className="min-w-0 flex-1 cursor-pointer rounded-sm outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-0" onClick={() => onDetail(c)} onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); onDetail(c) } }}>
           <p className="text-[13px] font-semibold truncate">
             {formatContainerName(c.Names)}
           </p>
-          <p className="text-[11px] text-muted-foreground truncate mt-0.5">{c.Image}</p>
+          <p className="text-[12px] text-muted-foreground truncate mt-0.5">{c.Image}</p>
         </div>
         {<ContainerStateBadge state={c.State} status={c.Status} />}
       </div>
@@ -307,7 +307,7 @@ function MobileContainerCard({
         </div>
       )}
       {c.Ports && c.Ports.length > 0 && formatPorts(c.Ports) !== '-' && (
-        <p className="text-[11px] text-muted-foreground font-mono mt-2 truncate">
+        <p className="text-[12px] text-muted-foreground font-mono mt-2 truncate">
           {formatPorts(c.Ports)}
         </p>
       )}
@@ -383,7 +383,7 @@ function StackGroupHeader({
       )}
       <Layers className="h-4 w-4 text-primary shrink-0" />
       <span className="text-[13px] font-semibold truncate">{stackName}</span>
-      <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-medium bg-success/10 text-success">
+      <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[12px] font-medium bg-success/10 text-success">
         {running}/{total}
       </span>
       <div className="flex-1 min-w-0" />
@@ -799,7 +799,7 @@ export default function DockerContainers() {
         <div
           role="button"
           tabIndex={0}
-          className={`cursor-pointer rounded-2xl p-4 transition-all duration-200 outline-none focus-visible:ring-2 focus-visible:ring-ring/40 focus-visible:ring-offset-0 ${filterState === 'all' ? 'bg-primary/10 ring-1 ring-primary/30' : 'bg-card card-shadow hover:card-shadow-hover'}`}
+          className={`cursor-pointer rounded-2xl p-4 transition duration-200 outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-0 ${filterState === 'all' ? 'bg-primary/10 ring-1 ring-primary/30' : 'bg-card card-shadow hover:card-shadow-hover'}`}
           onClick={() => setFilterState('all')}
           onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); setFilterState('all') } }}
         >
@@ -809,7 +809,7 @@ export default function DockerContainers() {
         <div
           role="button"
           tabIndex={0}
-          className={`cursor-pointer rounded-2xl p-4 transition-all duration-200 outline-none focus-visible:ring-2 focus-visible:ring-ring/40 focus-visible:ring-offset-0 ${filterState === 'running' ? 'bg-success/10 ring-1 ring-success/30' : 'bg-card card-shadow hover:card-shadow-hover'}`}
+          className={`cursor-pointer rounded-2xl p-4 transition duration-200 outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-0 ${filterState === 'running' ? 'bg-success/10 ring-1 ring-success/30' : 'bg-card card-shadow hover:card-shadow-hover'}`}
           onClick={() => setFilterState('running')}
           onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); setFilterState('running') } }}
         >
@@ -819,7 +819,7 @@ export default function DockerContainers() {
         <div
           role="button"
           tabIndex={0}
-          className={`cursor-pointer rounded-2xl p-4 transition-all duration-200 outline-none focus-visible:ring-2 focus-visible:ring-ring/40 focus-visible:ring-offset-0 ${filterState === 'stopped' ? 'bg-secondary ring-1 ring-border' : 'bg-card card-shadow hover:card-shadow-hover'}`}
+          className={`cursor-pointer rounded-2xl p-4 transition duration-200 outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-0 ${filterState === 'stopped' ? 'bg-secondary ring-1 ring-border' : 'bg-card card-shadow hover:card-shadow-hover'}`}
           onClick={() => setFilterState('stopped')}
           onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); setFilterState('stopped') } }}
         >
@@ -944,7 +944,7 @@ export default function DockerContainers() {
               <div
                 role="button"
                 tabIndex={0}
-                className="bg-secondary/30 rounded-2xl p-3 cursor-pointer outline-none focus-visible:ring-2 focus-visible:ring-ring/40 focus-visible:ring-offset-0"
+                className="bg-secondary/30 rounded-2xl p-3 cursor-pointer outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-0"
                 onClick={() => toggleStack(stackName)}
                 onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); toggleStack(stackName) } }}
               >
@@ -1005,16 +1005,16 @@ export default function DockerContainers() {
                 />
               </TableHead>
             )}
-            <TableHead className="text-[11px] w-[18%]">{t('docker.containers.name')}</TableHead>
-            <TableHead className="text-[11px] w-[14%]">{t('docker.containers.image')}</TableHead>
-            <TableHead className="text-[11px] w-[9%]">{t('docker.containers.status')}</TableHead>
-            <TableHead className="text-[11px] w-[9%]">{t('docker.containers.resources')}</TableHead>
-            <TableHead className="text-[11px] w-[10%]">{t('docker.containers.ports')}</TableHead>
-            <TableHead className="text-[11px] w-[9%]">{t('common.created')}</TableHead>
+            <TableHead className="text-[12px] w-[18%]">{t('docker.containers.name')}</TableHead>
+            <TableHead className="text-[12px] w-[14%]">{t('docker.containers.image')}</TableHead>
+            <TableHead className="text-[12px] w-[9%]">{t('docker.containers.status')}</TableHead>
+            <TableHead className="text-[12px] w-[9%]">{t('docker.containers.resources')}</TableHead>
+            <TableHead className="text-[12px] w-[10%]">{t('docker.containers.ports')}</TableHead>
+            <TableHead className="text-[12px] w-[9%]">{t('common.created')}</TableHead>
             {/* The six row buttons at 32px, or 44px on a touch screen
                 (index.css); a share of the width left them too narrow a
                 column, and they ran over the date beside it. */}
-            <TableHead className="text-right text-[11px] w-[232px] pointer-coarse:w-[300px]">{t('common.actions')}</TableHead>
+            <TableHead className="text-right text-[12px] w-[232px] pointer-coarse:w-[300px]">{t('common.actions')}</TableHead>
           </TableRow>
         </TableHeader>
         <TableBody>

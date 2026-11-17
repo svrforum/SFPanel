@@ -41,7 +41,7 @@ function memberStateColor(state: string): string {
 }
 
 function arrayStateBadge(state: string) {
-  const base = 'inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-medium'
+  const base = 'inline-flex items-center px-2 py-0.5 rounded-full text-[12px] font-medium'
   switch (state.toLowerCase()) {
     case 'active':
     case 'clean':
@@ -309,19 +309,19 @@ export default function DiskRAID() {
                 {/* Device Summary */}
                 <div className="mt-3 grid grid-cols-2 md:grid-cols-4 gap-3">
                   <div className="bg-secondary/30 rounded-lg px-3 py-2 text-center">
-                    <div className="text-[11px] text-muted-foreground">{t('disk.raid.totalDevices')}</div>
+                    <div className="text-[12px] text-muted-foreground">{t('disk.raid.totalDevices')}</div>
                     <div className="text-lg font-bold">{arr.total}</div>
                   </div>
                   <div className="bg-success/5 rounded-lg px-3 py-2 text-center">
-                    <div className="text-[11px] text-success">{t('disk.raid.activeDevices')}</div>
+                    <div className="text-[12px] text-success">{t('disk.raid.activeDevices')}</div>
                     <div className="text-lg font-bold text-success">{arr.active}</div>
                   </div>
                   <div className="bg-destructive/5 rounded-lg px-3 py-2 text-center">
-                    <div className="text-[11px] text-destructive">{t('disk.raid.failedDevices')}</div>
+                    <div className="text-[12px] text-destructive">{t('disk.raid.failedDevices')}</div>
                     <div className="text-lg font-bold text-destructive">{arr.failed}</div>
                   </div>
                   <div className="bg-warning/5 rounded-lg px-3 py-2 text-center">
-                    <div className="text-[11px] text-warning">{t('disk.raid.spareDevices')}</div>
+                    <div className="text-[12px] text-warning">{t('disk.raid.spareDevices')}</div>
                     <div className="text-lg font-bold text-warning">{arr.spare}</div>
                   </div>
                 </div>
@@ -342,7 +342,7 @@ export default function DiskRAID() {
                       >
                         <HardDrive className="h-3.5 w-3.5 text-muted-foreground shrink-0" />
                         <span className="font-mono font-medium w-28 shrink-0 truncate" title={member.device}>{member.device}</span>
-                        <span className={`inline-flex items-center px-1.5 py-0 rounded text-[10px] font-medium shrink-0 ${memberStateColor(member.state)}`}>
+                        <span className={`inline-flex items-center px-1.5 py-0 rounded text-[12px] font-medium shrink-0 ${memberStateColor(member.state)}`}>
                           {member.state}
                         </span>
                         {member.role && (

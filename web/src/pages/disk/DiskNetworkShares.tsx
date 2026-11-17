@@ -215,14 +215,14 @@ export default function DiskNetworkShares() {
                   <TableCell className="text-[12px] uppercase">{s.type}</TableCell>
                   <TableCell>
                     <span className={cn(
-                      'inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full text-[11px] font-medium',
+                      'inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full text-[12px] font-medium',
                       s.mounted ? 'bg-success/10 text-success' : 'bg-secondary text-muted-foreground',
                     )}>
                       <span className={cn('h-1.5 w-1.5 rounded-full', s.mounted ? 'bg-success' : 'bg-muted-foreground/50')} />
                       {s.mounted ? t('disk.shares.mounted') : t('disk.shares.notMounted')}
                     </span>
                     {!s.managed && (
-                      <span className="ml-1.5 inline-flex items-center gap-1 text-[10px] text-warning" title={t('disk.shares.unmanagedHint')}>
+                      <span className="ml-1.5 inline-flex items-center gap-1 text-[12px] text-warning" title={t('disk.shares.unmanagedHint')}>
                         <AlertTriangle className="h-3 w-3" />
                         {t('disk.shares.unmanaged')}
                       </span>
@@ -333,7 +333,7 @@ export default function DiskNetworkShares() {
 
             {discovered !== null && discovered.length > 0 && (
               <div className="rounded-lg border border-border bg-secondary/40 p-2">
-                <p className="text-[11px] text-muted-foreground mb-1.5 px-1">{t('disk.shares.pickShare')}</p>
+                <p className="text-[12px] text-muted-foreground mb-1.5 px-1">{t('disk.shares.pickShare')}</p>
                 <div className="flex flex-wrap gap-1.5">
                   {discovered.map((name) => (
                     <button
@@ -407,7 +407,7 @@ export default function DiskNetworkShares() {
                 onChange={(e) => setForm((f) => ({ ...f, options: e.target.value }))}
                 placeholder={isSMB ? 'uid=1000,gid=1000,vers=3.0' : 'rsize=131072,wsize=131072'}
               />
-              <p className="text-[11px] text-muted-foreground">{t('disk.shares.optionsHint')}</p>
+              <p className="text-[12px] text-muted-foreground">{t('disk.shares.optionsHint')}</p>
             </div>
 
             <label className="flex items-center gap-2 text-[13px]">
@@ -420,7 +420,7 @@ export default function DiskNetworkShares() {
               {t('disk.shares.readOnly')}
             </label>
 
-            <p className="text-[11px] text-muted-foreground">{t('disk.shares.bootSafetyNote')}</p>
+            <p className="text-[12px] text-muted-foreground">{t('disk.shares.bootSafetyNote')}</p>
           </div>
 
           <DialogFooter className="gap-2">

@@ -100,7 +100,7 @@ export function ClusterInitForm() {
       <div className="space-y-4">
         {/* Cluster name */}
         <div className="space-y-1.5">
-          <label className="text-[11px] text-muted-foreground uppercase tracking-wider">
+          <label className="text-[12px] text-muted-foreground uppercase tracking-wider">
             {t('cluster.init.clusterName')}
           </label>
           <Input
@@ -113,7 +113,7 @@ export function ClusterInitForm() {
 
         {/* Advertise address */}
         <div className="space-y-1.5">
-          <label className="text-[11px] text-muted-foreground uppercase tracking-wider">
+          <label className="text-[12px] text-muted-foreground uppercase tracking-wider">
             {t('cluster.init.advertiseAddress')}
           </label>
           {interfaces.length > 0 ? (
@@ -123,14 +123,14 @@ export function ClusterInitForm() {
                   key={`${iface.name}-${iface.address}`}
                   onClick={() => pickAddr(iface.address)}
                   className={cn(
-                    'w-full flex items-center justify-between px-3 py-2 rounded-xl text-[13px] transition-colors outline-none focus-visible:ring-2 focus-visible:ring-ring/40 focus-visible:ring-offset-0',
+                    'w-full flex items-center justify-between px-3 py-2 rounded-xl text-[13px] transition-colors outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-0',
                     selectedAddr === iface.address
                       ? 'bg-primary/10 ring-1 ring-primary/20'
                       : 'bg-secondary/50 hover:bg-secondary'
                   )}
                 >
                   <span className="font-medium">{iface.address}</span>
-                  <span className="text-[11px] text-muted-foreground">{iface.name}</span>
+                  <span className="text-[12px] text-muted-foreground">{iface.name}</span>
                 </button>
               ))}
             </div>
@@ -142,7 +142,7 @@ export function ClusterInitForm() {
               className="h-9 rounded-xl bg-secondary/50 border-0 text-[13px]"
             />
           )}
-          <p className="text-[11px] text-muted-foreground">
+          <p className="text-[12px] text-muted-foreground">
             {t('cluster.init.advertiseAddressDesc')}
           </p>
         </div>
@@ -166,7 +166,7 @@ export function ClusterInitForm() {
       {/* Divider */}
       <div className="flex items-center gap-3">
         <div className="flex-1 h-px bg-border" />
-        <span className="text-[11px] text-muted-foreground">{t('cluster.join.or')}</span>
+        <span className="text-[12px] text-muted-foreground">{t('cluster.join.or')}</span>
         <div className="flex-1 h-px bg-border" />
       </div>
 
@@ -178,7 +178,7 @@ export function ClusterInitForm() {
         </div>
 
         <div className="space-y-1.5">
-          <label className="text-[11px] text-muted-foreground uppercase tracking-wider">
+          <label className="text-[12px] text-muted-foreground uppercase tracking-wider">
             {t('cluster.join.leaderAddress')}
           </label>
           <Input
@@ -187,11 +187,11 @@ export function ClusterInitForm() {
             placeholder={t('cluster.join.leaderAddressPlaceholder')}
             className="h-9 rounded-xl bg-secondary/50 border-0 text-[13px]"
           />
-          <p className="text-[11px] text-muted-foreground">{t('cluster.join.leaderAddressDesc')}</p>
+          <p className="text-[12px] text-muted-foreground">{t('cluster.join.leaderAddressDesc')}</p>
         </div>
 
         <div className="space-y-1.5">
-          <label className="text-[11px] text-muted-foreground uppercase tracking-wider">
+          <label className="text-[12px] text-muted-foreground uppercase tracking-wider">
             {t('cluster.join.token')}
           </label>
           <Input
@@ -203,7 +203,7 @@ export function ClusterInitForm() {
         </div>
 
         <div className="space-y-1.5">
-          <label className="text-[11px] text-muted-foreground uppercase tracking-wider">
+          <label className="text-[12px] text-muted-foreground uppercase tracking-wider">
             {t('cluster.join.caPin')}
           </label>
           <Input
@@ -212,7 +212,7 @@ export function ClusterInitForm() {
             placeholder={t('cluster.join.caPinPlaceholder')}
             className="h-9 rounded-xl bg-secondary/50 border-0 text-[13px] font-mono"
           />
-          <p className="text-[11px] text-muted-foreground">{t('cluster.join.caPinDesc')}</p>
+          <p className="text-[12px] text-muted-foreground">{t('cluster.join.caPinDesc')}</p>
         </div>
 
         <Button

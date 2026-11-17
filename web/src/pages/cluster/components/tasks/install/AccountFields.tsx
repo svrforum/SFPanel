@@ -10,7 +10,7 @@ import { methodText, type InstallAccountFields } from './installForm'
 
 const TEXTAREA = cn(
   'w-full min-h-24 rounded-md border border-input bg-transparent px-3 py-2 font-mono text-[13px] shadow-xs outline-none',
-  'focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/50 disabled:opacity-50 dark:bg-input/30',
+  'focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring disabled:opacity-50 dark:bg-input/30',
 )
 // No private key comes near this; a file this large is some other file.
 const MAX_KEY_FILE_BYTES = 64 * 1024
@@ -182,7 +182,7 @@ function SecretField({ id, label, showLabel, hideLabel, value, onChange, hint, e
         <button
           type="button"
           onClick={() => setVisible((v) => !v)}
-          className="absolute right-2 top-1/2 -translate-y-1/2 text-muted-foreground rounded-sm outline-none focus-visible:ring-2 focus-visible:ring-ring/40"
+          className="absolute right-2 top-1/2 -translate-y-1/2 text-muted-foreground rounded-sm outline-none focus-visible:ring-2 focus-visible:ring-ring"
           aria-label={visible ? hideLabel : showLabel}
         >
           {visible ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}

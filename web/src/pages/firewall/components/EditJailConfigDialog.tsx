@@ -96,7 +96,7 @@ export function EditJailConfigDialog({
         <div className="space-y-4">
           {/* Jail name display */}
           <div>
-            <label className="text-[11px] text-muted-foreground uppercase tracking-wider">
+            <label className="text-[12px] text-muted-foreground uppercase tracking-wider">
               Jail
             </label>
             <p className="text-[13px] font-mono font-medium mt-1">{jail?.name}</p>
@@ -113,7 +113,7 @@ export function EditJailConfigDialog({
               onChange={(e) => setMaxRetry(e.target.value)}
               className="rounded-xl text-[13px] font-mono"
             />
-            <p className="text-[11px] text-muted-foreground">{t('firewall.fail2ban.maxRetryHint')}</p>
+            <p className="text-[12px] text-muted-foreground">{t('firewall.fail2ban.maxRetryHint')}</p>
           </div>
 
           {/* Ban Time */}
@@ -124,7 +124,7 @@ export function EditJailConfigDialog({
               onChange={(e) => setBanTime(e.target.value)}
               className="rounded-xl text-[13px] font-mono"
             />
-            <p className="text-[11px] text-muted-foreground">{t('firewall.fail2ban.banTimeHint')}</p>
+            <p className="text-[12px] text-muted-foreground">{t('firewall.fail2ban.banTimeHint')}</p>
           </div>
 
           {/* Find Time */}
@@ -135,7 +135,7 @@ export function EditJailConfigDialog({
               onChange={(e) => setFindTime(e.target.value)}
               className="rounded-xl text-[13px] font-mono"
             />
-            <p className="text-[11px] text-muted-foreground">{t('firewall.fail2ban.findTimeHint')}</p>
+            <p className="text-[12px] text-muted-foreground">{t('firewall.fail2ban.findTimeHint')}</p>
           </div>
 
           {/* Ignore IP */}
@@ -147,7 +147,7 @@ export function EditJailConfigDialog({
               onChange={(e) => setIgnoreIP(e.target.value)}
               className="rounded-xl text-[13px] font-mono"
             />
-            <p className="text-[11px] text-muted-foreground">{t('firewall.fail2ban.ignoreIpHelp')}</p>
+            <p className="text-[12px] text-muted-foreground">{t('firewall.fail2ban.ignoreIpHelp')}</p>
           </div>
         </div>
 

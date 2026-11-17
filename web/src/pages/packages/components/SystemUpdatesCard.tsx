@@ -194,8 +194,8 @@ export function SystemUpdatesCard({ tx }: { tx: AptTransactions }) {
                   <div className="min-w-0 flex-1">
                     <p className="text-[13px] font-medium font-mono truncate">{pkg.name}</p>
                     <div className="flex items-center gap-2 mt-1 flex-wrap">
-                      <span className="text-[11px] text-muted-foreground font-mono">{pkg.current_version}</span>
-                      <span className="text-[11px] text-muted-foreground">→</span>
+                      <span className="text-[12px] text-muted-foreground font-mono">{pkg.current_version}</span>
+                      <span className="text-[12px] text-muted-foreground">→</span>
                       <StatusPill tone="success">{pkg.new_version}</StatusPill>
                     </div>
                   </div>

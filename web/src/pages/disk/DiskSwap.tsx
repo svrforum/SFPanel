@@ -202,7 +202,7 @@ export default function DiskSwap() {
           {summary.total > 0 && (
             <div className="mt-2 h-1.5 bg-secondary rounded-full overflow-hidden">
               <div
-                className="h-full rounded-full transition-all duration-500"
+                className="h-full rounded-full transition-[width] duration-500"
                 style={{
                   width: `${Math.min(usedPercent, 100)}%`,
                   backgroundColor: usedPercent > 80 ? 'var(--destructive)' : usedPercent > 50 ? 'var(--warning)' : 'var(--primary)',
@@ -249,11 +249,11 @@ export default function DiskSwap() {
             max={100}
             value={swappiness}
             onChange={(e) => setSwappiness(parseInt(e.target.value, 10))}
-            className="flex-1 h-2 bg-secondary rounded-full appearance-none cursor-pointer accent-primary outline-none focus-visible:ring-2 focus-visible:ring-ring/40 focus-visible:ring-offset-0"
+            className="flex-1 h-2 bg-secondary rounded-full appearance-none cursor-pointer accent-primary outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-0"
           />
           <span className="text-xs text-muted-foreground w-7">100</span>
         </div>
-        <div className="flex items-center justify-between mt-1 text-[11px] text-muted-foreground">
+        <div className="flex items-center justify-between mt-1 text-[12px] text-muted-foreground">
           <span>{t('disk.swap.preferRAM')}</span>
           <span>{t('disk.swap.preferSwap')}</span>
         </div>
@@ -264,12 +264,12 @@ export default function DiskSwap() {
         <Table>
           <TableHeader>
             <TableRow className="border-border/50">
-              <TableHead className="text-[11px]">{t('common.name')}</TableHead>
-              <TableHead className="text-[11px]">{t('disk.swap.type')}</TableHead>
-              <TableHead className="text-[11px]">{t('disk.swap.size')}</TableHead>
-              <TableHead className="text-[11px]">{t('disk.swap.usedCol')}</TableHead>
-              <TableHead className="text-[11px]">{t('disk.swap.priority')}</TableHead>
-              <TableHead className="text-right text-[11px]">{t('common.actions')}</TableHead>
+              <TableHead className="text-[12px]">{t('common.name')}</TableHead>
+              <TableHead className="text-[12px]">{t('disk.swap.type')}</TableHead>
+              <TableHead className="text-[12px]">{t('disk.swap.size')}</TableHead>
+              <TableHead className="text-[12px]">{t('disk.swap.usedCol')}</TableHead>
+              <TableHead className="text-[12px]">{t('disk.swap.priority')}</TableHead>
+              <TableHead className="text-right text-[12px]">{t('common.actions')}</TableHead>
             </TableRow>
           </TableHeader>
           <TableBody>
@@ -286,7 +286,7 @@ export default function DiskSwap() {
                   {entry.name}
                 </TableCell>
                 <TableCell>
-                  <span className="inline-flex items-center px-1.5 py-0 rounded text-[10px] font-medium border border-border">
+                  <span className="inline-flex items-center px-1.5 py-0 rounded text-[12px] font-medium border border-border">
                     {entry.type}
                   </span>
                 </TableCell>
@@ -338,7 +338,7 @@ export default function DiskSwap() {
                 <button
                   type="button"
                   onClick={() => setCreateMode('file')}
-                  className={`flex-1 rounded-xl px-4 py-2.5 text-[13px] font-medium transition-colors outline-none focus-visible:ring-2 focus-visible:ring-ring/40 focus-visible:ring-offset-0 ${
+                  className={`flex-1 rounded-xl px-4 py-2.5 text-[13px] font-medium transition-colors outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-0 ${
                     createMode === 'file'
                       ? 'bg-primary/10 text-primary ring-1 ring-primary/30'
                       : 'bg-secondary/50 text-muted-foreground hover:bg-secondary'
@@ -349,7 +349,7 @@ export default function DiskSwap() {
                 <button
                   type="button"
                   onClick={() => setCreateMode('partition')}
-                  className={`flex-1 rounded-xl px-4 py-2.5 text-[13px] font-medium transition-colors outline-none focus-visible:ring-2 focus-visible:ring-ring/40 focus-visible:ring-offset-0 ${
+                  className={`flex-1 rounded-xl px-4 py-2.5 text-[13px] font-medium transition-colors outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-0 ${
                     createMode === 'partition'
                       ? 'bg-primary/10 text-primary ring-1 ring-primary/30'
                       : 'bg-secondary/50 text-muted-foreground hover:bg-secondary'
@@ -380,7 +380,7 @@ export default function DiskSwap() {
                     value={createSizeMB}
                     onChange={(e) => setCreateSizeMB(e.target.value)}
                   />
-                  <p className="text-[11px] text-muted-foreground">{t('disk.swap.sizeHint')}</p>
+                  <p className="text-[12px] text-muted-foreground">{t('disk.swap.sizeHint')}</p>
                 </div>
               </>
             ) : (

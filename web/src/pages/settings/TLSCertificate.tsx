@@ -82,22 +82,22 @@ export default function TLSCertificate() {
         />
         {status.ca_fingerprint && (
           <div className="pt-1">
-            <p className="text-[11px] text-muted-foreground uppercase tracking-wider mb-1">
+            <p className="text-[12px] text-muted-foreground uppercase tracking-wider mb-1">
               {t('settings.tls.fingerprint', { defaultValue: 'SHA-256 fingerprint' })}
             </p>
             {/* Shown so an operator can match what the panel serves against what
                 their OS certificate viewer displays after installing it. */}
-            <code className="text-[11px] font-mono break-all text-foreground/80">{status.ca_fingerprint}</code>
+            <code className="text-[12px] font-mono break-all text-foreground/80">{status.ca_fingerprint}</code>
           </div>
         )}
         {(status.dns_names?.length || status.ip_addresses?.length) && (
           <div className="pt-1">
-            <p className="text-[11px] text-muted-foreground uppercase tracking-wider mb-1">
+            <p className="text-[12px] text-muted-foreground uppercase tracking-wider mb-1">
               {t('settings.tls.validFor', { defaultValue: 'Valid for' })}
             </p>
             <div className="flex flex-wrap gap-1">
               {[...(status.dns_names ?? []), ...(status.ip_addresses ?? [])].map((name) => (
-                <span key={name} className="text-[11px] font-mono bg-secondary rounded px-1.5 py-0.5">
+                <span key={name} className="text-[12px] font-mono bg-secondary rounded px-1.5 py-0.5">
                   {name}
                 </span>
               ))}
@@ -106,7 +106,7 @@ export default function TLSCertificate() {
         )}
       </div>
 
-      <p className="text-[11px] text-muted-foreground mb-4 flex items-start gap-1">
+      <p className="text-[12px] text-muted-foreground mb-4 flex items-start gap-1">
         <AlertCircle className="h-3 w-3 shrink-0 mt-0.5" aria-hidden="true" />
         {t('settings.tls.renewalNote', {
           defaultValue:

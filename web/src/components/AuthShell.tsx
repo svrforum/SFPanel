@@ -7,9 +7,9 @@ import { LogoMark } from '@/components/Logo'
 // Shared styling for the auth entry screens (Login/Setup/Connect) — these
 // className strings used to be copy-pasted eight times across the three files.
 export const AUTH_INPUT_CLASS =
-  'h-11 rounded-xl bg-secondary/50 border-0 focus-visible:ring-2 focus-visible:ring-primary/30'
+  'h-11 rounded-xl bg-secondary/50 border-0 focus-visible:ring-2 focus-visible:ring-ring'
 export const AUTH_SUBMIT_CLASS =
-  'w-full h-11 rounded-xl font-semibold text-sm transition-all duration-200 hover:brightness-110'
+  'w-full h-11 rounded-xl font-semibold text-sm transition duration-200 hover:brightness-110'
 
 // Error banner placed inside each screen's form (kept as a separate piece so
 // it sits inside the form's space-y flow exactly where it always did).
@@ -61,7 +61,7 @@ export default function AuthShell({ subtitle, children, below }: AuthShellProps)
         <button
           type="button"
           onClick={() => switchLanguage('ko')}
-          className={`text-[12px] px-2 py-0.5 rounded-full transition-colors outline-none focus-visible:ring-2 focus-visible:ring-ring/40 focus-visible:ring-offset-0 ${
+          className={`text-[12px] px-2 py-0.5 rounded-full transition-colors outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-0 ${
             currentLang === 'ko'
               ? 'bg-primary/10 text-primary font-medium'
               : 'text-muted-foreground hover:text-foreground'
@@ -69,11 +69,11 @@ export default function AuthShell({ subtitle, children, below }: AuthShellProps)
         >
           한국어
         </button>
-        <span className="text-muted-foreground text-[11px]">|</span>
+        <span className="text-muted-foreground text-[12px]">|</span>
         <button
           type="button"
           onClick={() => switchLanguage('en')}
-          className={`text-[12px] px-2 py-0.5 rounded-full transition-colors outline-none focus-visible:ring-2 focus-visible:ring-ring/40 focus-visible:ring-offset-0 ${
+          className={`text-[12px] px-2 py-0.5 rounded-full transition-colors outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-0 ${
             currentLang === 'en'
               ? 'bg-primary/10 text-primary font-medium'
               : 'text-muted-foreground hover:text-foreground'

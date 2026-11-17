@@ -204,7 +204,7 @@ export function KeysEditor({ kind, saved, onSave, onClose }: {
               <div data-keys-picker role="group" aria-label={t('terminal.keysEditor.pick', { n: p + 1 })} className="flex flex-col gap-2 rounded-xl border border-border p-1.5">
                 {KEY_CATALOG.map(({ group, ids }) => (
                   <div key={group} className="flex flex-col gap-1">
-                    <h4 className="text-[11px] font-semibold text-muted-foreground">{t(`terminal.keysEditor.${GROUPS[group]}`)}</h4>
+                    <h4 className="text-[12px] font-semibold text-muted-foreground">{t(`terminal.keysEditor.${GROUPS[group]}`)}</h4>
                     <div className="grid grid-cols-7 gap-1">
                       {ids.map((id) => {
                         const k = drawn({ id })
@@ -218,7 +218,7 @@ export function KeysEditor({ kind, saved, onSave, onClose }: {
                   </div>
                 ))}
                 <div className="flex flex-col gap-1.5">
-                  <h4 className="text-[11px] font-semibold text-muted-foreground">{t('terminal.keysEditor.own')}</h4>
+                  <h4 className="text-[12px] font-semibold text-muted-foreground">{t('terminal.keysEditor.own')}</h4>
                   <Input value={own.text} maxLength={KEY_TEXT_MAX * 2} onChange={(e) => setOwn({ ...own, text: e.target.value })}
                     aria-label={t('terminal.keysEditor.ownText')} placeholder={t('terminal.keysEditor.ownText')}
                     autoCapitalize="off" autoCorrect="off" spellCheck={false} className="h-11 rounded-xl text-[16px]" />

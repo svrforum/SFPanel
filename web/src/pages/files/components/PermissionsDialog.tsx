@@ -115,7 +115,7 @@ export function PermissionsDialog({ entry, onOpenChange, onApplied }: {
             <div className="overflow-hidden rounded-xl border">
               <table className="w-full text-[13px]">
                 <thead>
-                  <tr className="bg-secondary/40 text-[11px] uppercase tracking-wider text-muted-foreground">
+                  <tr className="bg-secondary/40 text-[12px] uppercase tracking-wider text-muted-foreground">
                     <th className="px-3 py-2 text-left font-medium">{t('files.who', { defaultValue: 'Who' })}</th>
                     {WHAT.map((w) => (
                       <th key={w} className="px-3 py-2 text-center font-medium">
@@ -157,13 +157,13 @@ export function PermissionsDialog({ entry, onOpenChange, onApplied }: {
 
             <div className="grid grid-cols-2 gap-2">
               <div>
-                <label className="mb-1 block text-[11px] uppercase tracking-wider text-muted-foreground">
+                <label className="mb-1 block text-[12px] uppercase tracking-wider text-muted-foreground">
                   {t('files.owner', { defaultValue: 'Owner' })}
                 </label>
                 <Input value={owner} onChange={(e) => setOwner(e.target.value)} className="h-8 font-mono text-[13px]" />
               </div>
               <div>
-                <label className="mb-1 block text-[11px] uppercase tracking-wider text-muted-foreground">
+                <label className="mb-1 block text-[12px] uppercase tracking-wider text-muted-foreground">
                   {t('files.group', { defaultValue: 'Group' })}
                 </label>
                 <Input value={group} onChange={(e) => setGroup(e.target.value)} className="h-8 font-mono text-[13px]" />

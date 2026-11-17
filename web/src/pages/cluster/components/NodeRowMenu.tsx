@@ -92,7 +92,7 @@ export function NodeRowMenu({ node, localId, leaderId, hasLeader, onLabels, onAd
             </DropdownMenuItem>
             {/* Outside the item: a disabled item takes no pointer, so a title would never show. */}
             {convertHeld && (
-              <p id={hintId} className="px-2 pb-1.5 max-w-56 text-[11px] text-muted-foreground">
+              <p id={hintId} className="px-2 pb-1.5 max-w-56 text-[12px] text-muted-foreground">
                 {t('cluster.convert.leaderHint')}
               </p>
             )}

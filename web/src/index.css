@@ -7,6 +7,10 @@
 /* A phone held sideways: every row of chrome costs the terminal two of its
    twenty lines. */
 @custom-variant short (@media (max-height: 480px));
+/* A row's actions that wait for the pointer to come over them may only hide
+   where a pointer can come over them: `md:opacity-0 md:group-hover:opacity-100`
+   left them invisible on a tablet, which is wide and has no hover. */
+@custom-variant can-hover (@media (hover: hover));
 
 @theme inline {
     --font-sans: "Pretendard Variable", "Pretendard", -apple-system, BlinkMacSystemFont, system-ui, "Segoe UI", Roboto, sans-serif;
@@ -44,6 +48,8 @@
     --color-success-foreground: var(--success-foreground);
     --color-warning: var(--warning);
     --color-warning-foreground: var(--warning-foreground);
+    --text-color-success: var(--success-text);
+    --text-color-warning: var(--warning-text);
     --color-console: var(--console);
     --color-console-foreground: var(--console-foreground);
     --color-console-muted: var(--console-muted);
@@ -83,39 +89,45 @@
     --console-border: #c4c8da;
     --popover: #ffffff;
     --popover-foreground: #191f28;
-    --primary: #3182f6;
+    --primary: #0a61de;
     --primary-foreground: #ffffff;
     --secondary: #f2f4f6;
     --secondary-foreground: #333d4b;
     --muted: #f2f4f6;
-    --muted-foreground: #8b95a1;
+    --muted-foreground: #65707d;
     --accent: #f2f4f6;
     --accent-foreground: #333d4b;
-    --destructive: #f04452;
+    --destructive: #cc1020;
     --border: #e5e8eb;
     --input: #e5e8eb;
-    --ring: #3182f6;
+    --ring: #0a61de;
     --chart-1: #3182f6;
     --chart-2: #00c471;
     --chart-3: #f59e0b;
     --chart-4: #8b5cf6;
     --chart-5: #ec4899;
     --success: #00c471;
-    --success-foreground: #ffffff;
+    --success-foreground: #191f28;
     --warning: #f59e0b;
-    --warning-foreground: #ffffff;
-    --info: #3182f6;
+    --warning-foreground: #191f28;
+    /* Text roles. A status hue bright enough to read as a fill, a dot or a bar
+       is too light to be read as text: #00c471 is 2.3:1 on white. These are the
+       same hues darkened until they clear 4.5:1 on the card, the page and their
+       own 10% tint (index.css @theme maps text-success / text-warning to them). */
+    --success-text: #007745;
+    --warning-text: #925e06;
+    --info: #0a61de;
     --info-foreground: #ffffff;
     --terminal: #191f28;
     --terminal-foreground: #e6edf3;
     --sidebar: #ffffff;
     --sidebar-foreground: #333d4b;
-    --sidebar-primary: #3182f6;
+    --sidebar-primary: #0a61de;
     --sidebar-primary-foreground: #ffffff;
     --sidebar-accent: #f2f4f8;
     --sidebar-accent-foreground: #191f28;
     --sidebar-border: #f2f4f6;
-    --sidebar-ring: #3182f6;
+    --sidebar-ring: #0a61de;
 }
 
 .dark {
@@ -130,7 +142,7 @@
     --popover: #161b22;
     --popover-foreground: #e6edf3;
     --primary: #4c9aff;
-    --primary-foreground: #ffffff;
+    --primary-foreground: #0d1117;
     --secondary: #21262d;
     --secondary-foreground: #e6edf3;
     --muted: #21262d;
@@ -147,17 +159,19 @@
     --chart-4: #a371f7;
     --chart-5: #f778ba;
     --success: #3fb950;
-    --success-foreground: #ffffff;
+    --success-foreground: #0d1117;
     --warning: #d29922;
     --warning-foreground: #1c1500;
+    --success-text: #3fb950;
+    --warning-text: #d29922;
     --info: #4c9aff;
-    --info-foreground: #ffffff;
+    --info-foreground: #0d1117;
     --terminal: #0d1117;
     --terminal-foreground: #e6edf3;
     --sidebar: #0d1117;
     --sidebar-foreground: #e6edf3;
     --sidebar-primary: #4c9aff;
-    --sidebar-primary-foreground: #ffffff;
+    --sidebar-primary-foreground: #0d1117;
     --sidebar-accent: #161b22;
     --sidebar-accent-foreground: #e6edf3;
     --sidebar-border: #21262d;
@@ -166,7 +180,7 @@
 
 @layer base {
     * {
-        @apply border-border outline-ring/50;
+        @apply border-border outline-ring;
     }
     body {
         @apply bg-background text-foreground font-sans antialiased;
@@ -242,4 +256,32 @@
   max-width: none;
   height: 100dvh;
   max-height: 100dvh;
+}
+
+/* An overlay keeps its own scroll: reaching the end of a dialog, a sheet or a
+   menu must not start scrolling the page behind it. */
+[data-slot="dialog-content"],
+[data-slot="sheet-content"],
+[data-slot="dropdown-menu-content"],
+[data-slot="context-menu-content"],
+[data-slot="select-content"],
+[data-vaul-drawer] {
+  overscroll-behavior: contain;
+}
+
+/* Reduced motion: nothing slides, zooms or fades in. The one thing that keeps
+   moving is a spinner, which is the only sign that something is still loading. */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+  .animate-spin {
+    animation-duration: 1s !important;
+    animation-iteration-count: infinite !important;
+  }
 }

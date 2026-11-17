@@ -86,7 +86,7 @@ export function NodeLabelsDialog({
         </DialogHeader>
         <div className="space-y-4">
           <div className="space-y-1.5">
-            <label htmlFor={groupId} className="text-[11px] text-muted-foreground uppercase tracking-wider">
+            <label htmlFor={groupId} className="text-[12px] text-muted-foreground uppercase tracking-wider">
               {t('cluster.nodes.group')}
             </label>
             <Input
@@ -96,7 +96,7 @@ export function NodeLabelsDialog({
               aria-describedby={`${groupId}-hint`}
               className="h-9 rounded-xl bg-secondary/50 border-0 text-[13px]"
             />
-            <p id={`${groupId}-hint`} className="text-[11px] text-muted-foreground">{t('cluster.nodes.groupHint')}</p>
+            <p id={`${groupId}-hint`} className="text-[12px] text-muted-foreground">{t('cluster.nodes.groupHint')}</p>
           </div>
 
           {/* Existing labels */}
@@ -108,7 +108,7 @@ export function NodeLabelsDialog({
                 </span>
                 <button
                   onClick={() => handleRemoveLabel(k)}
-                  className="p-1 rounded hover:bg-destructive/10 transition-colors outline-none focus-visible:ring-2 focus-visible:ring-ring/40 focus-visible:ring-offset-0"
+                  className="p-1 rounded hover:bg-destructive/10 transition-colors outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-0"
                   aria-label={t('common.delete')}
                 >
                   <Trash2 className="h-3.5 w-3.5 text-destructive" />

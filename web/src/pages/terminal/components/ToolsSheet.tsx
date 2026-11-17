@@ -82,9 +82,9 @@ export function ToolsSheet({ open, onOpenChange, tools, toolsError, account, onA
                 {accounts.map((a) => <SelectItem key={a} value={a} className="font-mono text-[12px]">{a}</SelectItem>)}
               </SelectContent>
             </Select>
-            <p className="text-[11px] text-muted-foreground">{t('ai.accountHint')}</p>
+            <p className="text-[12px] text-muted-foreground">{t('ai.accountHint')}</p>
             {/* By name, as dangerousBlocked decides it: the browser has no uid. */}
-            {account === 'root' && <p className="text-[11px] text-warning">{t('ai.rootAccountHint')}</p>}
+            {account === 'root' && <p className="text-[12px] text-warning">{t('ai.rootAccountHint')}</p>}
           </div>
 
           {toolsError && (
@@ -163,7 +163,7 @@ export function ToolsSheet({ open, onOpenChange, tools, toolsError, account, onA
             <button type="button" className="text-[12px] text-primary hover:underline" onClick={() => { onOpenChange(false); onOpenTemporaryShell() }}>
               {t('terminal.tools.temporaryShell')}
             </button>
-            <p className="text-[11px] text-muted-foreground mt-0.5">{t('terminal.tools.temporaryShellHint')}</p>
+            <p className="text-[12px] text-muted-foreground mt-0.5">{t('terminal.tools.temporaryShellHint')}</p>
           </div>
         </div>
       </SheetContent>

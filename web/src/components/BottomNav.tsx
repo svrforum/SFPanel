@@ -33,7 +33,7 @@ export default function BottomNav({ onMorePress }: BottomNavProps) {
             to={tab.to}
             className={({ isActive }) =>
               cn(
-                'flex flex-col items-center justify-center gap-0.5 flex-1 h-full active:opacity-70 transition-colors outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring/40',
+                'flex flex-col items-center justify-center gap-0.5 flex-1 h-full active:opacity-70 transition-colors outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring',
                 // Require exact match OR a trailing-slash boundary so e.g.
                 // '/dashboard' doesn't highlight on a hypothetical
                 // '/dashboard-foo' route.
@@ -44,16 +44,16 @@ export default function BottomNav({ onMorePress }: BottomNavProps) {
             }
           >
             <tab.icon className="h-[22px] w-[22px]" />
-            <span className="text-[10px] font-medium">{tab.label}</span>
+            <span className="text-[12px] font-medium">{tab.label}</span>
           </NavLink>
         ))}
         <button
           onClick={onMorePress}
           aria-label={t('layout.mobileNav.more')}
-          className="flex flex-col items-center justify-center gap-0.5 flex-1 h-full text-muted-foreground active:opacity-70 transition-opacity outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring/40"
+          className="flex flex-col items-center justify-center gap-0.5 flex-1 h-full text-muted-foreground active:opacity-70 transition-opacity outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring"
         >
           <Menu className="h-[22px] w-[22px]" />
-          <span className="text-[10px] font-medium">{t('layout.mobileNav.more')}</span>
+          <span className="text-[12px] font-medium">{t('layout.mobileNav.more')}</span>
         </button>
       </div>
     </nav>

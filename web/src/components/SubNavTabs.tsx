@@ -25,7 +25,7 @@ export function SubNavTabs({ items, children }: { items: SubNavItem[]; children?
           key={to}
           to={to}
           className={({ isActive }) =>
-            `flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-[13px] font-medium transition-all duration-200 whitespace-nowrap shrink-0 outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring/40 ${
+            `flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-[13px] font-medium transition duration-200 whitespace-nowrap shrink-0 outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring ${
               isActive
                 ? 'bg-card card-shadow text-foreground'
                 : 'text-muted-foreground hover:text-foreground'

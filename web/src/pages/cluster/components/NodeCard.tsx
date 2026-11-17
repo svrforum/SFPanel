@@ -63,7 +63,7 @@ export function NodeCard({ node, kind, isLocal, version, reference, lastSeen, la
       <div className="flex items-start justify-between gap-2">
         <div className="min-w-0">
           <span data-node-name className="text-[13px] font-medium break-all">{node.name}</span>
-          {isLocal && <span className="ml-1.5 text-[10px] text-muted-foreground">({t('layout.cluster.localNode')})</span>}
+          {isLocal && <span className="ml-1.5 text-[12px] text-muted-foreground">({t('layout.cluster.localNode')})</span>}
         </div>
         <div className="flex items-center gap-1 shrink-0">
           <NodeStatus status={node.status} />

@@ -96,7 +96,7 @@ export function LogTable({
               {columns.map((col) => (
                 <th
                   key={col.key}
-                  className="text-left px-3 py-1.5 text-gray-400 border-b border-b-gray-700/50 whitespace-nowrap text-[11px] font-semibold uppercase tracking-wider"
+                  className="text-left px-3 py-1.5 text-gray-400 border-b border-b-gray-700/50 whitespace-nowrap text-[12px] font-semibold uppercase tracking-wider"
                 >
                   {t(col.i18nKey)}
                 </th>
@@ -164,7 +164,7 @@ export function LogTable({
                       >
                         {rendered.pill && rendered.color ? (
                           <span
-                            className="inline-flex items-center px-1.5 py-0 rounded-full text-[10px] font-medium"
+                            className="inline-flex items-center px-1.5 py-0 rounded-full text-[12px] font-medium"
                             style={{
                               backgroundColor: `${rendered.color}20`,
                               color: rendered.color,

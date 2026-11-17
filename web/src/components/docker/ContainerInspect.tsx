@@ -78,7 +78,7 @@ export default function ContainerInspect({ containerId }: { containerId: string 
             </div>
             <div className="mt-2 h-1.5 bg-secondary rounded-full overflow-hidden">
               <div
-                className="h-full rounded-full transition-all duration-500"
+                className="h-full rounded-full transition-[width] duration-500"
                 style={{
                   width: `${Math.min(stats.cpu_percent, 100)}%`,
                   backgroundColor: stats.cpu_percent > 80 ? 'var(--destructive)' : stats.cpu_percent > 50 ? 'var(--warning)' : 'var(--primary)'
@@ -94,13 +94,13 @@ export default function ContainerInspect({ containerId }: { containerId: string 
               </div>
               <span className="text-lg font-bold">{stats.mem_percent.toFixed(1)}%</span>
             </div>
-            <div className="flex items-center justify-between text-[11px] text-muted-foreground mt-1">
+            <div className="flex items-center justify-between text-[12px] text-muted-foreground mt-1">
               <span>{formatBytes(stats.mem_usage)}</span>
               <span>{formatBytes(stats.mem_limit)}</span>
             </div>
             <div className="mt-1 h-1.5 bg-secondary rounded-full overflow-hidden">
               <div
-                className="h-full rounded-full transition-all duration-500"
+                className="h-full rounded-full transition-[width] duration-500"
                 style={{
                   width: `${Math.min(stats.mem_percent, 100)}%`,
                   backgroundColor: stats.mem_percent > 80 ? 'var(--destructive)' : stats.mem_percent > 50 ? 'var(--warning)' : 'var(--chart-4)'
@@ -173,11 +173,11 @@ export default function ContainerInspect({ containerId }: { containerId: string 
           <div className="space-y-1">
             {data.mounts.map((m: ContainerInspectMount, i: number) => (
               <div key={i} className="bg-muted/30 rounded-lg px-3 py-2 text-xs font-mono flex items-center gap-2 min-w-0">
-                <span className="inline-flex items-center px-1.5 py-0 rounded text-[10px] font-medium border border-border shrink-0">{m.type}</span>
+                <span className="inline-flex items-center px-1.5 py-0 rounded text-[12px] font-medium border border-border shrink-0">{m.type}</span>
                 <span className="truncate min-w-0 flex-1" title={m.source}>{m.source}</span>
                 <ChevronRight className="h-3 w-3 text-muted-foreground shrink-0" />
                 <span className="truncate min-w-0 flex-1" title={m.destination}>{m.destination}</span>
-                <span className={`inline-flex items-center px-1.5 py-0 rounded text-[10px] font-medium ml-auto shrink-0 ${m.rw === 'true' ? 'bg-secondary text-secondary-foreground' : 'border border-border'}`}>
+                <span className={`inline-flex items-center px-1.5 py-0 rounded text-[12px] font-medium ml-auto shrink-0 ${m.rw === 'true' ? 'bg-secondary text-secondary-foreground' : 'border border-border'}`}>
                   {m.rw === 'true' ? 'rw' : 'ro'}
                 </span>
               </div>

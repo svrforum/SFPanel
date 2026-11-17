@@ -116,7 +116,7 @@ export function TaskTargetPicker({ nodes, nodesError, targets, onChange, disable
                   onCheckedChange={() => onChange({ ...targets, nodes: toggle(targets.nodes, n.id) })}
                 />
                 <label htmlFor={box} className="min-w-0 flex-1 text-[13px] break-all cursor-pointer">{n.name}</label>
-                <span className="shrink-0 text-[11px] text-muted-foreground">
+                <span className="shrink-0 text-[12px] text-muted-foreground">
                   {isAgent(n) ? t('cluster.kind.agent') : t('cluster.kind.manager')}
                   {group && ` · ${group}`}
                 </span>
@@ -129,7 +129,7 @@ export function TaskTargetPicker({ nodes, nodesError, targets, onChange, disable
               <li key={nodeId} className="flex items-center gap-2.5 px-3 py-2">
                 <Checkbox id={box} checked disabled={disabled} onCheckedChange={() => onChange({ ...targets, nodes: toggle(targets.nodes, nodeId) })} />
                 <label htmlFor={box} className="min-w-0 flex-1 text-[13px] font-mono break-all cursor-pointer">{nodeId}</label>
-                <span className="shrink-0 text-[11px] text-muted-foreground">{t('cluster.tasks.plan.leftReason.unknown')}</span>
+                <span className="shrink-0 text-[12px] text-muted-foreground">{t('cluster.tasks.plan.leftReason.unknown')}</span>
               </li>
             )
           })}

@@ -282,7 +282,7 @@ export default function Logs() {
                 <button
                   onClick={() => handleSourceSelect(source.id)}
                   disabled={!source.exists}
-                  className={`w-full text-left rounded-xl p-3 transition-all duration-200 outline-none focus-visible:ring-2 focus-visible:ring-ring/40 focus-visible:ring-offset-0 ${
+                  className={`w-full text-left rounded-xl p-3 transition duration-200 outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-0 ${
                     selectedSource === source.id
                       ? 'bg-primary/10 ring-1 ring-primary/20'
                       : source.exists
@@ -300,25 +300,25 @@ export default function Logs() {
                     }`} />
                     <div className="min-w-0 flex-1">
                       <p className="text-[13px] font-medium truncate">{source.name}</p>
-                      <p className="text-[11px] text-muted-foreground truncate mt-0.5" title={source.path}>
+                      <p className="text-[12px] text-muted-foreground truncate mt-0.5" title={source.path}>
                         {source.path}
                       </p>
                       <div className="flex items-center gap-2 mt-1.5">
                         {source.journal ? (
-                          <span className="inline-flex items-center px-1.5 py-0 rounded-full text-[10px] font-medium bg-secondary text-muted-foreground">
+                          <span className="inline-flex items-center px-1.5 py-0 rounded-full text-[12px] font-medium bg-secondary text-muted-foreground">
                             {t('logs.journal')}
                           </span>
                         ) : source.exists ? (
-                          <span className="inline-flex items-center px-1.5 py-0 rounded-full text-[10px] font-medium bg-secondary text-muted-foreground">
+                          <span className="inline-flex items-center px-1.5 py-0 rounded-full text-[12px] font-medium bg-secondary text-muted-foreground">
                             {formatBytes(source.size)}
                           </span>
                         ) : (
-                          <span className="inline-flex items-center px-1.5 py-0 rounded-full text-[10px] font-medium bg-secondary/50 text-muted-foreground">
+                          <span className="inline-flex items-center px-1.5 py-0 rounded-full text-[12px] font-medium bg-secondary/50 text-muted-foreground">
                             {t('logs.notFound')}
                           </span>
                         )}
                         {source.custom && (
-                          <span className="inline-flex items-center px-1.5 py-0 rounded-full text-[10px] font-medium bg-primary/10 text-primary">
+                          <span className="inline-flex items-center px-1.5 py-0 rounded-full text-[12px] font-medium bg-primary/10 text-primary">
                             {t('logs.customSource')}
                           </span>
                         )}
@@ -329,7 +329,7 @@ export default function Logs() {
                 {source.custom && source.custom_id && (
                   <button
                     onClick={(e) => { e.stopPropagation(); handleDeleteSource(source) }}
-                    className="absolute top-2 right-2 h-5 w-5 rounded-md flex items-center justify-center opacity-100 md:opacity-0 md:group-hover:opacity-100 md:group-focus-within:opacity-100 transition-opacity bg-destructive/10 hover:bg-destructive/20 text-destructive outline-none focus-visible:ring-2 focus-visible:ring-ring/40 focus-visible:ring-offset-0"
+                    className="absolute top-2 right-2 h-5 w-5 rounded-md flex items-center justify-center opacity-100 md:opacity-0 md:group-hover:opacity-100 md:group-focus-within:opacity-100 transition-opacity bg-destructive/10 hover:bg-destructive/20 text-destructive outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-0"
                     title={t('logs.deleteSource')}
                     aria-label={t('logs.deleteSource')}
                   >
@@ -377,7 +377,7 @@ export default function Logs() {
               <div className="flex items-center bg-secondary/50 rounded-xl p-0.5">
                 <button
                   onClick={() => setViewMode('raw')}
-                  className={`px-3 py-1 rounded-lg text-xs font-medium transition-all outline-none focus-visible:ring-2 focus-visible:ring-ring/40 focus-visible:ring-offset-0 ${
+                  className={`px-3 py-1 rounded-lg text-xs font-medium transition outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-0 ${
                     viewMode === 'raw'
                       ? 'bg-background text-foreground shadow-sm'
                       : 'text-muted-foreground hover:text-foreground'
@@ -387,7 +387,7 @@ export default function Logs() {
                 </button>
                 <button
                   onClick={() => setViewMode('parsed')}
-                  className={`px-3 py-1 rounded-lg text-xs font-medium transition-all outline-none focus-visible:ring-2 focus-visible:ring-ring/40 focus-visible:ring-offset-0 ${
+                  className={`px-3 py-1 rounded-lg text-xs font-medium transition outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-0 ${
                     viewMode === 'parsed'
                       ? 'bg-background text-foreground shadow-sm'
                       : 'text-muted-foreground hover:text-foreground'

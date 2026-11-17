@@ -160,7 +160,7 @@ export default function ContainerShell({ containerId }: ContainerShellProps) {
         <div className="flex items-center gap-2">
           <div className="flex items-center gap-1.5">
             <Circle className={`h-2 w-2 fill-current ${connected ? 'text-success' : 'text-destructive'}`} />
-            <span className="text-[11px] text-white/40 font-medium">
+            <span className="text-[12px] text-white/40 font-medium">
               {connected ? t('terminal.connected') : t('terminal.disconnected')}
             </span>
           </div>

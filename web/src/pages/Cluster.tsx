@@ -26,7 +26,7 @@ export default function Cluster() {
             to={tab.to}
             className={({ isActive }) =>
               cn(
-                'flex shrink-0 items-center gap-2 px-4 py-2 rounded-xl whitespace-nowrap text-[13px] font-medium transition-colors outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring/40',
+                'flex shrink-0 items-center gap-2 px-4 py-2 rounded-xl whitespace-nowrap text-[13px] font-medium transition-colors outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring',
                 isActive
                   ? 'bg-primary/10 text-primary'
                   : 'text-muted-foreground hover:bg-accent hover:text-foreground'

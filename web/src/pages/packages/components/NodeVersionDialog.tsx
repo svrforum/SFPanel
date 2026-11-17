@@ -134,7 +134,7 @@ export function NodeVersionDialog({
             <>
               {/* Installed versions */}
               <div className="space-y-2">
-                <p className="text-[11px] text-muted-foreground uppercase tracking-wider">{t('packages.nodeInstalledVersions')}</p>
+                <p className="text-[12px] text-muted-foreground uppercase tracking-wider">{t('packages.nodeInstalledVersions')}</p>
                 {nodeVersions.length === 0 && !nvmInstalled ? (
                   <div className="space-y-2">
                     <p className="text-[13px] text-muted-foreground">{t('packages.nodeNvmNotInstalled')}</p>
@@ -224,7 +224,7 @@ export function NodeVersionDialog({
               {/* Available LTS versions to install */}
               {remoteLTS.length > 0 && (
                 <div className="space-y-2">
-                  <p className="text-[11px] text-muted-foreground uppercase tracking-wider">{t('packages.nodeAvailableLTS')}</p>
+                  <p className="text-[12px] text-muted-foreground uppercase tracking-wider">{t('packages.nodeAvailableLTS')}</p>
                   <div className="space-y-1.5">
                     {remoteLTS
                       .filter((v) => !nodeVersions.some((nv) => nv.version === v))

@@ -25,7 +25,7 @@ import {
 
 // Deliberately a native <select>, as the audit log's filter bar: two compact
 // dropdowns, no popover chrome.
-const selectCls = 'h-9 rounded-xl border border-border bg-card px-2 text-[13px] outline-none focus-visible:ring-2 focus-visible:ring-ring/40 min-w-0'
+const selectCls = 'h-9 rounded-xl border border-border bg-card px-2 text-[13px] outline-none focus-visible:ring-2 focus-visible:ring-ring min-w-0'
 
 const runPath = (run: RunRecord) => `/cluster/tasks/runs/${encodeURIComponent(run.id)}`
 
@@ -135,12 +135,12 @@ export function TaskRunHistory({
             <Table>
               <TableHeader>
                 <TableRow>
-                  <TableHead className="text-[11px]">{t('cluster.tasks.history.status')}</TableHead>
-                  <TableHead className="text-[11px]">{t('cluster.tasks.history.task')}</TableHead>
-                  <TableHead className="text-[11px]">{t('cluster.tasks.history.nodes')}</TableHead>
-                  <TableHead className="text-[11px]">{t('cluster.tasks.history.startedBy')}</TableHead>
-                  <TableHead className="text-[11px]">{t('cluster.tasks.history.startedAt')}</TableHead>
-                  <TableHead className="text-[11px]">{t('cluster.tasks.history.took')}</TableHead>
+                  <TableHead className="text-[12px]">{t('cluster.tasks.history.status')}</TableHead>
+                  <TableHead className="text-[12px]">{t('cluster.tasks.history.task')}</TableHead>
+                  <TableHead className="text-[12px]">{t('cluster.tasks.history.nodes')}</TableHead>
+                  <TableHead className="text-[12px]">{t('cluster.tasks.history.startedBy')}</TableHead>
+                  <TableHead className="text-[12px]">{t('cluster.tasks.history.startedAt')}</TableHead>
+                  <TableHead className="text-[12px]">{t('cluster.tasks.history.took')}</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>

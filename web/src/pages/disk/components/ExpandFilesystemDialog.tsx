@@ -89,7 +89,7 @@ export function ExpandFilesystemDialog({ open, onOpenChange, onExpanded }: {
                 <span className="font-mono font-medium truncate min-w-0" title={target.source}>{target.source}</span>
                 <span className="text-muted-foreground shrink-0">{t('disk.filesystems.fsType')}</span>
                 <span className="font-mono">{target.fstype}{target.is_lvm && (
-                  <span className="ml-1.5 text-[10px] px-1.5 py-0.5 rounded bg-primary/10 text-primary font-medium">
+                  <span className="ml-1.5 text-[12px] px-1.5 py-0.5 rounded bg-primary/10 text-primary font-medium">
                     {t('disk.filesystems.expandLVM')}
                   </span>
                 )}</span>
@@ -101,18 +101,18 @@ export function ExpandFilesystemDialog({ open, onOpenChange, onExpanded }: {
             </div>
 
             <div>
-              <p className="text-[11px] text-muted-foreground uppercase tracking-wider mb-2">
+              <p className="text-[12px] text-muted-foreground uppercase tracking-wider mb-2">
                 {t('disk.filesystems.expandSteps')}
               </p>
               <div className="space-y-1.5">
                 {target.steps.map((step, i) => (
                   <div key={i} className="flex items-start gap-2 bg-muted/20 rounded-lg px-3 py-2">
-                    <span className="flex-shrink-0 w-5 h-5 rounded-full bg-primary/10 text-primary text-[11px] font-semibold flex items-center justify-center mt-0.5">
+                    <span className="flex-shrink-0 w-5 h-5 rounded-full bg-primary/10 text-primary text-[12px] font-semibold flex items-center justify-center mt-0.5">
                       {i + 1}
                     </span>
                     <div className="min-w-0">
                       <p className="text-[12px] font-medium font-mono break-all">{step.command}</p>
-                      <p className="text-[11px] text-muted-foreground">{step.description}</p>
+                      <p className="text-[12px] text-muted-foreground">{step.description}</p>
                     </div>
                   </div>
                 ))}
@@ -126,7 +126,7 @@ export function ExpandFilesystemDialog({ open, onOpenChange, onExpanded }: {
           <div className="flex flex-col items-center justify-center py-8 text-center">
             <ArrowUpFromLine className="h-8 w-8 text-muted-foreground/40 mb-3" />
             <p className="text-[13px] font-medium text-muted-foreground">{t('disk.filesystems.expandNoTarget')}</p>
-            <p className="text-[11px] text-muted-foreground/70 mt-1 max-w-[300px]">{t('disk.filesystems.expandNoTargetDesc')}</p>
+            <p className="text-[12px] text-muted-foreground/70 mt-1 max-w-[300px]">{t('disk.filesystems.expandNoTargetDesc')}</p>
           </div>
         ) : (
           /* Candidate list */
@@ -135,29 +135,29 @@ export function ExpandFilesystemDialog({ open, onOpenChange, onExpanded }: {
               <button
                 key={c.source}
                 type="button"
-                className="w-full text-left bg-muted/20 hover:bg-muted/40 rounded-xl p-4 transition-colors group outline-none focus-visible:ring-2 focus-visible:ring-ring/40 focus-visible:ring-offset-0"
+                className="w-full text-left bg-muted/20 hover:bg-muted/40 rounded-xl p-4 transition-colors group outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-0"
                 onClick={() => setTarget(c)}
               >
                 <div className="flex items-center justify-between">
                   <div className="min-w-0">
                     <p className="text-[13px] font-medium font-mono truncate" title={c.source}>{c.source}</p>
                     <div className="flex items-center gap-2 mt-1">
-                      <span className="inline-flex items-center px-1.5 py-0 rounded text-[10px] font-medium border border-border">
+                      <span className="inline-flex items-center px-1.5 py-0 rounded text-[12px] font-medium border border-border">
                         {c.fstype}
                       </span>
                       {c.is_lvm && (
-                        <span className="text-[10px] px-1.5 py-0.5 rounded bg-primary/10 text-primary font-medium">
+                        <span className="text-[12px] px-1.5 py-0.5 rounded bg-primary/10 text-primary font-medium">
                           {t('disk.filesystems.expandLVM')}
                         </span>
                       )}
-                      <span className="text-[11px] text-muted-foreground">
+                      <span className="text-[12px] text-muted-foreground">
                         {formatBytes(c.current_size)}
                       </span>
-                      <span className="text-[11px] font-semibold text-success">
+                      <span className="text-[12px] font-semibold text-success">
                         +{formatBytes(c.free_space)}
                       </span>
                     </div>
-                    <p className="text-[11px] text-muted-foreground mt-1">
+                    <p className="text-[12px] text-muted-foreground mt-1">
                       {c.steps.length} {t('disk.filesystems.expandSteps').toLowerCase()}
                     </p>
                   </div>

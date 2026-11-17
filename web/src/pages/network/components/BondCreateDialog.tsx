@@ -128,7 +128,7 @@ export function BondCreateDialog({
                 {availableSlaves.map((iface) => (
                   <label
                     key={iface.name}
-                    className={`flex items-center gap-3 px-3 py-2 rounded-xl cursor-pointer transition-all ${
+                    className={`flex items-center gap-3 px-3 py-2 rounded-xl cursor-pointer transition ${
                       bondSlaves.includes(iface.name)
                         ? 'bg-primary/10 text-primary'
                         : 'bg-secondary/50 text-foreground hover:bg-secondary'

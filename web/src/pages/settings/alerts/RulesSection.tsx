@@ -261,7 +261,7 @@ export function RulesSection({ channels }: { channels: AlertChannel[] }) {
                 />
                 <span className="text-[13px]">{t('settings.alerts.rules.formIncludeIntentionalStopsLabel')}</span>
               </label>
-              <p className="text-[11px] text-muted-foreground">{t('settings.alerts.rules.formIncludeIntentionalStopsHint')}</p>
+              <p className="text-[12px] text-muted-foreground">{t('settings.alerts.rules.formIncludeIntentionalStopsHint')}</p>
             </div>
           )}
           {/* Restart loop only: count threshold + observation window */}
@@ -307,7 +307,7 @@ export function RulesSection({ channels }: { channels: AlertChannel[] }) {
                 </SelectContent>
               </Select>
               {FIXED_SEVERITY.has(ruleForm.type) && (
-                <p className="text-[11px] text-muted-foreground">{t('settings.alerts.rules.formSeverityFixedOom')}</p>
+                <p className="text-[12px] text-muted-foreground">{t('settings.alerts.rules.formSeverityFixedOom')}</p>
               )}
             </div>
             <div className="space-y-1.5">
@@ -365,7 +365,7 @@ export function RulesSection({ channels }: { channels: AlertChannel[] }) {
                           ...f,
                           nodes: selected ? f.nodes.filter((x) => x !== n.id) : [...f.nodes, n.id],
                         }))}
-                        className={`px-2 py-1 rounded-lg text-[12px] border transition-colors outline-none focus-visible:ring-2 focus-visible:ring-ring/40 focus-visible:ring-offset-0 ${selected ? 'bg-primary/10 border-primary/40 text-primary' : 'border-border text-muted-foreground hover:bg-accent'}`}
+                        className={`px-2 py-1 rounded-lg text-[12px] border transition-colors outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-0 ${selected ? 'bg-primary/10 border-primary/40 text-primary' : 'border-border text-muted-foreground hover:bg-accent'}`}
                       >
                         {n.name}
                       </button>
@@ -399,15 +399,15 @@ export function RulesSection({ channels }: { channels: AlertChannel[] }) {
             <li key={rule.id} className="flex items-center justify-between bg-secondary/30 rounded-xl px-4 py-3">
               <div className="flex items-center gap-3 flex-wrap">
                 <span className="text-[13px] font-medium">{rule.name}</span>
-                <span className="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-medium bg-secondary text-muted-foreground">
+                <span className="inline-flex items-center px-1.5 py-0.5 rounded text-[12px] font-medium bg-secondary text-muted-foreground">
                   {ruleTypeEntry ? t(ruleTypeEntry.i18nKey) : rule.type}
                 </span>
-                <span className={`inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-medium ${getSeverityStyle(rule.severity)}`}>
+                <span className={`inline-flex items-center px-1.5 py-0.5 rounded text-[12px] font-medium ${getSeverityStyle(rule.severity)}`}>
                   {severityEntry ? t(severityEntry.i18nKey, { defaultValue: severityEntry.fallback }) : rule.severity}
                 </span>
                 {notEvaluated ? (
                   <>
-                    <span className="inline-flex items-center px-1.5 py-0.5 rounded-full text-[10px] font-medium bg-warning/10 text-warning">
+                    <span className="inline-flex items-center px-1.5 py-0.5 rounded-full text-[12px] font-medium bg-warning/10 text-warning">
                       {t('settings.alerts.rules.notEvaluatedBadge')}
                     </span>
                     <p className="basis-full text-[12px] text-warning">
@@ -416,12 +416,12 @@ export function RulesSection({ channels }: { channels: AlertChannel[] }) {
                   </>
                 ) : (
                   <>
-                    <span className="text-[11px] text-muted-foreground">
+                    <span className="text-[12px] text-muted-foreground">
                       {threshold === undefined
                         ? t('settings.alerts.rules.summaryCooldown', { cooldown: rule.cooldown })
                         : t('settings.alerts.rules.summaryThresholdCooldown', { threshold, cooldown: rule.cooldown })}
                     </span>
-                    <span className={`inline-flex items-center px-1.5 py-0.5 rounded-full text-[10px] font-medium ${
+                    <span className={`inline-flex items-center px-1.5 py-0.5 rounded-full text-[12px] font-medium ${
                       rule.enabled ? 'bg-success/10 text-success' : 'bg-secondary text-muted-foreground'
                     }`}>
                       {rule.enabled ? t('common.active') : t('common.disabled')}
@@ -434,7 +434,7 @@ export function RulesSection({ channels }: { channels: AlertChannel[] }) {
                   <Button
                     variant="outline"
                     size="sm"
-                    className="rounded-xl h-7 px-2 text-[11px]"
+                    className="rounded-xl h-7 px-2 text-[12px]"
                     onClick={() => handleToggleRule(rule)}
                   >
                     {rule.enabled ? t('settings.alerts.rules.actionDisable') : t('settings.alerts.rules.actionEnable')}

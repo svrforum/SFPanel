@@ -150,12 +150,12 @@ export function LVSection({ lvs, vgs, onChanged }: {
           <Table>
             <TableHeader>
               <TableRow className="border-border/50">
-                <TableHead className="text-[11px]">{t('common.name')}</TableHead>
-                <TableHead className="text-[11px]">{t('disk.lvm.lv.vgName')}</TableHead>
-                <TableHead className="text-[11px]">{t('disk.lvm.size')}</TableHead>
-                <TableHead className="text-[11px]">{t('disk.lvm.attr')}</TableHead>
-                <TableHead className="text-[11px]">{t('disk.lvm.lv.path')}</TableHead>
-                <TableHead className="text-right text-[11px]">{t('common.actions')}</TableHead>
+                <TableHead className="text-[12px]">{t('common.name')}</TableHead>
+                <TableHead className="text-[12px]">{t('disk.lvm.lv.vgName')}</TableHead>
+                <TableHead className="text-[12px]">{t('disk.lvm.size')}</TableHead>
+                <TableHead className="text-[12px]">{t('disk.lvm.attr')}</TableHead>
+                <TableHead className="text-[12px]">{t('disk.lvm.lv.path')}</TableHead>
+                <TableHead className="text-right text-[12px]">{t('common.actions')}</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
@@ -181,12 +181,12 @@ export function LVSection({ lvs, vgs, onChanged }: {
                         {nested && <CornerDownRight className="h-3 w-3 shrink-0 text-muted-foreground" aria-hidden="true" />}
                         <span className="truncate">{lv.name}</span>
                         {pool && (
-                          <span className="shrink-0 inline-flex items-center px-1.5 py-0 rounded text-[10px] font-medium border border-border">
+                          <span className="shrink-0 inline-flex items-center px-1.5 py-0 rounded text-[12px] font-medium border border-border">
                             {t('disk.lvm.lv.thinPool')}
                           </span>
                         )}
                         {lv.owner && (
-                          <span className="shrink-0 inline-flex items-center px-1.5 py-0 rounded text-[10px] font-medium bg-primary/10 text-primary" title={t('disk.lvm.lv.managedByProxmox')}>
+                          <span className="shrink-0 inline-flex items-center px-1.5 py-0 rounded text-[12px] font-medium bg-primary/10 text-primary" title={t('disk.lvm.lv.managedByProxmox')}>
                             {lv.owner}
                           </span>
                         )}
@@ -196,7 +196,7 @@ export function LVSection({ lvs, vgs, onChanged }: {
                     <TableCell className="text-muted-foreground">
                       {lv.size}
                       {(data !== null || meta !== null) && (
-                        <div className="text-[11px] whitespace-nowrap">
+                        <div className="text-[12px] whitespace-nowrap">
                           {data !== null && <span className={fillClass(data)}>{t('disk.lvm.lv.dataFill', { value: data.toFixed(1) })}</span>}
                           {data !== null && meta !== null && <span className="text-muted-foreground"> · </span>}
                           {meta !== null && <span className={fillClass(meta)}>{t('disk.lvm.lv.metadataFill', { value: meta.toFixed(1) })}</span>}
@@ -281,7 +281,7 @@ export function LVSection({ lvs, vgs, onChanged }: {
                 value={lvSize}
                 onChange={(e) => setLvSize(e.target.value)}
               />
-              <p className="text-[11px] text-muted-foreground">{t('disk.lvm.lv.sizeHint')}</p>
+              <p className="text-[12px] text-muted-foreground">{t('disk.lvm.lv.sizeHint')}</p>
             </div>
           </div>
           <DialogFooter>
@@ -336,7 +336,7 @@ export function LVSection({ lvs, vgs, onChanged }: {
                 value={resizeNewSize}
                 onChange={(e) => setResizeNewSize(e.target.value)}
               />
-              <p className="text-[11px] text-muted-foreground">{t('disk.lvm.lv.resizeHint')}</p>
+              <p className="text-[12px] text-muted-foreground">{t('disk.lvm.lv.resizeHint')}</p>
             </div>
           </div>
           <DialogFooter>

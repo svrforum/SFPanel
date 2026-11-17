@@ -156,15 +156,15 @@ export default function Tuning() {
         </div>
         <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
           <div className="space-y-1">
-            <p className="text-[11px] text-muted-foreground uppercase tracking-wider">CPU</p>
+            <p className="text-[12px] text-muted-foreground uppercase tracking-wider">CPU</p>
             <p className="text-[13px] font-medium">{status.system_info.cpu_cores} {t('settings.tuning.cores')}</p>
           </div>
           <div className="space-y-1">
-            <p className="text-[11px] text-muted-foreground uppercase tracking-wider">RAM</p>
+            <p className="text-[12px] text-muted-foreground uppercase tracking-wider">RAM</p>
             <p className="text-[13px] font-medium">{formatBytes(status.system_info.total_ram)}</p>
           </div>
           <div className="space-y-1">
-            <p className="text-[11px] text-muted-foreground uppercase tracking-wider">{t('settings.tuning.kernel')}</p>
+            <p className="text-[12px] text-muted-foreground uppercase tracking-wider">{t('settings.tuning.kernel')}</p>
             <p className="text-[13px] font-medium">{status.system_info.kernel}</p>
           </div>
         </div>
@@ -183,7 +183,7 @@ export default function Tuning() {
         </div>
         <div className="h-2 rounded-full bg-secondary overflow-hidden mb-4">
           <div
-            className="h-full rounded-full transition-all duration-500"
+            className="h-full rounded-full transition-[width] duration-500"
             style={{
               width: `${overallPercent}%`,
               backgroundColor: overallPercent === 100 ? 'var(--success)' : overallPercent > 50 ? 'var(--primary)' : 'var(--warning)',
@@ -218,7 +218,7 @@ export default function Tuning() {
                 <Timer className="h-5 w-5 text-warning animate-pulse" />
                 <div>
                   <p className="text-[13px] font-semibold">{t('settings.tuning.rollbackCountdown', { seconds: countdown })}</p>
-                  <p className="text-[11px] text-muted-foreground">{t('settings.tuning.rollbackHint')}</p>
+                  <p className="text-[12px] text-muted-foreground">{t('settings.tuning.rollbackHint')}</p>
                 </div>
               </div>
               <Button
@@ -232,7 +232,7 @@ export default function Tuning() {
             </div>
             <div className="mt-3 h-1.5 rounded-full bg-secondary overflow-hidden">
               <div
-                className="h-full rounded-full bg-warning transition-all duration-1000"
+                className="h-full rounded-full bg-warning transition-[width] duration-1000"
                 style={{ width: `${(countdown / 60) * 100}%` }}
               />
             </div>
@@ -270,7 +270,7 @@ export default function Tuning() {
               <div key={param.key} className="px-5 py-3 flex items-center justify-between gap-4">
                 <div className="min-w-0 flex-1">
                   <code className="text-[12px] font-mono text-foreground/80">{param.key}</code>
-                  <p className="text-[11px] text-muted-foreground mt-0.5">{param.description}</p>
+                  <p className="text-[12px] text-muted-foreground mt-0.5">{param.description}</p>
                 </div>
                 <span className="text-[12px] text-muted-foreground shrink-0">{param.current || '-'}</span>
               </div>
@@ -296,7 +296,7 @@ export default function Tuning() {
               <div key={param.key} className="px-5 py-3 flex items-center justify-between gap-4">
                 <div className="min-w-0 flex-1">
                   <code className="text-[12px] font-mono text-foreground/80">{param.key}</code>
-                  <p className="text-[11px] text-muted-foreground mt-0.5">{t('settings.tuning.operatorSetIn', { file: param.file, value: param.value })}</p>
+                  <p className="text-[12px] text-muted-foreground mt-0.5">{t('settings.tuning.operatorSetIn', { file: param.file, value: param.value })}</p>
                 </div>
                 <span className="text-[12px] text-muted-foreground shrink-0">{param.current || '-'}</span>
               </div>
@@ -318,7 +318,7 @@ export default function Tuning() {
             <div
               role="button"
               tabIndex={0}
-              className="flex items-center justify-between p-5 cursor-pointer hover:bg-secondary/30 transition-colors outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring/40"
+              className="flex items-center justify-between p-5 cursor-pointer hover:bg-secondary/30 transition-colors outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring"
               onClick={() => toggleExpand(cat.name)}
               onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); toggleExpand(cat.name) } }}
             >
@@ -331,7 +331,7 @@ export default function Tuning() {
                 </div>
                 <div>
                   <h3 className="text-[15px] font-semibold">{t(`settings.tuning.cat.${cat.name}`)}</h3>
-                  <p className="text-[11px] text-muted-foreground">
+                  <p className="text-[12px] text-muted-foreground">
                     {t(`settings.tuning.catDesc.${cat.name}`)}
                   </p>
                 </div>
@@ -339,7 +339,7 @@ export default function Tuning() {
 
               <div className="flex items-center gap-3">
                 {allApplied ? (
-                  <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-medium bg-success/10 text-success">
+                  <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[12px] font-medium bg-success/10 text-success">
                     <Check className="h-3 w-3 mr-1" />
                     {t('settings.tuning.optimized')}
                   </span>
@@ -395,7 +395,7 @@ export default function Tuning() {
                             <Minus className="h-3.5 w-3.5 text-warning shrink-0" />
                           )}
                         </div>
-                        <p className="text-[11px] text-muted-foreground mt-0.5">{param.description}</p>
+                        <p className="text-[12px] text-muted-foreground mt-0.5">{param.description}</p>
                       </div>
                       <div className="text-right shrink-0">
                         <div className="flex items-center gap-2 text-[12px]">

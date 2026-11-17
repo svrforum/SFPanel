@@ -204,7 +204,7 @@ export default function FirewallDocker() {
           </div>
           <div>
             <span className="text-[15px] font-semibold">{t('firewall.docker.title')}</span>
-            <p className="text-[11px] text-muted-foreground mt-0.5">
+            <p className="text-[12px] text-muted-foreground mt-0.5">
               {t('firewall.docker.description')}
             </p>
           </div>
@@ -228,12 +228,12 @@ export default function FirewallDocker() {
           <Table>
             <TableHeader>
               <TableRow>
-                <TableHead className="text-[11px]">{t('firewall.docker.hostPort')}</TableHead>
-                <TableHead className="text-[11px]">{t('firewall.docker.protocol')}</TableHead>
-                <TableHead className="text-[11px]">{t('firewall.docker.container')}</TableHead>
-                <TableHead className="text-[11px]">{t('firewall.docker.hostIP')}</TableHead>
-                <TableHead className="text-[11px]">{t('common.status')}</TableHead>
-                <TableHead className="text-right w-24 text-[11px]">{t('common.actions')}</TableHead>
+                <TableHead className="text-[12px]">{t('firewall.docker.hostPort')}</TableHead>
+                <TableHead className="text-[12px]">{t('firewall.docker.protocol')}</TableHead>
+                <TableHead className="text-[12px]">{t('firewall.docker.container')}</TableHead>
+                <TableHead className="text-[12px]">{t('firewall.docker.hostIP')}</TableHead>
+                <TableHead className="text-[12px]">{t('common.status')}</TableHead>
+                <TableHead className="text-right w-24 text-[12px]">{t('common.actions')}</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
@@ -250,11 +250,11 @@ export default function FirewallDocker() {
                     <TableCell className="text-[13px] font-mono text-muted-foreground">{port.host_ip}</TableCell>
                     <TableCell>
                       {blocked ? (
-                        <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-medium bg-destructive/10 text-destructive">
+                        <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[12px] font-medium bg-destructive/10 text-destructive">
                           {t('firewall.docker.blocked')}
                         </span>
                       ) : (
-                        <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-medium bg-success/10 text-success">
+                        <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[12px] font-medium bg-success/10 text-success">
                           {t('firewall.docker.open')}
                         </span>
                       )}
@@ -311,12 +311,12 @@ export default function FirewallDocker() {
             <Table>
               <TableHeader>
                 <TableRow>
-                  <TableHead className="w-16 text-[11px]">#</TableHead>
-                  <TableHead className="text-[11px]">{t('firewall.docker.port')}</TableHead>
-                  <TableHead className="text-[11px]">{t('firewall.docker.protocol')}</TableHead>
-                  <TableHead className="text-[11px]">{t('firewall.docker.source')}</TableHead>
-                  <TableHead className="text-[11px]">{t('firewall.docker.action')}</TableHead>
-                  <TableHead className="text-right w-16 text-[11px]">{t('common.actions')}</TableHead>
+                  <TableHead className="w-16 text-[12px]">#</TableHead>
+                  <TableHead className="text-[12px]">{t('firewall.docker.port')}</TableHead>
+                  <TableHead className="text-[12px]">{t('firewall.docker.protocol')}</TableHead>
+                  <TableHead className="text-[12px]">{t('firewall.docker.source')}</TableHead>
+                  <TableHead className="text-[12px]">{t('firewall.docker.action')}</TableHead>
+                  <TableHead className="text-right w-16 text-[12px]">{t('common.actions')}</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
@@ -329,7 +329,7 @@ export default function FirewallDocker() {
                       {rule.source || <span className="text-muted-foreground">*</span>}
                     </TableCell>
                     <TableCell>
-                      <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-medium ${
+                      <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-[12px] font-medium ${
                         rule.action === 'drop'
                           ? 'bg-destructive/10 text-destructive'
                           : 'bg-success/10 text-success'
@@ -338,7 +338,7 @@ export default function FirewallDocker() {
                       </span>
                       {rule.stale && (
                         <span
-                          className="ml-1.5 inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[11px] font-medium bg-warning/10 text-warning"
+                          className="ml-1.5 inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[12px] font-medium bg-warning/10 text-warning"
                           title={t('firewall.docker.staleHint')}
                         >
                           <AlertTriangle className="h-3 w-3" />
@@ -385,7 +385,7 @@ export default function FirewallDocker() {
                 className={`rounded-xl text-[13px] ${addPortInvalid ? 'ring-1 ring-destructive' : ''}`}
               />
               {addPortInvalid && (
-                <p className="text-[11px] text-destructive">{t('firewall.rules.invalidPort')}</p>
+                <p className="text-[12px] text-destructive">{t('firewall.rules.invalidPort')}</p>
               )}
             </div>
 
@@ -412,7 +412,7 @@ export default function FirewallDocker() {
                 placeholder="192.168.1.0/24"
                 className="rounded-xl text-[13px]"
               />
-              <p className="text-[11px] text-muted-foreground">{t('firewall.docker.sourceHint')}</p>
+              <p className="text-[12px] text-muted-foreground">{t('firewall.docker.sourceHint')}</p>
             </div>
 
             {/* Action */}

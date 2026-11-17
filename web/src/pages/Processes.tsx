@@ -239,7 +239,7 @@ export default function Processes() {
   }
 
   const niceBadge = (nice: number) => {
-    const base = 'inline-flex items-center gap-1 px-1.5 py-0.5 rounded-md text-[11px] font-mono'
+    const base = 'inline-flex items-center gap-1 px-1.5 py-0.5 rounded-md text-[12px] font-mono'
     const tone =
       nice < 0 ? 'bg-warning/10 text-warning'
         : nice > 0 ? 'bg-secondary text-muted-foreground'
@@ -257,7 +257,7 @@ export default function Processes() {
   const guardBadge = (proc: ProcessInfo) => {
     if (!proc.vmid && !proc.protected) return null
     return (
-      <span className="inline-flex shrink-0 items-center gap-1 rounded-md bg-warning/10 px-1.5 py-0.5 text-[11px] font-medium text-warning">
+      <span className="inline-flex shrink-0 items-center gap-1 rounded-md bg-warning/10 px-1.5 py-0.5 text-[12px] font-medium text-warning">
         <ShieldAlert className="h-3 w-3" />
         {proc.vmid ? t('processes.vm', { vmid: proc.vmid }) : t('processes.protectedLabel')}
       </span>
@@ -348,7 +348,7 @@ export default function Processes() {
           <p className="text-[13px] font-medium truncate">{proc.name}</p>
           {guardBadge(proc)}
         </div>
-        <div className="flex items-center gap-3 mt-1 text-[11px] text-muted-foreground flex-wrap">
+        <div className="flex items-center gap-3 mt-1 text-[12px] text-muted-foreground flex-wrap">
           <span className="font-mono">PID {proc.pid}</span>
           <span className="flex items-center gap-1">
             <Cpu className="h-3 w-3" />
@@ -435,12 +435,12 @@ export default function Processes() {
                   </div>
                   <div className="h-1.5 rounded-full bg-secondary overflow-hidden">
                     <div
-                      className="h-full rounded-full transition-all duration-500"
+                      className="h-full rounded-full transition-[width] duration-500"
                       style={{ width: `${card.percent}%`, backgroundColor: card.barColor }}
                     />
                   </div>
                   {card.sub && (
-                    <p className="text-[11px] text-muted-foreground mt-1">{card.sub}</p>
+                    <p className="text-[12px] text-muted-foreground mt-1">{card.sub}</p>
                   )}
                 </div>
               </div>
@@ -610,7 +610,7 @@ export default function Processes() {
 
             {/* Job control: pause / resume (non-destructive) */}
             <div className="space-y-1.5">
-              <span className="text-[11px] font-medium text-muted-foreground uppercase tracking-wide">
+              <span className="text-[12px] font-medium text-muted-foreground uppercase tracking-wide">
                 {t('processes.signalJobControl')}
               </span>
               <div className="flex gap-2">
@@ -637,7 +637,7 @@ export default function Processes() {
 
             {/* Destructive: terminate */}
             <div className="space-y-1.5">
-              <span className="text-[11px] font-medium text-destructive uppercase tracking-wide">
+              <span className="text-[12px] font-medium text-destructive uppercase tracking-wide">
                 {t('processes.signalDestructive')}
               </span>
               <div className="flex gap-2">

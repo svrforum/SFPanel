@@ -211,13 +211,13 @@ export default function DockerImages() {
               <div className="min-w-0 flex-1">
                 <p className="text-[13px] font-medium font-mono break-all">{getRepoTag(img)}</p>
                 <div className="flex items-center gap-2 mt-1">
-                  <span className="text-[11px] text-muted-foreground font-mono">{shortId(img.Id)}</span>
-                  <span className="text-[11px] text-muted-foreground">{formatBytes(img.Size)}</span>
+                  <span className="text-[12px] text-muted-foreground font-mono">{shortId(img.Id)}</span>
+                  <span className="text-[12px] text-muted-foreground">{formatBytes(img.Size)}</span>
                 </div>
                 <div className="flex items-center gap-1.5 mt-1.5 flex-wrap">
                   <UsagePill inUse={img.in_use} usedBy={img.used_by} />
                   {getUpdateStatus(img.RepoTags?.[0] || '')?.has_update && (
-                    <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-medium bg-primary/10 text-primary">
+                    <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[12px] font-medium bg-primary/10 text-primary">
                       <button className="min-h-11 underline" onClick={() => { setPullImage(img.RepoTags?.[0] || ''); setPullDialogOpen(true) }}>{t('docker.images.updateAvailable')} · {t('docker.images.pull')}</button>
                     </span>
                   )}
@@ -275,7 +275,7 @@ export default function DockerImages() {
                 <div className="flex items-center gap-1.5 flex-wrap">
                   <UsagePill inUse={img.in_use} usedBy={img.used_by} />
                   {getUpdateStatus(img.RepoTags?.[0] || '')?.has_update && (
-                    <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-medium bg-primary/10 text-primary">
+                    <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[12px] font-medium bg-primary/10 text-primary">
                       <button className="min-h-11 underline" onClick={() => { setPullImage(img.RepoTags?.[0] || ''); setPullDialogOpen(true) }}>{t('docker.images.updateAvailable')} · {t('docker.images.pull')}</button>
                     </span>
                   )}

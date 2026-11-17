@@ -66,11 +66,11 @@ export function ConvertNodeDialog({ open, onOpenChange, node, localId, nodes, on
     >
       <div className="space-y-3">
         <div className="space-y-1">
-          <p className="text-[11px] text-muted-foreground uppercase tracking-wider">{t('cluster.convert.erased')}</p>
+          <p className="text-[12px] text-muted-foreground uppercase tracking-wider">{t('cluster.convert.erased')}</p>
           <p className="text-[13px]">{t('cluster.convert.erasedList')}</p>
         </div>
         <div className="space-y-1">
-          <p className="text-[11px] text-muted-foreground uppercase tracking-wider">{t('cluster.convert.kept')}</p>
+          <p className="text-[12px] text-muted-foreground uppercase tracking-wider">{t('cluster.convert.kept')}</p>
           <p className="text-[13px]">{t('cluster.convert.keptList')}</p>
         </div>
         <p className="text-[13px] text-muted-foreground">{t('cluster.convert.noLogin')}</p>

@@ -352,7 +352,7 @@ export default function NetworkInterfaces() {
     list.length > 0 && (
       <div>
         <button
-          className="flex items-center gap-2 mb-3 group outline-none focus-visible:ring-2 focus-visible:ring-ring/40 focus-visible:ring-offset-0"
+          className="flex items-center gap-2 mb-3 group outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-0"
           onClick={toggle}
           aria-expanded={!collapsed}
           aria-controls={id}
@@ -362,7 +362,7 @@ export default function NetworkInterfaces() {
           <span className="inline-flex items-center px-3 py-1 rounded-full text-[13px] font-semibold bg-primary/10 text-primary">
             {list.length}
           </span>
-          <span className="text-[11px] text-muted-foreground ml-1">
+          <span className="text-[12px] text-muted-foreground ml-1">
             {collapsed ? '▸' : '▾'}
           </span>
         </button>
@@ -517,7 +517,7 @@ export default function NetworkInterfaces() {
                   placeholder="8.8.8.8, 8.8.4.4, 1.1.1.1"
                   className="pl-3 h-9 rounded-xl bg-secondary/50 border-0 text-[13px] font-mono"
                 />
-                <p className="text-[11px] text-muted-foreground">{t('network.dnsHint')}</p>
+                <p className="text-[12px] text-muted-foreground">{t('network.dnsHint')}</p>
               </div>
               <div className="flex items-center gap-2 justify-end">
                 <Button variant="outline" size="sm" className="rounded-xl" onClick={() => setDnsEditing(false)}>
@@ -581,7 +581,7 @@ export default function NetworkInterfaces() {
                     {route.metric > 0 ? route.metric : '-'}
                   </TableCell>
                   <TableCell>
-                    <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-medium bg-secondary text-muted-foreground">
+                    <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[12px] font-medium bg-secondary text-muted-foreground">
                       {protocolLabel(route.protocol)}
                     </span>
                   </TableCell>
@@ -634,7 +634,7 @@ export default function NetworkInterfaces() {
                   <TableRow key={bond.name}>
                     <TableCell className="font-medium">{bond.name}</TableCell>
                     <TableCell className="text-[13px]">
-                      <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-medium bg-warning/10 text-warning">
+                      <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[12px] font-medium bg-warning/10 text-warning">
                         {bond.bond_info?.mode || '-'}
                       </span>
                     </TableCell>
@@ -702,7 +702,7 @@ export default function NetworkInterfaces() {
                 <button
                   role="radio"
                   aria-checked={configMode === 'dhcp'}
-                  className={`flex-1 py-2 rounded-xl text-[13px] font-medium transition-all outline-none focus-visible:ring-2 focus-visible:ring-ring/40 focus-visible:ring-offset-0 ${
+                  className={`flex-1 py-2 rounded-xl text-[13px] font-medium transition outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-0 ${
                     configMode === 'dhcp'
                       ? 'bg-primary text-primary-foreground'
                       : 'bg-secondary text-muted-foreground hover:text-foreground'
@@ -714,7 +714,7 @@ export default function NetworkInterfaces() {
                 <button
                   role="radio"
                   aria-checked={configMode === 'static'}
-                  className={`flex-1 py-2 rounded-xl text-[13px] font-medium transition-all outline-none focus-visible:ring-2 focus-visible:ring-ring/40 focus-visible:ring-offset-0 ${
+                  className={`flex-1 py-2 rounded-xl text-[13px] font-medium transition outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-0 ${
                     configMode === 'static'
                       ? 'bg-primary text-primary-foreground'
                       : 'bg-secondary text-muted-foreground hover:text-foreground'
@@ -736,10 +736,10 @@ export default function NetworkInterfaces() {
                     value={configAddresses}
                     onChange={(e) => setConfigAddresses(e.target.value)}
                     placeholder="192.168.1.100/24&#10;10.0.0.1/8"
-                    className="flex w-full rounded-xl border-0 bg-secondary/50 px-3 py-2 text-[13px] font-mono transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/20 min-h-[72px] resize-none"
+                    className="flex w-full rounded-xl border-0 bg-secondary/50 px-3 py-2 text-[13px] font-mono transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring min-h-[72px] resize-none"
                     rows={3}
                   />
-                  <p className="text-[11px] text-muted-foreground">{t('network.ipAddressesHint')}</p>
+                  <p className="text-[12px] text-muted-foreground">{t('network.ipAddressesHint')}</p>
                 </div>
 
                 <div className="grid grid-cols-2 gap-3">
@@ -789,7 +789,7 @@ export default function NetworkInterfaces() {
                 type="number"
                 className="pl-3 h-9 rounded-xl bg-secondary/50 border-0 text-[13px] font-mono"
               />
-              <p className="text-[11px] text-muted-foreground">{t('network.mtuHint')}</p>
+              <p className="text-[12px] text-muted-foreground">{t('network.mtuHint')}</p>
             </div>
           </div>
 

@@ -53,7 +53,7 @@ export function DockerVolumeUsageCard() {
         </CardTitle>
         <Link
           to="/docker/volumes"
-          className="text-[12px] text-primary hover:underline outline-none focus-visible:ring-2 focus-visible:ring-ring/40 focus-visible:ring-offset-0"
+          className="text-[12px] text-primary hover:underline outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-0"
         >
           {t('disk.volumeCard.viewAll')}
         </Link>
@@ -73,7 +73,7 @@ export function DockerVolumeUsageCard() {
                 </div>
               ))}
             </div>
-            <div className="mt-2 pt-2 border-t text-[11px] text-muted-foreground flex justify-between">
+            <div className="mt-2 pt-2 border-t text-[12px] text-muted-foreground flex justify-between">
               <span>
                 {t('disk.volumeCard.total', { size: formatBytes(total), count: sized.length })}
               </span>

@@ -57,7 +57,7 @@ export function EditNodeAddressDialog({
         </DialogHeader>
         <div className="space-y-4">
           <div className="space-y-1.5">
-            <label className="text-[11px] text-muted-foreground uppercase tracking-wider">
+            <label className="text-[12px] text-muted-foreground uppercase tracking-wider">
               {t('cluster.nodes.apiAddress')}
             </label>
             <Input
@@ -67,7 +67,7 @@ export function EditNodeAddressDialog({
             />
           </div>
           <div className="space-y-1.5">
-            <label className="text-[11px] text-muted-foreground uppercase tracking-wider">
+            <label className="text-[12px] text-muted-foreground uppercase tracking-wider">
               {t('cluster.nodes.grpcAddress')}
             </label>
             <Input

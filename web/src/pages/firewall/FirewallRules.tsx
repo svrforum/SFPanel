@@ -123,7 +123,7 @@ function RuleFormFields({
           className={`h-9 rounded-xl bg-secondary/50 border-0 text-[13px] ${portError ? 'ring-1 ring-destructive' : ''}`}
         />
         {portError && (
-          <p className="text-[11px] text-destructive">{t('firewall.rules.invalidPort')}</p>
+          <p className="text-[12px] text-destructive">{t('firewall.rules.invalidPort')}</p>
         )}
       </div>
 
@@ -141,7 +141,7 @@ function RuleFormFields({
           </SelectContent>
         </Select>
         {protocolError && (
-          <p className="text-[11px] text-destructive">{t('firewall.rules.portNeedsProtocol')}</p>
+          <p className="text-[12px] text-destructive">{t('firewall.rules.portNeedsProtocol')}</p>
         )}
       </div>
 
@@ -156,9 +156,9 @@ function RuleFormFields({
           className={`h-9 rounded-xl bg-secondary/50 border-0 text-[13px] ${fromError ? 'ring-1 ring-destructive' : ''}`}
         />
         {fromError ? (
-          <p className="text-[11px] text-destructive">{t('firewall.rules.invalidIP')}</p>
+          <p className="text-[12px] text-destructive">{t('firewall.rules.invalidIP')}</p>
         ) : (
-          <p className="text-[11px] text-muted-foreground">{t('firewall.rules.fromIPHint')}</p>
+          <p className="text-[12px] text-muted-foreground">{t('firewall.rules.fromIPHint')}</p>
         )}
       </div>
 
@@ -402,7 +402,7 @@ export default function FirewallRules() {
   }
 
   const getActionStyle = (action: string) => {
-    const base = 'inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-medium'
+    const base = 'inline-flex items-center px-2 py-0.5 rounded-full text-[12px] font-medium'
     const normalized = action.toUpperCase()
     if (normalized.startsWith('ALLOW')) return `${base} bg-success/10 text-success`
     if (normalized.startsWith('DENY') || normalized.startsWith('REJECT')) return `${base} bg-destructive/10 text-destructive`
@@ -435,7 +435,7 @@ export default function FirewallRules() {
   if (status && manager === 'pve-firewall') {
     const url = proxmoxUiUrl()
     const badge = (on: boolean) =>
-      `inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-medium ${on ? 'bg-success/10 text-success' : 'bg-secondary text-muted-foreground'}`
+      `inline-flex items-center px-2 py-0.5 rounded-full text-[12px] font-medium ${on ? 'bg-success/10 text-success' : 'bg-secondary text-muted-foreground'}`
     return (
       <div className="space-y-4 mt-4">
         <div className="bg-card rounded-2xl p-5 card-shadow space-y-4">
@@ -465,7 +465,7 @@ export default function FirewallRules() {
                 </span>
               </div>
               {status.pve.raw && (
-                <p className="font-mono text-[11px] text-muted-foreground break-words">{status.pve.raw}</p>
+                <p className="font-mono text-[12px] text-muted-foreground break-words">{status.pve.raw}</p>
               )}
             </div>
           )}
@@ -495,7 +495,7 @@ export default function FirewallRules() {
             <div className="min-w-0">
               <div className="flex items-center gap-2">
                 <h3 className="text-[15px] font-semibold">{t('firewall.status.title')}</h3>
-                <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-medium bg-secondary text-muted-foreground">
+                <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[12px] font-medium bg-secondary text-muted-foreground">
                   {t('firewall.status.notInstalled')}
                 </span>
               </div>
@@ -520,7 +520,7 @@ export default function FirewallRules() {
               <div className="flex items-center gap-2">
                 <h3 className="text-[15px] font-semibold">{t('firewall.status.title')}</h3>
                 {status && (
-                  <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-medium ${
+                  <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-[12px] font-medium ${
                     status.active
                       ? 'bg-success/10 text-success'
                       : 'bg-destructive/10 text-destructive'
@@ -531,10 +531,10 @@ export default function FirewallRules() {
               </div>
               {status && (
                 <div className="flex items-center gap-4 mt-1">
-                  <span className="text-[11px] text-muted-foreground">
+                  <span className="text-[12px] text-muted-foreground">
                     {t('firewall.status.defaultIncoming')}: <span className="font-medium text-foreground">{status.default_incoming}</span>
                   </span>
-                  <span className="text-[11px] text-muted-foreground">
+                  <span className="text-[12px] text-muted-foreground">
                     {t('firewall.status.defaultOutgoing')}: <span className="font-medium text-foreground">{status.default_outgoing}</span>
                   </span>
                 </div>
@@ -597,12 +597,12 @@ export default function FirewallRules() {
           <Table>
             <TableHeader>
               <TableRow>
-                <TableHead className="w-16 text-[11px]">{t('firewall.rules.number')}</TableHead>
-                <TableHead className="text-[11px]">{t('firewall.rules.to')}</TableHead>
-                <TableHead className="text-[11px]">{t('firewall.rules.action')}</TableHead>
-                <TableHead className="text-[11px]">{t('firewall.rules.from')}</TableHead>
-                <TableHead className="text-[11px]">{t('firewall.rules.comment')}</TableHead>
-                <TableHead className="text-right w-24 text-[11px]">{t('common.actions')}</TableHead>
+                <TableHead className="w-16 text-[12px]">{t('firewall.rules.number')}</TableHead>
+                <TableHead className="text-[12px]">{t('firewall.rules.to')}</TableHead>
+                <TableHead className="text-[12px]">{t('firewall.rules.action')}</TableHead>
+                <TableHead className="text-[12px]">{t('firewall.rules.from')}</TableHead>
+                <TableHead className="text-[12px]">{t('firewall.rules.comment')}</TableHead>
+                <TableHead className="text-right w-24 text-[12px]">{t('common.actions')}</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
@@ -612,7 +612,7 @@ export default function FirewallRules() {
                   <TableCell className="text-[13px] font-mono">
                     {rule.to}
                     {rule.v6 && (
-                      <span className="ml-1.5 rounded-md bg-secondary px-1.5 py-0.5 font-sans text-[10px] text-muted-foreground">
+                      <span className="ml-1.5 rounded-md bg-secondary px-1.5 py-0.5 font-sans text-[12px] text-muted-foreground">
                         {t('firewall.rules.ipv6')}
                       </span>
                     )}

@@ -178,7 +178,7 @@ function GridTile({ entry, selected, active, onToggleSelect, onOpen, actions }: 
           <button
             type="button"
             onClick={onOpen}
-            className="w-full rounded-xl outline-none focus-visible:ring-2 focus-visible:ring-ring/40"
+            className="w-full rounded-xl outline-none focus-visible:ring-2 focus-visible:ring-ring"
           >
             <div className="aspect-square w-full overflow-hidden rounded-lg bg-secondary/40">
               <Thumbnail entry={entry} />
@@ -186,7 +186,7 @@ function GridTile({ entry, selected, active, onToggleSelect, onOpen, actions }: 
             <p className="mt-1.5 line-clamp-2 break-all text-center text-[12px] leading-tight">
               {entry.name}
             </p>
-            <p className="text-center text-[11px] text-muted-foreground">
+            <p className="text-center text-[12px] text-muted-foreground">
               {entry.isDir ? '' : formatBytes(entry.size)}
             </p>
           </button>

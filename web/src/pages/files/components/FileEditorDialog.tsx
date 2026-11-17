@@ -188,7 +188,7 @@ export function FileEditorDialog({ target, onOpenChange, onSaved }: {
           <DialogTitle className="flex items-center gap-2">
             {t('files.editFile')}
             {dirty && (
-              <span className="text-[11px] font-normal text-warning">
+              <span className="text-[12px] font-normal text-warning">
                 {t('files.unsaved', { defaultValue: 'unsaved' })}
               </span>
             )}
@@ -224,7 +224,7 @@ export function FileEditorDialog({ target, onOpenChange, onSaved }: {
               />
             </div>
             <DialogFooter className="gap-2 sm:gap-2">
-              <span className="mr-auto hidden items-center gap-1 text-[11px] text-muted-foreground sm:flex">
+              <span className="mr-auto hidden items-center gap-1 text-[12px] text-muted-foreground sm:flex">
                 <AlertTriangle className="h-3 w-3" aria-hidden="true" />
                 {t('files.saveHint', { defaultValue: 'Ctrl+S saves' })}
               </span>

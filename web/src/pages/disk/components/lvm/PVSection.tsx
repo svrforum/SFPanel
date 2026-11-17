@@ -88,12 +88,12 @@ export function PVSection({ pvs, onChanged }: {
           <Table>
             <TableHeader>
               <TableRow className="border-border/50">
-                <TableHead className="text-[11px]">{t('common.name')}</TableHead>
-                <TableHead className="text-[11px]">{t('disk.lvm.pv.vgName')}</TableHead>
-                <TableHead className="text-[11px]">{t('disk.lvm.size')}</TableHead>
-                <TableHead className="text-[11px]">{t('disk.lvm.free')}</TableHead>
-                <TableHead className="text-[11px]">{t('disk.lvm.attr')}</TableHead>
-                <TableHead className="text-right text-[11px]">{t('common.actions')}</TableHead>
+                <TableHead className="text-[12px]">{t('common.name')}</TableHead>
+                <TableHead className="text-[12px]">{t('disk.lvm.pv.vgName')}</TableHead>
+                <TableHead className="text-[12px]">{t('disk.lvm.size')}</TableHead>
+                <TableHead className="text-[12px]">{t('disk.lvm.free')}</TableHead>
+                <TableHead className="text-[12px]">{t('disk.lvm.attr')}</TableHead>
+                <TableHead className="text-right text-[12px]">{t('common.actions')}</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>

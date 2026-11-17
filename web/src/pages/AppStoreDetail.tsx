@@ -427,19 +427,19 @@ export default function AppStoreDetailModal({ appId, open, onClose, onInstalled 
 
                 <div className="flex flex-wrap items-center gap-2 mt-3">
                   {detail.installed && detail.installed_at ? (
-                    <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-[11px] font-medium bg-secondary/60 text-muted-foreground">
+                    <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-[12px] font-medium bg-secondary/60 text-muted-foreground">
                       {t('appStore.installedOn', { date: new Date(detail.installed_at).toLocaleDateString() })}
                     </span>
                   ) : null}
                   {detail.app.category && (
-                    <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-[11px] font-medium bg-secondary/60 text-muted-foreground capitalize">
+                    <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-[12px] font-medium bg-secondary/60 text-muted-foreground capitalize">
                       {detail.app.category}
                     </span>
                   )}
                   {detail.app.ports.map((port) => (
                     <span
                       key={port}
-                      className="inline-flex items-center px-2.5 py-0.5 rounded-full text-[11px] font-medium bg-secondary/60 text-muted-foreground"
+                      className="inline-flex items-center px-2.5 py-0.5 rounded-full text-[12px] font-medium bg-secondary/60 text-muted-foreground"
                     >
                       {t('appStore.port')}: {port}
                     </span>
@@ -500,7 +500,7 @@ export default function AppStoreDetailModal({ appId, open, onClose, onInstalled 
                       href={detail.app.website}
                       target="_blank"
                       rel="noopener noreferrer"
-                      className="inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-xl text-[12px] text-muted-foreground hover:text-foreground hover:bg-secondary/50 transition-colors outline-none focus-visible:ring-2 focus-visible:ring-ring/40 focus-visible:ring-offset-0"
+                      className="inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-xl text-[12px] text-muted-foreground hover:text-foreground hover:bg-secondary/50 transition-colors outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-0"
                     >
                       <Globe className="h-3.5 w-3.5" />
                       {t('appStore.website')}
@@ -511,7 +511,7 @@ export default function AppStoreDetailModal({ appId, open, onClose, onInstalled 
                       href={detail.app.source}
                       target="_blank"
                       rel="noopener noreferrer"
-                      className="inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-xl text-[12px] text-muted-foreground hover:text-foreground hover:bg-secondary/50 transition-colors outline-none focus-visible:ring-2 focus-visible:ring-ring/40 focus-visible:ring-offset-0"
+                      className="inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-xl text-[12px] text-muted-foreground hover:text-foreground hover:bg-secondary/50 transition-colors outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-0"
                     >
                       <Code2 className="h-3.5 w-3.5" />
                       {t('appStore.source')}
@@ -532,7 +532,7 @@ export default function AppStoreDetailModal({ appId, open, onClose, onInstalled 
                       href={src}
                       target="_blank"
                       rel="noopener noreferrer"
-                      className="shrink-0 rounded-xl outline-none focus-visible:ring-2 focus-visible:ring-ring/40 focus-visible:ring-offset-0"
+                      className="shrink-0 rounded-xl outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-0"
                     >
                       <img
                         src={src}
@@ -559,7 +559,7 @@ export default function AppStoreDetailModal({ appId, open, onClose, onInstalled 
                 {/* Mode tabs */}
                 <div className="flex gap-1 p-1 bg-secondary/40 rounded-xl mb-4">
                   <button
-                    className={`flex-1 py-1.5 text-[12px] font-medium rounded-lg transition-colors outline-none focus-visible:ring-2 focus-visible:ring-ring/40 focus-visible:ring-offset-0 ${
+                    className={`flex-1 py-1.5 text-[12px] font-medium rounded-lg transition-colors outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-0 ${
                       installMode === 'simple'
                         ? 'bg-background text-foreground shadow-sm'
                         : 'text-muted-foreground hover:text-foreground'
@@ -569,7 +569,7 @@ export default function AppStoreDetailModal({ appId, open, onClose, onInstalled 
                     {t('appStore.simpleMode')}
                   </button>
                   <button
-                    className={`flex-1 py-1.5 text-[12px] font-medium rounded-lg transition-colors outline-none focus-visible:ring-2 focus-visible:ring-ring/40 focus-visible:ring-offset-0 ${
+                    className={`flex-1 py-1.5 text-[12px] font-medium rounded-lg transition-colors outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-0 ${
                       installMode === 'advanced'
                         ? 'bg-background text-foreground shadow-sm'
                         : 'text-muted-foreground hover:text-foreground'
@@ -615,7 +615,7 @@ export default function AppStoreDetailModal({ appId, open, onClose, onInstalled 
                               />
                               <button
                                 type="button"
-                                className="absolute right-2.5 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground rounded-sm outline-none focus-visible:ring-2 focus-visible:ring-ring/40 focus-visible:ring-offset-0"
+                                className="absolute right-2.5 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground rounded-sm outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-0"
                                 onClick={() =>
                                   setShowPasswords((prev) => ({
                                     ...prev,
@@ -636,7 +636,7 @@ export default function AppStoreDetailModal({ appId, open, onClose, onInstalled 
                                   type="button"
                                   variant="outline"
                                   size="sm"
-                                  className="rounded-xl text-[11px] shrink-0"
+                                  className="rounded-xl text-[12px] shrink-0"
                                   onClick={() =>
                                     setEnvValues((prev) => ({
                                       ...prev,
@@ -651,7 +651,7 @@ export default function AppStoreDetailModal({ appId, open, onClose, onInstalled 
                                   type="button"
                                   variant="outline"
                                   size="sm"
-                                  className="rounded-xl text-[11px] shrink-0"
+                                  className="rounded-xl text-[12px] shrink-0"
                                   onClick={() => copyToClipboard(envValues[envDef.key] || '', `env-${envDef.key}`)}
                                 >
                                   {copiedKey === `env-${envDef.key}` ? (
@@ -665,7 +665,7 @@ export default function AppStoreDetailModal({ appId, open, onClose, onInstalled 
                             )}
                           </div>
                           {envDef.generate && (
-                            <p className="text-[11px] text-muted-foreground">
+                            <p className="text-[12px] text-muted-foreground">
                               {t('appStore.passwordStoredNote')}
                             </p>
                           )}
@@ -684,7 +684,7 @@ export default function AppStoreDetailModal({ appId, open, onClose, onInstalled 
                               const ps = detail.port_status?.find(p => p.port === parseInt(envDef.default || '0', 10))
                               if (ps?.in_use) {
                                 return (
-                                  <p className="text-[11px] text-warning mt-1">
+                                  <p className="text-[12px] text-warning mt-1">
                                     {t('appStore.portInUse', { port: ps.port, suggested: ps.suggested || '' })}
                                   </p>
                                 )
@@ -706,7 +706,7 @@ export default function AppStoreDetailModal({ appId, open, onClose, onInstalled 
                         rejects the most dangerous patterns (privileged, host
                         namespaces, bind mounts into system paths, docker.sock)
                         but a broken file can still brick the stack. */}
-                    <div className="mb-3 rounded-lg border border-yellow-500/40 bg-yellow-500/10 p-3 text-[11px] text-yellow-900 dark:text-yellow-100">
+                    <div className="mb-3 rounded-lg border border-yellow-500/40 bg-yellow-500/10 p-3 text-[12px] text-yellow-900 dark:text-yellow-100">
                       <Trans
                         i18nKey="appStore.advancedWarning"
                         defaults="⚠️ Advanced mode runs arbitrary Docker Compose YAML on the host with root privileges. Dangerous patterns (privileged containers, host namespaces, bind mounts into <code>/etc</code>, <code>/root</code>, <code>/var/lib/sfpanel</code>, the Docker socket, etc.) are rejected server-side. Review your file before installing."
@@ -716,7 +716,7 @@ export default function AppStoreDetailModal({ appId, open, onClose, onInstalled 
                     {/* Sub-tabs */}
                     <div className="flex gap-1 mb-3">
                       <button
-                        className={`px-3 py-1 text-[11px] font-medium rounded-lg transition-colors outline-none focus-visible:ring-2 focus-visible:ring-ring/40 focus-visible:ring-offset-0 ${
+                        className={`px-3 py-1 text-[12px] font-medium rounded-lg transition-colors outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-0 ${
                           advancedTab === 'compose'
                             ? 'bg-primary/10 text-primary'
                             : 'text-muted-foreground hover:text-foreground hover:bg-secondary/50'
@@ -726,7 +726,7 @@ export default function AppStoreDetailModal({ appId, open, onClose, onInstalled 
                         docker-compose.yml
                       </button>
                       <button
-                        className={`px-3 py-1 text-[11px] font-medium rounded-lg transition-colors outline-none focus-visible:ring-2 focus-visible:ring-ring/40 focus-visible:ring-offset-0 ${
+                        className={`px-3 py-1 text-[12px] font-medium rounded-lg transition-colors outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-0 ${
                           advancedTab === 'env'
                             ? 'bg-primary/10 text-primary'
                             : 'text-muted-foreground hover:text-foreground hover:bg-secondary/50'
@@ -752,7 +752,7 @@ export default function AppStoreDetailModal({ appId, open, onClose, onInstalled 
                 )}
 
                 {installMode === 'simple' && accessUrl && (
-                  <p className="text-[11px] text-muted-foreground mb-3 break-all">
+                  <p className="text-[12px] text-muted-foreground mb-3 break-all">
                     {t('appStore.accessAfterInstall')}{' '}
                     <span className="font-mono text-foreground">{accessUrl}</span>
                   </p>
@@ -821,7 +821,7 @@ export default function AppStoreDetailModal({ appId, open, onClose, onInstalled 
                         <h4 className="text-[13px] font-semibold">
                           {feature.title[lang] || feature.title['en'] || ''}
                         </h4>
-                        <p className="text-[11px] text-muted-foreground mt-0.5 leading-relaxed">
+                        <p className="text-[12px] text-muted-foreground mt-0.5 leading-relaxed">
                           {feature.description[lang] || feature.description['en'] || ''}
                         </p>
                       </div>
@@ -835,7 +835,7 @@ export default function AppStoreDetailModal({ appId, open, onClose, onInstalled 
             <div>
               <button
                 onClick={() => setShowCompose(!showCompose)}
-                className="flex items-center gap-2 text-[14px] font-semibold hover:text-primary transition-colors rounded-sm outline-none focus-visible:ring-2 focus-visible:ring-ring/40 focus-visible:ring-offset-0"
+                className="flex items-center gap-2 text-[14px] font-semibold hover:text-primary transition-colors rounded-sm outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-0"
               >
                 Docker Compose
                 {showCompose ? <ChevronUp className="h-4 w-4" /> : <ChevronDown className="h-4 w-4" />}

@@ -50,14 +50,14 @@ function SortableHead({
 }) {
   return (
     <TableHead
-      className={`cursor-pointer select-none outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring/40 ${className ?? ''}`}
+      className={`cursor-pointer select-none outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring ${className ?? ''}`}
       role="button"
       tabIndex={0}
       aria-sort={active ? (dir === 'asc' ? 'ascending' : 'descending') : 'none'}
       onClick={onSort}
       onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); onSort() } }}
     >
-      <span className="inline-flex items-center text-[11px]">
+      <span className="inline-flex items-center text-[12px]">
         {label}
         {active ? (
           dir === 'asc'
@@ -175,7 +175,7 @@ export default function FirewallPorts() {
   }, [ports, search, sortKey, sortDir, filterProtocol])
 
   const getProtocolStyle = (protocol: string) => {
-    const base = 'inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-medium'
+    const base = 'inline-flex items-center px-2 py-0.5 rounded-full text-[12px] font-medium'
     if (protocol.startsWith('tcp')) {
       return `${base} bg-primary/10 text-primary`
     }
@@ -304,8 +304,8 @@ export default function FirewallPorts() {
                 dir={sortDir}
                 onSort={() => handleSort('process')}
               />
-              <TableHead className="w-20 text-[11px]">{t('firewall.ports.pid')}</TableHead>
-              <TableHead className="text-right w-32 text-[11px]">{t('common.actions')}</TableHead>
+              <TableHead className="w-20 text-[12px]">{t('firewall.ports.pid')}</TableHead>
+              <TableHead className="text-right w-32 text-[12px]">{t('common.actions')}</TableHead>
             </TableRow>
           </TableHeader>
           <TableBody>
@@ -372,13 +372,13 @@ export default function FirewallPorts() {
             {/* Port info */}
             <div className="grid grid-cols-2 gap-3">
               <div>
-                <label className="text-[11px] text-muted-foreground uppercase tracking-wider">
+                <label className="text-[12px] text-muted-foreground uppercase tracking-wider">
                   {t('firewall.rules.port')}
                 </label>
                 <p className="text-[13px] font-mono font-medium mt-1">{addTarget?.port}</p>
               </div>
               <div>
-                <label className="text-[11px] text-muted-foreground uppercase tracking-wider">
+                <label className="text-[12px] text-muted-foreground uppercase tracking-wider">
                   {t('firewall.rules.protocol')}
                 </label>
                 <p className="text-[13px] font-mono font-medium mt-1">
@@ -413,9 +413,9 @@ export default function FirewallPorts() {
                 className={`rounded-xl text-[13px] ${fromError ? 'ring-1 ring-destructive' : ''}`}
               />
               {fromError ? (
-                <p className="text-[11px] text-destructive">{t('firewall.rules.invalidIP')}</p>
+                <p className="text-[12px] text-destructive">{t('firewall.rules.invalidIP')}</p>
               ) : (
-                <p className="text-[11px] text-muted-foreground">{t('firewall.rules.fromIPHint')}</p>
+                <p className="text-[12px] text-muted-foreground">{t('firewall.rules.fromIPHint')}</p>
               )}
             </div>
 

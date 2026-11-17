@@ -137,7 +137,7 @@ export function AddPeerDialog({
                   <Label className="text-[13px]">{t('network.wireguard.peers.clientPublicKey')}</Label>
                   <button
                     type="button"
-                    className="inline-flex items-center gap-1 text-[12px] text-primary hover:text-primary/80 font-medium disabled:opacity-50 outline-none focus-visible:ring-2 focus-visible:ring-ring/40 focus-visible:ring-offset-0"
+                    className="inline-flex items-center gap-1 text-[12px] text-primary hover:text-primary/80 font-medium disabled:opacity-50 outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-0"
                     onClick={generateKeypair}
                     disabled={genLoading}
                   >
@@ -165,7 +165,7 @@ export function AddPeerDialog({
                   placeholder="10.0.0.2/32"
                   className="font-mono text-[13px]"
                 />
-                <p className="text-[11px] text-muted-foreground">{t('network.wireguard.peers.clientAddressHint')}</p>
+                <p className="text-[12px] text-muted-foreground">{t('network.wireguard.peers.clientAddressHint')}</p>
               </div>
 
               <div className="space-y-2">
@@ -176,7 +176,7 @@ export function AddPeerDialog({
                   placeholder="vpn.example.com:51820"
                   className="font-mono text-[13px]"
                 />
-                <p className="text-[11px] text-muted-foreground">{t('network.wireguard.peers.serverEndpointHint')}</p>
+                <p className="text-[12px] text-muted-foreground">{t('network.wireguard.peers.serverEndpointHint')}</p>
               </div>
 
               <div className="space-y-2">
@@ -188,7 +188,7 @@ export function AddPeerDialog({
                   placeholder="10.8.0.0/24"
                   className="font-mono text-[13px]"
                 />
-                <p className="text-[11px] text-muted-foreground">{t('network.wireguard.peers.clientRoutesHint')}</p>
+                <p className="text-[12px] text-muted-foreground">{t('network.wireguard.peers.clientRoutesHint')}</p>
               </div>
 
               <div className="grid grid-cols-2 gap-3">
@@ -239,7 +239,7 @@ export function AddPeerDialog({
                   <Label className="text-[13px]">{t('network.wireguard.peers.clientConfig')}</Label>
                   <button
                     type="button"
-                    className="inline-flex items-center gap-1 text-[12px] text-primary hover:text-primary/80 font-medium outline-none focus-visible:ring-2 focus-visible:ring-ring/40 focus-visible:ring-offset-0"
+                    className="inline-flex items-center gap-1 text-[12px] text-primary hover:text-primary/80 font-medium outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-0"
                     onClick={copyConfig}
                   >
                     {copiedKey === 'peer-config' ? (
@@ -258,7 +258,7 @@ export function AddPeerDialog({
                 <div className="bg-white p-3 rounded-xl">
                   <QRCodeSVG value={clientConfig} size={200} />
                 </div>
-                <p className="text-[11px] text-muted-foreground">{t('network.wireguard.peers.scanQr')}</p>
+                <p className="text-[12px] text-muted-foreground">{t('network.wireguard.peers.scanQr')}</p>
               </div>
             </div>
 

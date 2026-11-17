@@ -73,7 +73,7 @@ export function RotationCard<R extends RotationRow>({ id, icon: Icon, title, sum
 
       {waiting && waiting.length > 0 && (
         <div className="rounded-xl bg-warning/10 text-warning p-3 space-y-1">
-          <p className="text-[11px] uppercase tracking-wider font-medium">{t('cluster.security.waiting')}</p>
+          <p className="text-[12px] uppercase tracking-wider font-medium">{t('cluster.security.waiting')}</p>
           <ul aria-label={t('cluster.security.waiting')} className="text-[13px] space-y-0.5">
             {waiting.map((w) => <li key={w} className="break-words">{waitingLine(w, t)}</li>)}
           </ul>

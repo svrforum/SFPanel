@@ -207,9 +207,9 @@ export default function DockerNetworks() {
               <div className="min-w-0 flex-1">
                 <p className="text-[13px] font-medium truncate">{n.Name}</p>
                 <div className="flex items-center gap-2 mt-1">
-                  <span className="text-[11px] text-muted-foreground font-mono">{shortId(n.Id)}</span>
-                  <span className="text-[11px] text-muted-foreground">{n.Driver}</span>
-                  <span className="text-[11px] text-muted-foreground">{n.Scope}</span>
+                  <span className="text-[12px] text-muted-foreground font-mono">{shortId(n.Id)}</span>
+                  <span className="text-[12px] text-muted-foreground">{n.Driver}</span>
+                  <span className="text-[12px] text-muted-foreground">{n.Scope}</span>
                 </div>
                 <div className="mt-1.5">
                   <UsagePill inUse={n.in_use} usedBy={n.used_by} />
@@ -335,7 +335,7 @@ export default function DockerNetworks() {
                 id="network-driver"
                 value={newDriver}
                 onChange={(e) => setNewDriver(e.target.value)}
-                className="flex h-9 w-full rounded-xl border-0 bg-secondary/50 px-3 py-1 text-[13px] transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/20"
+                className="flex h-9 w-full rounded-xl border-0 bg-secondary/50 px-3 py-1 text-[13px] transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
               >
                 {NETWORK_DRIVERS.map((d) => (
                   <option key={d} value={d}>
@@ -366,11 +366,11 @@ export default function DockerNetworks() {
           <div className="space-y-4 min-w-0">
             <div className="grid grid-cols-2 gap-3">
               <div className="min-w-0">
-                <p className="text-[11px] text-muted-foreground uppercase tracking-wider">{t('docker.improvements.subnet')}</p>
+                <p className="text-[12px] text-muted-foreground uppercase tracking-wider">{t('docker.improvements.subnet')}</p>
                 <p className="text-[13px] font-mono break-all">{inspectTarget?.subnet || '-'}</p>
               </div>
               <div className="min-w-0">
-                <p className="text-[11px] text-muted-foreground uppercase tracking-wider">{t('docker.improvements.gateway')}</p>
+                <p className="text-[12px] text-muted-foreground uppercase tracking-wider">{t('docker.improvements.gateway')}</p>
                 <p className="text-[13px] font-mono break-all">{inspectTarget?.gateway || '-'}</p>
               </div>
             </div>
@@ -383,14 +383,14 @@ export default function DockerNetworks() {
             </div>}
             {inspectTarget?.containers && inspectTarget.containers.length > 0 && (
               <div>
-                <p className="text-[11px] text-muted-foreground uppercase tracking-wider mb-2">{t('docker.networks.connectedContainers')}</p>
+                <p className="text-[12px] text-muted-foreground uppercase tracking-wider mb-2">{t('docker.networks.connectedContainers')}</p>
                 <div className="bg-card rounded-xl card-shadow overflow-hidden overflow-x-auto">
                   <Table>
                     <TableHeader>
                       <TableRow className="border-border/50">
-                        <TableHead className="text-[11px]">{t('common.name')}</TableHead>
-                        <TableHead className="text-[11px]">IPv4</TableHead>
-                        <TableHead className="text-[11px]">MAC</TableHead><TableHead>{t('common.actions')}</TableHead>
+                        <TableHead className="text-[12px]">{t('common.name')}</TableHead>
+                        <TableHead className="text-[12px]">IPv4</TableHead>
+                        <TableHead className="text-[12px]">MAC</TableHead><TableHead>{t('common.actions')}</TableHead>
                       </TableRow>
                     </TableHeader>
                     <TableBody>

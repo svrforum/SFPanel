@@ -57,7 +57,7 @@ export function ClusterUpdateProgress({ events }: { events: ClusterUpdateEvent[]
       {/* Overall progress bar */}
       <div className="h-1.5 bg-muted rounded-full overflow-hidden mb-4">
         <div
-          className={cn('h-full rounded-full transition-all duration-500',
+          className={cn('h-full rounded-full transition-[width] duration-500',
             run.overall === 'error' ? 'bg-destructive' : 'bg-primary')}
           style={{ width: `${run.total > 0 ? Math.min(100, (run.done / run.total) * 100) : 0}%` }}
         />

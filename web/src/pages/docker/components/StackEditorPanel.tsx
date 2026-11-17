@@ -134,7 +134,7 @@ export function StackEditorPanel({
       {/* Compose / Env sub-tabs */}
       <div className="flex items-center gap-1 bg-secondary/40 rounded-xl p-1 w-fit overflow-x-auto">
         <button
-          className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-[13px] font-medium transition-all outline-none focus-visible:ring-2 focus-visible:ring-ring/40 focus-visible:ring-offset-0 ${
+          className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-[13px] font-medium transition outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-0 ${
             tab === 'compose' ? 'bg-primary/10 text-primary card-shadow' : 'text-muted-foreground hover:text-foreground'
           }`}
           onClick={() => onTabChange('compose')}
@@ -143,7 +143,7 @@ export function StackEditorPanel({
           {composeFileName}
         </button>
         <button
-          className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-[13px] font-medium transition-all outline-none focus-visible:ring-2 focus-visible:ring-ring/40 focus-visible:ring-offset-0 ${
+          className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-[13px] font-medium transition outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-0 ${
             tab === 'env' ? 'bg-warning/10 text-warning card-shadow' : 'text-muted-foreground hover:text-foreground'
           }`}
           onClick={() => onTabChange('env')}

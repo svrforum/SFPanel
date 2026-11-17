@@ -102,7 +102,7 @@ export function DevToolsCard({ output }: { output: SSEOutput }) {
             <span className="text-[12px] font-medium font-mono">{nodeStatus?.version}</span>
           </div>
           {npmVersion && (
-            <p className="text-[11px] text-muted-foreground">npm {npmVersion}</p>
+            <p className="text-[12px] text-muted-foreground">npm {npmVersion}</p>
           )}
         </div>
         <Button

@@ -49,19 +49,19 @@ export function Fail2banAboutDialog({
             <h4 className="text-[13px] font-semibold">{t('firewall.fail2ban.aboutJailTitle')}</h4>
             <ul className="space-y-1.5 text-[13px] text-muted-foreground">
               <li className="flex items-start gap-2">
-                <span className="inline-flex items-center px-1.5 py-0.5 rounded text-[11px] font-mono font-medium bg-primary/10 text-primary shrink-0 mt-0.5">sshd</span>
+                <span className="inline-flex items-center px-1.5 py-0.5 rounded text-[12px] font-mono font-medium bg-primary/10 text-primary shrink-0 mt-0.5">sshd</span>
                 <span>{t('firewall.fail2ban.aboutJailSSH')}</span>
               </li>
               <li className="flex items-start gap-2">
-                <span className="inline-flex items-center px-1.5 py-0.5 rounded text-[11px] font-mono font-medium bg-secondary text-muted-foreground shrink-0 mt-0.5">nginx</span>
+                <span className="inline-flex items-center px-1.5 py-0.5 rounded text-[12px] font-mono font-medium bg-secondary text-muted-foreground shrink-0 mt-0.5">nginx</span>
                 <span>{t('firewall.fail2ban.aboutJailNginx')}</span>
               </li>
               <li className="flex items-start gap-2">
-                <span className="inline-flex items-center px-1.5 py-0.5 rounded text-[11px] font-mono font-medium bg-secondary text-muted-foreground shrink-0 mt-0.5">apache</span>
+                <span className="inline-flex items-center px-1.5 py-0.5 rounded text-[12px] font-mono font-medium bg-secondary text-muted-foreground shrink-0 mt-0.5">apache</span>
                 <span>{t('firewall.fail2ban.aboutJailApache')}</span>
               </li>
               <li className="flex items-start gap-2">
-                <span className="inline-flex items-center px-1.5 py-0.5 rounded text-[11px] font-mono font-medium bg-secondary text-muted-foreground shrink-0 mt-0.5">recidive</span>
+                <span className="inline-flex items-center px-1.5 py-0.5 rounded text-[12px] font-mono font-medium bg-secondary text-muted-foreground shrink-0 mt-0.5">recidive</span>
                 <span>{t('firewall.fail2ban.aboutJailRecidive')}</span>
               </li>
             </ul>

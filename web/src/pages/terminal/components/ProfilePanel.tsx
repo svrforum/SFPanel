@@ -127,7 +127,7 @@ export function ProfilePanel({ tool, account, onSessionsChanged }: ProfilePanelP
                 <span className="sr-only">{p.logged_in ? t('ai.profiles.loggedIn') : t('ai.profiles.notLoggedIn')}</span>
                 <span className={cn('truncate min-w-0', !p.default && 'font-mono')}>{p.default ? t('ai.profiles.default') : p.name}</span>
                 <span className="ml-auto flex items-center gap-1 shrink-0">
-                  {used && <span className="text-[11px] text-muted-foreground">{t('ai.profiles.lastUsed', { when: used })}</span>}
+                  {used && <span className="text-[12px] text-muted-foreground">{t('ai.profiles.lastUsed', { when: used })}</span>}
                   {/* The default profile is the tool's own directory, which is
                       not the panel's to remove — the route refuses it too. */}
                   {!p.default && (
@@ -165,7 +165,7 @@ export function ProfilePanel({ tool, account, onSessionsChanged }: ProfilePanelP
           {creating ? t('ai.profiles.creating') : t('common.create')}
         </Button>
       </div>
-      {error && <p role="alert" className="text-[11px] text-destructive">{error}</p>}
+      {error && <p role="alert" className="text-[12px] text-destructive">{error}</p>}
     </div>
   )
 }

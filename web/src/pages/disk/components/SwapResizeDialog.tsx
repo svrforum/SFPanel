@@ -142,28 +142,28 @@ export function SwapResizeDialog({ target, onOpenChange, onResized }: {
                 <div className="bg-secondary/30 rounded-xl py-2.5 px-3">
                   <div className="flex items-center gap-1.5 mb-0.5">
                     <HardDrive className="h-3 w-3 text-muted-foreground" />
-                    <span className="text-[11px] text-muted-foreground">{t('disk.swap.diskFree')}</span>
+                    <span className="text-[12px] text-muted-foreground">{t('disk.swap.diskFree')}</span>
                   </div>
                   <span className="text-[14px] font-bold font-mono">{formatBytes(check.disk_free_mb * 1024 * 1024)}</span>
                 </div>
                 <div className="bg-secondary/30 rounded-xl py-2.5 px-3">
                   <div className="flex items-center gap-1.5 mb-0.5">
                     <Cpu className="h-3 w-3 text-muted-foreground" />
-                    <span className="text-[11px] text-muted-foreground">{t('disk.swap.ramFree')}</span>
+                    <span className="text-[12px] text-muted-foreground">{t('disk.swap.ramFree')}</span>
                   </div>
                   <span className="text-[14px] font-bold font-mono">{formatBytes(check.ram_free_mb * 1024 * 1024)}</span>
                 </div>
                 <div className="bg-secondary/30 rounded-xl py-2.5 px-3">
                   <div className="flex items-center gap-1.5 mb-0.5">
                     <MemoryStick className="h-3 w-3 text-muted-foreground" />
-                    <span className="text-[11px] text-muted-foreground">{t('disk.swap.swapUsed')}</span>
+                    <span className="text-[12px] text-muted-foreground">{t('disk.swap.swapUsed')}</span>
                   </div>
                   <span className="text-[14px] font-bold font-mono">{formatBytes(check.swap_used_mb * 1024 * 1024)}</span>
                 </div>
                 <div className="bg-secondary/30 rounded-xl py-2.5 px-3">
                   <div className="flex items-center gap-1.5 mb-0.5">
                     <Maximize2 className="h-3 w-3 text-muted-foreground" />
-                    <span className="text-[11px] text-muted-foreground">{t('disk.swap.maxSize')}</span>
+                    <span className="text-[12px] text-muted-foreground">{t('disk.swap.maxSize')}</span>
                   </div>
                   <span className="text-[14px] font-bold font-mono">{formatBytes(check.max_size_mb * 1024 * 1024)}</span>
                 </div>
@@ -187,12 +187,12 @@ export function SwapResizeDialog({ target, onOpenChange, onResized }: {
             {/* Visual size comparison */}
             <div className="flex items-center justify-center gap-3">
               <div className="text-center">
-                <div className="text-[11px] text-muted-foreground mb-1">{t('disk.swap.currentSize')}</div>
+                <div className="text-[12px] text-muted-foreground mb-1">{t('disk.swap.currentSize')}</div>
                 <div className="text-xl font-bold font-mono">{formatBytes(target?.size ?? 0)}</div>
               </div>
               <ArrowRight className="h-5 w-5 text-muted-foreground shrink-0" />
               <div className="text-center">
-                <div className="text-[11px] text-muted-foreground mb-1">{t('disk.swap.newSizeMB')}</div>
+                <div className="text-[12px] text-muted-foreground mb-1">{t('disk.swap.newSizeMB')}</div>
                 <div className={`text-xl font-bold font-mono ${
                   diffMB > 0 ? 'text-success' : diffMB < 0 ? 'text-warning' : ''
                 }`}>
@@ -200,7 +200,7 @@ export function SwapResizeDialog({ target, onOpenChange, onResized }: {
                 </div>
               </div>
               {newMB > 0 && diffMB !== 0 && (
-                <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-medium ${
+                <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-[12px] font-medium ${
                   diffMB > 0 ? 'bg-success/10 text-success' : 'bg-warning/10 text-warning'
                 }`}>
                   {diffMB > 0 ? '+' : ''}{formatBytes(Math.abs(diffMB) * 1024 * 1024)}
@@ -212,19 +212,19 @@ export function SwapResizeDialog({ target, onOpenChange, onResized }: {
             <div className="space-y-1.5">
               <div className="h-3 bg-secondary rounded-full overflow-hidden relative">
                 <div
-                  className="absolute inset-y-0 left-0 bg-primary/30 rounded-full transition-all duration-300"
+                  className="absolute inset-y-0 left-0 bg-primary/30 rounded-full transition-[width] duration-300"
                   style={{ width: `${Math.min((currentMB / maxSlider) * 100, 100)}%` }}
                 />
                 {newMB > 0 && (
                   <div
-                    className={`absolute inset-y-0 left-0 rounded-full transition-all duration-300 ${
+                    className={`absolute inset-y-0 left-0 rounded-full transition-[width] duration-300 ${
                       exceedsDisk ? 'bg-destructive' : diffMB >= 0 ? 'bg-primary' : 'bg-warning'
                     }`}
                     style={{ width: `${Math.min((newMB / maxSlider) * 100, 100)}%` }}
                   />
                 )}
               </div>
-              <div className="flex justify-between text-[10px] text-muted-foreground font-mono">
+              <div className="flex justify-between text-[12px] text-muted-foreground font-mono">
                 <span>0</span>
                 <span>{formatBytes(maxSlider * 1024 * 1024)}</span>
               </div>
@@ -238,7 +238,7 @@ export function SwapResizeDialog({ target, onOpenChange, onResized }: {
               step={64}
               value={newMB || currentMB}
               onChange={(e) => setSizeMB(e.target.value)}
-              className="w-full h-2 bg-secondary rounded-full appearance-none cursor-pointer accent-primary outline-none focus-visible:ring-2 focus-visible:ring-ring/40 focus-visible:ring-offset-0"
+              className="w-full h-2 bg-secondary rounded-full appearance-none cursor-pointer accent-primary outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-0"
             />
 
             {/* Preset buttons */}
@@ -248,7 +248,7 @@ export function SwapResizeDialog({ target, onOpenChange, onResized }: {
                   key={mb}
                   type="button"
                   onClick={() => setSizeMB(String(mb))}
-                  className={`px-3 py-1.5 rounded-lg text-[12px] font-medium transition-colors outline-none focus-visible:ring-2 focus-visible:ring-ring/40 focus-visible:ring-offset-0 ${
+                  className={`px-3 py-1.5 rounded-lg text-[12px] font-medium transition-colors outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-0 ${
                     newMB === mb
                       ? 'bg-primary/10 text-primary ring-1 ring-primary/30'
                       : 'bg-secondary/50 text-muted-foreground hover:bg-secondary'
@@ -293,7 +293,7 @@ export function SwapResizeDialog({ target, onOpenChange, onResized }: {
                 <div className="flex-1 min-w-0">
                   <div className="flex items-center gap-2">
                     <span className="text-[13px] font-semibold font-mono">{step.name}</span>
-                    <span className={`inline-flex items-center px-1.5 py-0 rounded text-[10px] font-medium ${
+                    <span className={`inline-flex items-center px-1.5 py-0 rounded text-[12px] font-medium ${
                       step.status === 'success'
                         ? 'bg-success/10 text-success'
                         : 'bg-destructive/10 text-destructive'
@@ -302,7 +302,7 @@ export function SwapResizeDialog({ target, onOpenChange, onResized }: {
                     </span>
                   </div>
                   {step.output && (
-                    <pre className="text-[11px] text-muted-foreground mt-1 whitespace-pre-wrap break-all font-mono leading-relaxed max-h-[80px] overflow-y-auto">
+                    <pre className="text-[12px] text-muted-foreground mt-1 whitespace-pre-wrap break-all font-mono leading-relaxed max-h-[80px] overflow-y-auto">
                       {step.output}
                     </pre>
                   )}

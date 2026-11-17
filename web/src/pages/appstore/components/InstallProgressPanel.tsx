@@ -96,7 +96,7 @@ export function InstallProgressPanel({
               ) : (
                 <Circle className="h-3.5 w-3.5 text-muted-foreground/30" />
               )}
-              <span className={`text-[11px] ${isCurrent ? 'text-primary font-medium' : isComplete ? 'text-success' : isFailed ? 'text-destructive' : 'text-muted-foreground/50'}`}>
+              <span className={`text-[12px] ${isCurrent ? 'text-primary font-medium' : isComplete ? 'text-success' : isFailed ? 'text-destructive' : 'text-muted-foreground/50'}`}>
                 {stageLabels[stage]}
               </span>
               {stage !== 'done' && (
@@ -108,7 +108,7 @@ export function InstallProgressPanel({
       </div>
 
       {/* Log output */}
-      <div className="rounded-xl bg-[#1e1e2e] p-4 max-h-64 overflow-y-auto font-mono text-[11px] leading-relaxed">
+      <div className="rounded-xl bg-[#1e1e2e] p-4 max-h-64 overflow-y-auto font-mono text-[12px] leading-relaxed">
         {logs.map((log, idx) => (
           <div
             key={idx}

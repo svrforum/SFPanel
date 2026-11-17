@@ -76,7 +76,7 @@ export default function Performance() {
               />
               <span className="text-[13px] text-muted-foreground">{t('settings.minutes')}</span>
             </div>
-            <p className="text-[11px] text-muted-foreground">{t('settings.terminalTimeoutHint')}</p>
+            <p className="text-[12px] text-muted-foreground">{t('settings.terminalTimeoutHint')}</p>
           </div>
           <Button type="submit" disabled={terminalTimeoutLoading} className="rounded-xl">
             {terminalTimeoutLoading ? t('common.saving') : t('common.save')}
@@ -102,7 +102,7 @@ export default function Performance() {
               />
               <span className="text-[13px] text-muted-foreground">MB</span>
             </div>
-            <p className="text-[11px] text-muted-foreground">{t('settings.maxUploadSizeHint')}</p>
+            <p className="text-[12px] text-muted-foreground">{t('settings.maxUploadSizeHint')}</p>
           </div>
           <Button type="submit" disabled={maxUploadSizeLoading} className="rounded-xl">
             {maxUploadSizeLoading ? t('common.saving') : t('common.save')}

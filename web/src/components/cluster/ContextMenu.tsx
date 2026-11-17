@@ -34,7 +34,7 @@ export default function ContextMenu({ selection, nodeName, collapsed, onToggleCo
       <div className="w-[42px] bg-card border-r border-border flex flex-col h-full shrink-0">
         <button
           onClick={onToggleCollapse}
-          className="flex items-center justify-center py-3 border-b border-border hover:bg-accent transition-colors outline-none focus-visible:ring-2 focus-visible:ring-ring/40 focus-visible:ring-offset-0"
+          className="flex items-center justify-center py-3 border-b border-border hover:bg-accent transition-colors outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-0"
           title={t('layout.expand')}
           aria-label={t('layout.expand')}
         >
@@ -50,7 +50,7 @@ export default function ContextMenu({ selection, nodeName, collapsed, onToggleCo
               aria-label={t(item.labelKey)}
               className={({ isActive }) =>
                 cn(
-                  'w-8 h-8 rounded-lg flex items-center justify-center transition-colors outline-none focus-visible:ring-2 focus-visible:ring-ring/40 focus-visible:ring-offset-0',
+                  'w-8 h-8 rounded-lg flex items-center justify-center transition-colors outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-0',
                   isActive ? 'bg-primary/10 text-primary' : 'text-muted-foreground hover:bg-accent'
                 )
               }
@@ -68,12 +68,12 @@ export default function ContextMenu({ selection, nodeName, collapsed, onToggleCo
       {/* Header */}
       <div className="px-4 py-3 border-b border-border flex items-start justify-between">
         <div className="min-w-0">
-          <p className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider">
+          <p className="text-[12px] font-semibold text-muted-foreground uppercase tracking-wider">
             {isDatacenter ? t('cluster.tree.datacenter') : t('cluster.tree.node')}
           </p>
           <p className="text-[13px] font-semibold text-foreground truncate mt-0.5">{title}</p>
         </div>
-        <button onClick={onToggleCollapse} className="p-1.5 rounded-lg hover:bg-accent border border-border transition-colors mt-0.5 shrink-0 outline-none focus-visible:ring-2 focus-visible:ring-ring/40 focus-visible:ring-offset-0" title={t('layout.collapse')} aria-label={t('layout.collapse')}>
+        <button onClick={onToggleCollapse} className="p-1.5 rounded-lg hover:bg-accent border border-border transition-colors mt-0.5 shrink-0 outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-0" title={t('layout.collapse')} aria-label={t('layout.collapse')}>
           <PanelLeftClose className="h-4 w-4 text-foreground/60" />
         </button>
       </div>
@@ -87,7 +87,7 @@ export default function ContextMenu({ selection, nodeName, collapsed, onToggleCo
             end={item.to === '/dashboard' || item.matchEnd}
             className={({ isActive }) =>
               cn(
-                'flex items-center gap-2.5 px-2.5 py-2 rounded-lg text-[12px] font-medium transition-colors outline-none focus-visible:ring-2 focus-visible:ring-ring/40 focus-visible:ring-offset-0',
+                'flex items-center gap-2.5 px-2.5 py-2 rounded-lg text-[12px] font-medium transition-colors outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-0',
                 isActive
                   ? 'bg-primary/10 text-primary'
                   : 'text-muted-foreground hover:bg-accent hover:text-foreground'

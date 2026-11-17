@@ -97,12 +97,12 @@ export function VGSection({ vgs, pvs, onChanged }: {
           <Table>
             <TableHeader>
               <TableRow className="border-border/50">
-                <TableHead className="text-[11px]">{t('common.name')}</TableHead>
-                <TableHead className="text-[11px]">{t('disk.lvm.size')}</TableHead>
-                <TableHead className="text-[11px]">{t('disk.lvm.free')}</TableHead>
-                <TableHead className="text-[11px]">{t('disk.lvm.vg.pvCount')}</TableHead>
-                <TableHead className="text-[11px]">{t('disk.lvm.vg.lvCount')}</TableHead>
-                <TableHead className="text-[11px]">{t('disk.lvm.attr')}</TableHead>
+                <TableHead className="text-[12px]">{t('common.name')}</TableHead>
+                <TableHead className="text-[12px]">{t('disk.lvm.size')}</TableHead>
+                <TableHead className="text-[12px]">{t('disk.lvm.free')}</TableHead>
+                <TableHead className="text-[12px]">{t('disk.lvm.vg.pvCount')}</TableHead>
+                <TableHead className="text-[12px]">{t('disk.lvm.vg.lvCount')}</TableHead>
+                <TableHead className="text-[12px]">{t('disk.lvm.attr')}</TableHead>
                 <TableHead className="w-12" />
               </TableRow>
             </TableHeader>

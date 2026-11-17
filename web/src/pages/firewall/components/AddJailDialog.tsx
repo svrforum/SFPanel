@@ -160,7 +160,7 @@ export function AddJailDialog({
               <button
                 type="button"
                 onClick={handleSelectCustom}
-                className={`text-left rounded-xl px-3 py-2.5 border transition-all outline-none focus-visible:ring-2 focus-visible:ring-ring/40 focus-visible:ring-offset-0 ${
+                className={`text-left rounded-xl px-3 py-2.5 border transition outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-0 ${
                   isCustomMode
                     ? 'bg-primary/10 border-primary/30 ring-1 ring-primary/20'
                     : 'bg-card border-border hover:border-primary/30 hover:bg-muted/50'
@@ -170,7 +170,7 @@ export function AddJailDialog({
                   <span className="text-[13px] font-medium">{t('firewall.fail2ban.customJail')}</span>
                   {isCustomMode && <Check className="h-3.5 w-3.5 text-primary" />}
                 </div>
-                <p className="text-[11px] text-muted-foreground mt-0.5 line-clamp-1">{t('firewall.fail2ban.customJailDesc')}</p>
+                <p className="text-[12px] text-muted-foreground mt-0.5 line-clamp-1">{t('firewall.fail2ban.customJailDesc')}</p>
               </button>
               {templates.map((tmpl) => {
                 // Backend flips `available` off both when the jail is already
@@ -183,7 +183,7 @@ export function AddJailDialog({
                     type="button"
                     onClick={() => tmpl.available && handleSelectTemplate(tmpl)}
                     disabled={!tmpl.available}
-                    className={`text-left rounded-xl px-3 py-2.5 border transition-all outline-none focus-visible:ring-2 focus-visible:ring-ring/40 focus-visible:ring-offset-0 ${
+                    className={`text-left rounded-xl px-3 py-2.5 border transition outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-0 ${
                       selectedTemplate?.id === tmpl.id
                         ? 'bg-primary/10 border-primary/30 ring-1 ring-primary/20'
                         : tmpl.available
@@ -196,14 +196,14 @@ export function AddJailDialog({
                       {selectedTemplate?.id === tmpl.id ? (
                         <Check className="h-3.5 w-3.5 text-primary" />
                       ) : !tmpl.available ? (
-                        <span className="text-[10px] text-muted-foreground">
+                        <span className="text-[12px] text-muted-foreground">
                           {isActive ? t('firewall.fail2ban.templateActive') : t('firewall.fail2ban.templateUnavailable')}
                         </span>
                       ) : (
-                        <span className="text-[10px] text-success">{t('firewall.fail2ban.templateAvailable')}</span>
+                        <span className="text-[12px] text-success">{t('firewall.fail2ban.templateAvailable')}</span>
                       )}
                     </div>
-                    <p className="text-[11px] text-muted-foreground mt-0.5 line-clamp-1">{tmpl.description}</p>
+                    <p className="text-[12px] text-muted-foreground mt-0.5 line-clamp-1">{tmpl.description}</p>
                   </button>
                 )
               })}
@@ -226,7 +226,7 @@ export function AddJailDialog({
                       placeholder="my-custom-jail"
                       className="rounded-xl text-[13px] font-mono"
                     />
-                    <p className="text-[11px] text-muted-foreground">{t('firewall.fail2ban.jailNameHint')}</p>
+                    <p className="text-[12px] text-muted-foreground">{t('firewall.fail2ban.jailNameHint')}</p>
                   </div>
                   <div className="space-y-1.5">
                     <label className="text-[13px] font-medium">{t('firewall.fail2ban.filterName')}</label>
@@ -236,7 +236,7 @@ export function AddJailDialog({
                       placeholder="sshd"
                       className="rounded-xl text-[13px] font-mono"
                     />
-                    <p className="text-[11px] text-muted-foreground">{t('firewall.fail2ban.filterNameHint')}</p>
+                    <p className="text-[12px] text-muted-foreground">{t('firewall.fail2ban.filterNameHint')}</p>
                   </div>
                 </div>
               </>
@@ -249,7 +249,7 @@ export function AddJailDialog({
                 placeholder="/var/log/auth.log"
                 className="rounded-xl text-[13px] font-mono"
               />
-              <p className="text-[11px] text-muted-foreground">{t('firewall.fail2ban.logPathHint')}</p>
+              <p className="text-[12px] text-muted-foreground">{t('firewall.fail2ban.logPathHint')}</p>
             </div>
             <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
               <div className="space-y-1.5">
@@ -289,7 +289,7 @@ export function AddJailDialog({
                 onChange={(e) => setNewIgnoreIP(e.target.value)}
                 className="rounded-xl text-[13px] font-mono"
               />
-              <p className="text-[11px] text-muted-foreground">{t('firewall.fail2ban.ignoreIpHelp')}</p>
+              <p className="text-[12px] text-muted-foreground">{t('firewall.fail2ban.ignoreIpHelp')}</p>
             </div>
           </div>
         )}

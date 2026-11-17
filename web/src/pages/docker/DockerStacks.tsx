@@ -692,7 +692,7 @@ export default function DockerStacks({ clusterMode = false }: { clusterMode?: bo
             )}
             {clusterStacks.map(node => (
               <div key={node.node_id} className="space-y-0.5">
-                <div className="flex items-center gap-1.5 px-2 pt-2 text-[11px] font-medium text-muted-foreground">
+                <div className="flex items-center gap-1.5 px-2 pt-2 text-[12px] font-medium text-muted-foreground">
                   <span className={`h-1.5 w-1.5 rounded-full shrink-0 ${nodeDot(node.status, node.error)}`} />
                   <span className="truncate">{node.node_name}</span>
                   {node.local && <span className="text-muted-foreground/70 shrink-0">· {t('layout.cluster.localNode')}</span>}
@@ -710,15 +710,15 @@ export default function DockerStacks({ clusterMode = false }: { clusterMode?: bo
                       {statusIcon(p.real_status)}
                       <button
                         type="button"
-                        className="text-[13px] font-medium truncate min-w-0 flex-1 text-left rounded hover:text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/40"
+                        className="text-[13px] font-medium truncate min-w-0 flex-1 text-left rounded hover:text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
                         onClick={() => navigate(`${basePath}/${node.node_id}/${p.name}`)}
                       >{p.name}</button>
-                      <span className="text-[11px] text-muted-foreground shrink-0">{p.running_count}/{p.service_count}</span>
+                      <span className="text-[12px] text-muted-foreground shrink-0">{p.running_count}/{p.service_count}</span>
                       <button
                         type="button"
                         title={t('docker.migrate.action')}
                         aria-label={t('docker.migrate.action')}
-                        className="shrink-0 rounded text-muted-foreground opacity-60 transition hover:text-primary group-hover:opacity-100 focus-visible:opacity-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/40"
+                        className="shrink-0 rounded text-muted-foreground opacity-60 transition hover:text-primary group-hover:opacity-100 focus-visible:opacity-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
                         onClick={() => openMigrate(p.name, node.node_id)}
                       >
                         <ArrowRightLeft className="h-3.5 w-3.5" />
@@ -748,7 +748,7 @@ export default function DockerStacks({ clusterMode = false }: { clusterMode?: bo
               key={p.name}
               role="button"
               tabIndex={0}
-              className={`flex items-center gap-2 px-3 py-2 rounded-xl cursor-pointer transition-all duration-200 outline-none focus-visible:ring-2 focus-visible:ring-ring/40 focus-visible:ring-offset-0 ${
+              className={`flex items-center gap-2 px-3 py-2 rounded-xl cursor-pointer transition duration-200 outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-0 ${
                 selectedName === p.name
                   ? 'bg-primary/10 ring-1 ring-primary/20'
                   : 'hover:bg-secondary/50'
@@ -758,7 +758,7 @@ export default function DockerStacks({ clusterMode = false }: { clusterMode?: bo
             >
               {statusIcon(p.real_status)}
               <span className="text-[13px] font-medium truncate min-w-0 flex-1">{p.name}</span>
-              <span className="text-[11px] text-muted-foreground shrink-0">
+              <span className="text-[12px] text-muted-foreground shrink-0">
                 {p.running_count}/{p.service_count}
               </span>
             </div>
@@ -780,13 +780,13 @@ export default function DockerStacks({ clusterMode = false }: { clusterMode?: bo
               <div
                 role="button"
                 tabIndex={0}
-                className="flex items-center gap-2 cursor-pointer rounded-sm outline-none focus-visible:ring-2 focus-visible:ring-ring/40 focus-visible:ring-offset-0"
+                className="flex items-center gap-2 cursor-pointer rounded-sm outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-0"
                 onClick={() => navigate(`${basePath}/${p.name}`)}
                 onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); navigate(`${basePath}/${p.name}`) } }}
               >
                 {statusIcon(p.real_status)}
                 <span className="text-[13px] font-medium truncate min-w-0 flex-1">{p.name}</span>
-                <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-medium shrink-0 ${
+                <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-[12px] font-medium shrink-0 ${
                   p.real_status === 'running' ? 'bg-success/10 text-success' :
                   p.real_status === 'partial' ? 'bg-warning/10 text-warning' :
                   'bg-secondary text-muted-foreground'
@@ -798,7 +798,7 @@ export default function DockerStacks({ clusterMode = false }: { clusterMode?: bo
                 {p.real_status !== 'running' && (
                   <Button
                     size="sm" variant="ghost"
-                    className="rounded-xl h-7 px-2 text-[11px] text-success"
+                    className="rounded-xl h-7 px-2 text-[12px] text-success"
                     disabled={actionLoading === p.name}
                     onClick={() => handleUp(p.name)}
                   >
@@ -810,7 +810,7 @@ export default function DockerStacks({ clusterMode = false }: { clusterMode?: bo
                   <>
                     <Button
                       size="sm" variant="ghost"
-                      className="rounded-xl h-7 px-2 text-[11px] text-destructive"
+                      className="rounded-xl h-7 px-2 text-[12px] text-destructive"
                       disabled={actionLoading === p.name}
                       onClick={() => handleDown(p.name)}
                     >
@@ -819,7 +819,7 @@ export default function DockerStacks({ clusterMode = false }: { clusterMode?: bo
                     </Button>
                     <Button
                       size="sm" variant="ghost"
-                      className="rounded-xl h-7 px-2 text-[11px]"
+                      className="rounded-xl h-7 px-2 text-[12px]"
                       disabled={actionLoading === p.name}
                       onClick={() => handleUp(p.name)}
                     >
@@ -831,7 +831,7 @@ export default function DockerStacks({ clusterMode = false }: { clusterMode?: bo
                 <div className="flex-1" />
                 <Button
                   size="sm" variant="ghost"
-                  className="rounded-xl h-7 px-2 text-[11px]"
+                  className="rounded-xl h-7 px-2 text-[12px]"
                   onClick={() => navigate(`${basePath}/${p.name}`)}
                 >
                   <FileCode className="h-3 w-3" />
@@ -876,7 +876,7 @@ export default function DockerStacks({ clusterMode = false }: { clusterMode?: bo
                 <h2 className="text-[18px] font-bold truncate min-w-0 max-w-full">{selectedName}</h2>
                 {detailNodeName && (
                   <span
-                    className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[11px] font-medium bg-primary/10 text-primary shrink-0"
+                    className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[12px] font-medium bg-primary/10 text-primary shrink-0"
                     title={t('docker.stacks.onNode', { node: detailNodeName })}
                   >
                     <Monitor className="h-3 w-3" />
@@ -885,14 +885,14 @@ export default function DockerStacks({ clusterMode = false }: { clusterMode?: bo
                 )}
                 {selectedProject && (
                   <>
-                    <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-medium shrink-0 ${
+                    <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-[12px] font-medium shrink-0 ${
                       selectedProject.real_status === 'running' ? 'bg-success/10 text-success' :
                       selectedProject.real_status === 'partial' ? 'bg-warning/10 text-warning' :
                       'bg-secondary text-muted-foreground'
                     }`}>
                       {t(`docker.stacks.${selectedProject.real_status}`)}
                     </span>
-                    <span className="text-[11px] text-muted-foreground font-mono hidden sm:inline truncate min-w-0" title={selectedProject.path}>
+                    <span className="text-[12px] text-muted-foreground font-mono hidden sm:inline truncate min-w-0" title={selectedProject.path}>
                       {selectedProject.path}
                     </span>
                   </>
@@ -986,7 +986,7 @@ export default function DockerStacks({ clusterMode = false }: { clusterMode?: bo
                       {t('docker.stacks.rollback')}
                     </Button>
                     {rollbackInfo.details && rollbackInfo.details.length > 0 && (
-                      <span className="text-[11px] text-muted-foreground font-mono hidden md:inline">
+                      <span className="text-[12px] text-muted-foreground font-mono hidden md:inline">
                         {rollbackInfo.details.map(e => {
                           const prev = e.prev_image_id.substring(7, 19)
                           const curr = e.curr_image_id ? e.curr_image_id.substring(7, 19) : '?'
@@ -1019,7 +1019,7 @@ export default function DockerStacks({ clusterMode = false }: { clusterMode?: bo
                   </span>
                   {updateCheck.has_updates && (
                     <Button
-                      size="sm" className="rounded-xl bg-primary hover:bg-primary/90 text-white"
+                      size="sm" className="rounded-xl bg-primary hover:bg-primary/90 text-primary-foreground"
                       disabled={progress.open && !progress.done}
                       onClick={handleUpdate}
                     >
@@ -1039,19 +1039,19 @@ export default function DockerStacks({ clusterMode = false }: { clusterMode?: bo
                         <>
                           <XCircle className="h-3.5 w-3.5 text-destructive shrink-0" />
                           <span className="font-mono text-[12px] truncate min-w-0 flex-1" title={img.image}>{img.image}</span>
-                          <span className="text-[11px] text-destructive shrink-0">{t('docker.stacks.registryError')}</span>
+                          <span className="text-[12px] text-destructive shrink-0">{t('docker.stacks.registryError')}</span>
                         </>
                       ) : img.has_update ? (
                         <div className="flex flex-col gap-0.5 min-w-0 flex-1">
                           <div className="flex items-center gap-2 min-w-0">
                             <span className="inline-block w-2 h-2 rounded-full bg-primary shrink-0" />
                             <span className="font-mono text-[12px] truncate min-w-0 flex-1" title={img.image}>{img.image}</span>
-                            <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-medium bg-primary/10 text-primary shrink-0">
+                            <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[12px] font-medium bg-primary/10 text-primary shrink-0">
                               {t('docker.stacks.updateAvailable')}
                             </span>
                           </div>
                           {img.current_digest && img.remote_digest && (
-                            <span className="pl-4 font-mono text-[11px] text-muted-foreground truncate">
+                            <span className="pl-4 font-mono text-[12px] text-muted-foreground truncate">
                               {img.current_digest} → {img.remote_digest}
                             </span>
                           )}
@@ -1060,7 +1060,7 @@ export default function DockerStacks({ clusterMode = false }: { clusterMode?: bo
                         <>
                           <CheckCircle2 className="h-3.5 w-3.5 text-success shrink-0" />
                           <span className="font-mono text-[12px] truncate min-w-0 flex-1" title={img.image}>{img.image}</span>
-                          <span className="text-[11px] text-muted-foreground shrink-0">{t('docker.stacks.upToDate')}</span>
+                          <span className="text-[12px] text-muted-foreground shrink-0">{t('docker.stacks.upToDate')}</span>
                         </>
                       )}
                     </div>
@@ -1093,11 +1093,11 @@ export default function DockerStacks({ clusterMode = false }: { clusterMode?: bo
                   <Table>
                     <TableHeader>
                       <TableRow className="border-border/50">
-                        <TableHead className="text-[11px]">{t('common.name')}</TableHead>
-                        <TableHead className="text-[11px]">{t('docker.containers.image')}</TableHead>
-                        <TableHead className="text-[11px]">{t('common.status')}</TableHead>
-                        <TableHead className="text-[11px]">{t('docker.containers.ports')}</TableHead>
-                        <TableHead className="text-right text-[11px]">{t('common.actions')}</TableHead>
+                        <TableHead className="text-[12px]">{t('common.name')}</TableHead>
+                        <TableHead className="text-[12px]">{t('docker.containers.image')}</TableHead>
+                        <TableHead className="text-[12px]">{t('common.status')}</TableHead>
+                        <TableHead className="text-[12px]">{t('docker.containers.ports')}</TableHead>
+                        <TableHead className="text-right text-[12px]">{t('common.actions')}</TableHead>
                       </TableRow>
                     </TableHeader>
                     <TableBody>
@@ -1118,7 +1118,7 @@ export default function DockerStacks({ clusterMode = false }: { clusterMode?: bo
                           <TableCell className="font-medium text-[13px]">
                             {svc.container_id ? (
                               <button onClick={() => setInspectService(svc)} title={t('docker.containers.inspect')}
-                                className="text-left hover:text-primary hover:underline max-w-full truncate rounded-sm outline-none focus-visible:ring-2 focus-visible:ring-ring/40 focus-visible:ring-offset-0">{svc.name}</button>
+                                className="text-left hover:text-primary hover:underline max-w-full truncate rounded-sm outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-0">{svc.name}</button>
                             ) : svc.name}
                           </TableCell>
                           <TableCell className="text-muted-foreground text-xs font-mono">{svc.image}</TableCell>
@@ -1157,15 +1157,15 @@ export default function DockerStacks({ clusterMode = false }: { clusterMode?: bo
                       <div className="flex items-center gap-2 mb-2 min-w-0">
                         {svc.container_id ? (
                           <button onClick={() => setInspectService(svc)} title={t('docker.containers.inspect')}
-                            className="text-[13px] font-medium truncate min-w-0 flex-1 text-left hover:text-primary rounded-sm outline-none focus-visible:ring-2 focus-visible:ring-ring/40 focus-visible:ring-offset-0">{svc.name}</button>
+                            className="text-[13px] font-medium truncate min-w-0 flex-1 text-left hover:text-primary rounded-sm outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-0">{svc.name}</button>
                         ) : (
                           <span className="text-[13px] font-medium truncate min-w-0 flex-1">{svc.name}</span>
                         )}
                         {<ContainerStateBadge state={svc.state} status={svc.status} />}
                       </div>
-                      <div className="text-[11px] text-muted-foreground font-mono truncate mb-1" title={svc.image}>{svc.image}</div>
+                      <div className="text-[12px] text-muted-foreground font-mono truncate mb-1" title={svc.image}>{svc.image}</div>
                       {svc.ports && (
-                        <div className="text-[11px] text-muted-foreground font-mono truncate mb-2">{svc.ports}</div>
+                        <div className="text-[12px] text-muted-foreground font-mono truncate mb-2">{svc.ports}</div>
                       )}
                       <ServiceActions
                         svc={svc}
@@ -1263,7 +1263,7 @@ export default function DockerStacks({ clusterMode = false }: { clusterMode?: bo
               />
               <div>
                 <p className="text-[13px] font-medium group-hover:text-foreground transition-colors">{t('docker.compose.deleteImages')}</p>
-                <p className="text-[11px] text-muted-foreground">{t('docker.compose.deleteImagesDesc')}</p>
+                <p className="text-[12px] text-muted-foreground">{t('docker.compose.deleteImagesDesc')}</p>
               </div>
             </label>
             <label className="flex items-center gap-3 cursor-pointer group">
@@ -1275,14 +1275,14 @@ export default function DockerStacks({ clusterMode = false }: { clusterMode?: bo
               />
               <div>
                 <p className="text-[13px] font-medium group-hover:text-foreground transition-colors">{t('docker.compose.deleteVolumes')}</p>
-                <p className="text-[11px] text-muted-foreground">{t('docker.compose.deleteVolumesDesc')}</p>
+                <p className="text-[12px] text-muted-foreground">{t('docker.compose.deleteVolumesDesc')}</p>
               </div>
             </label>
             {/* The checkbox above only ever governed named volumes, but it was
                 the dialog's only mention of data — so unchecking it read as
                 "keep my data" while the stack folder, bind mounts and all,
                 went regardless. Say what actually happens. */}
-            <p className="rounded-xl bg-secondary/60 px-3 py-2 text-[11px] leading-relaxed text-muted-foreground">
+            <p className="rounded-xl bg-secondary/60 px-3 py-2 text-[12px] leading-relaxed text-muted-foreground">
               {t('docker.stacks.deleteDataNote', { path: deleteTarget?.path ?? deleteTarget?.name ?? '' })}
             </p>
           </div>

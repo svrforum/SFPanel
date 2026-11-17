@@ -152,7 +152,7 @@ export function PackageSearchCard({ output, tx }: { output: SSEOutput; tx: AptTr
                         )}
                       </div>
                       {pkg.description && (
-                        <p className="text-[11px] text-muted-foreground mt-0.5 line-clamp-2">{pkg.description}</p>
+                        <p className="text-[12px] text-muted-foreground mt-0.5 line-clamp-2">{pkg.description}</p>
                       )}
                     </div>
                     <div className="shrink-0">

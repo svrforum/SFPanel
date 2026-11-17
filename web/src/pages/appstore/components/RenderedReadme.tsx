@@ -26,12 +26,12 @@ export const RenderedReadme = memo(function RenderedReadme({ markdown, baseUrl }
         prose-li:text-[12px] prose-li:text-muted-foreground
         prose-strong:text-foreground prose-strong:font-medium
         prose-a:text-primary prose-a:no-underline hover:prose-a:underline
-        prose-code:text-[11px] prose-code:bg-secondary/50 prose-code:px-1.5 prose-code:py-0.5 prose-code:rounded-md prose-code:text-foreground
+        prose-code:text-[12px] prose-code:bg-secondary/50 prose-code:px-1.5 prose-code:py-0.5 prose-code:rounded-md prose-code:text-foreground
         prose-pre:bg-[#1e1e2e] prose-pre:text-[#cdd6f4] prose-pre:rounded-xl prose-pre:p-4
-        [&_pre_code]:bg-transparent [&_pre_code]:p-0 [&_pre_code]:text-[11px] [&_pre_code]:text-[#cdd6f4]
-        prose-table:text-[11px]
-        prose-th:text-[10px] prose-th:font-semibold prose-th:text-muted-foreground prose-th:uppercase prose-th:tracking-wider
-        prose-td:text-[11px]
+        [&_pre_code]:bg-transparent [&_pre_code]:p-0 [&_pre_code]:text-[12px] [&_pre_code]:text-[#cdd6f4]
+        prose-table:text-[12px]
+        prose-th:text-[12px] prose-th:font-semibold prose-th:text-muted-foreground prose-th:uppercase prose-th:tracking-wider
+        prose-td:text-[12px]
         prose-img:rounded-lg prose-img:my-2
         [&_img]:max-w-full [&_img]:h-auto [&_img]:rounded-lg
       "

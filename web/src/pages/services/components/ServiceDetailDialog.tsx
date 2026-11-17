@@ -70,14 +70,14 @@ export function ServiceDetailDialog({
         <div className="flex gap-1 rounded-xl bg-muted p-1 w-fit">
           <button
             onClick={() => setDialogView('logs')}
-            className={`px-3 py-1 text-[12px] rounded-lg transition-colors outline-none focus-visible:ring-2 focus-visible:ring-ring/40 focus-visible:ring-offset-0 ${dialogView === 'logs' ? 'bg-card font-semibold shadow-sm' : 'text-muted-foreground'}`}
+            className={`px-3 py-1 text-[12px] rounded-lg transition-colors outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-0 ${dialogView === 'logs' ? 'bg-card font-semibold shadow-sm' : 'text-muted-foreground'}`}
           >
             {t('services.logsTab')}
           </button>
           <button
             onClick={() => setDialogView('unit')}
             disabled={!unitFile}
-            className={`px-3 py-1 text-[12px] rounded-lg transition-colors disabled:opacity-40 outline-none focus-visible:ring-2 focus-visible:ring-ring/40 focus-visible:ring-offset-0 ${dialogView === 'unit' ? 'bg-card font-semibold shadow-sm' : 'text-muted-foreground'}`}
+            className={`px-3 py-1 text-[12px] rounded-lg transition-colors disabled:opacity-40 outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-0 ${dialogView === 'unit' ? 'bg-card font-semibold shadow-sm' : 'text-muted-foreground'}`}
           >
             {t('services.unitTab')}
           </button>
@@ -87,19 +87,19 @@ export function ServiceDetailDialog({
           <div className="space-y-2">
             {serviceDeps.required_by && serviceDeps.required_by.length > 0 && (
               <div className="p-3 bg-amber-500/10 rounded-xl">
-                <p className="text-[11px] font-medium text-amber-500">{t('services.dependents')}</p>
+                <p className="text-[12px] font-medium text-amber-500">{t('services.dependents')}</p>
                 <p className="text-[13px] mt-1">{serviceDeps.required_by.join(', ')}</p>
               </div>
             )}
             {serviceDeps.requires && serviceDeps.requires.length > 0 && (
               <div className="p-3 bg-primary/10 rounded-xl">
-                <p className="text-[11px] font-medium text-primary">{t('services.requires')}</p>
+                <p className="text-[12px] font-medium text-primary">{t('services.requires')}</p>
                 <p className="text-[13px] mt-1">{serviceDeps.requires.join(', ')}</p>
               </div>
             )}
             {serviceDeps.wanted_by && serviceDeps.wanted_by.length > 0 && (
               <div className="p-3 bg-muted rounded-xl">
-                <p className="text-[11px] font-medium text-muted-foreground">{t('services.wantedBy')}</p>
+                <p className="text-[12px] font-medium text-muted-foreground">{t('services.wantedBy')}</p>
                 <p className="text-[13px] mt-1">{serviceDeps.wanted_by.join(', ')}</p>
               </div>
             )}

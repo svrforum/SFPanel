@@ -190,17 +190,17 @@ export default function Layout() {
 
       {/* Standard sidebar (non-cluster mode) */}
       {clusterEnabled === false && <aside className={cn(
-        'bg-card border-r border-border flex-col transition-all duration-300 ease-in-out shrink-0 hidden h-full',
+        'bg-card border-r border-border flex-col transition-[width] duration-300 ease-in-out shrink-0 hidden h-full',
         !sidebarHidden && 'md:flex',
         collapsed ? 'w-[68px]' : 'w-60'
       )}>
         <div className={cn('flex items-center', collapsed ? 'px-3 py-6 justify-center' : 'px-4 py-4')}>
           {collapsed ? (
-            <Link to="/dashboard" aria-label="SFPanel" className="rounded-lg focus:outline-none focus-visible:ring-2 focus-visible:ring-primary/30">
+            <Link to="/dashboard" aria-label="SFPanel" className="rounded-lg focus:outline-none focus-visible:ring-2 focus-visible:ring-ring">
               <LogoMark className="h-8 w-8" />
             </Link>
           ) : (
-            <Link to="/dashboard" aria-label="SFPanel" className="block w-full rounded-lg focus:outline-none focus-visible:ring-2 focus-visible:ring-primary/30">
+            <Link to="/dashboard" aria-label="SFPanel" className="block w-full rounded-lg focus:outline-none focus-visible:ring-2 focus-visible:ring-ring">
               <Logo />
             </Link>
           )}
@@ -214,7 +214,7 @@ export default function Layout() {
               title={collapsed ? t(item.labelKey) : undefined}
               className={({ isActive }) =>
                 cn(
-                  'relative flex items-center rounded-xl text-[13px] font-medium transition-all duration-200 outline-none focus-visible:ring-2 focus-visible:ring-ring/40',
+                  'relative flex items-center rounded-xl text-[13px] font-medium transition duration-200 outline-none focus-visible:ring-2 focus-visible:ring-ring',
                   collapsed ? 'justify-center px-0 py-2.5' : 'gap-3 px-3 py-2',
                   isActive
                     ? 'bg-primary/10 text-primary'
@@ -238,9 +238,9 @@ export default function Layout() {
                 onClick={() => navigate('/settings?scope=node&tab=system')}
                 title={panelVersion ? `v${panelVersion}` : 'SFPanel'}
                 aria-label={t('layout.nav.settings')}
-                className="flex flex-col items-center gap-1 w-full rounded-lg outline-none focus-visible:ring-2 focus-visible:ring-ring/40"
+                className="flex flex-col items-center gap-1 w-full rounded-lg outline-none focus-visible:ring-2 focus-visible:ring-ring"
               >
-                <span className="text-[10px] font-medium text-muted-foreground">
+                <span className="text-[12px] font-medium text-muted-foreground">
                   {panelVersion ? `v${panelVersion.split('.').slice(0, 2).join('.')}` : '...'}
                 </span>
                 {updateAvailable ? (
@@ -256,7 +256,7 @@ export default function Layout() {
                   rel="noopener noreferrer"
                   title="GitHub"
                   aria-label="GitHub"
-                  className="text-muted-foreground hover:text-foreground transition-colors rounded-sm outline-none focus-visible:ring-2 focus-visible:ring-ring/40"
+                  className="text-muted-foreground hover:text-foreground transition-colors rounded-sm outline-none focus-visible:ring-2 focus-visible:ring-ring"
                 >
                   <GithubIcon className="h-3.5 w-3.5" />
                 </a>
@@ -266,7 +266,7 @@ export default function Layout() {
                   rel="noopener noreferrer"
                   title="Buy me a coffee"
                   aria-label="Buy me a coffee"
-                  className="text-muted-foreground hover:text-[#FFDD00] transition-colors rounded-sm outline-none focus-visible:ring-2 focus-visible:ring-ring/40"
+                  className="text-muted-foreground hover:text-[#FFDD00] transition-colors rounded-sm outline-none focus-visible:ring-2 focus-visible:ring-ring"
                 >
                   <Coffee className="h-3.5 w-3.5" />
                 </a>
@@ -277,25 +277,25 @@ export default function Layout() {
               <button
                 onClick={() => navigate('/settings?scope=node&tab=system')}
                 aria-label={t('layout.nav.settings')}
-                className="flex items-center justify-between w-full group rounded-lg outline-none focus-visible:ring-2 focus-visible:ring-ring/40"
+                className="flex items-center justify-between w-full group rounded-lg outline-none focus-visible:ring-2 focus-visible:ring-ring"
               >
                 <div>
-                  <p className="text-[11px] font-medium text-muted-foreground">SFPanel</p>
+                  <p className="text-[12px] font-medium text-muted-foreground">SFPanel</p>
                   <p className="text-[12px] font-semibold text-foreground/80">
                     {panelVersion ? `v${panelVersion}` : '...'}
                   </p>
                 </div>
                 {updateAvailable ? (
-                  <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-semibold bg-primary/10 text-primary">
+                  <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[12px] font-semibold bg-primary/10 text-primary">
                     {t('layout.updateAvailable')}
                   </span>
                 ) : panelVersion ? (
-                  <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-semibold bg-success/10 text-success">
+                  <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[12px] font-semibold bg-success/10 text-success">
                     {t('layout.upToDate')}
                   </span>
                 ) : null}
               </button>
-              <div className="flex items-center gap-2.5 text-[11px] text-muted-foreground">
+              <div className="flex items-center gap-2.5 text-[12px] text-muted-foreground">
                 <a
                   href="https://github.com/svrforum/SFPanel"
                   target="_blank"
@@ -325,7 +325,7 @@ export default function Layout() {
           <button
             onClick={() => setCollapsed(!collapsed)}
             className={cn(
-              'flex items-center rounded-xl text-[13px] font-medium text-muted-foreground hover:bg-accent hover:text-foreground transition-all duration-200 w-full outline-none focus-visible:ring-2 focus-visible:ring-ring/40',
+              'flex items-center rounded-xl text-[13px] font-medium text-muted-foreground hover:bg-accent hover:text-foreground transition duration-200 w-full outline-none focus-visible:ring-2 focus-visible:ring-ring',
               collapsed ? 'justify-center px-0 py-2.5' : 'gap-3 px-3 py-2'
             )}
             title={collapsed ? t('layout.expand') : t('layout.collapse')}
@@ -337,7 +337,7 @@ export default function Layout() {
           <button
             onClick={handleLogout}
             className={cn(
-              'flex items-center rounded-xl text-[13px] font-medium text-muted-foreground hover:bg-accent hover:text-foreground transition-all duration-200 w-full outline-none focus-visible:ring-2 focus-visible:ring-ring/40',
+              'flex items-center rounded-xl text-[13px] font-medium text-muted-foreground hover:bg-accent hover:text-foreground transition duration-200 w-full outline-none focus-visible:ring-2 focus-visible:ring-ring',
               collapsed ? 'justify-center px-0 py-2.5' : 'gap-3 px-3 py-2'
             )}
             title={collapsed ? t('layout.logout') : undefined}

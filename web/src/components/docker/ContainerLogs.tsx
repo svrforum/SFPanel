@@ -211,7 +211,7 @@ export default function ContainerLogs({ containerId }: ContainerLogsProps) {
         <div className="flex items-center gap-2">
           <div className="flex items-center gap-1.5">
             <Circle className={`h-2 w-2 fill-current ${connected ? 'text-success' : 'text-destructive'}`} />
-            <span className="text-[11px] text-white/40 font-medium">
+            <span className="text-[12px] text-white/40 font-medium">
               {connected ? t('terminal.connected') : t('terminal.disconnected')}
             </span>
           </div>
@@ -220,7 +220,7 @@ export default function ContainerLogs({ containerId }: ContainerLogsProps) {
             <select
               value={tail}
               onChange={(e) => setTail(e.target.value)}
-              className="h-5 text-[10px] bg-white/[0.06] border border-white/[0.08] text-white/60 rounded px-1 appearance-none cursor-pointer"
+              className="h-5 text-[12px] bg-white/[0.06] border border-white/[0.08] text-white/60 rounded px-1 appearance-none cursor-pointer"
             >
               <option value="100">{t('logs.lineCount', '{{n}} lines', { n: 100 })}</option>
               <option value="500">{t('logs.lineCount', '{{n}} lines', { n: 500 })}</option>
@@ -230,7 +230,7 @@ export default function ContainerLogs({ containerId }: ContainerLogsProps) {
             <select
               value={stream}
               onChange={(e) => setStream(e.target.value)}
-              className="h-5 text-[10px] bg-white/[0.06] border border-white/[0.08] text-white/60 rounded px-1 appearance-none cursor-pointer"
+              className="h-5 text-[12px] bg-white/[0.06] border border-white/[0.08] text-white/60 rounded px-1 appearance-none cursor-pointer"
             >
               <option value="all">{t('logs.all', 'All')}</option>
               <option value="stdout">stdout</option>
@@ -239,7 +239,7 @@ export default function ContainerLogs({ containerId }: ContainerLogsProps) {
             <select
               value={since}
               onChange={(e) => setSince(e.target.value)}
-              className="h-5 text-[10px] bg-white/[0.06] border border-white/[0.08] text-white/60 rounded px-1 appearance-none cursor-pointer"
+              className="h-5 text-[12px] bg-white/[0.06] border border-white/[0.08] text-white/60 rounded px-1 appearance-none cursor-pointer"
             >
               <option value="all">{t('logs.allTime', 'All time')}</option>
               <option value="1h">{t('logs.lastHours', '{{n}}h', { n: 1 })}</option>
@@ -254,7 +254,7 @@ export default function ContainerLogs({ containerId }: ContainerLogsProps) {
               aria-label={t('logs.timestamps', 'Timestamps')}
               onClick={() => setTimestamps(!timestamps)}
             >
-              <span className="text-[10px] font-mono">T</span>
+              <span className="text-[12px] font-mono">T</span>
             </Button>
           </div>
         </div>
@@ -320,7 +320,7 @@ export default function ContainerLogs({ containerId }: ContainerLogsProps) {
                 }
               }}
               placeholder={t('terminal.searchPlaceholder')}
-              className="h-7 pl-7 text-[12px] bg-white/[0.06] border-white/[0.08] text-white placeholder:text-white/30 rounded-lg focus-visible:ring-primary/50"
+              className="h-7 pl-7 text-[12px] bg-white/[0.06] border-white/[0.08] text-white placeholder:text-white/30 rounded-lg focus-visible:ring-ring"
               autoFocus
             />
           </div>

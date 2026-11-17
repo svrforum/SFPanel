@@ -23,14 +23,14 @@ import type { BlockDevice, IOStat } from '@/types/api'
 function BootBadge() {
   const { t } = useTranslation()
   return (
-    <span className="inline-flex items-center px-1.5 py-0 rounded text-[10px] font-medium bg-warning/10 text-warning shrink-0" title={t('disk.partitions.bootHint')}>
+    <span className="inline-flex items-center px-1.5 py-0 rounded text-[12px] font-medium bg-warning/10 text-warning shrink-0" title={t('disk.partitions.bootHint')}>
       {t('disk.bootBadge')}
     </span>
   )
 }
 
 function diskTypeBadge(type_: string, rotational: boolean) {
-  const base = 'inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-medium'
+  const base = 'inline-flex items-center px-2 py-0.5 rounded-full text-[12px] font-medium'
   if (!rotational || type_ === 'ssd') {
     return <span className={`${base} bg-primary/10 text-primary`}>SSD</span>
   }
@@ -178,7 +178,7 @@ export default function DiskOverview() {
                       <div className="text-right">
                         <div className="text-lg font-bold">{formatBytes(disk.size)}</div>
                         {disk.transport && (
-                          <div className="text-[11px] text-muted-foreground">{disk.transport.toUpperCase()}</div>
+                          <div className="text-[12px] text-muted-foreground">{disk.transport.toUpperCase()}</div>
                         )}
                       </div>
                       <Button
@@ -218,7 +218,7 @@ export default function DiskOverview() {
                           <span className="text-muted-foreground w-20 shrink-0">{formatBytes(child.size)}</span>
                           {child.boot && <BootBadge />}
                           {child.fstype && (
-                            <span className="inline-flex items-center px-1.5 py-0 rounded text-[10px] font-medium border border-border shrink-0">
+                            <span className="inline-flex items-center px-1.5 py-0 rounded text-[12px] font-medium border border-border shrink-0">
                               {child.fstype}
                             </span>
                           )}
@@ -242,19 +242,19 @@ export default function DiskOverview() {
                     </h4>
                     <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 text-[13px]">
                       <div>
-                        <div className="text-muted-foreground text-[11px]">{t('disk.overview.readOps')}</div>
+                        <div className="text-muted-foreground text-[12px]">{t('disk.overview.readOps')}</div>
                         <div className="font-medium">{iostat.read_ops.toLocaleString()}</div>
                       </div>
                       <div>
-                        <div className="text-muted-foreground text-[11px]">{t('disk.overview.writeOps')}</div>
+                        <div className="text-muted-foreground text-[12px]">{t('disk.overview.writeOps')}</div>
                         <div className="font-medium">{iostat.write_ops.toLocaleString()}</div>
                       </div>
                       <div>
-                        <div className="text-muted-foreground text-[11px]">{t('disk.overview.readBytes')}</div>
+                        <div className="text-muted-foreground text-[12px]">{t('disk.overview.readBytes')}</div>
                         <div className="font-medium">{formatBytes(iostat.read_bytes)}</div>
                       </div>
                       <div>
-                        <div className="text-muted-foreground text-[11px]">{t('disk.overview.writeBytes')}</div>
+                        <div className="text-muted-foreground text-[12px]">{t('disk.overview.writeBytes')}</div>
                         <div className="font-medium">{formatBytes(iostat.write_bytes)}</div>
                       </div>
                     </div>
@@ -272,7 +272,7 @@ export default function DiskOverview() {
             type="button"
             onClick={() => setGuestsOpen((v) => !v)}
             aria-expanded={guestsOpen}
-            className="w-full flex items-center gap-3 px-5 py-4 text-left outline-none focus-visible:ring-2 focus-visible:ring-ring/40"
+            className="w-full flex items-center gap-3 px-5 py-4 text-left outline-none focus-visible:ring-2 focus-visible:ring-ring"
           >
             {guestsOpen ? <ChevronDown className="h-4 w-4 text-muted-foreground shrink-0" /> : <ChevronRight className="h-4 w-4 text-muted-foreground shrink-0" />}
             <Boxes className="h-4 w-4 text-muted-foreground shrink-0" aria-hidden="true" />
@@ -287,7 +287,7 @@ export default function DiskOverview() {
                 <div key={vol.name} className="flex items-center gap-3 bg-muted/30 rounded-lg px-3 py-2 text-[13px] min-w-0">
                   <span className="font-mono font-medium w-24 shrink-0 truncate">{vol.name}</span>
                   <span className="text-muted-foreground w-20 shrink-0">{formatBytes(vol.size)}</span>
-                  <span className="inline-flex items-center px-1.5 py-0 rounded text-[10px] font-medium bg-primary/10 text-primary truncate min-w-0" title={vol.owner}>
+                  <span className="inline-flex items-center px-1.5 py-0 rounded text-[12px] font-medium bg-primary/10 text-primary truncate min-w-0" title={vol.owner}>
                     {vol.owner}
                   </span>
                   {(vol.mountpoint || vol.fstype) && (

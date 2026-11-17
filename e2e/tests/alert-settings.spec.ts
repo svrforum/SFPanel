@@ -78,12 +78,12 @@ test('adding a channel sends each type in the shape the handler is tested with',
     await page.getByRole('combobox').click()
     await page.getByRole('option', { name: body.type, exact: false }).click()
     if (body.type === 'telegram') {
-      await page.getByPlaceholder('123456:ABC-DEF...').fill(body.config.bot_token)
+      await page.getByPlaceholder('123456:ABC-DEF…').fill(body.config.bot_token)
       await page.getByPlaceholder('-1001234567890').fill(body.config.chat_id)
     } else {
       // Discord and webhook share the one URL field, under different placeholders.
       await page.getByPlaceholder(body.type === 'discord'
-        ? 'https://discord.com/api/webhooks/...'
+        ? 'https://discord.com/api/webhooks/…'
         : 'https://your-receiver.example.com/hook').fill(body.config.webhook_url)
     }
     await page.getByRole('button', { name: 'Add Channel', exact: true }).click()

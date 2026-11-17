@@ -127,19 +127,19 @@ function FileCard({ entry, rowPath, selected, actions, onToggleSelect, onOpen, s
               <button
                 type="button"
                 onClick={() => onOpen(entry)}
-                className="min-w-0 flex-1 rounded-lg py-1 text-left outline-none focus-visible:ring-2 focus-visible:ring-ring/40"
+                className="min-w-0 flex-1 rounded-lg py-1 text-left outline-none focus-visible:ring-2 focus-visible:ring-ring"
               >
                 <div className="flex items-center gap-2">
                   <EntryIcon entry={entry} />
                   <span className="truncate text-[14px] font-medium">{entry.name}</span>
                 </div>
                 {searchActive && (
-                  <p className="mt-0.5 truncate font-mono text-[11px] text-muted-foreground">{entry.path}</p>
+                  <p className="mt-0.5 truncate font-mono text-[12px] text-muted-foreground">{entry.path}</p>
                 )}
                 {entry.linkTarget && (
-                  <p className="mt-0.5 truncate font-mono text-[11px] text-muted-foreground">→ {entry.linkTarget}</p>
+                  <p className="mt-0.5 truncate font-mono text-[12px] text-muted-foreground">→ {entry.linkTarget}</p>
                 )}
-                <div className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-0.5 text-[11px] text-muted-foreground">
+                <div className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-0.5 text-[12px] text-muted-foreground">
                   <span>{entry.isDir ? t('files.folder', { defaultValue: 'Folder' }) : formatBytes(entry.size)}</span>
                   <span>{formatDate(entry.modTime)}</span>
                   <span className="font-mono">{entry.mode || '-'}</span>

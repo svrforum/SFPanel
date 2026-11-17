@@ -389,7 +389,7 @@ export default function ClusterOverview() {
                   </Button>
                 )}
               </div>
-              <p className="text-[11px] text-muted-foreground">
+              <p className="text-[12px] text-muted-foreground">
                 {t('cluster.overview.nodeCount', { count: nodes.length })}
               </p>
             </div>
@@ -457,7 +457,7 @@ export default function ClusterOverview() {
           <div key={card.key} data-testid={`stat-${card.key}`} className="bg-card rounded-2xl p-5 card-shadow">
             <div className="flex items-center gap-2 mb-2">
               <card.icon className="h-4 w-4" style={{ color: card.color }} />
-              <span className="text-[11px] text-muted-foreground">{card.label}</span>
+              <span className="text-[12px] text-muted-foreground">{card.label}</span>
             </div>
             <p className="text-[22px] font-bold tracking-tight" style={{ color: card.color }}>{card.value}</p>
           </div>
@@ -484,15 +484,15 @@ export default function ClusterOverview() {
                       <span className="text-[13px] font-medium break-all">{node.name}</span>
                       <KindBadge kind={nodeRoleKind(node, leaderId)} />
                       {node.id === status.local_id && (
-                        <span className="text-[10px] text-muted-foreground">({t('layout.cluster.localNode')})</span>
+                        <span className="text-[12px] text-muted-foreground">({t('layout.cluster.localNode')})</span>
                       )}
                     </div>
                     <div className="flex flex-wrap items-center gap-x-2 gap-y-0.5">
-                      <span className="text-[11px] text-muted-foreground break-all">{node.api_address}</span>
+                      <span className="text-[12px] text-muted-foreground break-all">{node.api_address}</span>
                       {node.labels && Object.keys(node.labels).length > 0 && (
                         <div className="flex flex-wrap gap-1">
                           {Object.entries(node.labels).map(([k, v]) => (
-                            <span key={k} className="inline-flex items-center px-1.5 py-0 rounded text-[9px] font-medium bg-secondary text-muted-foreground">
+                            <span key={k} className="inline-flex items-center px-1.5 py-0 rounded text-[12px] font-medium bg-secondary text-muted-foreground">
                               {k}={v}
                             </span>
                           ))}
@@ -569,7 +569,7 @@ export default function ClusterOverview() {
                     <span className="text-[13px] text-muted-foreground ml-2">{t(`cluster.events.${event.type}`, { defaultValue: event.type })}</span>
                   </div>
                 </div>
-                <span className="text-[11px] text-muted-foreground">
+                <span className="text-[12px] text-muted-foreground">
                   {new Date(event.timestamp).toLocaleString()}
                 </span>
               </div>
@@ -607,13 +607,13 @@ function MetricBar({ label, value }: { label: string; value: number }) {
   const color = value > 80 ? 'var(--destructive)' : value > 50 ? 'var(--warning)' : 'var(--primary)'
   return (
     <div className="min-w-0 flex-1 lg:flex-initial lg:min-w-[100px]">
-      <div className="flex justify-between text-[11px] mb-1">
+      <div className="flex justify-between text-[12px] mb-1">
         <span className="text-muted-foreground">{label}</span>
         <span className="font-medium" style={{ color }}>{value.toFixed(1)}%</span>
       </div>
       <div className="h-1.5 rounded-full bg-secondary overflow-hidden">
         <div
-          className="h-full rounded-full transition-all duration-500"
+          className="h-full rounded-full transition-[width] duration-500"
           style={{ width: `${Math.min(100, value)}%`, backgroundColor: color }}
         />
       </div>

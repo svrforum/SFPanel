@@ -8,7 +8,7 @@ import type { NetworkInterfaceInfo } from '@/types/api'
 // BondCreateDialog — co-located with its main consumer.
 // eslint-disable-next-line react-refresh/only-export-components
 export function getStateStyle(state: string) {
-  const base = 'inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-medium'
+  const base = 'inline-flex items-center px-2 py-0.5 rounded-full text-[12px] font-medium'
   if (state === 'up') return `${base} bg-success/10 text-success`
   if (state === 'down') return `${base} bg-destructive/10 text-destructive`
   return `${base} bg-secondary text-muted-foreground`
@@ -45,7 +45,7 @@ export function InterfaceCard({
 
   return (
     <div
-      className={`bg-card rounded-2xl p-5 card-shadow transition-all ${
+      className={`bg-card rounded-2xl p-5 card-shadow transition ${
         iface.is_default ? 'ring-1 ring-primary/30' : ''
       } ${isLoopback ? 'opacity-60' : ''}`}
     >
@@ -55,12 +55,12 @@ export function InterfaceCard({
           {getInterfaceIcon(iface)}
           <span className="text-[15px] font-semibold truncate min-w-0" title={iface.name}>{iface.name}</span>
           {iface.is_default && (
-            <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-medium bg-primary/10 text-primary shrink-0">
+            <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[12px] font-medium bg-primary/10 text-primary shrink-0">
               {t('network.defaultGateway')}
             </span>
           )}
           {iface.bond_info && (
-            <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-medium bg-warning/10 text-warning shrink-0">
+            <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[12px] font-medium bg-warning/10 text-warning shrink-0">
               Bond
             </span>
           )}
@@ -86,14 +86,14 @@ export function InterfaceCard({
           .filter((a) => (a.family === 'ipv6' || a.family === 'inet6') && !a.address.startsWith('fe80'))
           .slice(0, 1)
           .map((a, idx) => (
-            <p key={idx} className="text-[11px] text-muted-foreground font-mono truncate" title={`${a.address}/${a.prefix}`}>
+            <p key={idx} className="text-[12px] text-muted-foreground font-mono truncate" title={`${a.address}/${a.prefix}`}>
               {a.address}/{a.prefix}
             </p>
           ))}
       </div>
 
       {/* Details */}
-      <div className="space-y-1 text-[11px] text-muted-foreground">
+      <div className="space-y-1 text-[12px] text-muted-foreground">
         {iface.mac_address && iface.mac_address !== '00:00:00:00:00:00' && (
           <p>MAC: {iface.mac_address}</p>
         )}
@@ -113,14 +113,14 @@ export function InterfaceCard({
         <div className="flex items-center gap-4 mt-3 pt-3 border-t border-border">
           <div className="flex items-center gap-1">
             <ArrowUpDown className="h-3 w-3 text-muted-foreground" />
-            <span className="text-[11px] text-muted-foreground">
+            <span className="text-[12px] text-muted-foreground">
               <span className="text-primary">{formatBytes(iface.tx_bytes)}</span>
               {' / '}
               <span className="text-success">{formatBytes(iface.rx_bytes)}</span>
             </span>
           </div>
           {(iface.tx_errors > 0 || iface.rx_errors > 0) && (
-            <span className="text-[11px] text-destructive">
+            <span className="text-[12px] text-destructive">
               {t('network.errors')}: {iface.tx_errors + iface.rx_errors}
             </span>
           )}

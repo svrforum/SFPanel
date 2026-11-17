@@ -89,7 +89,7 @@ export default function DockerHubSearch({ value, onChange, placeholder }: Docker
               key={r.name}
               role="button"
               tabIndex={0}
-              className="px-3 py-2 cursor-pointer hover:bg-secondary/50 transition-colors first:rounded-t-xl last:rounded-b-xl outline-none focus-visible:ring-2 focus-visible:ring-ring/40 focus-visible:ring-offset-0"
+              className="px-3 py-2 cursor-pointer hover:bg-secondary/50 transition-colors first:rounded-t-xl last:rounded-b-xl outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-0"
               onClick={() => handleSelect(r.name)}
               onKeyDown={(e) => {
                 if (e.key === 'Enter' || e.key === ' ') {
@@ -101,18 +101,18 @@ export default function DockerHubSearch({ value, onChange, placeholder }: Docker
               <div className="flex items-center gap-2">
                 <span className="text-[13px] font-medium truncate">{r.name}</span>
                 {r.is_official && (
-                  <span className="inline-flex items-center gap-0.5 px-1.5 py-0 rounded text-[10px] font-medium bg-primary/10 text-primary">
+                  <span className="inline-flex items-center gap-0.5 px-1.5 py-0 rounded text-[12px] font-medium bg-primary/10 text-primary">
                     <ShieldCheck className="h-3 w-3" />
                     {t('docker.search.official')}
                   </span>
                 )}
-                <span className="ml-auto flex items-center gap-0.5 text-[11px] text-muted-foreground shrink-0">
+                <span className="ml-auto flex items-center gap-0.5 text-[12px] text-muted-foreground shrink-0">
                   <Star className="h-3 w-3" />
                   {r.star_count.toLocaleString()}
                 </span>
               </div>
               {r.description && (
-                <p className="text-[11px] text-muted-foreground mt-0.5 line-clamp-1">{r.description}</p>
+                <p className="text-[12px] text-muted-foreground mt-0.5 line-clamp-1">{r.description}</p>
               )}
             </div>
           ))}

@@ -223,7 +223,7 @@ export function HealthcheckComposerDialog({
             <Label htmlFor="hc-preset">{t('compose.healthcheck.preset', 'Preset')}</Label>
             <select
               id="hc-preset"
-              className="w-full h-9 border rounded-md px-2 text-[13px] bg-transparent outline-none focus-visible:ring-2 focus-visible:ring-ring/40 focus-visible:ring-offset-0"
+              className="w-full h-9 border rounded-md px-2 text-[13px] bg-transparent outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-0"
               defaultValue="Custom"
               onChange={(e) => {
                 const p = PRESETS.find((x) => x.label === e.target.value)
@@ -234,7 +234,7 @@ export function HealthcheckComposerDialog({
                 <option key={p.label}>{p.label}</option>
               ))}
             </select>
-            <p className="text-[11px] text-muted-foreground">
+            <p className="text-[12px] text-muted-foreground">
               <Trans
                 i18nKey="compose.healthcheck.presetHint"
                 defaults="Selecting a preset fills in the command. Edit placeholders like <code>PORT</code> yourself."
@@ -250,7 +250,7 @@ export function HealthcheckComposerDialog({
                 <input
                   type="radio"
                   name="test_type"
-                  className="mt-1 outline-none focus-visible:ring-2 focus-visible:ring-ring/40 focus-visible:ring-offset-0"
+                  className="mt-1 outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-0"
                   checked={spec.test_type === type}
                   onChange={() => setSpec((s) => ({ ...s, test_type: type }))}
                 />
@@ -342,7 +342,7 @@ export function HealthcheckComposerDialog({
 
           {hasExisting && (
             <label className="flex items-start gap-2 text-[12px] text-muted-foreground">
-              <input type="checkbox" className="mt-0.5 outline-none focus-visible:ring-2 focus-visible:ring-ring/40 focus-visible:ring-offset-0" checked={replace} onChange={(e) => setReplace(e.target.checked)} />
+              <input type="checkbox" className="mt-0.5 outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-0" checked={replace} onChange={(e) => setReplace(e.target.checked)} />
               {t('compose.healthcheck.overwriteExisting', 'This service already has a healthcheck — overwrite')}
             </label>
           )}

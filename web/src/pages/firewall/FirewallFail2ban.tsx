@@ -336,17 +336,17 @@ export default function FirewallFail2ban() {
               <div className="flex items-center gap-2">
                 <span className="text-[15px] font-semibold">{t('firewall.fail2ban.title')}</span>
                 {status.running ? (
-                  <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-medium bg-success/10 text-success">
+                  <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[12px] font-medium bg-success/10 text-success">
                     {t('firewall.fail2ban.running')}
                   </span>
                 ) : (
-                  <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-medium bg-destructive/10 text-destructive">
+                  <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[12px] font-medium bg-destructive/10 text-destructive">
                     {t('firewall.fail2ban.stopped')}
                   </span>
                 )}
               </div>
               {status.version && (
-                <span className="text-[11px] text-muted-foreground">
+                <span className="text-[12px] text-muted-foreground">
                   {t('firewall.fail2ban.version')}: {status.version}
                 </span>
               )}
@@ -405,20 +405,20 @@ export default function FirewallFail2ban() {
               <Table>
                 <TableHeader>
                   <TableRow className="border-border/50">
-                    <TableHead className="text-[11px] text-muted-foreground uppercase tracking-wider w-8" />
-                    <TableHead className="text-[11px] text-muted-foreground uppercase tracking-wider">
+                    <TableHead className="text-[12px] text-muted-foreground uppercase tracking-wider w-8" />
+                    <TableHead className="text-[12px] text-muted-foreground uppercase tracking-wider">
                       {t('firewall.fail2ban.name')}
                     </TableHead>
-                    <TableHead className="text-[11px] text-muted-foreground uppercase tracking-wider">
+                    <TableHead className="text-[12px] text-muted-foreground uppercase tracking-wider">
                       {t('firewall.fail2ban.status')}
                     </TableHead>
-                    <TableHead className="text-[11px] text-muted-foreground uppercase tracking-wider">
+                    <TableHead className="text-[12px] text-muted-foreground uppercase tracking-wider">
                       {t('firewall.fail2ban.bannedCount')}
                     </TableHead>
-                    <TableHead className="text-[11px] text-muted-foreground uppercase tracking-wider">
+                    <TableHead className="text-[12px] text-muted-foreground uppercase tracking-wider">
                       {t('firewall.fail2ban.totalBanned')}
                     </TableHead>
-                    <TableHead className="text-[11px] text-muted-foreground uppercase tracking-wider text-right">
+                    <TableHead className="text-[12px] text-muted-foreground uppercase tracking-wider text-right">
                       {t('common.actions')}
                     </TableHead>
                   </TableRow>
@@ -436,7 +436,7 @@ export default function FirewallFail2ban() {
                           handleSelectJail(jail.name)
                         }
                       }}
-                      className={`cursor-pointer transition-colors outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring/40 ${
+                      className={`cursor-pointer transition-colors outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring ${
                         selectedJail === jail.name ? 'bg-primary/5' : 'hover:bg-muted/50'
                       }`}
                     >
@@ -452,11 +452,11 @@ export default function FirewallFail2ban() {
                       </TableCell>
                       <TableCell>
                         {jail.enabled ? (
-                          <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-medium bg-success/10 text-success">
+                          <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[12px] font-medium bg-success/10 text-success">
                             {t('firewall.fail2ban.enabled')}
                           </span>
                         ) : (
-                          <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-medium bg-destructive/10 text-destructive">
+                          <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[12px] font-medium bg-destructive/10 text-destructive">
                             {t('firewall.fail2ban.disabled')}
                           </span>
                         )}
@@ -537,7 +537,7 @@ export default function FirewallFail2ban() {
                         </div>
                         <div className="grid grid-cols-2 md:grid-cols-3 gap-3">
                           <div className="bg-card rounded-xl px-4 py-3 card-shadow">
-                            <div className="text-[11px] text-muted-foreground uppercase tracking-wider">
+                            <div className="text-[12px] text-muted-foreground uppercase tracking-wider">
                               {t('firewall.fail2ban.maxRetry')}
                             </div>
                             <div className="text-[15px] font-semibold font-mono mt-1">
@@ -545,30 +545,30 @@ export default function FirewallFail2ban() {
                             </div>
                           </div>
                           <div className="bg-card rounded-xl px-4 py-3 card-shadow">
-                            <div className="text-[11px] text-muted-foreground uppercase tracking-wider">
+                            <div className="text-[12px] text-muted-foreground uppercase tracking-wider">
                               {t('firewall.fail2ban.banTime')}
                             </div>
                             <div className="text-[15px] font-semibold font-mono mt-1">
                               {formatBanTime(jailDetail.ban_time)}
                             </div>
-                            <div className="text-[11px] text-muted-foreground mt-0.5">
+                            <div className="text-[12px] text-muted-foreground mt-0.5">
                               {jailDetail.ban_time}{t('firewall.fail2ban.seconds')}
                             </div>
                           </div>
                           <div className="bg-card rounded-xl px-4 py-3 card-shadow">
-                            <div className="text-[11px] text-muted-foreground uppercase tracking-wider">
+                            <div className="text-[12px] text-muted-foreground uppercase tracking-wider">
                               {t('firewall.fail2ban.findTime')}
                             </div>
                             <div className="text-[15px] font-semibold font-mono mt-1">
                               {formatBanTime(jailDetail.find_time)}
                             </div>
-                            <div className="text-[11px] text-muted-foreground mt-0.5">
+                            <div className="text-[12px] text-muted-foreground mt-0.5">
                               {jailDetail.find_time}{t('firewall.fail2ban.seconds')}
                             </div>
                           </div>
                         </div>
                         {jailDetail.filter && (
-                          <div className="mt-2 text-[11px] text-muted-foreground">
+                          <div className="mt-2 text-[12px] text-muted-foreground">
                             {t('firewall.fail2ban.logFile')}: <span className="font-mono">{jailDetail.filter}</span>
                           </div>
                         )}

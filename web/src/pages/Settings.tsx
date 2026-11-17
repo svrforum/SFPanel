@@ -111,7 +111,7 @@ export default function Settings() {
                   )}
                 >
                   <span className="block text-[13px] font-medium">{s.label}</span>
-                  <span className="block text-[11px] text-muted-foreground">{s.hint}</span>
+                  <span className="block text-[12px] text-muted-foreground">{s.hint}</span>
                 </Link>
               )
             })}

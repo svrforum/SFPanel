@@ -246,9 +246,9 @@ export default function Security() {
         <div className="flex items-center gap-3">
           <h3 className="text-[15px] font-semibold">{t('settings.twoFA')}</h3>
           {twoFAEnabled ? (
-            <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-medium bg-success/10 text-success">{t('settings.twoFAEnabled')}</span>
+            <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[12px] font-medium bg-success/10 text-success">{t('settings.twoFAEnabled')}</span>
           ) : (
-            <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-medium bg-secondary text-muted-foreground">{t('settings.twoFANotConfigured')}</span>
+            <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[12px] font-medium bg-secondary text-muted-foreground">{t('settings.twoFANotConfigured')}</span>
           )}
         </div>
         <p className="text-[13px] text-muted-foreground mt-1 mb-4">{t('settings.twoFADescription')}</p>
@@ -276,7 +276,7 @@ export default function Security() {
                 <QRCodeSVG value={twoFAUrl} size={200} />
               </div>
               <div className="space-y-1">
-                <Label className="text-[11px] text-muted-foreground">{t('settings.secretKey')}</Label>
+                <Label className="text-[12px] text-muted-foreground">{t('settings.secretKey')}</Label>
                 <code className="block bg-background px-3 py-2 rounded-lg text-[13px] font-mono break-all select-all">
                   {twoFASecret}
                 </code>

@@ -213,14 +213,14 @@ export default function DiskFilesystems() {
         <Table>
           <TableHeader>
             <TableRow className="border-border/50">
-              <TableHead className="text-[11px]">{t('disk.filesystems.source')}</TableHead>
-              <TableHead className="text-[11px]">{t('disk.filesystems.fsType')}</TableHead>
-              <TableHead className="text-[11px]">{t('disk.filesystems.size')}</TableHead>
-              <TableHead className="text-[11px]">{t('disk.filesystems.used')}</TableHead>
-              <TableHead className="text-[11px]">{t('disk.filesystems.available')}</TableHead>
-              <TableHead className="text-[11px] min-w-[160px]">{t('disk.filesystems.usage')}</TableHead>
-              <TableHead className="text-[11px]">{t('disk.filesystems.mountPoint')}</TableHead>
-              <TableHead className="text-right text-[11px]">{t('common.actions')}</TableHead>
+              <TableHead className="text-[12px]">{t('disk.filesystems.source')}</TableHead>
+              <TableHead className="text-[12px]">{t('disk.filesystems.fsType')}</TableHead>
+              <TableHead className="text-[12px]">{t('disk.filesystems.size')}</TableHead>
+              <TableHead className="text-[12px]">{t('disk.filesystems.used')}</TableHead>
+              <TableHead className="text-[12px]">{t('disk.filesystems.available')}</TableHead>
+              <TableHead className="text-[12px] min-w-[160px]">{t('disk.filesystems.usage')}</TableHead>
+              <TableHead className="text-[12px]">{t('disk.filesystems.mountPoint')}</TableHead>
+              <TableHead className="text-right text-[12px]">{t('common.actions')}</TableHead>
             </TableRow>
           </TableHeader>
           <TableBody>
@@ -237,7 +237,7 @@ export default function DiskFilesystems() {
                   {fs.source}
                 </TableCell>
                 <TableCell>
-                  <span className="inline-flex items-center px-1.5 py-0 rounded text-[10px] font-medium border border-border">
+                  <span className="inline-flex items-center px-1.5 py-0 rounded text-[12px] font-medium border border-border">
                     {fs.fstype}
                   </span>
                 </TableCell>
@@ -245,7 +245,7 @@ export default function DiskFilesystems() {
                   <TableCell colSpan={4}>
                     {/* The server behind this share did not answer. Saying so
                         beats a row of zeros, which reads as an empty disk. */}
-                    <span className="inline-flex items-center gap-1.5 rounded-full bg-destructive/10 px-2 py-0.5 text-[11px] font-medium text-destructive">
+                    <span className="inline-flex items-center gap-1.5 rounded-full bg-destructive/10 px-2 py-0.5 text-[12px] font-medium text-destructive">
                       <span className="h-1.5 w-1.5 rounded-full bg-destructive" aria-hidden="true" />
                       {t('disk.filesystems.unresponsive')}
                     </span>
@@ -258,7 +258,7 @@ export default function DiskFilesystems() {
                   <div className="flex items-center gap-2">
                     <div className="flex-1 h-2 bg-secondary rounded-full overflow-hidden">
                       <div
-                        className="h-full rounded-full transition-all duration-500"
+                        className="h-full rounded-full transition-[width] duration-500"
                         style={{
                           width: `${Math.min(fs.use_percent, 100)}%`,
                           backgroundColor: usageBarColor(fs.use_percent),
@@ -413,7 +413,7 @@ export default function DiskFilesystems() {
               />
               <span>
                 <span className="block text-[13px] font-medium">{t('disk.filesystems.persist')}</span>
-                <span className="block text-[11px] text-muted-foreground">{t('disk.filesystems.persistDesc')}</span>
+                <span className="block text-[12px] text-muted-foreground">{t('disk.filesystems.persistDesc')}</span>
               </span>
             </label>
           </div>
@@ -473,7 +473,7 @@ export default function DiskFilesystems() {
               />
               <span>
                 <span className="block text-[13px] font-medium">{t('disk.filesystems.forget')}</span>
-                <span className="block text-[11px] text-muted-foreground">{t('disk.filesystems.forgetDesc')}</span>
+                <span className="block text-[12px] text-muted-foreground">{t('disk.filesystems.forgetDesc')}</span>
               </span>
             </label>
           </div>

@@ -66,14 +66,14 @@ function VersionHeader({
   return (
     <div className="flex flex-wrap items-center gap-2">
       {version && (
-        <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-medium bg-secondary text-muted-foreground">
+        <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[12px] font-medium bg-secondary text-muted-foreground">
           {t('network.tailscale.version')}: {version}
         </span>
       )}
       <Button
         variant="ghost"
         size="sm"
-        className="h-6 text-[11px] px-2"
+        className="h-6 text-[12px] px-2"
         onClick={onCheckUpdate}
         disabled={checkingUpdate}
       >
@@ -85,7 +85,7 @@ function VersionHeader({
         {t('network.tailscale.checkUpdate')}
       </Button>
       {updateInfo && (
-        <span className={`text-[11px] ${updateInfo.available ? 'text-warning font-medium' : 'text-success'}`}>
+        <span className={`text-[12px] ${updateInfo.available ? 'text-warning font-medium' : 'text-success'}`}>
           {updateInfo.available
             ? t('network.tailscale.updateAvailable', { version: updateInfo.version })
             : t('network.tailscale.upToDate')}
@@ -135,7 +135,7 @@ function ToggleSettingRow({
     <button
       role="switch"
       aria-checked={checked}
-      className={`w-full flex items-center justify-between rounded-xl p-3 transition-colors outline-none focus-visible:ring-2 focus-visible:ring-ring/40 focus-visible:ring-offset-0 ${
+      className={`w-full flex items-center justify-between rounded-xl p-3 transition-colors outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-0 ${
         checked ? a.on : 'bg-secondary/50 hover:bg-secondary/80'
       }`}
       onClick={onToggle}
@@ -149,7 +149,7 @@ function ToggleSettingRow({
         </div>
         <div>
           <div className="text-[13px] font-medium">{title}</div>
-          <p className="text-[11px] text-muted-foreground">{description}</p>
+          <p className="text-[12px] text-muted-foreground">{description}</p>
         </div>
       </div>
       <div className="ml-3 shrink-0">
@@ -500,7 +500,7 @@ export default function NetworkTailscale() {
                 className="font-mono text-[13px]"
                 type="password"
               />
-              <p className="text-[11px] text-muted-foreground">{t('network.tailscale.authKeyHint')}</p>
+              <p className="text-[12px] text-muted-foreground">{t('network.tailscale.authKeyHint')}</p>
             </div>
 
             <Button className="w-full" onClick={handleConnect} disabled={connecting}>
@@ -515,7 +515,7 @@ export default function NetworkTailscale() {
                   href={authURL}
                   target="_blank"
                   rel="noopener noreferrer"
-                  className="inline-flex items-center gap-1 text-[13px] text-primary hover:underline font-mono break-all rounded-sm outline-none focus-visible:ring-2 focus-visible:ring-ring/40 focus-visible:ring-offset-0"
+                  className="inline-flex items-center gap-1 text-[13px] text-primary hover:underline font-mono break-all rounded-sm outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-0"
                 >
                   {authURL}
                   <ExternalLink className="h-3 w-3 shrink-0" />
@@ -571,7 +571,7 @@ export default function NetworkTailscale() {
         {/* Self Info Card */}
         {status?.self && (
           <div className="bg-card rounded-2xl p-5 card-shadow">
-            <h3 className="text-[11px] text-muted-foreground uppercase tracking-wider mb-3">
+            <h3 className="text-[12px] text-muted-foreground uppercase tracking-wider mb-3">
               {t('network.tailscale.thisDevice')}
             </h3>
             <div className="space-y-2 text-[13px]">
@@ -582,7 +582,7 @@ export default function NetworkTailscale() {
               <div className="flex items-center justify-between gap-2 min-w-0">
                 <span className="text-muted-foreground shrink-0">{t('network.tailscale.tailscaleIP')}</span>
                 <button
-                  className="font-mono flex items-center gap-1 hover:text-primary min-w-0 rounded-sm outline-none focus-visible:ring-2 focus-visible:ring-ring/40 focus-visible:ring-offset-0"
+                  className="font-mono flex items-center gap-1 hover:text-primary min-w-0 rounded-sm outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-0"
                   onClick={() => copyToClipboard(status.self!.tailscale_ip, 'ip4')}
                   aria-label={t('common.copy')}
                 >
@@ -594,7 +594,7 @@ export default function NetworkTailscale() {
                 <div className="flex items-center justify-between gap-2 min-w-0">
                   <span className="text-muted-foreground shrink-0">IPv6</span>
                   <button
-                    className="font-mono text-[11px] flex items-center gap-1 hover:text-primary truncate min-w-0 max-w-[200px] rounded-sm outline-none focus-visible:ring-2 focus-visible:ring-ring/40 focus-visible:ring-offset-0"
+                    className="font-mono text-[12px] flex items-center gap-1 hover:text-primary truncate min-w-0 max-w-[200px] rounded-sm outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-0"
                     onClick={() => copyToClipboard(status.self!.tailscale_ipv6, 'ip6')}
                     aria-label={t('common.copy')}
                     title={status.self.tailscale_ipv6}
@@ -617,7 +617,7 @@ export default function NetworkTailscale() {
               {status.magic_dns_suffix && (
                 <div className="flex items-center justify-between gap-2 min-w-0">
                   <span className="text-muted-foreground shrink-0">MagicDNS</span>
-                  <span className="font-mono text-[11px] truncate min-w-0 text-right" title={status.magic_dns_suffix}>{status.magic_dns_suffix}</span>
+                  <span className="font-mono text-[12px] truncate min-w-0 text-right" title={status.magic_dns_suffix}>{status.magic_dns_suffix}</span>
                 </div>
               )}
             </div>
@@ -626,7 +626,7 @@ export default function NetworkTailscale() {
 
         {/* Network Settings Card */}
         <div className="bg-card rounded-2xl p-5 card-shadow">
-          <h3 className="text-[11px] text-muted-foreground uppercase tracking-wider mb-3">
+          <h3 className="text-[12px] text-muted-foreground uppercase tracking-wider mb-3">
             {t('network.tailscale.networkSettings')}
           </h3>
           <div className="space-y-3">
@@ -654,7 +654,7 @@ export default function NetworkTailscale() {
 
             {/* Admin Console Hint */}
             {(status?.accept_routes || status?.advertise_exit_node) && (
-              <p className="text-[11px] text-muted-foreground px-1 flex items-center gap-1">
+              <p className="text-[12px] text-muted-foreground px-1 flex items-center gap-1">
                 <ExternalLink className="h-3 w-3 shrink-0" />
                 {status?.advertise_exit_node
                   ? t('network.tailscale.advertiseExitNodeHint')
@@ -674,7 +674,7 @@ export default function NetworkTailscale() {
                     </div>
                     <div>
                       <div className="text-[13px] font-medium">{t('network.tailscale.selectExitNode')}</div>
-                      <p className="text-[11px] text-muted-foreground">{t('network.tailscale.selectExitNodeDesc')}</p>
+                      <p className="text-[12px] text-muted-foreground">{t('network.tailscale.selectExitNodeDesc')}</p>
                     </div>
                   </div>
                   <div className="flex items-center gap-2">
@@ -746,12 +746,12 @@ export default function NetworkTailscale() {
                       <div className="flex items-center gap-1.5">
                         {peer.hostname}
                         {peer.exit_node && (
-                          <span className="inline-flex items-center px-1.5 py-0.5 rounded-full text-[10px] font-medium bg-primary/10 text-primary">
+                          <span className="inline-flex items-center px-1.5 py-0.5 rounded-full text-[12px] font-medium bg-primary/10 text-primary">
                             Exit
                           </span>
                         )}
                         {peer.exit_node_option && !peer.exit_node && (
-                          <span className="inline-flex items-center px-1.5 py-0.5 rounded-full text-[10px] font-medium bg-secondary text-muted-foreground">
+                          <span className="inline-flex items-center px-1.5 py-0.5 rounded-full text-[12px] font-medium bg-secondary text-muted-foreground">
                             {t('network.tailscale.exitNodeAvailable')}
                           </span>
                         )}
@@ -759,7 +759,7 @@ export default function NetworkTailscale() {
                     </TableCell>
                     <TableCell className="font-mono text-[13px]">
                       <button
-                        className="group hover:text-primary flex items-center gap-1 rounded-sm outline-none focus-visible:ring-2 focus-visible:ring-ring/40"
+                        className="group hover:text-primary flex items-center gap-1 rounded-sm outline-none focus-visible:ring-2 focus-visible:ring-ring"
                         onClick={() => copyToClipboard(peer.tailscale_ip, peer.tailscale_ip)}
                         aria-label={t('common.copy')}
                         title={t('common.copy')}
@@ -774,7 +774,7 @@ export default function NetworkTailscale() {
                     </TableCell>
                     <TableCell className="text-[13px] text-muted-foreground">{peer.os}</TableCell>
                     <TableCell>
-                      <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-medium ${
+                      <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-[12px] font-medium ${
                         peer.online
                           ? 'bg-success/10 text-success'
                           : 'bg-secondary text-muted-foreground'

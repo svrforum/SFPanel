@@ -395,7 +395,7 @@ export function TerminalInput({ kind, sessionKey, onSendKey, onSubmit, onAttach 
           onPointerDown={keepFocus} onClick={() => { setComposing(true); setTimeout(() => draftRef.current?.focus(), 0) }}>
           <PenLine className="h-4 w-4" aria-hidden="true" />
         </button>
-        <button type="button" className={cn(KEY, 'text-[11px] text-muted-foreground')} aria-label={t('terminal.input.nextKeys', { page: pageLabel })}
+        <button type="button" className={cn(KEY, 'text-[12px] text-muted-foreground')} aria-label={t('terminal.input.nextKeys', { page: pageLabel })}
           onPointerDown={keepFocus} onClick={() => setPage((p) => (p + 1) % pages.length)}>
           {pageLabel}
         </button>

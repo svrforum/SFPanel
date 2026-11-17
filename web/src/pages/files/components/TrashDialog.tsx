@@ -145,13 +145,13 @@ export function TrashDialog({ open, onOpenChange, onRestored }: {
                     {/* The original path is what makes the entry identifiable:
                         three files called config.yml are otherwise the same row
                         three times. */}
-                    <p className="truncate font-mono text-[11px] text-muted-foreground">{entry.originalPath}</p>
+                    <p className="truncate font-mono text-[12px] text-muted-foreground">{entry.originalPath}</p>
                   </div>
-                  <span className="hidden shrink-0 text-[11px] text-muted-foreground sm:block">
+                  <span className="hidden shrink-0 text-[12px] text-muted-foreground sm:block">
                     {formatDate(entry.deletedAt)}
                   </span>
                   {!entry.isDir && (
-                    <span className="hidden shrink-0 text-[11px] text-muted-foreground sm:block">
+                    <span className="hidden shrink-0 text-[12px] text-muted-foreground sm:block">
                       {formatBytes(entry.size)}
                     </span>
                   )}

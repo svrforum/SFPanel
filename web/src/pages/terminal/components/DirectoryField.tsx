@@ -119,7 +119,7 @@ export function DirectoryField({
                   <span className="min-w-0 truncate text-muted-foreground">{parent}</span>
                   <span className="shrink-0 text-foreground">{name}</span>
                 </span>
-                <span className="shrink-0 text-[11px] text-muted-foreground">
+                <span className="shrink-0 text-[12px] text-muted-foreground">
                   {s.sources.map((src) => label[src]).join(' · ')}
                 </span>
               </li>

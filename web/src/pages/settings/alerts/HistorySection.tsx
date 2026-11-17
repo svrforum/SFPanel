@@ -101,12 +101,12 @@ export function HistorySection() {
             <Table>
               <TableHeader>
                 <TableRow>
-                  <TableHead className="text-[11px]">{t('settings.alerts.history.colTime')}</TableHead>
-                  <TableHead className="text-[11px]">{t('settings.alerts.history.colType')}</TableHead>
-                  <TableHead className="text-[11px]">{t('settings.alerts.history.colSeverity')}</TableHead>
-                  <TableHead className="text-[11px]">{t('settings.alerts.history.colMessage')}</TableHead>
-                  <TableHead className="text-[11px]">{t('settings.alerts.history.colNode')}</TableHead>
-                  <TableHead className="text-[11px]">{t('settings.alerts.history.colStatus')}</TableHead>
+                  <TableHead className="text-[12px]">{t('settings.alerts.history.colTime')}</TableHead>
+                  <TableHead className="text-[12px]">{t('settings.alerts.history.colType')}</TableHead>
+                  <TableHead className="text-[12px]">{t('settings.alerts.history.colSeverity')}</TableHead>
+                  <TableHead className="text-[12px]">{t('settings.alerts.history.colMessage')}</TableHead>
+                  <TableHead className="text-[12px]">{t('settings.alerts.history.colNode')}</TableHead>
+                  <TableHead className="text-[12px]">{t('settings.alerts.history.colStatus')}</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
@@ -118,12 +118,12 @@ export function HistorySection() {
                       {new Date(entry.created_at).toLocaleString()}
                     </TableCell>
                     <TableCell>
-                      <span className="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-medium bg-secondary text-muted-foreground">
+                      <span className="inline-flex items-center px-1.5 py-0.5 rounded text-[12px] font-medium bg-secondary text-muted-foreground">
                         {ruleTypeEntry ? t(ruleTypeEntry.i18nKey) : entry.type}
                       </span>
                     </TableCell>
                     <TableCell>
-                      <span className={`inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-medium ${getSeverityStyle(entry.severity)}`}>
+                      <span className={`inline-flex items-center px-1.5 py-0.5 rounded text-[12px] font-medium ${getSeverityStyle(entry.severity)}`}>
                         {severityLabel(entry.severity)}
                       </span>
                     </TableCell>
@@ -162,13 +162,13 @@ export function HistorySection() {
                   </div>
                   <div className="flex justify-between text-[12px]">
                     <span className="text-muted-foreground">{t('settings.alerts.history.colType')}</span>
-                    <span className="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-medium bg-secondary text-muted-foreground">
+                    <span className="inline-flex items-center px-1.5 py-0.5 rounded text-[12px] font-medium bg-secondary text-muted-foreground">
                       {ruleTypeEntry ? t(ruleTypeEntry.i18nKey) : entry.type}
                     </span>
                   </div>
                   <div className="flex justify-between text-[12px]">
                     <span className="text-muted-foreground">{t('settings.alerts.history.colSeverity')}</span>
-                    <span className={`inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-medium ${getSeverityStyle(entry.severity)}`}>
+                    <span className={`inline-flex items-center px-1.5 py-0.5 rounded text-[12px] font-medium ${getSeverityStyle(entry.severity)}`}>
                       {severityLabel(entry.severity)}
                     </span>
                   </div>

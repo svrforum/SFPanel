@@ -26,7 +26,7 @@ const taskPath = (id: string) => `/cluster/tasks/${encodeURIComponent(id)}`
 
 const entryClass = (on: boolean) =>
   cn(
-    'flex items-center gap-2 w-full px-3 py-2 rounded-xl text-[13px] transition-colors outline-none focus-visible:ring-2 focus-visible:ring-ring/40',
+    'flex items-center gap-2 w-full px-3 py-2 rounded-xl text-[13px] transition-colors outline-none focus-visible:ring-2 focus-visible:ring-ring',
     on ? 'bg-primary/10 ring-1 ring-primary/20 text-primary font-medium' : 'text-foreground/80 hover:bg-secondary/50',
   )
 
@@ -59,7 +59,7 @@ export function TaskList({ tasks, chosen, onPick, onImport }: TaskListProps) {
     })
 
   const heading = (label: string) => (
-    <p className="px-3 pt-2 pb-1 text-[11px] font-semibold text-muted-foreground">{label}</p>
+    <p className="px-3 pt-2 pb-1 text-[12px] font-semibold text-muted-foreground">{label}</p>
   )
 
   return (
@@ -81,7 +81,7 @@ export function TaskList({ tasks, chosen, onPick, onImport }: TaskListProps) {
           onClick={onPick}
           aria-label={t('cluster.tasks.list.new')}
           title={t('cluster.tasks.list.new')}
-          className="inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-xl hover:bg-secondary outline-none focus-visible:ring-2 focus-visible:ring-ring/40"
+          className="inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-xl hover:bg-secondary outline-none focus-visible:ring-2 focus-visible:ring-ring"
         >
           <Plus className="h-4 w-4" />
         </Link>
@@ -90,7 +90,7 @@ export function TaskList({ tasks, chosen, onPick, onImport }: TaskListProps) {
           onClick={() => onImport()}
           aria-label={t('cluster.tasks.list.importGit')}
           title={t('cluster.tasks.list.importGit')}
-          className="inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-xl hover:bg-secondary outline-none focus-visible:ring-2 focus-visible:ring-ring/40"
+          className="inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-xl hover:bg-secondary outline-none focus-visible:ring-2 focus-visible:ring-ring"
         >
           <GitBranch className="h-4 w-4" />
         </button>
@@ -117,7 +117,7 @@ export function TaskList({ tasks, chosen, onPick, onImport }: TaskListProps) {
               return (
                 <section key={repo.label.toLowerCase()} aria-label={repo.label || t('cluster.tasks.list.git')}>
                   <div className="flex items-center gap-1 px-3 pt-1 pb-0.5">
-                    <p className="min-w-0 flex-1 text-[11px] text-muted-foreground/80 truncate">{repo.label}</p>
+                    <p className="min-w-0 flex-1 text-[12px] text-muted-foreground/80 truncate">{repo.label}</p>
                     {sources.map((from) => {
                       const where = sources.length > 1
                         ? t('cluster.tasks.list.pullFrom', { branch: from.branch, path: from.path || '/' })
@@ -129,7 +129,7 @@ export function TaskList({ tasks, chosen, onPick, onImport }: TaskListProps) {
                           onClick={() => onImport(from)}
                           aria-label={where}
                           title={where ?? `${from.branch} · ${from.path || '/'}`}
-                          className="inline-flex shrink-0 items-center gap-1 rounded-lg px-1.5 py-0.5 text-[11px] text-muted-foreground hover:bg-secondary hover:text-foreground outline-none focus-visible:ring-2 focus-visible:ring-ring/40"
+                          className="inline-flex shrink-0 items-center gap-1 rounded-lg px-1.5 py-0.5 text-[12px] text-muted-foreground hover:bg-secondary hover:text-foreground outline-none focus-visible:ring-2 focus-visible:ring-ring"
                         >
                           <RefreshCw className="h-3 w-3" />
                           {t('cluster.tasks.list.pullAgain')}
@@ -178,7 +178,7 @@ export function TaskPicker({ label, tasks, chosen, onImport }: TaskPickerProps) 
         type="button"
         onClick={() => setOpen(!open)}
         aria-expanded={open}
-        className="flex items-center gap-2 w-full px-3 py-2.5 rounded-xl bg-secondary/50 transition-colors outline-none focus-visible:ring-2 focus-visible:ring-ring/40"
+        className="flex items-center gap-2 w-full px-3 py-2.5 rounded-xl bg-secondary/50 transition-colors outline-none focus-visible:ring-2 focus-visible:ring-ring"
       >
         <ListChecks className="h-4 w-4 text-muted-foreground shrink-0" />
         <span className="text-[13px] font-medium truncate">{label}</span>

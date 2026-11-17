@@ -177,7 +177,7 @@ export default function ComposeLogs({ project, serviceNames }: ComposeLogsProps)
         <div className="flex items-center gap-3">
           <div className="flex items-center gap-1.5">
             <Circle className={`h-2 w-2 fill-current ${connected ? 'text-success' : 'text-destructive'}`} />
-            <span className="text-[11px] text-white/40 font-medium">
+            <span className="text-[12px] text-white/40 font-medium">
               {connected ? t('terminal.connected') : t('terminal.disconnected')}
             </span>
           </div>
@@ -186,7 +186,7 @@ export default function ComposeLogs({ project, serviceNames }: ComposeLogsProps)
           <select
             value={selectedService}
             onChange={(e) => setSelectedService(e.target.value)}
-            className="h-6 px-2 text-[11px] bg-white/[0.06] border border-white/[0.08] text-white/70 rounded-md focus:outline-none focus:ring-1 focus:ring-primary/50"
+            className="h-6 px-2 text-[12px] bg-white/[0.06] border border-white/[0.08] text-white/70 rounded-md focus:outline-none focus:ring-1 focus:ring-ring"
           >
             <option value="">{t('docker.stacks.allServices', 'All services')}</option>
             {serviceNames.map(name => (
@@ -198,7 +198,7 @@ export default function ComposeLogs({ project, serviceNames }: ComposeLogsProps)
           <select
             value={tail}
             onChange={(e) => setTail(Number(e.target.value))}
-            className="h-6 px-2 text-[11px] bg-white/[0.06] border border-white/[0.08] text-white/70 rounded-md focus:outline-none focus:ring-1 focus:ring-primary/50"
+            className="h-6 px-2 text-[12px] bg-white/[0.06] border border-white/[0.08] text-white/70 rounded-md focus:outline-none focus:ring-1 focus:ring-ring"
           >
             {TAIL_OPTIONS.map(opt => (
               <option key={opt.value} value={opt.value}>
@@ -269,7 +269,7 @@ export default function ComposeLogs({ project, serviceNames }: ComposeLogsProps)
                 }
               }}
               placeholder={t('terminal.searchPlaceholder')}
-              className="h-7 pl-7 text-[12px] bg-white/[0.06] border-white/[0.08] text-white placeholder:text-white/30 rounded-lg focus-visible:ring-primary/50"
+              className="h-7 pl-7 text-[12px] bg-white/[0.06] border-white/[0.08] text-white placeholder:text-white/30 rounded-lg focus-visible:ring-ring"
               autoFocus
             />
           </div>

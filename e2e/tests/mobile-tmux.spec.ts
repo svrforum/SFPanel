@@ -627,7 +627,7 @@ test('a search on a phone outlives the keyboard its box raises', async ({ page }
     const { terminal, rows } = await openTerminal(page, peers, dirs, { touch: true, android: false })
     await page.locator('[data-session-menu]').tap()
     await page.getByRole('menuitem', { name: 'Search' }).tap()
-    await page.getByPlaceholder('Search in terminal...').fill('123')
+    await page.getByPlaceholder('Search in terminal…').fill('123')
     await expect.poll(() => shownRows(page)).toContain('123')
     // The keyboard resizes the terminal, and the view was laid out for the
     // size before: it closes, and the search brings its match back.
@@ -680,7 +680,7 @@ test.describe('search on a desktop', () => {
       // 123 is far above the screen, which is all the browser holds of a tmux session.
       expect(await firstLine()).toBeGreaterThan(200)
       await page.keyboard.press('Control+Shift+f')
-      const box = page.getByPlaceholder('Search in terminal...')
+      const box = page.getByPlaceholder('Search in terminal…')
       const status = page.locator('[data-search-status]')
       await box.fill('123')
       await expect(status).toHaveText('1/1')
@@ -722,7 +722,7 @@ test.describe('search on a desktop', () => {
       const { firstLine } = await openTerminal(page, peers, dirs, { touch: true, cmd: PAGER, android: false })
       const top = await firstLine()
       await page.keyboard.press('Control+Shift+f')
-      const box = page.getByPlaceholder('Search in terminal...')
+      const box = page.getByPlaceholder('Search in terminal…')
       await box.fill('300')
       await expect(page.locator('[data-search-status]')).toHaveText('1/1')
       await expect(page.locator('[data-search-hint]')).toHaveText('Searching the visible screen only')

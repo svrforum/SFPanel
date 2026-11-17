@@ -46,7 +46,7 @@ export function PendingTokens({ reload }: { reload: number }) {
     <div className="space-y-2">
       <div>
         <h3 className="text-[13px] font-medium">{t('cluster.tokens.activeTitle')}</h3>
-        <p className="text-[11px] text-muted-foreground">{t('cluster.tokens.activeDescription')}</p>
+        <p className="text-[12px] text-muted-foreground">{t('cluster.tokens.activeDescription')}</p>
       </div>
       {tokens.length === 0 ? (
         <p className="text-[13px] text-muted-foreground">{t('cluster.tokens.empty')}</p>
@@ -65,7 +65,7 @@ export function PendingTokens({ reload }: { reload: number }) {
               <TableRow key={tok.id}>
                 <TableCell>
                   <div className="font-mono text-[12px] break-all">{tok.masked}</div>
-                  <div className="text-[11px] text-muted-foreground">{t('cluster.tokens.createdBy')}: {tok.created_by}</div>
+                  <div className="text-[12px] text-muted-foreground">{t('cluster.tokens.createdBy')}: {tok.created_by}</div>
                 </TableCell>
                 {/* An older leader names no kind: every token it made is a manager token. */}
                 <TableCell><KindBadge kind={tok.kind === 'agent' ? 'agent' : 'manager'} /></TableCell>

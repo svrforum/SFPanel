@@ -88,7 +88,7 @@ export default function TreePanel({
         onClick={() => onSelect({ type: 'node', nodeId: node.id })}
         aria-current={isSelected ? 'true' : undefined}
         className={cn(
-          'w-full flex items-center gap-2 px-2 py-1.5 rounded-lg text-[11px] transition-colors outline-none focus-visible:ring-2 focus-visible:ring-ring/40 focus-visible:ring-offset-0',
+          'w-full flex items-center gap-2 px-2 py-1.5 rounded-lg text-[12px] transition-colors outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-0',
           isSelected
             ? 'bg-primary/10 text-primary font-semibold'
             : 'text-foreground/80 hover:bg-accent'
@@ -100,7 +100,7 @@ export default function TreePanel({
           <Crown className="h-2.5 w-2.5 text-primary shrink-0 ml-auto" />
         )}
         {isLocal && !isLeader && (
-          <span className="text-[8px] text-muted-foreground ml-auto shrink-0">{t('cluster.tree.local')}</span>
+          <span className="text-[12px] text-muted-foreground ml-auto shrink-0">{t('cluster.tree.local')}</span>
         )}
       </button>
     )
@@ -111,7 +111,7 @@ export default function TreePanel({
       <div className="w-[52px] bg-card border-r border-border flex flex-col h-full shrink-0">
         <button
           onClick={onToggleCollapse}
-          className="flex items-center justify-center py-3 hover:bg-accent transition-colors border-b border-border outline-none focus-visible:ring-2 focus-visible:ring-ring/40 focus-visible:ring-offset-0"
+          className="flex items-center justify-center py-3 hover:bg-accent transition-colors border-b border-border outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-0"
           title={t('layout.expand')}
           aria-label={t('layout.expand')}
         >
@@ -130,7 +130,7 @@ export default function TreePanel({
           <button
             onClick={() => onSelect({ type: 'datacenter' })}
             className={cn(
-              'w-9 h-9 shrink-0 rounded-lg flex items-center justify-center transition-colors outline-none focus-visible:ring-2 focus-visible:ring-ring/40 focus-visible:ring-offset-0',
+              'w-9 h-9 shrink-0 rounded-lg flex items-center justify-center transition-colors outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-0',
               isDatacenterSelected ? 'bg-primary/10 text-primary' : 'text-muted-foreground hover:bg-accent'
             )}
             title={clusterStatus.name}
@@ -148,7 +148,7 @@ export default function TreePanel({
                   key={node.id}
                   onClick={() => onSelect({ type: 'node', nodeId: node.id })}
                   className={cn(
-                    'w-9 h-9 shrink-0 rounded-lg flex items-center justify-center transition-colors outline-none focus-visible:ring-2 focus-visible:ring-ring/40 focus-visible:ring-offset-0',
+                    'w-9 h-9 shrink-0 rounded-lg flex items-center justify-center transition-colors outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-0',
                     selection.type === 'node' && selection.nodeId === node.id
                       ? 'bg-primary/10'
                       : 'hover:bg-accent'
@@ -164,7 +164,7 @@ export default function TreePanel({
         </div>
 
         <div className="shrink-0 border-t border-border py-2 flex flex-col items-center gap-1">
-          <button onClick={onLogout} className="w-9 h-9 rounded-lg flex items-center justify-center text-muted-foreground hover:bg-accent transition-colors outline-none focus-visible:ring-2 focus-visible:ring-ring/40 focus-visible:ring-offset-0" title={t('layout.logout')} aria-label={t('layout.logout')}>
+          <button onClick={onLogout} className="w-9 h-9 rounded-lg flex items-center justify-center text-muted-foreground hover:bg-accent transition-colors outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-0" title={t('layout.logout')} aria-label={t('layout.logout')}>
             <LogOut className="h-4 w-4" />
           </button>
         </div>
@@ -176,10 +176,10 @@ export default function TreePanel({
     <div className="w-[180px] bg-card border-r border-border flex flex-col h-full shrink-0">
       {/* Banner link + collapse button */}
       <div className="px-3 py-3 flex items-center gap-2">
-        <Link to="/dashboard" aria-label="SFPanel" className="flex-1 min-w-0 rounded-lg focus:outline-none focus-visible:ring-2 focus-visible:ring-primary/30">
+        <Link to="/dashboard" aria-label="SFPanel" className="flex-1 min-w-0 rounded-lg focus:outline-none focus-visible:ring-2 focus-visible:ring-ring">
           <Logo />
         </Link>
-        <button onClick={onToggleCollapse} className="p-1.5 rounded-lg hover:bg-accent border border-border transition-colors shrink-0 outline-none focus-visible:ring-2 focus-visible:ring-ring/40 focus-visible:ring-offset-0" title={t('layout.collapse')} aria-label={t('layout.collapse')}>
+        <button onClick={onToggleCollapse} className="p-1.5 rounded-lg hover:bg-accent border border-border transition-colors shrink-0 outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-0" title={t('layout.collapse')} aria-label={t('layout.collapse')}>
           <PanelLeftClose className="h-4 w-4 text-foreground/60" />
         </button>
       </div>
@@ -193,14 +193,14 @@ export default function TreePanel({
             onChange={(e) => setQuery(e.target.value)}
             placeholder={t('cluster.tree.search')}
             aria-label={t('cluster.tree.search')}
-            className="pl-7 h-7 rounded-lg bg-secondary/50 border-0 text-[11px] md:text-[11px] shadow-none"
+            className="pl-7 h-7 rounded-lg bg-secondary/50 border-0 text-[12px] md:text-[12px] shadow-none"
           />
         </div>
       )}
 
       {/* Tree */}
       <div className="flex-1 min-h-0 overflow-y-auto no-scrollbar px-2">
-        <p className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider px-2 mb-1">
+        <p className="text-[12px] font-semibold text-muted-foreground uppercase tracking-wider px-2 mb-1">
           {t('cluster.title')}
         </p>
 
@@ -208,7 +208,7 @@ export default function TreePanel({
         <div className="flex items-center">
           <button
             onClick={() => setNodesExpanded(!nodesExpanded)}
-            className="p-1 rounded hover:bg-accent transition-colors shrink-0 outline-none focus-visible:ring-2 focus-visible:ring-ring/40 focus-visible:ring-offset-0"
+            className="p-1 rounded hover:bg-accent transition-colors shrink-0 outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-0"
             title={t('cluster.tree.toggleNodes')}
             aria-label={t('cluster.tree.toggleNodes')}
             aria-expanded={nodesExpanded}
@@ -218,7 +218,7 @@ export default function TreePanel({
           <button
             onClick={() => onSelect({ type: 'datacenter' })}
             className={cn(
-              'flex-1 flex items-center gap-2 px-1.5 py-1.5 rounded-lg text-[12px] font-semibold transition-colors outline-none focus-visible:ring-2 focus-visible:ring-ring/40 focus-visible:ring-offset-0',
+              'flex-1 flex items-center gap-2 px-1.5 py-1.5 rounded-lg text-[12px] font-semibold transition-colors outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-0',
               isDatacenterSelected
                 ? 'bg-primary/10 text-primary'
                 : 'text-foreground hover:bg-accent'
@@ -232,7 +232,7 @@ export default function TreePanel({
         {/* Node list — collapsible */}
         {(nodesExpanded || searching) && <div className="ml-3 border-l border-border pl-1 mt-0.5">
           {nodesError && (
-            <p className="flex items-center gap-1.5 px-2 py-1.5 text-[10px] text-warning">
+            <p className="flex items-center gap-1.5 px-2 py-1.5 text-[12px] text-warning">
               <AlertTriangle className="h-3 w-3 shrink-0" />
               <span className="truncate">{t('cluster.tree.nodesUnavailable')}</span>
             </p>
@@ -248,7 +248,7 @@ export default function TreePanel({
                   onClick={() => toggleFolded(section.key)}
                   aria-expanded={open}
                   disabled={searching}
-                  className="w-full flex items-center gap-1 px-1 py-1 rounded text-[10px] font-semibold text-muted-foreground enabled:hover:bg-accent transition-colors outline-none focus-visible:ring-2 focus-visible:ring-ring/40 focus-visible:ring-offset-0"
+                  className="w-full flex items-center gap-1 px-1 py-1 rounded text-[12px] font-semibold text-muted-foreground enabled:hover:bg-accent transition-colors outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-0"
                 >
                   {open ? <ChevronDown className="h-3 w-3 shrink-0" /> : <ChevronRight className="h-3 w-3 shrink-0" />}
                   <span className="truncate">{label}</span>
@@ -259,7 +259,7 @@ export default function TreePanel({
             )
           })}
           {searching && sections.length === 0 && (
-            <p className="px-2 py-1.5 text-[10px] text-muted-foreground">{t('cluster.tree.noMatch')}</p>
+            <p className="px-2 py-1.5 text-[12px] text-muted-foreground">{t('cluster.tree.noMatch')}</p>
           )}
         </div>}
       </div>
@@ -267,12 +267,12 @@ export default function TreePanel({
       {/* Bottom */}
       <div className="shrink-0 border-t border-border px-3 py-2 space-y-1.5">
         <div className="flex items-center justify-between">
-          <span className="text-[10px] text-muted-foreground">
+          <span className="text-[12px] text-muted-foreground">
             {panelVersion ? `v${panelVersion}` : '...'}
           </span>
           <button
             onClick={onLogout}
-            className="text-[10px] text-muted-foreground hover:text-foreground transition-colors rounded-sm outline-none focus-visible:ring-2 focus-visible:ring-ring/40 focus-visible:ring-offset-0"
+            className="text-[12px] text-muted-foreground hover:text-foreground transition-colors rounded-sm outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-0"
             title={t('layout.logout')}
             aria-label={t('layout.logout')}
           >
@@ -284,7 +284,7 @@ export default function TreePanel({
             href="https://github.com/svrforum/SFPanel"
             target="_blank"
             rel="noopener noreferrer"
-            className="text-muted-foreground hover:text-foreground transition-colors rounded-sm outline-none focus-visible:ring-2 focus-visible:ring-ring/40 focus-visible:ring-offset-0"
+            className="text-muted-foreground hover:text-foreground transition-colors rounded-sm outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-0"
             title="GitHub"
             aria-label="GitHub"
           >
@@ -294,7 +294,7 @@ export default function TreePanel({
             href="https://buymeacoffee.com/svrforum"
             target="_blank"
             rel="noopener noreferrer"
-            className="text-muted-foreground hover:text-[#FFDD00] transition-colors rounded-sm outline-none focus-visible:ring-2 focus-visible:ring-ring/40 focus-visible:ring-offset-0"
+            className="text-muted-foreground hover:text-[#FFDD00] transition-colors rounded-sm outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-0"
             title="Buy me a coffee"
             aria-label="Buy me a coffee"
           >

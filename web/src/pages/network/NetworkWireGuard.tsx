@@ -284,7 +284,7 @@ export default function NetworkWireGuard() {
       <div className="flex flex-wrap items-center justify-between gap-2">
         <div className="flex items-center gap-3">
           {status?.version && (
-            <span className="text-[11px] text-muted-foreground">{status.version}</span>
+            <span className="text-[12px] text-muted-foreground">{status.version}</span>
           )}
         </div>
         <div className="flex flex-wrap items-center gap-2">
@@ -321,7 +321,7 @@ export default function NetworkWireGuard() {
               <div className="flex items-center gap-2 min-w-0">
                 <Shield className="h-4 w-4 text-primary shrink-0" />
                 <span className="text-[15px] font-semibold truncate min-w-0" title={iface.name}>{iface.name}</span>
-                <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-medium shrink-0 ${
+                <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-[12px] font-medium shrink-0 ${
                   iface.active
                     ? 'bg-success/10 text-success'
                     : 'bg-secondary text-muted-foreground'
@@ -398,7 +398,7 @@ export default function NetworkWireGuard() {
                     {t('network.wireguard.publicKey')}
                   </span>
                   <button
-                    className="font-mono text-[11px] truncate min-w-0 max-w-[200px] hover:text-primary flex items-center gap-1 outline-none focus-visible:ring-2 focus-visible:ring-ring/40 focus-visible:ring-offset-0"
+                    className="font-mono text-[12px] truncate min-w-0 max-w-[200px] hover:text-primary flex items-center gap-1 outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-0"
                     onClick={() => copyToClipboard(iface.public_key, iface.name)}
                     title={iface.public_key}
                     aria-label={t('common.copy')}
@@ -418,7 +418,7 @@ export default function NetworkWireGuard() {
 
             {/* Peers */}
             <div className="mt-4 pt-4 border-t border-border">
-              <h4 className="text-[11px] text-muted-foreground uppercase tracking-wider mb-3">
+              <h4 className="text-[12px] text-muted-foreground uppercase tracking-wider mb-3">
                 {t('network.wireguard.peers.title')} ({iface.peers.length})
               </h4>
               {iface.peers.length === 0 ? (
@@ -433,7 +433,7 @@ export default function NetworkWireGuard() {
                           {t('network.wireguard.publicKey')}
                         </span>
                         <div className="flex items-center gap-1">
-                          <span className="font-mono text-[11px]" title={peer.public_key}>
+                          <span className="font-mono text-[12px]" title={peer.public_key}>
                             {peer.public_key.substring(0, 16)}...
                           </span>
                           <Button
@@ -462,7 +462,7 @@ export default function NetworkWireGuard() {
                       {peer.allowed_ips && peer.allowed_ips.length > 0 && (
                         <div className="flex items-center justify-between gap-2 min-w-0">
                           <span className="text-muted-foreground shrink-0">{t('network.wireguard.allowedIPs')}</span>
-                          <span className="font-mono text-[11px] truncate min-w-0 text-right" title={peer.allowed_ips.join(', ')}>{peer.allowed_ips.join(', ')}</span>
+                          <span className="font-mono text-[12px] truncate min-w-0 text-right" title={peer.allowed_ips.join(', ')}>{peer.allowed_ips.join(', ')}</span>
                         </div>
                       )}
                       <div className="flex items-center justify-between">
@@ -552,7 +552,7 @@ export default function NetworkWireGuard() {
                 placeholder="wg0"
                 className="font-mono text-[13px]"
               />
-              <p className="text-[11px] text-muted-foreground">{t('network.wireguard.configNameHint')}</p>
+              <p className="text-[12px] text-muted-foreground">{t('network.wireguard.configNameHint')}</p>
             </div>
 
             <div className="space-y-2">
@@ -575,7 +575,7 @@ export default function NetworkWireGuard() {
                 value={createContent}
                 onChange={(e) => setCreateContent(e.target.value)}
                 placeholder={`[Interface]\nPrivateKey = ...\nAddress = 10.0.0.2/24\nDNS = 1.1.1.1\n\n[Peer]\nPublicKey = ...\nEndpoint = vpn.example.com:51820\nAllowedIPs = 0.0.0.0/0`}
-                className="flex w-full rounded-xl border-0 bg-secondary/50 px-3 py-2 text-[13px] font-mono transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/20 min-h-[200px] resize-none"
+                className="flex w-full rounded-xl border-0 bg-secondary/50 px-3 py-2 text-[13px] font-mono transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring min-h-[200px] resize-none"
                 rows={10}
               />
             </div>
@@ -610,10 +610,10 @@ export default function NetworkWireGuard() {
             <textarea
               value={editContent}
               onChange={(e) => setEditContent(e.target.value)}
-              className="flex w-full rounded-xl border-0 bg-secondary/50 px-3 py-2 text-[13px] font-mono transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/20 min-h-[250px] resize-none"
+              className="flex w-full rounded-xl border-0 bg-secondary/50 px-3 py-2 text-[13px] font-mono transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring min-h-[250px] resize-none"
               rows={12}
             />
-            <p className="text-[11px] text-muted-foreground">{t('network.wireguard.editConfigHint')}</p>
+            <p className="text-[12px] text-muted-foreground">{t('network.wireguard.editConfigHint')}</p>
           </div>
 
           <DialogFooter>

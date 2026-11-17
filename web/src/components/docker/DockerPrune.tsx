@@ -82,7 +82,7 @@ export default function DockerPrune({ open, onOpenChange }: DockerPruneProps) {
             {report.length > 0 && <ul role="status" className="space-y-1 break-words text-sm">{report.map((line, index) => <li key={index}>{line}</li>)}</ul>}
             <label className="flex items-center gap-2 cursor-pointer">
               <input type="checkbox" disabled={pruning} checked={allSelected} onChange={(e) => toggleAll(e.target.checked)}
-                className="rounded outline-none focus-visible:ring-2 focus-visible:ring-ring/40 focus-visible:ring-offset-0" />
+                className="rounded outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-0" />
               <span className="text-[13px] font-medium">{t('docker.prune.selectAll')}</span>
             </label>
             <div className="space-y-2 pl-1">
@@ -90,7 +90,7 @@ export default function DockerPrune({ open, onOpenChange }: DockerPruneProps) {
                 <label key={item.key} className="flex items-center gap-2 cursor-pointer">
                   <input type="checkbox" disabled={pruning} checked={selected[item.key]}
                     onChange={(e) => setSelected({ ...selected, [item.key]: e.target.checked })}
-                    className="rounded outline-none focus-visible:ring-2 focus-visible:ring-ring/40 focus-visible:ring-offset-0" />
+                    className="rounded outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-0" />
                   <span className="text-[13px]">{item.label}</span>
                 </label>
               ))}

@@ -99,7 +99,7 @@ export default function MoreMenu({ open, onOpenChange }: MoreMenuProps) {
                 <button
                   onClick={() => setNodeOpen(!nodeOpen)}
                   aria-expanded={nodeOpen}
-                  className="flex items-center gap-2 w-full px-3 py-2.5 rounded-xl bg-secondary/50 transition-colors outline-none focus-visible:ring-2 focus-visible:ring-ring/40"
+                  className="flex items-center gap-2 w-full px-3 py-2.5 rounded-xl bg-secondary/50 transition-colors outline-none focus-visible:ring-2 focus-visible:ring-ring"
                 >
                   <Monitor className="h-4 w-4 text-muted-foreground shrink-0" />
                   <span className={cn('h-2 w-2 rounded-full shrink-0', nodeStatusColor(currentNode?.status || ''))} />
@@ -129,7 +129,7 @@ export default function MoreMenu({ open, onOpenChange }: MoreMenuProps) {
                           key={node.id}
                           onClick={() => handleNodeSelect(node.id)}
                           className={cn(
-                            'flex items-center gap-2 w-full px-3 py-2 text-[13px] transition-colors rounded-lg outline-none focus-visible:ring-2 focus-visible:ring-ring/40',
+                            'flex items-center gap-2 w-full px-3 py-2 text-[13px] transition-colors rounded-lg outline-none focus-visible:ring-2 focus-visible:ring-ring',
                             (selectedNode === node.id || (!selectedNode && node.id === localId))
                               ? 'bg-primary/10 text-primary'
                               : 'text-foreground/80'
@@ -138,7 +138,7 @@ export default function MoreMenu({ open, onOpenChange }: MoreMenuProps) {
                           <span className={cn('h-2 w-2 rounded-full shrink-0', nodeStatusColor(node.status))} />
                           <span className="truncate">{node.name}</span>
                           {node.id === localId && (
-                            <span className="text-[10px] text-muted-foreground">({t('layout.cluster.localNode')})</span>
+                            <span className="text-[12px] text-muted-foreground">({t('layout.cluster.localNode')})</span>
                           )}
                         </button>
                       ))
@@ -147,7 +147,7 @@ export default function MoreMenu({ open, onOpenChange }: MoreMenuProps) {
                       const label = sectionLabel(section, t)
                       return (
                         <section key={section.key} aria-label={label}>
-                          <p className="px-3 pt-2 pb-1 text-[11px] font-semibold text-muted-foreground">{label}</p>
+                          <p className="px-3 pt-2 pb-1 text-[12px] font-semibold text-muted-foreground">{label}</p>
                           {rows}
                         </section>
                       )
@@ -168,14 +168,14 @@ export default function MoreMenu({ open, onOpenChange }: MoreMenuProps) {
                     key={path}
                     onClick={() => handleNavigate(path)}
                     className={cn(
-                      'flex flex-col items-center gap-1.5 rounded-xl py-3 px-1 transition-colors outline-none focus-visible:ring-2 focus-visible:ring-ring/40',
+                      'flex flex-col items-center gap-1.5 rounded-xl py-3 px-1 transition-colors outline-none focus-visible:ring-2 focus-visible:ring-ring',
                       isActive
                         ? 'bg-primary/10 text-primary'
                         : 'text-muted-foreground active:bg-secondary/80'
                     )}
                   >
                     <Icon className="h-5 w-5" />
-                    <span className="text-[11px] font-medium leading-tight text-center">
+                    <span className="text-[12px] font-medium leading-tight text-center">
                       {t(label)}
                     </span>
                   </button>
@@ -186,7 +186,7 @@ export default function MoreMenu({ open, onOpenChange }: MoreMenuProps) {
             <div className="border-t border-border mt-2 pt-2 pb-4">
               <button
                 onClick={handleLogout}
-                className="flex items-center gap-2 w-full rounded-xl py-3 px-4 text-destructive active:bg-secondary/80 transition-colors outline-none focus-visible:ring-2 focus-visible:ring-ring/40"
+                className="flex items-center gap-2 w-full rounded-xl py-3 px-4 text-destructive active:bg-secondary/80 transition-colors outline-none focus-visible:ring-2 focus-visible:ring-ring"
               >
                 <LogOut className="h-5 w-5" />
                 <span className="text-[13px] font-medium">{t('layout.logout')}</span>

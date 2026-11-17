@@ -30,7 +30,7 @@ export function CopyBlock({ text }: { text: string }) {
         onClick={handleCopy}
         title={t('common.copy')}
         aria-label={t('common.copy')}
-        className="absolute right-3 top-3 p-1.5 rounded-lg hover:bg-accent transition-colors outline-none focus-visible:ring-2 focus-visible:ring-ring/40 focus-visible:ring-offset-0"
+        className="absolute right-3 top-3 p-1.5 rounded-lg hover:bg-accent transition-colors outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-0"
       >
         {copied ? <Check className="h-4 w-4 text-success" /> : <Copy className="h-4 w-4 text-muted-foreground" />}
       </button>

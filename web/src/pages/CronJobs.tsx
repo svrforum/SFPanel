@@ -232,13 +232,13 @@ export default function CronJobs() {
         ]}
       >
         <div className="rounded-lg bg-secondary/30 px-3 py-2.5 space-y-1.5">
-          <p className="text-[11px] font-semibold text-foreground">{t('cron.guideSchedule')}: <code className="font-mono bg-muted px-1 py-0.5 rounded text-[10px]">{t('cron.guideScheduleDesc')}</code></p>
+          <p className="text-[12px] font-semibold text-foreground">{t('cron.guideSchedule')}: <code className="font-mono bg-muted px-1 py-0.5 rounded text-[12px]">{t('cron.guideScheduleDesc')}</code></p>
           <div className="flex flex-wrap gap-x-4 gap-y-1">
-            <span className="text-[11px] text-muted-foreground">
-              <code className="font-mono bg-muted px-1 py-0.5 rounded text-[10px]">0 3 * * *</code> — {t('cron.guideExampleDaily')}
+            <span className="text-[12px] text-muted-foreground">
+              <code className="font-mono bg-muted px-1 py-0.5 rounded text-[12px]">0 3 * * *</code> — {t('cron.guideExampleDaily')}
             </span>
-            <span className="text-[11px] text-muted-foreground">
-              <code className="font-mono bg-muted px-1 py-0.5 rounded text-[10px]">0 0 * * 1</code> — {t('cron.guideExampleWeekly')}
+            <span className="text-[12px] text-muted-foreground">
+              <code className="font-mono bg-muted px-1 py-0.5 rounded text-[12px]">0 0 * * 1</code> — {t('cron.guideExampleWeekly')}
             </span>
           </div>
         </div>
@@ -287,11 +287,11 @@ export default function CronJobs() {
                   <div className="min-w-0 flex-1">
                     <code className="text-[13px] font-mono break-all">{job.command}</code>
                     <div className="flex items-center gap-2 mt-1.5">
-                      <code className="text-[11px] font-mono bg-muted px-1.5 py-0.5 rounded">
+                      <code className="text-[12px] font-mono bg-muted px-1.5 py-0.5 rounded">
                         {job.schedule}
                       </code>
                       {describeSchedule(job.schedule) && (
-                        <span className="text-[11px] text-muted-foreground">
+                        <span className="text-[12px] text-muted-foreground">
                           {describeSchedule(job.schedule)}
                         </span>
                       )}
@@ -504,7 +504,7 @@ export default function CronJobs() {
               {!runLoading && runResult && !runResult.success && <AlertCircle className="h-4 w-4 text-destructive" />}
               {t('cron.runNow')}
             </DialogTitle>
-            <DialogDescription className="font-mono text-[11px] break-all">{runJob?.command}</DialogDescription>
+            <DialogDescription className="font-mono text-[12px] break-all">{runJob?.command}</DialogDescription>
           </DialogHeader>
           <div className="bg-zinc-950 text-zinc-100 rounded-xl p-4 max-h-80 overflow-y-auto">
             <pre className="text-xs font-mono whitespace-pre-wrap break-words">
@@ -534,7 +534,7 @@ export default function CronJobs() {
             </DialogDescription>
           </DialogHeader>
           <div className="bg-zinc-950 text-zinc-100 rounded-xl p-4 max-h-[60vh] overflow-auto">
-            <pre className="text-[11px] font-mono whitespace-pre-wrap break-words">
+            <pre className="text-[12px] font-mono whitespace-pre-wrap break-words">
               {logsLoading ? t('common.loading') : (logsContent || t('cron.noLogs'))}
             </pre>
           </div>

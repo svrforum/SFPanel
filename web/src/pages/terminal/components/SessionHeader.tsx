@@ -97,7 +97,7 @@ export function SessionHeader({ item, hostInfo, fontSize, cols, onFontSize, sear
       <div className="flex items-center gap-2 h-11 px-2 md:px-3">
         {drawer && (
           <button type="button" onClick={drawer.onOpen} aria-label={t('terminal.rail.sessions')}
-            className="relative flex items-center justify-center h-8 w-8 rounded-lg text-console-muted hover:text-console-foreground hover:bg-console-foreground/10 outline-none focus-visible:ring-2 focus-visible:ring-ring/40">
+            className="relative flex items-center justify-center h-8 w-8 rounded-lg text-console-muted hover:text-console-foreground hover:bg-console-foreground/10 outline-none focus-visible:ring-2 focus-visible:ring-ring">
             <PanelLeft className="h-4 w-4" aria-hidden="true" />
             {drawer.waiting > 0 && (
               <span className="absolute -top-0.5 -right-0.5 min-w-4 h-4 px-1 rounded-full bg-warning text-warning-foreground text-[10px] font-semibold flex items-center justify-center"
@@ -106,7 +106,7 @@ export function SessionHeader({ item, hostInfo, fontSize, cols, onFontSize, sear
           </button>
         )}
         {item && (
-          <span className="h-[18px] w-[18px] rounded-md flex items-center justify-center text-[10px] font-bold shrink-0"
+          <span className="h-[18px] w-[18px] rounded-md flex items-center justify-center text-[12px] font-bold shrink-0"
             style={{ backgroundColor: `${meta.color}1a`, color: meta.color }} aria-hidden="true">{meta.initial}</span>
         )}
         <div className="min-w-0 flex-1">
@@ -117,13 +117,13 @@ export function SessionHeader({ item, hostInfo, fontSize, cols, onFontSize, sear
                 className="w-full max-w-xs bg-transparent border-b border-primary outline-none text-[14px] font-semibold text-console-foreground" maxLength={64} autoFocus />
             ) : (
               <button type="button" onClick={startEditing} title={t('ai.tabs.rename')}
-                className="block max-w-full truncate text-[14px] font-semibold text-left outline-none rounded focus-visible:ring-2 focus-visible:ring-ring/40">{title}</button>
+                className="block max-w-full truncate text-[14px] font-semibold text-left outline-none rounded focus-visible:ring-2 focus-visible:ring-ring">{title}</button>
             )
           ) : (
             <span className="text-[14px] font-semibold text-console-muted">{t('terminal.header.noSession')}</span>
           )}
           {item && !editing && (
-            <div className="hidden md:flex items-center gap-1.5 text-[11px] text-console-muted min-w-0">
+            <div className="hidden md:flex items-center gap-1.5 text-[12px] text-console-muted min-w-0">
               {s ? (
                 <>
                   <span className="font-mono">{s.run_as}</span>
@@ -146,7 +146,7 @@ export function SessionHeader({ item, hostInfo, fontSize, cols, onFontSize, sear
 
         <div className="hidden md:flex items-center gap-0.5 shrink-0">
           <Button variant="ghost" size="sm" className={icon} onClick={() => onFontSize(-1)} title={t('terminal.fontSmaller')} aria-label={t('terminal.fontSmaller')}><Minus className="h-3 w-3" /></Button>
-          <span className="text-[10px] text-console-muted min-w-[20px] text-center" title={colsLabel}>{fontSize}</span>
+          <span className="text-[12px] text-console-muted min-w-[20px] text-center" title={colsLabel}>{fontSize}</span>
           <Button variant="ghost" size="sm" className={icon} onClick={() => onFontSize(1)} title={t('terminal.fontLarger')} aria-label={t('terminal.fontLarger')}><Plus className="h-3 w-3" /></Button>
           <div className="w-px h-4 bg-console-border mx-1" aria-hidden="true" />
           <Button variant="ghost" size="sm" className={cn(icon, searchOpen && 'text-primary')} onClick={onSearchToggle} title={`${t('terminal.search')} (${IS_MAC ? '⌘F' : 'Ctrl+Shift+F'})`} aria-label={t('terminal.search')}><Search className="h-3.5 w-3.5" /></Button>
@@ -159,7 +159,7 @@ export function SessionHeader({ item, hostInfo, fontSize, cols, onFontSize, sear
         </div>
 
         {item && user && (
-          <div className={cn('hidden lg:flex items-center gap-1.5 shrink-0 px-2 py-1 rounded-md border text-[11px] font-mono',
+          <div className={cn('hidden lg:flex items-center gap-1.5 shrink-0 px-2 py-1 rounded-md border text-[12px] font-mono',
             isRoot ? 'bg-warning/10 border-warning/30 text-warning' : 'bg-console-foreground/5 border-transparent text-console-muted')}
             title={isRoot
               ? t('terminal.shellBadgeRootHint', { host: hostInfo?.hostname ?? '', defaultValue: 'Running as root on {{host}} — commands here are unrestricted' })
@@ -241,8 +241,8 @@ export function SessionHeader({ item, hostInfo, fontSize, cols, onFontSize, sear
             <span className="hidden md:inline" aria-hidden="true">{t('terminal.next')}</span><span className="md:hidden" aria-hidden="true">↓</span>
           </Button>
           <Button variant="ghost" size="sm" className={ICON} onClick={onSearchClose} aria-label={t('common.close')}><X className="h-3.5 w-3.5" /></Button>
-          <span data-search-status role="status" className="min-w-10 text-[11px] tabular-nums text-console-muted">{searchStatus}</span>
-          {searchHint && <span data-search-hint className="basis-full text-[11px] text-console-muted md:basis-auto">{searchHint}</span>}
+          <span data-search-status role="status" className="min-w-10 text-[12px] tabular-nums text-console-muted">{searchStatus}</span>
+          {searchHint && <span data-search-hint className="basis-full text-[12px] text-console-muted md:basis-auto">{searchHint}</span>}
         </div>
       )}
     </header>

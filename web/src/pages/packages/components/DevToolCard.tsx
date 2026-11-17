@@ -52,7 +52,7 @@ export function DevToolCard({
         </div>
         <div>
           <p className="text-[13px] font-semibold">{title}</p>
-          <p className="text-[11px] text-muted-foreground">{subtitle}</p>
+          <p className="text-[12px] text-muted-foreground">{subtitle}</p>
         </div>
       </div>
       {checking ? (
@@ -89,7 +89,7 @@ export function DevToolCard({
         </Button>
       )}
       {footnote && !installed && (
-        <p className="text-[11px] text-muted-foreground">{footnote}</p>
+        <p className="text-[12px] text-muted-foreground">{footnote}</p>
       )}
     </div>
   )

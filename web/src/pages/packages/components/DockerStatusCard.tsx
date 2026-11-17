@@ -125,7 +125,7 @@ export function DockerStatusCard({ output }: { output: SSEOutput }) {
         ) : (
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
             <div className="space-y-1">
-              <p className="text-[11px] text-muted-foreground uppercase tracking-wider">
+              <p className="text-[12px] text-muted-foreground uppercase tracking-wider">
                 {t('packages.dockerInstalled')}
               </p>
               <div className="flex items-center gap-1.5">
@@ -134,7 +134,7 @@ export function DockerStatusCard({ output }: { output: SSEOutput }) {
               </div>
             </div>
             <div className="space-y-1">
-              <p className="text-[11px] text-muted-foreground uppercase tracking-wider">
+              <p className="text-[12px] text-muted-foreground uppercase tracking-wider">
                 {t('packages.dockerVersion')}
               </p>
               <p className="text-[13px] font-medium font-mono">
@@ -142,7 +142,7 @@ export function DockerStatusCard({ output }: { output: SSEOutput }) {
               </p>
             </div>
             <div className="space-y-1">
-              <p className="text-[11px] text-muted-foreground uppercase tracking-wider">
+              <p className="text-[12px] text-muted-foreground uppercase tracking-wider">
                 {t('packages.dockerRunning')}
               </p>
               <div className="flex items-center gap-1.5">
@@ -160,7 +160,7 @@ export function DockerStatusCard({ output }: { output: SSEOutput }) {
               </div>
             </div>
             <div className="space-y-1">
-              <p className="text-[11px] text-muted-foreground uppercase tracking-wider">
+              <p className="text-[12px] text-muted-foreground uppercase tracking-wider">
                 {t('packages.dockerCompose')}
               </p>
               <div className="flex items-center gap-1.5">

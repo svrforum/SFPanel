@@ -3,7 +3,7 @@ import { cn } from '@/lib/utils'
 import { FIREWALL_ACTION_COLORS } from '@/lib/logParsers'
 import type { FirewallLogEntry } from '@/lib/logParsers'
 
-const PILL_CLASS = 'inline-flex items-center px-1.5 py-0.5 rounded-full text-[10px] font-medium'
+const PILL_CLASS = 'inline-flex items-center px-1.5 py-0.5 rounded-full text-[12px] font-medium'
 
 interface FirewallLogMiniTableProps {
   entries: FirewallLogEntry[]
@@ -18,7 +18,7 @@ export default function FirewallLogMiniTable({ entries }: FirewallLogMiniTablePr
 
   return (
     <div className="overflow-x-auto">
-      <table className="w-full text-[11px]">
+      <table className="w-full text-[12px]">
         <thead>
           <tr className="text-left text-muted-foreground border-b border-border">
             <th className="pb-2 pr-3 font-medium">{t('logs.col.timestamp')}</th>

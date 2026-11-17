@@ -107,7 +107,7 @@ export default function FirewallLogs() {
       {/* Header */}
       <div>
         <h2 className="text-[15px] font-semibold">{t('firewall.logs.title')}</h2>
-        <p className="text-[11px] text-muted-foreground mt-0.5">{t('firewall.logs.description')}</p>
+        <p className="text-[12px] text-muted-foreground mt-0.5">{t('firewall.logs.description')}</p>
       </div>
 
       {/* Live tail connection (mounted only while live mode is on) */}
@@ -125,7 +125,7 @@ export default function FirewallLogs() {
         <div className="flex items-center bg-secondary/50 rounded-xl p-0.5 mr-2">
           <button
             onClick={() => handleSourceChange('firewall')}
-            className={`px-3 py-1 rounded-lg text-xs font-medium transition-all outline-none focus-visible:ring-2 focus-visible:ring-ring/40 focus-visible:ring-offset-0 ${
+            className={`px-3 py-1 rounded-lg text-xs font-medium transition outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-0 ${
               selectedSource === 'firewall'
                 ? 'bg-background text-foreground shadow-sm'
                 : 'text-muted-foreground hover:text-foreground'
@@ -135,7 +135,7 @@ export default function FirewallLogs() {
           </button>
           <button
             onClick={() => handleSourceChange('fail2ban')}
-            className={`px-3 py-1 rounded-lg text-xs font-medium transition-all outline-none focus-visible:ring-2 focus-visible:ring-ring/40 focus-visible:ring-offset-0 ${
+            className={`px-3 py-1 rounded-lg text-xs font-medium transition outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-0 ${
               selectedSource === 'fail2ban'
                 ? 'bg-background text-foreground shadow-sm'
                 : 'text-muted-foreground hover:text-foreground'
@@ -165,7 +165,7 @@ export default function FirewallLogs() {
           <div className="flex items-center bg-secondary/50 rounded-xl p-0.5">
             <button
               onClick={() => setViewMode('raw')}
-              className={`px-3 py-1 rounded-lg text-xs font-medium transition-all outline-none focus-visible:ring-2 focus-visible:ring-ring/40 focus-visible:ring-offset-0 ${
+              className={`px-3 py-1 rounded-lg text-xs font-medium transition outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-0 ${
                 viewMode === 'raw'
                   ? 'bg-background text-foreground shadow-sm'
                   : 'text-muted-foreground hover:text-foreground'
@@ -175,7 +175,7 @@ export default function FirewallLogs() {
             </button>
             <button
               onClick={() => setViewMode('parsed')}
-              className={`px-3 py-1 rounded-lg text-xs font-medium transition-all outline-none focus-visible:ring-2 focus-visible:ring-ring/40 focus-visible:ring-offset-0 ${
+              className={`px-3 py-1 rounded-lg text-xs font-medium transition outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-0 ${
                 viewMode === 'parsed'
                   ? 'bg-background text-foreground shadow-sm'
                   : 'text-muted-foreground hover:text-foreground'

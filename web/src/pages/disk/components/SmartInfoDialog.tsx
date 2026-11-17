@@ -34,7 +34,7 @@ function smartStatusStyle(status: string | undefined, value?: number, worst?: nu
   const computed = status || (value !== undefined && worst !== undefined && threshold !== undefined
     ? getSmartAttrStatus(value, worst, threshold)
     : 'ok')
-  const base = 'inline-flex items-center px-1.5 py-0 rounded-full text-[10px] font-medium'
+  const base = 'inline-flex items-center px-1.5 py-0 rounded-full text-[12px] font-medium'
   switch (computed) {
     case 'ok':
     case 'passed':
@@ -217,10 +217,10 @@ export function SmartInfoDialog({ diskName, onOpenChange }: {
                   <Table>
                     <TableHeader>
                       <TableRow className="border-border/50">
-                        <TableHead className="text-[11px]">{t('disk.smart.selfTest.colType')}</TableHead>
-                        <TableHead className="text-[11px]">{t('disk.smart.selfTest.colStatus')}</TableHead>
-                        <TableHead className="text-[11px]">{t('disk.smart.selfTest.colResult')}</TableHead>
-                        <TableHead className="text-[11px]">{t('disk.smart.selfTest.colWhen')}</TableHead>
+                        <TableHead className="text-[12px]">{t('disk.smart.selfTest.colType')}</TableHead>
+                        <TableHead className="text-[12px]">{t('disk.smart.selfTest.colStatus')}</TableHead>
+                        <TableHead className="text-[12px]">{t('disk.smart.selfTest.colResult')}</TableHead>
+                        <TableHead className="text-[12px]">{t('disk.smart.selfTest.colWhen')}</TableHead>
                       </TableRow>
                     </TableHeader>
                     <TableBody>
@@ -260,13 +260,13 @@ export function SmartInfoDialog({ diskName, onOpenChange }: {
                   <Table>
                     <TableHeader>
                       <TableRow className="border-border/50">
-                        <TableHead className="text-[11px]">ID</TableHead>
-                        <TableHead className="text-[11px]">{t('disk.smart.attrName')}</TableHead>
-                        <TableHead className="text-[11px]">{t('disk.smart.attrValue')}</TableHead>
-                        <TableHead className="text-[11px]">{t('disk.smart.attrWorst')}</TableHead>
-                        <TableHead className="text-[11px]">{t('disk.smart.attrThreshold')}</TableHead>
-                        <TableHead className="text-[11px]">{t('disk.smart.attrRaw')}</TableHead>
-                        <TableHead className="text-[11px]">{t('disk.smart.attrStatus')}</TableHead>
+                        <TableHead className="text-[12px]">ID</TableHead>
+                        <TableHead className="text-[12px]">{t('disk.smart.attrName')}</TableHead>
+                        <TableHead className="text-[12px]">{t('disk.smart.attrValue')}</TableHead>
+                        <TableHead className="text-[12px]">{t('disk.smart.attrWorst')}</TableHead>
+                        <TableHead className="text-[12px]">{t('disk.smart.attrThreshold')}</TableHead>
+                        <TableHead className="text-[12px]">{t('disk.smart.attrRaw')}</TableHead>
+                        <TableHead className="text-[12px]">{t('disk.smart.attrStatus')}</TableHead>
                       </TableRow>
                     </TableHeader>
                     <TableBody>

@@ -63,7 +63,7 @@ function ContainerLinks({
         <Link
           key={`${c.id}-${idx}`}
           to={`/docker/containers?selected=${encodeURIComponent(c.id)}`}
-          className="inline-flex items-center gap-1 hover:text-primary outline-none focus-visible:ring-2 focus-visible:ring-ring/40 focus-visible:ring-offset-0"
+          className="inline-flex items-center gap-1 hover:text-primary outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-0"
         >
           <span className="font-medium">{c.name}</span>
           {c.stack && (
@@ -149,14 +149,14 @@ export function PortMapTable() {
                 <TableRow key={i} className={rowBorderClass(r)}>
                   <TableCell className="font-mono">{r.port}</TableCell>
                   <TableCell>
-                    <Badge variant="outline" className="text-[10px]">
+                    <Badge variant="outline" className="text-[12px]">
                       {r.proto.toUpperCase()}
                     </Badge>
                   </TableCell>
                   <TableCell className="text-[12px]">
                     <Badge
                       variant={r.state === 'listening' ? 'default' : 'secondary'}
-                      className="text-[10px]"
+                      className="text-[12px]"
                     >
                       {r.state === 'listening' ? 'LISTENING' : 'BOUND'}
                     </Badge>
@@ -194,7 +194,7 @@ export function PortMapTable() {
                 </div>
                 <div className="flex justify-between text-[12px]">
                   <span className="text-muted-foreground">{t('firewall.portmap.protocol')}</span>
-                  <Badge variant="outline" className="text-[10px]">
+                  <Badge variant="outline" className="text-[12px]">
                     {r.proto.toUpperCase()}
                   </Badge>
                 </div>
@@ -202,7 +202,7 @@ export function PortMapTable() {
                   <span className="text-muted-foreground">{t('firewall.portmap.state')}</span>
                   <Badge
                     variant={r.state === 'listening' ? 'default' : 'secondary'}
-                    className="text-[10px]"
+                    className="text-[12px]"
                   >
                     {r.state === 'listening' ? 'LISTENING' : 'BOUND'}
                   </Badge>

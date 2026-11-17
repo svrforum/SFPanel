@@ -29,7 +29,7 @@ export interface SessionRailProps {
   onAction: (action: RailAction, item: RailItem) => void
 }
 
-const ROW = 'relative flex items-center gap-2 h-10 w-full text-left select-none outline-none cursor-pointer transition-colors focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring/40'
+const ROW = 'relative flex items-center gap-2 h-10 w-full text-left select-none outline-none cursor-pointer transition-colors focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring'
 
 /**
  * The left rail: one primary action, the sessions grouped by directory, the
@@ -75,7 +75,7 @@ export function SessionRail({ groups, active, collapsed, fallback, reattachable,
     <div className="flex flex-col h-full min-h-0 text-console-foreground">
       <div className={cn('shrink-0 pt-3 pb-2', collapsed ? 'px-2' : 'px-3')}>
         <button type="button" onClick={onNew} title={newLabel} aria-label={newLabel}
-          className={cn('flex items-center justify-center gap-1.5 h-9 w-full rounded-xl bg-primary text-primary-foreground text-[13px] font-medium hover:bg-primary/90 outline-none focus-visible:ring-2 focus-visible:ring-ring/40')}>
+          className={cn('flex items-center justify-center gap-1.5 h-9 w-full rounded-xl bg-primary text-primary-foreground text-[13px] font-medium hover:bg-primary/90 outline-none focus-visible:ring-2 focus-visible:ring-ring')}>
           <Plus className="h-4 w-4" aria-hidden="true" />
           {!collapsed && newLabel}
         </button>
@@ -91,8 +91,8 @@ export function SessionRail({ groups, active, collapsed, fallback, reattachable,
               ) : (
                 <>
                   <div className="text-[13px] font-semibold truncate">{g.label}</div>
-                  {g.path && <div className="text-[11px] font-mono text-console-muted truncate" title={g.path}>{g.path}</div>}
-                  {g.temporary && <div className="text-[11px] text-console-muted">{t('terminal.rail.temporaryHint')}</div>}
+                  {g.path && <div className="text-[12px] font-mono text-console-muted truncate" title={g.path}>{g.path}</div>}
+                  {g.temporary && <div className="text-[12px] text-console-muted">{t('terminal.rail.temporaryHint')}</div>}
                 </>
               )}
             </div>
@@ -125,7 +125,7 @@ export function SessionRail({ groups, active, collapsed, fallback, reattachable,
                           whole rail again whenever any row's state changes. */}
                       <span className={cn('h-1.5 w-1.5 rounded-full shrink-0 motion-reduce:animate-none', s ? stateDotClass(s.state, isActive) : 'bg-console-muted')}
                         role="img" aria-label={s ? t('ai.state.' + s.state) : t('terminal.rail.temporarySession')} />
-                      <span className="h-[18px] w-[18px] rounded-md flex items-center justify-center text-[10px] font-bold shrink-0"
+                      <span className="h-[18px] w-[18px] rounded-md flex items-center justify-center text-[12px] font-bold shrink-0"
                         style={{ backgroundColor: `${meta.color}1a`, color: meta.color }} aria-hidden="true">{meta.initial}</span>
                       {!collapsed && (
                         <div className="min-w-0 flex-1">
@@ -142,7 +142,7 @@ export function SessionRail({ groups, active, collapsed, fallback, reattachable,
                             <div className="flex items-center gap-1.5 min-w-0">
                               <span className="text-[13px] font-medium truncate">{title}</span>
                               {s?.profile && (
-                                <span className="px-1 rounded bg-console-foreground/10 text-[10px] font-mono max-w-[10ch] truncate shrink-0"
+                                <span className="px-1 rounded bg-console-foreground/10 text-[12px] font-mono max-w-[10ch] truncate shrink-0"
                                   title={`${t('ai.profiles.label')}: ${s.profile}`}>{s.profile}</span>
                               )}
                               {s?.persistence === 'process' && s.state !== 'ended' && (
@@ -156,7 +156,7 @@ export function SessionRail({ groups, active, collapsed, fallback, reattachable,
                               {s?.unknown && <HelpCircle className="h-3 w-3 shrink-0" aria-label={t('ai.tabs.unknown')} />}
                             </div>
                           )}
-                          {noteText && editing !== key && <div className="text-[11px] text-console-muted truncate">{noteText}</div>}
+                          {noteText && editing !== key && <div className="text-[12px] text-console-muted truncate">{noteText}</div>}
                         </div>
                       )}
                     </div>
@@ -192,13 +192,13 @@ export function SessionRail({ groups, active, collapsed, fallback, reattachable,
 
             {g.temporary && reattachable.length > 0 && !collapsed && (
               <>
-                <div className="px-3 pt-2 pb-1 text-[11px] text-console-muted">{t('terminal.rail.reattach')}</div>
+                <div className="px-3 pt-2 pb-1 text-[12px] text-console-muted">{t('terminal.rail.reattach')}</div>
                 {reattachable.map((r) => (
                   <button key={r.session_id} type="button" onClick={() => onReattach(r.session_id)}
                     className={cn(ROW, 'h-9 px-3 hover:bg-console-foreground/5 text-[12px]')}>
                     <History className="h-3.5 w-3.5 shrink-0 text-console-muted" aria-hidden="true" />
                     <span className="font-mono truncate">{r.session_id.slice(0, 12)}</span>
-                    <span className="ml-auto text-[10px] text-console-muted shrink-0">{new Date(r.last_use).toLocaleTimeString()}</span>
+                    <span className="ml-auto text-[12px] text-console-muted shrink-0">{new Date(r.last_use).toLocaleTimeString()}</span>
                   </button>
                 ))}
               </>
@@ -210,19 +210,19 @@ export function SessionRail({ groups, active, collapsed, fallback, reattachable,
       <div className={cn('shrink-0 flex items-center gap-1 border-t border-console-border py-2', collapsed ? 'flex-col px-2' : 'px-2')}>
         {dashboardLink && (
           <Link to="/dashboard"
-            className="flex flex-1 items-center gap-2 h-8 px-2 rounded-lg text-[12px] text-console-muted hover:text-console-foreground hover:bg-console-foreground/5 outline-none focus-visible:ring-2 focus-visible:ring-ring/40">
+            className="flex flex-1 items-center gap-2 h-8 px-2 rounded-lg text-[12px] text-console-muted hover:text-console-foreground hover:bg-console-foreground/5 outline-none focus-visible:ring-2 focus-visible:ring-ring">
             <LayoutDashboard className="h-3.5 w-3.5" aria-hidden="true" />
             {t('layout.mobileNav.dashboard')}
           </Link>
         )}
         <button type="button" onClick={onOpenTools} title={t('terminal.rail.tools')} aria-label={t('terminal.rail.tools')}
-          className={cn('flex items-center gap-2 h-8 rounded-lg text-[12px] text-console-muted hover:text-console-foreground hover:bg-console-foreground/5 outline-none focus-visible:ring-2 focus-visible:ring-ring/40', collapsed ? 'w-8 justify-center' : 'flex-1 px-2')}>
+          className={cn('flex items-center gap-2 h-8 rounded-lg text-[12px] text-console-muted hover:text-console-foreground hover:bg-console-foreground/5 outline-none focus-visible:ring-2 focus-visible:ring-ring', collapsed ? 'w-8 justify-center' : 'flex-1 px-2')}>
           <Wrench className="h-3.5 w-3.5" aria-hidden="true" />
           {!collapsed && t('terminal.rail.tools')}
         </button>
         {onToggleCollapsed && (
           <button type="button" onClick={onToggleCollapsed} title={collapsed ? t('terminal.rail.expand') : t('terminal.rail.collapse')} aria-label={collapsed ? t('terminal.rail.expand') : t('terminal.rail.collapse')}
-            className="flex items-center justify-center h-8 w-8 rounded-lg text-console-muted hover:text-console-foreground hover:bg-console-foreground/5 outline-none focus-visible:ring-2 focus-visible:ring-ring/40">
+            className="flex items-center justify-center h-8 w-8 rounded-lg text-console-muted hover:text-console-foreground hover:bg-console-foreground/5 outline-none focus-visible:ring-2 focus-visible:ring-ring">
             {collapsed ? <ChevronsRight className="h-3.5 w-3.5" aria-hidden="true" /> : <ChevronsLeft className="h-3.5 w-3.5" aria-hidden="true" />}
           </button>
         )}

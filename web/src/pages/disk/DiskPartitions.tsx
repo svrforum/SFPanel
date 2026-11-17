@@ -192,12 +192,12 @@ export default function DiskPartitions() {
         <Table>
           <TableHeader>
             <TableRow className="border-border/50">
-              <TableHead className="text-[11px]">{t('common.name')}</TableHead>
-              <TableHead className="text-[11px]">{t('disk.partitions.size')}</TableHead>
-              <TableHead className="text-[11px]">{t('disk.partitions.type')}</TableHead>
-              <TableHead className="text-[11px]">{t('disk.partitions.fsType')}</TableHead>
-              <TableHead className="text-[11px]">{t('disk.partitions.mountPoint')}</TableHead>
-              <TableHead className="text-right text-[11px]">{t('common.actions')}</TableHead>
+              <TableHead className="text-[12px]">{t('common.name')}</TableHead>
+              <TableHead className="text-[12px]">{t('disk.partitions.size')}</TableHead>
+              <TableHead className="text-[12px]">{t('disk.partitions.type')}</TableHead>
+              <TableHead className="text-[12px]">{t('disk.partitions.fsType')}</TableHead>
+              <TableHead className="text-[12px]">{t('disk.partitions.mountPoint')}</TableHead>
+              <TableHead className="text-right text-[12px]">{t('common.actions')}</TableHead>
             </TableRow>
           </TableHeader>
           <TableBody>
@@ -226,7 +226,7 @@ export default function DiskPartitions() {
                     <span className="inline-flex items-center gap-1.5">
                       {p.name}
                       {p.boot && (
-                        <span className="inline-flex items-center px-1.5 py-0 rounded text-[10px] font-medium font-sans bg-warning/10 text-warning" title={t('disk.partitions.bootHint')}>
+                        <span className="inline-flex items-center px-1.5 py-0 rounded text-[12px] font-medium font-sans bg-warning/10 text-warning" title={t('disk.partitions.bootHint')}>
                           {t('disk.bootBadge')}
                         </span>
                       )}
@@ -240,7 +240,7 @@ export default function DiskPartitions() {
                   </TableCell>
                   <TableCell>
                     {p.fstype ? (
-                      <span className="inline-flex items-center px-1.5 py-0 rounded text-[10px] font-medium border border-border">
+                      <span className="inline-flex items-center px-1.5 py-0 rounded text-[12px] font-medium border border-border">
                         {p.fstype}
                       </span>
                     ) : (
@@ -287,7 +287,7 @@ export default function DiskPartitions() {
                 value={newStart}
                 onChange={(e) => setNewStart(e.target.value)}
               />
-              <p className="text-[11px] text-muted-foreground">{t('disk.partitions.startHint')}</p>
+              <p className="text-[12px] text-muted-foreground">{t('disk.partitions.startHint')}</p>
             </div>
             <div className="space-y-2">
               <Label htmlFor="part-end">{t('disk.partitions.end')}</Label>
@@ -297,7 +297,7 @@ export default function DiskPartitions() {
                 value={newEnd}
                 onChange={(e) => setNewEnd(e.target.value)}
               />
-              <p className="text-[11px] text-muted-foreground">{t('disk.partitions.endHint')}</p>
+              <p className="text-[12px] text-muted-foreground">{t('disk.partitions.endHint')}</p>
             </div>
             <div className="space-y-2">
               <Label htmlFor="part-fs">{t('disk.partitions.fsType')}</Label>
@@ -318,7 +318,7 @@ export default function DiskPartitions() {
                 {t('disk.partitions.formatAfterCreate')}
               </label>
               {!newFormat && (
-                <p className="text-[11px] text-muted-foreground">{t('disk.partitions.typeOnlyHint')}</p>
+                <p className="text-[12px] text-muted-foreground">{t('disk.partitions.typeOnlyHint')}</p>
               )}
             </div>
           </div>

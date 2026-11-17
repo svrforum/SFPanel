@@ -340,12 +340,12 @@ export default function Maintenance({ clusterEnabled }: MaintenanceProps) {
 
         <div className="flex items-center gap-6 mb-4">
           <div className="space-y-1">
-            <p className="text-[11px] text-muted-foreground uppercase tracking-wider">{t('settings.currentVersion')}</p>
+            <p className="text-[12px] text-muted-foreground uppercase tracking-wider">{t('settings.currentVersion')}</p>
             <p className="text-[13px] font-medium">v{panelVersion}</p>
           </div>
           {updateInfo?.update_available && (
             <div className="space-y-1">
-              <p className="text-[11px] text-muted-foreground uppercase tracking-wider">{t('settings.latestVersion')}</p>
+              <p className="text-[12px] text-muted-foreground uppercase tracking-wider">{t('settings.latestVersion')}</p>
               <p className="text-[13px] font-medium text-primary">v{updateInfo.latest_version}</p>
             </div>
           )}
@@ -397,25 +397,25 @@ export default function Maintenance({ clusterEnabled }: MaintenanceProps) {
         <p className="text-[13px] text-muted-foreground mt-1 mb-4">{t('settings.backupDescription')}</p>
 
         <div className="bg-secondary/40 rounded-xl p-3 mb-4">
-          <p className="text-[11px] text-muted-foreground uppercase tracking-wider mb-2">{t('settings.backupIncludes')}</p>
+          <p className="text-[12px] text-muted-foreground uppercase tracking-wider mb-2">{t('settings.backupIncludes')}</p>
           <div className="flex flex-col gap-1.5">
             <div className="flex items-center gap-2">
               <span className="h-1.5 w-1.5 rounded-full bg-primary" />
               <span className="text-[12px] text-foreground/80">sfpanel.db</span>
-              <span className="text-[11px] text-muted-foreground">— {t('settings.backupItemDB')}</span>
+              <span className="text-[12px] text-muted-foreground">— {t('settings.backupItemDB')}</span>
             </div>
             <div className="flex items-center gap-2">
               <span className="h-1.5 w-1.5 rounded-full bg-primary" />
               <span className="text-[12px] text-foreground/80">config.yaml</span>
-              <span className="text-[11px] text-muted-foreground">— {t('settings.backupItemConfig')}</span>
+              <span className="text-[12px] text-muted-foreground">— {t('settings.backupItemConfig')}</span>
             </div>
             <div className="flex items-center gap-2">
               <span className="h-1.5 w-1.5 rounded-full bg-primary" />
               <span className="text-[12px] text-foreground/80">compose/*</span>
-              <span className="text-[11px] text-muted-foreground">— {t('settings.backupItemCompose')}</span>
+              <span className="text-[12px] text-muted-foreground">— {t('settings.backupItemCompose')}</span>
             </div>
           </div>
-          <p className="text-[11px] text-muted-foreground mt-2 flex items-center gap-1">
+          <p className="text-[12px] text-muted-foreground mt-2 flex items-center gap-1">
             <AlertCircle className="h-3 w-3 shrink-0" />
             {t('settings.backupDockerDataNote')}
           </p>
@@ -469,7 +469,7 @@ export default function Maintenance({ clusterEnabled }: MaintenanceProps) {
 
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 mb-4">
           <div className="space-y-1">
-            <label className="text-[11px] text-muted-foreground uppercase tracking-wider">{t('settings.backupSchedule.intervalLabel')}</label>
+            <label className="text-[12px] text-muted-foreground uppercase tracking-wider">{t('settings.backupSchedule.intervalLabel')}</label>
             <Input
               type="number"
               min={1}
@@ -478,10 +478,10 @@ export default function Maintenance({ clusterEnabled }: MaintenanceProps) {
               onChange={(e) => setIntervalHours(e.target.value)}
               className="rounded-xl"
             />
-            <p className="text-[11px] text-muted-foreground">{t('settings.backupSchedule.intervalHint')}</p>
+            <p className="text-[12px] text-muted-foreground">{t('settings.backupSchedule.intervalHint')}</p>
           </div>
           <div className="space-y-1">
-            <label className="text-[11px] text-muted-foreground uppercase tracking-wider">{t('settings.backupSchedule.retentionLabel')}</label>
+            <label className="text-[12px] text-muted-foreground uppercase tracking-wider">{t('settings.backupSchedule.retentionLabel')}</label>
             <Input
               type="number"
               min={1}
@@ -490,7 +490,7 @@ export default function Maintenance({ clusterEnabled }: MaintenanceProps) {
               onChange={(e) => setRetention(e.target.value)}
               className="rounded-xl"
             />
-            <p className="text-[11px] text-muted-foreground">{t('settings.backupSchedule.retentionHint')}</p>
+            <p className="text-[12px] text-muted-foreground">{t('settings.backupSchedule.retentionHint')}</p>
           </div>
         </div>
 
@@ -498,7 +498,7 @@ export default function Maintenance({ clusterEnabled }: MaintenanceProps) {
           <div className="bg-secondary/40 rounded-xl p-3 mb-4">
             <div className="flex items-center gap-2 mb-1">
               <Clock className="h-3.5 w-3.5 text-muted-foreground" />
-              <span className="text-[11px] text-muted-foreground uppercase tracking-wider">{t('settings.backupSchedule.lastRun')}</span>
+              <span className="text-[12px] text-muted-foreground uppercase tracking-wider">{t('settings.backupSchedule.lastRun')}</span>
               <span className="text-[12px] font-medium">{new Date(schedule.last_run).toLocaleString()}</span>
               <span className={`text-[12px] font-medium ${schedule.last_status === 'error' ? 'text-destructive' : 'text-success'}`}>
                 {schedule.last_status === 'error' ? t('settings.backupSchedule.statusError') : t('settings.backupSchedule.statusSuccess')}
@@ -520,7 +520,7 @@ export default function Maintenance({ clusterEnabled }: MaintenanceProps) {
           </Button>
         </div>
 
-        <p className="text-[11px] text-muted-foreground uppercase tracking-wider mb-2">{t('settings.backupSchedule.existingTitle')}</p>
+        <p className="text-[12px] text-muted-foreground uppercase tracking-wider mb-2">{t('settings.backupSchedule.existingTitle')}</p>
         {backupFiles.length === 0 ? (
           <p className="text-[13px] text-muted-foreground">{t('settings.backupSchedule.empty')}</p>
         ) : (
@@ -529,7 +529,7 @@ export default function Maintenance({ clusterEnabled }: MaintenanceProps) {
               <div key={file.name} className="flex items-center gap-3 bg-secondary/40 rounded-xl px-3 py-2">
                 <div className="min-w-0 flex-1">
                   <p className="text-[13px] font-medium truncate">{file.name}</p>
-                  <p className="text-[11px] text-muted-foreground">
+                  <p className="text-[12px] text-muted-foreground">
                     {formatBytes(file.size)} · {new Date(file.mod_time).toLocaleString()}
                   </p>
                 </div>
@@ -573,17 +573,17 @@ export default function Maintenance({ clusterEnabled }: MaintenanceProps) {
         <p className="text-[13px] text-muted-foreground mt-1 mb-4">{t('settings.systemInfoDescription')}</p>
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
           <div className="space-y-1">
-            <p className="text-[11px] text-muted-foreground uppercase tracking-wider">{t('settings.version')}</p>
+            <p className="text-[12px] text-muted-foreground uppercase tracking-wider">{t('settings.version')}</p>
             <p className="text-[13px] font-medium">v{panelVersion}</p>
           </div>
           {systemInfo?.host && (
             <>
               <div className="space-y-1">
-                <p className="text-[11px] text-muted-foreground uppercase tracking-wider">{t('dashboard.hostname')}</p>
+                <p className="text-[12px] text-muted-foreground uppercase tracking-wider">{t('dashboard.hostname')}</p>
                 <p className="text-[13px] font-medium">{systemInfo.host.hostname || 'N/A'}</p>
               </div>
               <div className="space-y-1">
-                <p className="text-[11px] text-muted-foreground uppercase tracking-wider">{t('settings.operatingSystem')}</p>
+                <p className="text-[12px] text-muted-foreground uppercase tracking-wider">{t('settings.operatingSystem')}</p>
                 <p className="text-[13px] font-medium">
                   {systemInfo.host.platform_name || (
                     <>
@@ -594,11 +594,11 @@ export default function Maintenance({ clusterEnabled }: MaintenanceProps) {
                 </p>
               </div>
               <div className="space-y-1">
-                <p className="text-[11px] text-muted-foreground uppercase tracking-wider">{t('dashboard.kernel')}</p>
+                <p className="text-[12px] text-muted-foreground uppercase tracking-wider">{t('dashboard.kernel')}</p>
                 <p className="text-[13px] font-medium">{systemInfo.host.kernel || 'N/A'}</p>
               </div>
               <div className="space-y-1">
-                <p className="text-[11px] text-muted-foreground uppercase tracking-wider">{t('dashboard.uptime')}</p>
+                <p className="text-[12px] text-muted-foreground uppercase tracking-wider">{t('dashboard.uptime')}</p>
                 <p className="text-[13px] font-medium">
                   {systemInfo.host.uptime
                     ? formatUptime(systemInfo.host.uptime)

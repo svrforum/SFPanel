@@ -342,7 +342,7 @@ export function NewSessionDialog({
                 {accounts.map((a) => <SelectItem key={a} value={a} className="font-mono text-[12px]">{a}</SelectItem>)}
               </SelectContent>
             </Select>
-            <p className="text-[11px] text-muted-foreground">{t('ai.accountHint')}</p>
+            <p className="text-[12px] text-muted-foreground">{t('ai.accountHint')}</p>
           </div>
           <div className="space-y-1.5">
             <Label>{t('ai.dialog.tool')}</Label>
@@ -354,7 +354,7 @@ export function NewSessionDialog({
                   <button key={tl} type="button" role="radio" aria-checked={tool === tl} disabled={!ok}
                     title={ok ? meta.label : t('ai.dialog.toolNotInstalled', { account: runAs })}
                     onClick={() => { touched.current.tool = true; setTool(tl) }}
-                    className={cn('flex flex-col items-center gap-1 rounded-xl border p-2 text-[12px] transition-colors outline-none focus-visible:ring-2 focus-visible:ring-ring/40',
+                    className={cn('flex flex-col items-center gap-1 rounded-xl border p-2 text-[12px] transition-colors outline-none focus-visible:ring-2 focus-visible:ring-ring',
                       tool === tl ? 'border-primary bg-primary/5' : 'hover:bg-accent', !ok && 'opacity-40 cursor-not-allowed')}>
                     <span className="h-7 w-7 rounded-lg flex items-center justify-center text-[13px] font-bold"
                       style={{ backgroundColor: `${meta.color}1a`, color: meta.color }}>{meta.initial}</span>
@@ -364,7 +364,7 @@ export function NewSessionDialog({
               })}
             </div>
             {onOpenTools && TOOLS.some((tl) => tl !== 'shell' && !installedFor(tl)) && (
-              <button type="button" className="text-[11px] text-primary hover:underline text-left"
+              <button type="button" className="text-[12px] text-primary hover:underline text-left"
                 onClick={() => { onOpenChange(false); onOpenTools() }}>
                 {t('terminal.launcher.installTools')}
               </button>
@@ -401,7 +401,7 @@ export function NewSessionDialog({
                             <span className="sr-only">{p.logged_in ? t('ai.profiles.loggedIn') : t('ai.profiles.notLoggedIn')}</span>
                           </>}
                           <span className={p.default ? undefined : 'font-mono text-[12px]'}>{p.default ? t('ai.profiles.default') : p.name}</span>
-                          {used && <span className="text-[11px] text-muted-foreground">{t('ai.profiles.lastUsed', { when: used })}</span>}
+                          {used && <span className="text-[12px] text-muted-foreground">{t('ai.profiles.lastUsed', { when: used })}</span>}
                         </SelectItem>
                       )
                     })}
@@ -425,7 +425,7 @@ export function NewSessionDialog({
                 </div>
               )}
               {chosen && chosen.path !== '' && !chosen.logged_in && (
-                <p className="text-[11px] text-warning">{t('ai.profiles.loginHint', { command: loginCommandFor(tool) })}</p>
+                <p className="text-[12px] text-warning">{t('ai.profiles.loginHint', { command: loginCommandFor(tool) })}</p>
               )}
             </div>
           )}

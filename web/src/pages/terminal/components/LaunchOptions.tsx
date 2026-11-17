@@ -78,7 +78,7 @@ export function LaunchOptions({
       <summary className="flex cursor-pointer flex-wrap items-center gap-x-2 text-[13px] font-medium">
         {t('ai.launch.section')}
         {!open && summary && (
-          <span className="font-normal text-[11px] text-muted-foreground">{summary}</span>
+          <span className="font-normal text-[12px] text-muted-foreground">{summary}</span>
         )}
       </summary>
       <div className="mt-3 space-y-3">
@@ -98,7 +98,7 @@ export function LaunchOptions({
           {/* The hint names the behaviour, not the flag: Claude continues the
               most recent conversation *in this directory*, Codex its most
               recent session. */}
-          <p className="text-[11px] text-muted-foreground">{t(`ai.launch.continueHint.${tool}`)}</p>
+          <p className="text-[12px] text-muted-foreground">{t(`ai.launch.continueHint.${tool}`)}</p>
         </div>
         <div className="space-y-1.5">
           <Label htmlFor="ai-launch-permission">{t('ai.launch.permission')}</Label>
@@ -114,7 +114,7 @@ export function LaunchOptions({
               ))}
             </SelectContent>
           </Select>
-          <p className="text-[11px] text-muted-foreground">{t(`ai.launch.permissionHint.${tool}`)}</p>
+          <p className="text-[12px] text-muted-foreground">{t(`ai.launch.permissionHint.${tool}`)}</p>
         </div>
         {/* Codex only. Claude has no sandbox flag, and offering one would be a
             control whose value the server refuses. */}
@@ -133,7 +133,7 @@ export function LaunchOptions({
                 ))}
               </SelectContent>
             </Select>
-            <p className="text-[11px] text-muted-foreground">{t('ai.launch.sandboxHint')}</p>
+            <p className="text-[12px] text-muted-foreground">{t('ai.launch.sandboxHint')}</p>
           </div>
         )}
         <div className="space-y-1.5">
@@ -159,7 +159,7 @@ export function LaunchOptions({
             aria-invalid={modelError}
           />
           {modelError && (
-            <p role="alert" className="text-[11px] text-destructive">{t('ai.launch.modelError')}</p>
+            <p role="alert" className="text-[12px] text-destructive">{t('ai.launch.modelError')}</p>
           )}
         </div>
         <div className="space-y-1.5">
@@ -175,7 +175,7 @@ export function LaunchOptions({
               ("cannot be used with root/sudo privileges"), so the reason is
               said here, beside the account selector that fixes it, instead of
               letting the session die with it. */}
-          <p className={`flex items-start gap-1 text-[11px] ${blocked ? 'text-muted-foreground' : 'text-warning'}`}>
+          <p className={`flex items-start gap-1 text-[12px] ${blocked ? 'text-muted-foreground' : 'text-warning'}`}>
             <AlertTriangle className="mt-px h-3 w-3 shrink-0" aria-hidden="true" />
             {blocked ? t('ai.launch.dangerousRoot') : t('ai.launch.dangerousWarning')}
           </p>
@@ -194,9 +194,9 @@ export function LaunchOptions({
           />
           {/* The rule, then the refusal that names which part of it was
               broken — before anything is posted. */}
-          <p id="ai-launch-extra-hint" className="text-[11px] text-muted-foreground">{t('ai.launch.extraHint')}</p>
+          <p id="ai-launch-extra-hint" className="text-[12px] text-muted-foreground">{t('ai.launch.extraHint')}</p>
           {extraError && (
-            <p role="alert" className="text-[11px] text-destructive">{t(`ai.launch.extraErrors.${extraError}`)}</p>
+            <p role="alert" className="text-[12px] text-destructive">{t(`ai.launch.extraErrors.${extraError}`)}</p>
           )}
         </div>
       </div>

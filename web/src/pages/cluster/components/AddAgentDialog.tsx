@@ -229,7 +229,7 @@ function AddAgentBody({ localId, onJoined, onClose }: { localId: string; onJoine
     main = (
       <div className="space-y-4">
         <div className="space-y-1.5">
-          <label htmlFor={nameId} className="text-[11px] text-muted-foreground uppercase tracking-wider">
+          <label htmlFor={nameId} className="text-[12px] text-muted-foreground uppercase tracking-wider">
             {t('cluster.addAgent.name')}
           </label>
           <Input
@@ -241,7 +241,7 @@ function AddAgentBody({ localId, onJoined, onClose }: { localId: string; onJoine
             className="h-9 rounded-xl bg-secondary/50 border-0 text-[13px]"
             placeholder="agent-01"
           />
-          <p id={`${nameId}-hint`} className={nameOk ? 'text-[11px] text-muted-foreground' : 'text-[11px] text-destructive'}>
+          <p id={`${nameId}-hint`} className={nameOk ? 'text-[12px] text-muted-foreground' : 'text-[12px] text-destructive'}>
             {nameOk ? t('cluster.addAgent.nameHint') : t('cluster.addAgent.nameInvalid')}
           </p>
         </div>
@@ -256,11 +256,11 @@ function AddAgentBody({ localId, onJoined, onClose }: { localId: string; onJoine
         {commands && nameOk && (
           <>
             <div>
-              <span className="text-[11px] text-muted-foreground uppercase tracking-wider block mb-2">{t('cluster.addAgent.installAndJoin')}</span>
+              <span className="text-[12px] text-muted-foreground uppercase tracking-wider block mb-2">{t('cluster.addAgent.installAndJoin')}</span>
               <CopyBlock text={commands.installAndJoin} />
             </div>
             <div>
-              <span className="text-[11px] text-muted-foreground uppercase tracking-wider block mb-2">{t('cluster.addAgent.join')}</span>
+              <span className="text-[12px] text-muted-foreground uppercase tracking-wider block mb-2">{t('cluster.addAgent.join')}</span>
               <CopyBlock text={commands.join} />
             </div>
           </>

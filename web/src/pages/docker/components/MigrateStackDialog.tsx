@@ -223,7 +223,7 @@ export function MigrateStackDialog({
                     aria-pressed={disposition === d}
                     onClick={() => setDisposition(d)}
                     className={cn(
-                      'rounded-lg border p-2 text-xs font-medium transition outline-none focus-visible:ring-2 focus-visible:ring-ring/40 focus-visible:ring-offset-0',
+                      'rounded-lg border p-2 text-xs font-medium transition outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-0',
                       disposition === d ? 'border-primary bg-primary/10' : 'border-border hover:bg-accent',
                     )}
                   >

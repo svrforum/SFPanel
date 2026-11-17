@@ -108,7 +108,7 @@ export function FolderPickerDialog({ open, title, description, initialPath, conf
             <button
               type="button"
               onClick={() => goTo('/')}
-              className="rounded-sm p-0.5 outline-none hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring/40"
+              className="rounded-sm p-0.5 outline-none hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring"
               aria-label={t('files.root', { defaultValue: 'Root' })}
             >
               <Home className="h-3.5 w-3.5" />

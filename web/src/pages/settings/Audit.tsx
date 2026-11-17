@@ -13,7 +13,7 @@ import { Trash2 } from 'lucide-react'
 const AUDIT_LIMIT = 20
 // Deliberately a native <select>, not ui/select (Radix): the compact h-8
 // filter bar wants plain inline dropdowns without popover chrome.
-const selectCls = 'h-8 rounded-lg border border-border bg-card px-2 text-[12px] outline-none focus-visible:ring-2 focus-visible:ring-ring/40 focus-visible:ring-offset-0'
+const selectCls = 'h-8 rounded-lg border border-border bg-card px-2 text-[12px] outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-0'
 
 export default function Audit() {
   const { t } = useTranslation()
@@ -118,13 +118,13 @@ export default function Audit() {
               <Table>
                 <TableHeader>
                   <TableRow>
-                    <TableHead className="text-[11px]">{t('settings.auditTime')}</TableHead>
-                    <TableHead className="text-[11px]">{t('settings.auditUser')}</TableHead>
-                    <TableHead className="text-[11px]">{t('settings.auditMethod')}</TableHead>
-                    <TableHead className="text-[11px]">{t('settings.auditPath')}</TableHead>
-                    <TableHead className="text-[11px]">{t('settings.auditStatus')}</TableHead>
-                    <TableHead className="text-[11px]">{t('settings.auditIP')}</TableHead>
-                    <TableHead className="text-[11px]">{t('settings.alerts.history.colNode')}</TableHead>
+                    <TableHead className="text-[12px]">{t('settings.auditTime')}</TableHead>
+                    <TableHead className="text-[12px]">{t('settings.auditUser')}</TableHead>
+                    <TableHead className="text-[12px]">{t('settings.auditMethod')}</TableHead>
+                    <TableHead className="text-[12px]">{t('settings.auditPath')}</TableHead>
+                    <TableHead className="text-[12px]">{t('settings.auditStatus')}</TableHead>
+                    <TableHead className="text-[12px]">{t('settings.auditIP')}</TableHead>
+                    <TableHead className="text-[12px]">{t('settings.alerts.history.colNode')}</TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
@@ -135,7 +135,7 @@ export default function Audit() {
                       </TableCell>
                       <TableCell className="text-[12px]">{log.username || '-'}</TableCell>
                       <TableCell>
-                        <span className={`inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-medium ${
+                        <span className={`inline-flex items-center px-1.5 py-0.5 rounded text-[12px] font-medium ${
                           log.method === 'DELETE' ? 'bg-destructive/10 text-destructive' :
                           log.method === 'POST' ? 'bg-primary/10 text-primary' :
                           'bg-warning/10 text-warning'
@@ -170,7 +170,7 @@ export default function Audit() {
                   </div>
                   <div className="flex justify-between text-[12px]">
                     <span className="text-muted-foreground">{t('settings.auditMethod')}</span>
-                    <span className={`inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-medium ${
+                    <span className={`inline-flex items-center px-1.5 py-0.5 rounded text-[12px] font-medium ${
                       log.method === 'DELETE' ? 'bg-destructive/10 text-destructive' :
                       log.method === 'POST' ? 'bg-primary/10 text-primary' :
                       'bg-warning/10 text-warning'

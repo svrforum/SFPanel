@@ -352,7 +352,7 @@ export default function Services() {
               <div className="min-w-0 flex-1">
                 <p className="text-[13px] font-medium truncate" title={svc.name}>{svc.name}</p>
                 {svc.description && (
-                  <p className="text-[11px] text-muted-foreground truncate mt-0.5" title={svc.description}>
+                  <p className="text-[12px] text-muted-foreground truncate mt-0.5" title={svc.description}>
                     {svc.description}
                   </p>
                 )}

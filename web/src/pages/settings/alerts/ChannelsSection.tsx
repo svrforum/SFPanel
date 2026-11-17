@@ -156,7 +156,7 @@ export function ChannelsSection({ channels, onChanged }: { channels: AlertChanne
                 className="rounded-xl"
               />
               {channelForm.type === 'webhook' && (
-                <p className="text-[11px] text-muted-foreground">{t('settings.alerts.channels.formWebhookHint')}</p>
+                <p className="text-[12px] text-muted-foreground">{t('settings.alerts.channels.formWebhookHint')}</p>
               )}
             </div>
           ) : (
@@ -195,7 +195,7 @@ export function ChannelsSection({ channels, onChanged }: { channels: AlertChanne
           {channels.map(ch => (
             <div key={ch.id} className="flex items-center justify-between bg-secondary/30 rounded-xl px-4 py-3">
               <div className="flex items-center gap-3">
-                <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-medium ${
+                <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-[12px] font-medium ${
                   ch.type === 'discord' ? 'bg-[#5865F2]/10 text-[#5865F2]'
                     : ch.type === 'telegram' ? 'bg-[#0088cc]/10 text-[#0088cc]'
                     : 'bg-success/10 text-success'
@@ -203,7 +203,7 @@ export function ChannelsSection({ channels, onChanged }: { channels: AlertChanne
                   {ch.type === 'discord' ? 'Discord' : ch.type === 'telegram' ? 'Telegram' : 'Webhook'}
                 </span>
                 <span className="text-[13px] font-medium">{ch.name}</span>
-                <span className={`inline-flex items-center px-1.5 py-0.5 rounded-full text-[10px] font-medium ${
+                <span className={`inline-flex items-center px-1.5 py-0.5 rounded-full text-[12px] font-medium ${
                   ch.enabled ? 'bg-success/10 text-success' : 'bg-secondary text-muted-foreground'
                 }`}>
                   {ch.enabled ? t('common.active') : t('common.disabled')}
@@ -213,7 +213,7 @@ export function ChannelsSection({ channels, onChanged }: { channels: AlertChanne
                 <Button
                   variant="outline"
                   size="sm"
-                  className="rounded-xl h-7 px-2 text-[11px]"
+                  className="rounded-xl h-7 px-2 text-[12px]"
                   onClick={() => handleToggleChannel(ch)}
                 >
                   {ch.enabled ? t('settings.alerts.channels.actionDisable') : t('settings.alerts.channels.actionEnable')}
@@ -221,7 +221,7 @@ export function ChannelsSection({ channels, onChanged }: { channels: AlertChanne
                 <Button
                   variant="outline"
                   size="sm"
-                  className="rounded-xl h-7 px-2 text-[11px]"
+                  className="rounded-xl h-7 px-2 text-[12px]"
                   onClick={() => handleTestChannel(ch.id)}
                   disabled={testingId === ch.id}
                 >
