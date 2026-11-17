@@ -70,7 +70,12 @@ export function HistorySection() {
   )
 
   async function handleClearHistory() {
-    if (!(await confirm({ title: t('settings.alerts.history.confirmClear'), danger: true }))) return
+    if (!(await confirm({
+      title: t('settings.alerts.history.confirmClear'),
+      description: t('settings.alerts.history.confirmClearDesc'),
+      confirmLabel: t('settings.alerts.history.clearButton'),
+      danger: true,
+    }))) return
     await runClearHistory()
   }
 

@@ -80,7 +80,12 @@ export default function Audit() {
               size="sm"
               className="rounded-xl text-destructive hover:text-destructive"
               onClick={async () => {
-                if (!(await confirm({ title: t('settings.auditClearConfirm'), danger: true }))) return
+                if (!(await confirm({
+                  title: t('settings.auditClearConfirm'),
+                  description: t('settings.auditClearConfirmDesc'),
+                  confirmLabel: t('settings.auditClear'),
+                  danger: true,
+                }))) return
                 try {
                   await api.clearAuditLogs()
                   setAuditLogs([])

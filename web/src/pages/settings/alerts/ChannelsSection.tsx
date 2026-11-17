@@ -3,6 +3,7 @@ import { useTranslation } from 'react-i18next'
 import { api } from '@/lib/api'
 import { useConfirm } from '@/components/ConfirmDialog'
 import { ListLoadState } from '@/components/ListLoadState'
+import { StatusPill } from '@/components/StatusPill'
 import { useApiAction } from '@/hooks/useApiAction'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -111,9 +112,14 @@ export function ChannelsSection({ channels, loaded, loadError, onRetry, onChange
     await runToggleChannel(ch.id, { enabled: !ch.enabled })
   }
 
-  async function handleDeleteChannel(id: number) {
-    if (!(await confirm({ title: t('settings.alerts.channels.confirmDelete'), danger: true }))) return
-    await runDeleteChannel(id)
+  async function handleDeleteChannel(ch: AlertChannel) {
+    if (!(await confirm({
+      title: t('settings.alerts.channels.confirmDelete', { name: ch.name }),
+      description: t('settings.alerts.channels.confirmDeleteDesc'),
+      confirmLabel: t('settings.alerts.channels.deleteAction'),
+      danger: true,
+    }))) return
+    await runDeleteChannel(ch.id)
   }
 
   async function handleTestChannel(id: number) {
@@ -238,23 +244,23 @@ export function ChannelsSection({ channels, loaded, loadError, onRetry, onChange
       ) : (
         <div className="space-y-2">
           {channels.map(ch => (
-            <div key={ch.id} className="flex items-center justify-between bg-secondary/30 rounded-xl px-4 py-3">
-              <div className="flex items-center gap-3">
-                <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-[12px] font-medium ${
-                  ch.type === 'discord' ? 'bg-[#5865F2]/10 text-[#5865F2]'
-                    : ch.type === 'telegram' ? 'bg-[#0088cc]/10 text-[#0088cc]'
-                    : 'bg-success/10 text-success'
-                }`}>
+            // Wraps on a phone: with no wrap the buttons ran past the clipped
+            // edge of the page, the delete button out of reach.
+            <div key={ch.id} className="flex flex-wrap items-center justify-between gap-x-3 gap-y-2 bg-secondary/30 rounded-xl px-4 py-3">
+              <div className="flex min-w-0 flex-wrap items-center gap-x-3 gap-y-1">
+                {/* A neutral pill: brand colours on their own 10% tint were
+                    3.3–4.0:1. The type is in the word. */}
+                <StatusPill tone="secondary">
                   {ch.type === 'discord' ? 'Discord' : ch.type === 'telegram' ? 'Telegram' : 'Webhook'}
-                </span>
-                <span className="text-[13px] font-medium">{ch.name}</span>
+                </StatusPill>
+                <span className="text-[13px] font-medium break-all">{ch.name}</span>
                 <span className={`inline-flex items-center px-1.5 py-0.5 rounded-full text-[12px] font-medium ${
                   ch.enabled ? 'bg-success/10 text-success' : 'bg-secondary text-muted-foreground'
                 }`}>
                   {ch.enabled ? t('common.active') : t('common.disabled')}
                 </span>
               </div>
-              <div className="flex items-center gap-1.5">
+              <div className="flex items-center gap-1.5 ms-auto">
                 <Button
                   variant="outline"
                   size="sm"
@@ -277,7 +283,7 @@ export function ChannelsSection({ channels, loaded, loadError, onRetry, onChange
                   variant="outline"
                   size="sm"
                   className="rounded-xl h-7 px-2 text-destructive hover:text-destructive"
-                  onClick={() => handleDeleteChannel(ch.id)}
+                  onClick={() => handleDeleteChannel(ch)}
                   aria-label={t('common.delete')}
                 >
                   <Trash2 className="h-3 w-3" />

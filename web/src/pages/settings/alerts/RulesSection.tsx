@@ -197,9 +197,13 @@ export function RulesSection({ channels, channelsFailed }: { channels: AlertChan
     await runToggleRule(rule.id, { enabled: !rule.enabled })
   }
 
-  async function handleDeleteRule(id: number) {
-    if (!(await confirm({ title: t('settings.alerts.rules.confirmDelete'), danger: true }))) return
-    await runDeleteRule(id)
+  async function handleDeleteRule(rule: AlertRule) {
+    if (!(await confirm({
+      title: t('settings.alerts.rules.confirmDelete', { name: rule.name }),
+      confirmLabel: t('settings.alerts.rules.deleteAction'),
+      danger: true,
+    }))) return
+    await runDeleteRule(rule.id)
   }
 
   function toggleRuleChannel(channelId: number) {
@@ -455,9 +459,9 @@ export function RulesSection({ channels, channelsFailed }: { channels: AlertChan
             const notEvaluated = rule.evaluated === false
             const threshold = CONTAINER_RULE_TYPES.has(rule.type) ? undefined : conditionThreshold(rule.condition)
             return (
-            <li key={rule.id} className="flex items-center justify-between bg-secondary/30 rounded-xl px-4 py-3">
-              <div className="flex items-center gap-3 flex-wrap">
-                <span className="text-[13px] font-medium">{rule.name}</span>
+            <li key={rule.id} className="flex flex-wrap items-center justify-between gap-x-3 gap-y-2 bg-secondary/30 rounded-xl px-4 py-3">
+              <div className="flex min-w-0 items-center gap-3 flex-wrap">
+                <span className="text-[13px] font-medium break-all">{rule.name}</span>
                 <span className="inline-flex items-center px-1.5 py-0.5 rounded text-[12px] font-medium bg-secondary text-muted-foreground">
                   {ruleTypeEntry ? t(ruleTypeEntry.i18nKey) : rule.type}
                 </span>
@@ -488,7 +492,7 @@ export function RulesSection({ channels, channelsFailed }: { channels: AlertChan
                   </>
                 )}
               </div>
-              <div className="flex items-center gap-1.5 shrink-0">
+              <div className="flex items-center gap-1.5 shrink-0 ms-auto">
                 {!notEvaluated && (
                   <Button
                     variant="outline"
@@ -503,7 +507,7 @@ export function RulesSection({ channels, channelsFailed }: { channels: AlertChan
                   variant="outline"
                   size="sm"
                   className="rounded-xl h-7 px-2 text-destructive hover:text-destructive"
-                  onClick={() => handleDeleteRule(rule.id)}
+                  onClick={() => handleDeleteRule(rule)}
                   aria-label={t('common.delete')}
                 >
                   <Trash2 className="h-3 w-3" />

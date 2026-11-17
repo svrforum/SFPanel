@@ -133,7 +133,9 @@ test('a rule of a type nothing evaluates is listed as not alerting, and can only
   await expect(other.getByText('Not alerting', { exact: true })).toHaveCount(0)
 
   await row.getByRole('button', { name: 'Delete', exact: true }).click()
-  await page.getByRole('dialog').getByRole('button', { name: 'Confirm', exact: true }).click()
+  // The question names the rule, and the button says what it does.
+  const dialog = page.getByRole('dialog', { name: `Delete rule "${dead.name}"?` })
+  await dialog.getByRole('button', { name: 'Delete rule', exact: true }).click()
   await expect.poll(() => sent.deleted).toEqual([`/api/v1/alerts/rules/${dead.id}`])
 })
 
@@ -305,4 +307,21 @@ test('every field of the forms has a name, and a refusal is marked on its field'
   await expect(url).toHaveAttribute('aria-invalid', 'true')
   await expect(url).toBeFocused()
   await expect(url).toHaveAccessibleDescription('Webhook URL is required')
+})
+
+// A channel row did not wrap: on a phone its buttons ran past the page's
+// clipped edge, and Delete could not be reached.
+test.describe('a phone', () => {
+  test.use({ viewport: { width: 320, height: 640 }, hasTouch: true })
+  test('a channel row keeps every button on screen', async ({ page }) => {
+    await mock(page, { channels: [{ ...channel, name: 'operations-team-discord' }] })
+    await page.goto('/settings?tab=alerts')
+    const row = page.getByText('operations-team-discord', { exact: true })
+    await expect(row).toBeVisible()
+    for (const name of ['Disable', 'Test', 'Delete']) {
+      const box = (await page.getByRole('button', { name, exact: true }).first().boundingBox())!
+      expect(box.x).toBeGreaterThanOrEqual(0)
+      expect(box.x + box.width).toBeLessThanOrEqual(320)
+    }
+  })
 })
