@@ -47,7 +47,7 @@ export function InterfaceCard({
     <div
       className={`bg-card rounded-2xl p-5 card-shadow transition ${
         iface.is_default ? 'ring-1 ring-primary/30' : ''
-      } ${isLoopback ? 'opacity-60' : ''}`}
+      }`}
     >
       {/* Header: name + state */}
       <div className="flex items-center justify-between gap-2 mb-3">
