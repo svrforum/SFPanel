@@ -41,7 +41,7 @@ for (const path of ['/terminal']) {
     // The input area: the session runs Codex, so the keys are an AI CLI's.
     const bar = page.locator('[data-mobile-terminal-bar]')
     const keys = bar.locator('[data-terminal-keys]')
-    const nextKeys = bar.getByRole('button', { name: /^Next keys/ })
+    const nextKeys = bar.getByRole('button', { name: /next keys$/ })
     await keys.getByRole('button', { name: 'Shift+Tab', exact: true }).tap()
     await expect.poll(() => input.at(-1)).toBe('\x1b[Z')
     // Shift is on the third page and Enter on the first: an armed modifier

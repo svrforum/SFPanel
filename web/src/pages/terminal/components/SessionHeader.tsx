@@ -102,9 +102,10 @@ export function SessionHeader({ item, hostInfo, fontSize, cols, onFontSize, sear
       <div className="flex items-center gap-2 h-11 px-2 md:px-3">
         {drawer && (
           // The count is in the name: an aria-label on the badge inside a
-          // labelled button was dropped from it.
+          // labelled button was dropped from it. It stands there as a word of
+          // its own, so the number the badge shows is found in the name.
           <button type="button" onClick={drawer.onOpen}
-            aria-label={drawer.waiting > 0 ? `${t('terminal.rail.sessions')}, ${t('terminal.rail.waitingCount', { n: drawer.waiting })}` : t('terminal.rail.sessions')}
+            aria-label={drawer.waiting > 0 ? t('terminal.rail.sessionsWaiting', { n: drawer.waiting }) : t('terminal.rail.sessions')}
             className="relative flex items-center justify-center h-8 w-8 rounded-lg text-console-muted hover:text-console-foreground hover:bg-console-foreground/10 outline-none focus-visible:ring-2 focus-visible:ring-ring">
             <PanelLeft className="h-4 w-4" aria-hidden="true" />
             {drawer.waiting > 0 && (

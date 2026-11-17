@@ -102,7 +102,7 @@ async function openTerminal(page: Page, active = AGENT.id, { uploads = true, upl
   }
   const area = page.locator('[data-terminal-input]')
   const key = (name: string) => area.locator('[data-terminal-keys]').getByRole('button', { name, exact: true })
-  const nextKeys = area.getByRole('button', { name: /^Next keys/ })
+  const nextKeys = area.getByRole('button', { name: /next keys$/ })
   const composer = area.getByRole('textbox', { name: 'Composer' })
   const send = area.getByRole('button', { name: 'Send', exact: true })
   const focused = () => page.evaluate(() => {

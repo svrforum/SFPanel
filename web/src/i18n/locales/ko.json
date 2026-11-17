@@ -2598,7 +2598,8 @@
       "waiting": "입력 대기",
       "toolExited": "도구 종료됨",
       "closeTab": "닫기",
-      "waitingCount": "입력을 기다리는 세션 {{n}}개"
+      "waitingCount": "입력을 기다리는 세션 {{n}}개",
+      "sessionsWaiting": "세션, {{n}} 개가 입력을 기다림"
     },
     "header": {
       "menu": "세션 메뉴",
@@ -2654,7 +2655,7 @@
       "recentRemoved": "최근 보낸 것에서 지웠습니다",
       "compose": "작성",
       "showKeys": "키 보기",
-      "nextKeys": "다음 키 묶음 ({{page}})",
+      "nextKeys": "{{page}}, 다음 키 묶음",
       "attach": "사진·파일 첨부",
       "attachHint": "이 세션의 서버에 올리고, 그 경로를 쓰던 글에 넣습니다",
       "attaching": "올리는 중… ({{n}})",

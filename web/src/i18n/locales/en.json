@@ -2610,7 +2610,8 @@
       "waiting": "Waiting for input",
       "toolExited": "Tool exited",
       "closeTab": "Close",
-      "waitingCount": "{{n}} session(s) waiting for input"
+      "waitingCount": "{{n}} session(s) waiting for input",
+      "sessionsWaiting": "Sessions, {{n}} waiting for input"
     },
     "header": {
       "menu": "Session menu",
@@ -2666,7 +2667,7 @@
       "recentRemoved": "Removed from recently sent",
       "compose": "Write",
       "showKeys": "Show the keys",
-      "nextKeys": "Next keys ({{page}})",
+      "nextKeys": "{{page}}, next keys",
       "attach": "Attach a photo or a file",
       "attachHint": "Uploaded to this session's server; its path goes into what you write",
       "attaching": "Uploading… ({{n}})",
