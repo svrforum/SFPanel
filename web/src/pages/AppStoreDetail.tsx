@@ -15,6 +15,8 @@ import {
   ChevronDown,
   ChevronUp,
   Trash2,
+  AlertCircle,
+  RotateCcw,
 } from 'lucide-react'
 import { toast } from 'sonner'
 import { copyText } from '@/lib/utils'
@@ -65,6 +67,7 @@ export default function AppStoreDetailModal({ appId, open, onClose, onInstalled 
 
   const [detail, setDetail] = useState<AppStoreAppDetail | null>(null)
   const [loading, setLoading] = useState(false)
+  const [loadError, setLoadError] = useState<string | null>(null)
   const [envValues, setEnvValues] = useState<Record<string, string>>({})
   const [installing, setInstalling] = useState(false)
   const [showPasswords, setShowPasswords] = useState<Record<string, boolean>>({})
@@ -92,7 +95,7 @@ export default function AppStoreDetailModal({ appId, open, onClose, onInstalled 
 
   const copyToClipboard = async (text: string, key: string) => {
     if (!(await copyText(text))) {
-      toast.error('Failed to copy to clipboard')
+      toast.error(t('appStore.copyFailed'))
       return
     }
     setCopiedKey(key)
@@ -136,8 +139,9 @@ export default function AppStoreDetailModal({ appId, open, onClose, onInstalled 
       setKeepData(false)
       onInstalled()
       loadDetail()
-    } catch {
-      toast.error(t('appStore.uninstallFailed'))
+    } catch (err) {
+      // The server's reason is the part that says what to do next.
+      toast.error(err instanceof Error && err.message ? err.message : t('appStore.uninstallFailed'))
     } finally {
       setUninstalling(false)
     }
@@ -147,6 +151,7 @@ export default function AppStoreDetailModal({ appId, open, onClose, onInstalled 
     if (!appId) return
     setLoading(true)
     setDetail(null)
+    setLoadError(null)
     setShowInstallForm(false)
     setShowCompose(false)
     setShowProgress(false)
@@ -189,12 +194,13 @@ export default function AppStoreDetailModal({ appId, open, onClose, onInstalled 
       }
       setEnvValues(defaults)
       setShowPasswords({})
-    } catch {
-      toast.error(t('appStore.loadFailed'))
+    } catch (err) {
+      // Shown in the dialog with a retry: a failed load used to read "no apps".
+      setLoadError(err instanceof Error ? err.message : String(err))
     } finally {
       setLoading(false)
     }
-  }, [appId, t])
+  }, [appId])
 
   useEffect(() => {
     if (open && appId) {
@@ -361,9 +367,9 @@ export default function AppStoreDetailModal({ appId, open, onClose, onInstalled 
         const e = err as Error & { code?: string }
         const msg = e.message || t('appStore.installFailed')
         if (e.code === 'PORT_CONFLICT') {
-          toast.error(t('appStore.portConflict') + ': ' + msg.replace('Port conflict: ', ''))
+          toast.error(t('appStore.portConflict', { detail: msg.replace('Port conflict: ', '') }))
         } else if (e.code === 'CONTAINER_CONFLICT') {
-          toast.error(t('appStore.containerConflict') + ': ' + msg.replace('Container name conflict: ', ''))
+          toast.error(t('appStore.containerConflict', { detail: msg.replace('Container name conflict: ', '') }))
         } else if (e.code === 'ALREADY_EXISTS') {
           toast.error(t('appStore.alreadyInstalled'))
         } else {
@@ -390,6 +396,16 @@ export default function AppStoreDetailModal({ appId, open, onClose, onInstalled 
         {loading ? (
           <div className="flex items-center justify-center h-64">
             <div className="h-5 w-5 border-2 border-primary border-t-transparent rounded-full animate-spin" />
+          </div>
+        ) : loadError ? (
+          <div className="flex flex-col items-center justify-center px-6 py-16 text-center text-muted-foreground">
+            <AlertCircle className="h-10 w-10 mb-3 text-destructive opacity-70" />
+            <p className="text-[13px] font-medium text-foreground">{t('appStore.detailLoadFailed')}</p>
+            <p className="text-[12px] mt-1 mb-4 break-words">{loadError}</p>
+            <Button variant="outline" size="sm" className="rounded-xl" onClick={() => void loadDetail()}>
+              <RotateCcw className="h-4 w-4 mr-2" />
+              {t('appStore.retry')}
+            </Button>
           </div>
         ) : !detail ? (
           <div className="flex flex-col items-center justify-center py-16 text-muted-foreground">
@@ -564,6 +580,7 @@ export default function AppStoreDetailModal({ appId, open, onClose, onInstalled 
                         ? 'bg-background text-foreground shadow-sm'
                         : 'text-muted-foreground hover:text-foreground'
                     }`}
+                    aria-pressed={installMode === 'simple'}
                     onClick={() => setInstallMode('simple')}
                   >
                     {t('appStore.simpleMode')}
@@ -574,6 +591,7 @@ export default function AppStoreDetailModal({ appId, open, onClose, onInstalled 
                         ? 'bg-background text-foreground shadow-sm'
                         : 'text-muted-foreground hover:text-foreground'
                     }`}
+                    aria-pressed={installMode === 'advanced'}
                     onClick={() => setInstallMode('advanced')}
                   >
                     {t('appStore.advancedMode')}
@@ -585,13 +603,14 @@ export default function AppStoreDetailModal({ appId, open, onClose, onInstalled 
                   <div className="space-y-3 mb-5">
                     {detail.app.env.map((envDef) => (
                       <div key={envDef.key} className="space-y-1.5">
-                        <label className="text-[12px] font-medium text-foreground">
+                        <label htmlFor={`app-env-${envDef.key}`} className="text-[12px] font-medium text-foreground">
                           {envDef.label[lang] || envDef.label['en'] || envDef.key}
                           {envDef.required && <span className="text-destructive ml-0.5">*</span>}
                         </label>
                         {envDef.type === 'select' && envDef.options ? (
                           <select
-                            className="w-full h-9 rounded-xl bg-background border border-border text-[13px] px-3"
+                            id={`app-env-${envDef.key}`}
+                            className="w-full h-9 rounded-xl bg-background border border-border text-base md:text-[13px] px-3"
                             value={envValues[envDef.key] || ''}
                             onChange={(e) =>
                               setEnvValues((prev) => ({ ...prev, [envDef.key]: e.target.value }))
@@ -606,8 +625,12 @@ export default function AppStoreDetailModal({ appId, open, onClose, onInstalled 
                           <div className="flex flex-wrap gap-2">
                             <div className="relative flex-1 min-w-[180px]">
                               <Input
+                                id={`app-env-${envDef.key}`}
                                 type={showPasswords[envDef.key] ? 'text' : 'password'}
-                                className="h-9 rounded-xl bg-background border-border text-[13px] pr-9"
+                                // A secret for the app being installed, never the
+                                // panel's own login: keep the browser from filling it.
+                                autoComplete="new-password"
+                                className="h-9 rounded-xl bg-background border-border text-base md:text-[13px] pr-9"
                                 value={envValues[envDef.key] || ''}
                                 onChange={(e) =>
                                   setEnvValues((prev) => ({ ...prev, [envDef.key]: e.target.value }))
@@ -615,7 +638,9 @@ export default function AppStoreDetailModal({ appId, open, onClose, onInstalled 
                               />
                               <button
                                 type="button"
-                                className="absolute right-2.5 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground rounded-sm outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-0"
+                                aria-label={showPasswords[envDef.key] ? t('appStore.hidePassword') : t('appStore.showPassword')}
+                                aria-pressed={!!showPasswords[envDef.key]}
+                                className="absolute right-1 top-1/2 -translate-y-1/2 inline-flex h-7 w-7 items-center justify-center text-muted-foreground hover:text-foreground rounded-md outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-0"
                                 onClick={() =>
                                   setShowPasswords((prev) => ({
                                     ...prev,
@@ -673,8 +698,9 @@ export default function AppStoreDetailModal({ appId, open, onClose, onInstalled 
                         ) : (
                           <div>
                             <Input
+                              id={`app-env-${envDef.key}`}
                               type={envDef.type === 'port' ? 'number' : 'text'}
-                              className="h-9 rounded-xl bg-background border-border text-[13px]"
+                              className="h-9 rounded-xl bg-background border-border text-base md:text-[13px]"
                               value={envValues[envDef.key] || ''}
                               onChange={(e) =>
                                 setEnvValues((prev) => ({ ...prev, [envDef.key]: e.target.value }))
@@ -721,6 +747,7 @@ export default function AppStoreDetailModal({ appId, open, onClose, onInstalled 
                             ? 'bg-primary/10 text-primary'
                             : 'text-muted-foreground hover:text-foreground hover:bg-secondary/50'
                         }`}
+                        aria-pressed={advancedTab === 'compose'}
                         onClick={() => setAdvancedTab('compose')}
                       >
                         docker-compose.yml
@@ -731,6 +758,7 @@ export default function AppStoreDetailModal({ appId, open, onClose, onInstalled 
                             ? 'bg-primary/10 text-primary'
                             : 'text-muted-foreground hover:text-foreground hover:bg-secondary/50'
                         }`}
+                        aria-pressed={advancedTab === 'env'}
                         onClick={() => setAdvancedTab('env')}
                       >
                         .env
@@ -798,6 +826,10 @@ export default function AppStoreDetailModal({ appId, open, onClose, onInstalled 
                   onClose()
                   navigate(`/docker/stacks/${detail.app.id}`)
                 }}
+                onBackToForm={() => {
+                  setShowProgress(false)
+                  setShowInstallForm(true)
+                }}
                 onClose={() => {
                   setShowProgress(false)
                   if (progressSuccess) {
@@ -834,6 +866,7 @@ export default function AppStoreDetailModal({ appId, open, onClose, onInstalled 
             {/* Docker Compose */}
             <div>
               <button
+                aria-expanded={showCompose}
                 onClick={() => setShowCompose(!showCompose)}
                 className="flex items-center gap-2 text-[14px] font-semibold hover:text-primary transition-colors rounded-sm outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-0"
               >

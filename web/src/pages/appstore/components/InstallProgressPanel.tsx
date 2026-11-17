@@ -1,6 +1,6 @@
 import { useEffect, useRef } from 'react'
 import { useTranslation } from 'react-i18next'
-import { Boxes, CheckCircle2, Circle, ExternalLink, Loader2, XCircle } from 'lucide-react'
+import { Boxes, CheckCircle2, Circle, ExternalLink, Loader2, RotateCcw, XCircle } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 
 export interface InstallLogLine {
@@ -24,6 +24,7 @@ export function InstallProgressPanel({
   currentStage,
   accessUrl,
   onManage,
+  onBackToForm,
   onClose,
 }: {
   logs: InstallLogLine[]
@@ -34,6 +35,8 @@ export function InstallProgressPanel({
   /** Where the installed app answers (appAccessUrl), '' when it has no web port. */
   accessUrl: string
   onManage: () => void
+  /** After a failure: back to the install settings, with what was entered. */
+  onBackToForm: () => void
   onClose: () => void
 }) {
   const { t } = useTranslation()
@@ -125,7 +128,7 @@ export function InstallProgressPanel({
         health === 'healthy' ? (
           <p className="text-[13px] text-success mt-4">{t('appStore.healthHealthy')}</p>
         ) : health === 'starting' ? (
-          <p className="text-[13px] text-amber-600 mt-4">{t('appStore.healthStarting')}</p>
+          <p className="text-[13px] text-warning mt-4">{t('appStore.healthStarting')}</p>
         ) : null
       )}
 
@@ -154,9 +157,15 @@ export function InstallProgressPanel({
               {t('appStore.manageInStacks')}
             </Button>
           )}
+          {!success && (
+            <Button size="sm" className="rounded-xl" onClick={onBackToForm}>
+              <RotateCcw className="h-4 w-4 mr-1.5" />
+              {t('appStore.backToForm')}
+            </Button>
+          )}
           <Button
             size="sm"
-            variant={success ? 'ghost' : 'default'}
+            variant={success ? 'ghost' : 'outline'}
             className="rounded-xl"
             onClick={onClose}
           >
