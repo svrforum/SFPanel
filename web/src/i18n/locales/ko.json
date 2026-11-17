@@ -2715,7 +2715,7 @@
       "dirSuggestions": "추천 디렉터리",
       "account": "실행 계정",
       "name": "이름 (선택)",
-      "create": "세션 열기",
+      "create": "세션 만들기",
       "creating": "만드는 중…"
     },
     "profiles": {
@@ -2730,6 +2730,7 @@
       "lastUsed": "마지막 사용 {{when}}",
       "manage": "프로파일",
       "delete": "프로파일 삭제",
+      "deleteNamed": "{{name}} 프로파일 삭제",
       "deleteConfirmTitle": "{{name}} 프로파일을 삭제할까요?",
       "deleteConfirmDesc": "{{account}} 계정의 {{tool}}을(를) 이 프로파일에서 로그아웃시키고, 이 프로파일에 저장된 로그인 정보와 설정을 모두 삭제합니다. 기본 프로파일과 다른 프로파일은 그대로입니다.",
       "deleted": "{{name}} 프로파일을 삭제했습니다",

@@ -2726,7 +2726,7 @@
       "dirSuggestions": "Suggested directories",
       "account": "Run as",
       "name": "Name (optional)",
-      "create": "Open session",
+      "create": "Create session",
       "creating": "Creating…"
     },
     "profiles": {
@@ -2741,6 +2741,7 @@
       "lastUsed": "Last used {{when}}",
       "manage": "Profiles",
       "delete": "Delete profile",
+      "deleteNamed": "Delete the {{name}} profile",
       "deleteConfirmTitle": "Delete the {{name}} profile?",
       "deleteConfirmDesc": "This signs {{account}} out of {{tool}} on this profile and deletes the login and settings stored in it. The default profile and the other profiles are untouched.",
       "deleted": "Profile {{name}} deleted",

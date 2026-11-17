@@ -132,7 +132,7 @@ export function ProfilePanel({ tool, account, onSessionsChanged }: ProfilePanelP
                       not the panel's to remove — the route refuses it too. */}
                   {!p.default && (
                     <Button variant="ghost" size="sm" className="h-6 w-6 p-0 text-muted-foreground hover:text-destructive"
-                      aria-label={t('ai.profiles.delete')} title={t('ai.profiles.delete')}
+                      aria-label={t('ai.profiles.deleteNamed', { name: p.name })} title={t('ai.profiles.deleteNamed', { name: p.name })}
                       disabled={busy} onClick={() => void remove(p)}>
                       {busy
                         ? <Loader2 className="h-3.5 w-3.5 animate-spin" aria-hidden="true" />
