@@ -185,3 +185,20 @@ test("a manager's backup download says it holds the cluster's JWT key", async ({
   await expect(confirmDialog(page).getByText("A manager's backup holds the cluster's JWT key (config.yaml) and the admin account. Keep it somewhere safe.")).toBeVisible()
 })
 
+// On a phone the three buttons of a backup row went past the clipped edge of
+// the page and squeezed the archive's name to nothing.
+test.describe('a phone', () => {
+  test.use({ viewport: { width: 320, height: 640 }, hasTouch: true })
+  test('a backup row keeps its name and every button on screen', async ({ page }) => {
+    await mock(page, 'm-2')
+    await openSystem(page)
+    const name = page.getByText(archive, { exact: true })
+    await expect(name).toBeVisible()
+    expect((await name.boundingBox())!.width).toBeGreaterThan(100)
+    for (const label of ['Download', 'Restore', 'Delete']) {
+      const box = (await page.getByRole('button', { name: label, exact: true }).boundingBox())!
+      expect(box.x).toBeGreaterThanOrEqual(0)
+      expect(box.x + box.width).toBeLessThanOrEqual(320)
+    }
+  })
+})

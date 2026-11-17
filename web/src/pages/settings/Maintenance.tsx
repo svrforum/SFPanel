@@ -1,4 +1,4 @@
-import { useState, useEffect, type ChangeEvent } from 'react'
+import { useState, useEffect, useId, type ChangeEvent } from 'react'
 import { useTranslation } from 'react-i18next'
 import { api, type ApiError } from '@/lib/api'
 import { useConfirm } from '@/components/ConfirmDialog'
@@ -51,6 +51,10 @@ export default function Maintenance({ clusterEnabled }: MaintenanceProps) {
   const [retention, setRetention] = useState('7')
   const [savingSchedule, setSavingSchedule] = useState(false)
   const [runningNow, setRunningNow] = useState(false)
+  // A schedule value out of range, shown under its field.
+  const [scheduleError, setScheduleError] = useState<{ field: 'interval' | 'retention'; message: string } | null>(null)
+  const intervalId = useId()
+  const retentionId = useId()
 
   async function loadBackupSchedule() {
     try {
@@ -260,12 +264,14 @@ export default function Maintenance({ clusterEnabled }: MaintenanceProps) {
   async function handleSaveSchedule() {
     const hours = Number(intervalHours)
     const keep = Number(retention)
-    if (!Number.isInteger(hours) || hours < 1 || hours > 168) {
-      toast.error(t('settings.backupSchedule.intervalInvalid'))
-      return
-    }
-    if (!Number.isInteger(keep) || keep < 1 || keep > 100) {
-      toast.error(t('settings.backupSchedule.retentionInvalid'))
+    const failure = !Number.isInteger(hours) || hours < 1 || hours > 168
+      ? { field: 'interval' as const, message: t('settings.backupSchedule.intervalInvalid') }
+      : !Number.isInteger(keep) || keep < 1 || keep > 100
+        ? { field: 'retention' as const, message: t('settings.backupSchedule.retentionInvalid') }
+        : null
+    setScheduleError(failure)
+    if (failure) {
+      document.getElementById(failure.field === 'interval' ? intervalId : retentionId)?.focus()
       return
     }
     setSavingSchedule(true)
@@ -490,28 +496,36 @@ export default function Maintenance({ clusterEnabled }: MaintenanceProps) {
 
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 mb-4">
           <div className="space-y-1">
-            <label className="text-[12px] text-muted-foreground uppercase tracking-wider">{t('settings.backupSchedule.intervalLabel')}</label>
+            <label htmlFor={intervalId} className="text-[12px] text-muted-foreground uppercase tracking-wider">{t('settings.backupSchedule.intervalLabel')}</label>
             <Input
+              id={intervalId}
               type="number"
               min={1}
               max={168}
               value={intervalHours}
               onChange={(e) => setIntervalHours(e.target.value)}
+              aria-invalid={scheduleError?.field === 'interval' || undefined}
+              aria-describedby={`${intervalId}-hint${scheduleError?.field === 'interval' ? ` ${intervalId}-error` : ''}`}
               className="rounded-xl"
             />
-            <p className="text-[12px] text-muted-foreground">{t('settings.backupSchedule.intervalHint')}</p>
+            <p id={`${intervalId}-hint`} className="text-[12px] text-muted-foreground">{t('settings.backupSchedule.intervalHint')}</p>
+            {scheduleError?.field === 'interval' && <p id={`${intervalId}-error`} className="text-[12px] text-destructive">{scheduleError.message}</p>}
           </div>
           <div className="space-y-1">
-            <label className="text-[12px] text-muted-foreground uppercase tracking-wider">{t('settings.backupSchedule.retentionLabel')}</label>
+            <label htmlFor={retentionId} className="text-[12px] text-muted-foreground uppercase tracking-wider">{t('settings.backupSchedule.retentionLabel')}</label>
             <Input
+              id={retentionId}
               type="number"
               min={1}
               max={100}
               value={retention}
               onChange={(e) => setRetention(e.target.value)}
+              aria-invalid={scheduleError?.field === 'retention' || undefined}
+              aria-describedby={`${retentionId}-hint${scheduleError?.field === 'retention' ? ` ${retentionId}-error` : ''}`}
               className="rounded-xl"
             />
-            <p className="text-[12px] text-muted-foreground">{t('settings.backupSchedule.retentionHint')}</p>
+            <p id={`${retentionId}-hint`} className="text-[12px] text-muted-foreground">{t('settings.backupSchedule.retentionHint')}</p>
+            {scheduleError?.field === 'retention' && <p id={`${retentionId}-error`} className="text-[12px] text-destructive">{scheduleError.message}</p>}
           </div>
         </div>
 
@@ -547,41 +561,46 @@ export default function Maintenance({ clusterEnabled }: MaintenanceProps) {
         ) : (
           <div className="flex flex-col gap-2">
             {backupFiles.map((file) => (
-              <div key={file.name} className="flex items-center gap-3 bg-secondary/40 rounded-xl px-3 py-2">
-                <div className="min-w-0 flex-1">
-                  <p className="text-[13px] font-medium truncate">{file.name}</p>
+              // Wraps on a phone: the name keeps room to be read and the three
+              // buttons go to the next line, instead of squeezing the name to
+              // nothing and pushing Delete out past the clipped edge.
+              <div key={file.name} className="flex flex-wrap items-center gap-x-3 gap-y-2 bg-secondary/40 rounded-xl px-3 py-2">
+                <div className="min-w-0 flex-1 basis-48">
+                  <p className="text-[13px] font-medium break-all">{file.name}</p>
                   <p className="text-[12px] text-muted-foreground">
                     {formatBytes(file.size)} · {new Date(file.mod_time).toLocaleString(i18n.language)}
                   </p>
                 </div>
-                <Button
-                  onClick={() => handleDownloadBackupFile(file.name)}
-                  variant="outline"
-                  size="sm"
-                  className="rounded-xl shrink-0"
-                >
-                  <Download className="h-4 w-4 mr-1" />
-                  {t('settings.backupSchedule.download')}
-                </Button>
-                <Button
-                  onClick={() => handleRestoreBackupFile(file.name)}
-                  disabled={restoreLoading}
-                  variant="outline"
-                  size="sm"
-                  className="rounded-xl shrink-0"
-                >
-                  <RotateCcw className="h-4 w-4 mr-1" />
-                  {t('settings.backupSchedule.restore')}
-                </Button>
-                <Button
-                  onClick={() => handleDeleteBackupFile(file.name)}
-                  variant="outline"
-                  size="sm"
-                  className="rounded-xl shrink-0 text-destructive hover:text-destructive"
-                >
-                  <Trash2 className="h-4 w-4 mr-1" />
-                  {t('settings.backupSchedule.delete')}
-                </Button>
+                <div className="flex flex-wrap gap-2 ms-auto">
+                  <Button
+                    onClick={() => handleDownloadBackupFile(file.name)}
+                    variant="outline"
+                    size="sm"
+                    className="rounded-xl shrink-0"
+                  >
+                    <Download className="h-4 w-4 mr-1" />
+                    {t('settings.backupSchedule.download')}
+                  </Button>
+                  <Button
+                    onClick={() => handleRestoreBackupFile(file.name)}
+                    disabled={restoreLoading}
+                    variant="outline"
+                    size="sm"
+                    className="rounded-xl shrink-0"
+                  >
+                    <RotateCcw className="h-4 w-4 mr-1" />
+                    {t('settings.backupSchedule.restore')}
+                  </Button>
+                  <Button
+                    onClick={() => handleDeleteBackupFile(file.name)}
+                    variant="outline"
+                    size="sm"
+                    className="rounded-xl shrink-0 text-destructive hover:text-destructive"
+                  >
+                    <Trash2 className="h-4 w-4 mr-1" />
+                    {t('settings.backupSchedule.delete')}
+                  </Button>
+                </div>
               </div>
             ))}
           </div>
@@ -601,14 +620,14 @@ export default function Maintenance({ clusterEnabled }: MaintenanceProps) {
             <>
               <div className="space-y-1">
                 <p className="text-[12px] text-muted-foreground uppercase tracking-wider">{t('dashboard.hostname')}</p>
-                <p className="text-[13px] font-medium">{systemInfo.host.hostname || 'N/A'}</p>
+                <p className="text-[13px] font-medium">{systemInfo.host.hostname || '—'}</p>
               </div>
               <div className="space-y-1">
                 <p className="text-[12px] text-muted-foreground uppercase tracking-wider">{t('settings.operatingSystem')}</p>
                 <p className="text-[13px] font-medium">
                   {systemInfo.host.platform_name || (
                     <>
-                      {systemInfo.host.platform || systemInfo.host.os || 'N/A'}
+                      {systemInfo.host.platform || systemInfo.host.os || '—'}
                       {systemInfo.host.platform_version ? ` ${systemInfo.host.platform_version}` : ''}
                     </>
                   )}
@@ -616,14 +635,14 @@ export default function Maintenance({ clusterEnabled }: MaintenanceProps) {
               </div>
               <div className="space-y-1">
                 <p className="text-[12px] text-muted-foreground uppercase tracking-wider">{t('dashboard.kernel')}</p>
-                <p className="text-[13px] font-medium">{systemInfo.host.kernel || 'N/A'}</p>
+                <p className="text-[13px] font-medium">{systemInfo.host.kernel || '—'}</p>
               </div>
               <div className="space-y-1">
                 <p className="text-[12px] text-muted-foreground uppercase tracking-wider">{t('dashboard.uptime')}</p>
                 <p className="text-[13px] font-medium">
                   {systemInfo.host.uptime
                     ? formatUptime(systemInfo.host.uptime)
-                    : 'N/A'}
+                    : '—'}
                 </p>
               </div>
             </>
