@@ -111,7 +111,7 @@ export function InstallProgressPanel({
       </div>
 
       {/* Log output */}
-      <div className="rounded-xl bg-[#1e1e2e] p-4 max-h-64 overflow-y-auto font-mono text-[12px] leading-relaxed">
+      <div className="dark rounded-xl bg-[#1e1e2e] p-4 max-h-64 overflow-y-auto font-mono text-[12px] leading-relaxed">
         {logs.map((log, idx) => (
           <div
             key={idx}

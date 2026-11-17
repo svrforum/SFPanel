@@ -178,7 +178,7 @@ export function OutputDialog({ state, onClose }: { state: SSEOutputState; onClos
                 : t('common.output.operationComplete')}
           </DialogDescription>
         </DialogHeader>
-        <div ref={outputRef} className="bg-zinc-950 text-zinc-100 rounded-xl p-4 max-h-96 overflow-y-auto">
+        <div ref={outputRef} className="dark bg-zinc-950 text-zinc-100 rounded-xl p-4 max-h-96 overflow-y-auto">
           <pre className="text-xs font-mono whitespace-pre-wrap break-words">
             {state.output || t('common.output.waitingForOutput')}
           </pre>

@@ -165,7 +165,7 @@ export default function ComposeLogs({ project, serviceNames }: ComposeLogsProps)
   }, [autoScroll])
 
   return (
-    <div className="bg-[#0a0a0a] rounded-2xl overflow-hidden card-shadow">
+    <div className="dark bg-[#0a0a0a] rounded-2xl overflow-hidden card-shadow">
       {!connected && <Button variant="outline" className="m-2" onClick={() => setAttempt(n => n + 1)}>{t('docker.improvements.reconnect')}</Button>}
       {/* Toolbar */}
       <div className="flex flex-wrap items-center justify-between gap-y-1 px-3 py-2 bg-[#111111] border-b border-white/[0.06]">

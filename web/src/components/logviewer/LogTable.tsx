@@ -66,7 +66,7 @@ export function LogTable({
       tabIndex={0}
       role="region"
       aria-label={label}
-      className={cn('min-h-[min(500px,60dvh)] overflow-auto rounded-b-xl border bg-terminal text-terminal-foreground font-mono text-sm outline-none focus-visible:ring-2 focus-visible:ring-ring', className)}
+      className={cn('dark min-h-[min(500px,60dvh)] overflow-auto rounded-b-xl border bg-terminal text-terminal-foreground font-mono text-sm outline-none focus-visible:ring-2 focus-visible:ring-ring', className)}
     >
       {placeholder ? (
         <div className="flex items-center justify-center h-full min-h-[min(500px,60dvh)] text-gray-400">

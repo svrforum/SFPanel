@@ -874,7 +874,7 @@ export default function AppStoreDetailModal({ appId, open, onClose, onInstalled 
                 {showCompose ? <ChevronUp className="h-4 w-4" /> : <ChevronDown className="h-4 w-4" />}
               </button>
               {showCompose && (
-                <div className="rounded-xl bg-[#1e1e2e] overflow-hidden mt-2">
+                <div className="dark rounded-xl bg-[#1e1e2e] overflow-hidden mt-2">
                   <pre className="p-4 text-[12px] leading-relaxed overflow-x-auto font-mono text-[#cdd6f4]">
                     {detail.compose}
                   </pre>

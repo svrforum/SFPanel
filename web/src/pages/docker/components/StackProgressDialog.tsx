@@ -101,7 +101,7 @@ export function StackProgressDialog({
             {progress.title}
           </DialogTitle>
         </DialogHeader>
-        <div className="bg-terminal rounded-xl p-4 max-h-[400px] overflow-y-auto font-mono text-[12px] text-terminal-foreground leading-5">
+        <div className="dark bg-terminal rounded-xl p-4 max-h-[400px] overflow-y-auto font-mono text-[12px] text-terminal-foreground leading-5">
           {progress.lines.map((line, i) => (
             <div key={i} className={`whitespace-pre-wrap break-all ${
               line.startsWith('✅') ? 'text-success' :

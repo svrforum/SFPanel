@@ -4,6 +4,10 @@
 @plugin "@tailwindcss/typography";
 
 @custom-variant dark (&:is(.dark *));
+/* A surface that is dark in both themes — a log box, a command's output, a
+   container shell — carries the class `dark` itself, so the colour tokens in
+   it resolve to the dark theme's. The light theme's text colours are darkened
+   to be read on white; on a near-black box they dropped under 3:1. */
 /* A phone held sideways: every row of chrome costs the terminal two of its
    twenty lines. */
 @custom-variant short (@media (max-height: 480px));

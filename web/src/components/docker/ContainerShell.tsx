@@ -154,7 +154,7 @@ export default function ContainerShell({ containerId }: ContainerShellProps) {
   }, [containerId, t, attempt])
 
   return (
-    <div data-shell-expanded={expanded} className={`bg-[#0a0a0a] rounded-2xl overflow-hidden card-shadow flex flex-col ${expanded ? 'fixed inset-2 z-[80]' : ''}`} style={expanded ? { height: 'calc(100dvh - 1rem)' } : undefined}>
+    <div data-shell-expanded={expanded} className={`dark bg-[#0a0a0a] rounded-2xl overflow-hidden card-shadow flex flex-col ${expanded ? 'fixed inset-2 z-[80]' : ''}`} style={expanded ? { height: 'calc(100dvh - 1rem)' } : undefined}>
       {/* Toolbar */}
       <div className="flex items-center justify-between px-3 py-2 bg-[#111111] border-b border-white/[0.06]">
         <div className="flex items-center gap-2">
