@@ -397,7 +397,7 @@ export default function FirewallPorts() {
                     <span className="font-mono text-[13px] font-medium">{port.port}</span>
                     <span className={getProtocolStyle(port.protocol)}>{port.protocol.toUpperCase()}</span>
                   </div>
-                  <p className="text-[12px] text-muted-foreground break-all">
+                  <p className="text-[12px] text-muted-foreground break-words">
                     <span className="font-mono">{port.address}</span>
                     {' · '}
                     {port.process || '—'}

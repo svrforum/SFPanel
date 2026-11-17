@@ -347,7 +347,7 @@ export default function FirewallDocker() {
                       <span className="text-[12px] uppercase text-muted-foreground">{port.protocol}</span>
                       {portState(blocked)}
                     </div>
-                    <p className="text-[12px] text-muted-foreground break-all">
+                    <p className="text-[12px] text-muted-foreground break-words">
                       <span className="font-medium text-foreground">{port.container_name}</span>:{port.container_port}
                       {' · '}
                       <span className="font-mono">{port.host_ip}</span>
@@ -426,7 +426,7 @@ export default function FirewallDocker() {
                       <span className="text-[12px] uppercase text-muted-foreground">{rule.protocol}</span>
                       {ruleAction(rule)}
                     </div>
-                    <p className="text-[12px] text-muted-foreground break-all">
+                    <p className="text-[12px] text-muted-foreground break-words">
                       #{rule.number} · {t('firewall.docker.source')} <span className="font-mono">{rule.source || '*'}</span>
                     </p>
                   </div>

@@ -34,7 +34,7 @@ function RiskBadge({ risk }: { risk: Risk }) {
   if (!risk) return null
   return (
     <span
-      className={`inline-flex items-center gap-1 rounded-full px-1.5 py-0.5 text-[12px] font-medium ${
+      className={`inline-flex shrink-0 items-center gap-1 whitespace-nowrap rounded-full px-1.5 py-0.5 text-[12px] font-medium ${
         risk === 'anywhere' ? 'bg-warning/10 text-warning' : 'bg-destructive/10 text-destructive'
       }`}
     >
@@ -164,7 +164,7 @@ export function PortMapTable() {
           {risks.length > 0 && (
             <div className="flex flex-wrap gap-x-4 gap-y-1.5 text-[12px] text-muted-foreground">
               {risks.map((risk) => (
-                <span key={risk} className="inline-flex items-center gap-1.5">
+                <span key={risk} className="flex items-start gap-1.5">
                   <RiskBadge risk={risk} />
                   {risk === 'anywhere' ? t('firewall.portmap.riskAnywhereHint') : t('firewall.portmap.riskNoRuleHint')}
                 </span>
