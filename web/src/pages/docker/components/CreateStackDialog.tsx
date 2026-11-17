@@ -34,9 +34,16 @@ export function CreateStackDialog({
   open,
   onOpenChange,
   onCreated,
+  stacksRoot,
 }: {
   open: boolean
   onOpenChange: (open: boolean) => void
+  /**
+   * The folder stacks live in (server.stacks_path), read off an existing
+   * stack's path. Unknown while there is none: the hint then names the setting
+   * instead of guessing /opt/stacks.
+   */
+  stacksRoot?: string
   /** Fired with the new project name so the caller can refresh + navigate. */
   onCreated: (projectName: string) => void | Promise<void>
 }) {
@@ -103,9 +110,13 @@ export function CreateStackDialog({
             <div className="space-y-2">
               <Label htmlFor="project-name">{t('docker.compose.projectName')}</Label>
               <Input id="project-name" placeholder="e.g., my-project" value={newName}
+                aria-describedby="project-name-hint"
                 onChange={(e) => setNewName(e.target.value)} />
-              <p className="text-[12px] text-muted-foreground">
-                {t('docker.stacks.createPathHint', { path: `/opt/stacks/${newName || '{name}'}` })}
+              <p id="project-name-hint" className="text-[12px] text-muted-foreground">
+                {t('docker.stacks.nameRule')}{' '}
+                {stacksRoot
+                  ? t('docker.stacks.createPathHint', { path: `${stacksRoot}/${newName || '{name}'}` })
+                  : t('docker.stacks.createPathHintUnknown', { name: newName || '{name}' })}
               </p>
             </div>
             <div className="space-y-2">

@@ -163,50 +163,54 @@ export function CreateContainerDialog({
         <div className="space-y-4">
           {/* Image */}
           <div className="space-y-1.5">
-            <Label className="text-[13px]">{t('docker.create.image')}</Label>
+            <Label htmlFor="create-image" className="text-[13px]">{t('docker.create.image')}</Label>
             <Input
+              id="create-image"
               value={image}
               onChange={(e) => setImage(e.target.value)}
               placeholder={t('docker.create.imagePlaceholder')}
-              className="h-9 rounded-xl text-[13px]"
+              className="h-9 rounded-xl text-base md:text-[13px]"
             />
           </div>
 
           {/* Name */}
           <div className="space-y-1.5">
-            <Label className="text-[13px]">{t('docker.create.name')}</Label>
+            <Label htmlFor="create-name" className="text-[13px]">{t('docker.create.name')}</Label>
             <Input
+              id="create-name"
               value={name}
               onChange={(e) => setName(e.target.value)}
               placeholder={t('docker.create.namePlaceholder')}
-              className="h-9 rounded-xl text-[13px]"
+              className="h-9 rounded-xl text-base md:text-[13px]"
             />
           </div>
 
           {/* Ports */}
           <div className="space-y-1.5">
-            <Label className="text-[13px]">{t('docker.create.ports')}</Label>
-            <div className="space-y-2">
+            <Label id="create-ports" className="text-[13px]">{t('docker.create.ports')}</Label>
+            <div role="group" aria-labelledby="create-ports" className="space-y-2">
               {ports.map((p, i) => (
                 <div key={i} className="flex items-center gap-2">
                   <Input
                     value={p.hostPort}
                     onChange={(e) => setPorts((prev) => prev.map((r, j) => j === i ? { ...r, hostPort: e.target.value } : r))}
                     placeholder={t('docker.create.hostPort')}
-                    className="h-9 rounded-xl text-[13px]"
+                    aria-label={t('docker.create.hostPort')}
+                    className="h-9 rounded-xl text-base md:text-[13px]"
                   />
                   <ChevronRight className="h-4 w-4 text-muted-foreground shrink-0" />
                   <Input
                     value={p.containerPort}
                     onChange={(e) => setPorts((prev) => prev.map((r, j) => j === i ? { ...r, containerPort: e.target.value } : r))}
                     placeholder={t('docker.create.containerPort')}
-                    className="h-9 rounded-xl text-[13px]"
+                    aria-label={t('docker.create.containerPort')}
+                    className="h-9 rounded-xl text-base md:text-[13px]"
                   />
                   <Select
                     value={p.protocol}
                     onValueChange={(v) => setPorts((prev) => prev.map((r, j) => j === i ? { ...r, protocol: v as 'tcp' | 'udp' } : r))}
                   >
-                    <SelectTrigger className="w-24 h-9 rounded-xl text-[13px] shrink-0">
+                    <SelectTrigger aria-label={t('docker.create.protocol')} className="w-24 h-9 rounded-xl text-base md:text-[13px] shrink-0">
                       <SelectValue />
                     </SelectTrigger>
                     <SelectContent>
@@ -240,22 +244,24 @@ export function CreateContainerDialog({
 
           {/* Environment variables */}
           <div className="space-y-1.5">
-            <Label className="text-[13px]">{t('docker.create.env')}</Label>
-            <div className="space-y-2">
+            <Label id="create-env" className="text-[13px]">{t('docker.create.env')}</Label>
+            <div role="group" aria-labelledby="create-env" className="space-y-2">
               {envs.map((e, i) => (
                 <div key={i} className="flex items-center gap-2">
                   <Input
                     value={e.key}
                     onChange={(ev) => setEnvs((prev) => prev.map((r, j) => j === i ? { ...r, key: ev.target.value } : r))}
                     placeholder={t('docker.create.key')}
-                    className="h-9 rounded-xl text-[13px]"
+                    aria-label={t('docker.create.key')}
+                    className="h-9 rounded-xl text-base md:text-[13px]"
                   />
                   <span className="text-muted-foreground shrink-0">=</span>
                   <Input
                     value={e.value}
                     onChange={(ev) => setEnvs((prev) => prev.map((r, j) => j === i ? { ...r, value: ev.target.value } : r))}
                     placeholder={t('docker.create.value')}
-                    className="h-9 rounded-xl text-[13px]"
+                    aria-label={t('docker.create.value')}
+                    className="h-9 rounded-xl text-base md:text-[13px]"
                   />
                   <Button
                     variant="ghost"
@@ -283,22 +289,24 @@ export function CreateContainerDialog({
 
           {/* Volumes */}
           <div className="space-y-1.5">
-            <Label className="text-[13px]">{t('docker.create.volumes')}</Label>
-            <div className="space-y-2">
+            <Label id="create-volumes" className="text-[13px]">{t('docker.create.volumes')}</Label>
+            <div role="group" aria-labelledby="create-volumes" className="space-y-2">
               {volumes.map((v, i) => (
                 <div key={i} className="flex items-center gap-2">
                   <Input
                     value={v.hostPath}
                     onChange={(e) => setVolumes((prev) => prev.map((r, j) => j === i ? { ...r, hostPath: e.target.value } : r))}
                     placeholder={t('docker.create.hostPath')}
-                    className="h-9 rounded-xl text-[13px]"
+                    aria-label={t('docker.create.hostPath')}
+                    className="h-9 rounded-xl text-base md:text-[13px]"
                   />
                   <ChevronRight className="h-4 w-4 text-muted-foreground shrink-0" />
                   <Input
                     value={v.containerPath}
                     onChange={(e) => setVolumes((prev) => prev.map((r, j) => j === i ? { ...r, containerPath: e.target.value } : r))}
                     placeholder={t('docker.create.containerPath')}
-                    className="h-9 rounded-xl text-[13px]"
+                    aria-label={t('docker.create.containerPath')}
+                    className="h-9 rounded-xl text-base md:text-[13px]"
                   />
                   <label className="flex items-center gap-1.5 text-[13px] text-muted-foreground shrink-0 cursor-pointer">
                     <Checkbox
@@ -334,9 +342,9 @@ export function CreateContainerDialog({
           {/* Restart policy + Network */}
           <div className="grid grid-cols-2 gap-3">
             <div className="space-y-1.5">
-              <Label className="text-[13px]">{t('docker.create.restartPolicy')}</Label>
+              <Label htmlFor="create-restart" className="text-[13px]">{t('docker.create.restartPolicy')}</Label>
               <Select value={restartPolicy} onValueChange={setRestartPolicy}>
-                <SelectTrigger className="h-9 rounded-xl text-[13px]">
+                <SelectTrigger id="create-restart" className="h-9 rounded-xl text-base md:text-[13px]">
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
@@ -348,9 +356,9 @@ export function CreateContainerDialog({
               </Select>
             </div>
             <div className="space-y-1.5">
-              <Label className="text-[13px]">{t('docker.create.network')}</Label>
+              <Label htmlFor="create-network" className="text-[13px]">{t('docker.create.network')}</Label>
               <Select value={network || '__default__'} onValueChange={(v) => setNetwork(v === '__default__' ? '' : v)}>
-                <SelectTrigger className="h-9 rounded-xl text-[13px]">
+                <SelectTrigger id="create-network" className="h-9 rounded-xl text-base md:text-[13px]">
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
@@ -365,12 +373,13 @@ export function CreateContainerDialog({
 
           {/* Command */}
           <div className="space-y-1.5">
-            <Label className="text-[13px]">{t('docker.create.command')}</Label>
+            <Label htmlFor="create-command" className="text-[13px]">{t('docker.create.command')}</Label>
             <Input
+              id="create-command"
               value={command}
               onChange={(e) => setCommand(e.target.value)}
               placeholder={t('docker.create.commandPlaceholder')}
-              className="h-9 rounded-xl text-[13px]"
+              className="h-9 rounded-xl text-base md:text-[13px]"
             />
           </div>
 

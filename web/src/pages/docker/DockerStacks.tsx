@@ -1258,6 +1258,7 @@ export default function DockerStacks({ clusterMode = false }: { clusterMode?: bo
           <CreateStackDialog
             open={createOpen}
             onOpenChange={setCreateOpen}
+            stacksRoot={projects[0]?.path ? projects[0].path.slice(0, projects[0].path.lastIndexOf('/')) || '/' : undefined}
             onCreated={async (projectName) => {
               await fetchProjects()
               navigate(`${basePath}/${projectName}`)
