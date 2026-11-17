@@ -398,12 +398,16 @@ export default function Files() {
     bulkCancelRef.current = false
     const failures: string[] = []
     let done = 0
+    // The server says per entry whether it went to the trash or, being on
+    // another filesystem than the trash, was removed outright.
+    let permanent = 0
     for (const [index, p] of paths.entries()) {
       if (bulkCancelRef.current) break
       setBulkProgress({ current: p.split('/').pop() || p, index: index + 1, total: paths.length })
       try {
-        await api.deletePath(p)
+        const { trashed } = await api.deletePath(p)
         done += 1
+        if (!trashed) permanent += 1
       } catch (err: unknown) {
         failures.push(`${p}: ${err instanceof Error ? err.message : ''}`)
       }
@@ -413,7 +417,12 @@ export default function Files() {
     setBulkDeleting(false)
     setSelectedPaths(new Set())
 
-    if (done > 0) toast.success(t('files.bulkDeleted', { count: done, defaultValue: 'Deleted {{count}}' }))
+    if (done > permanent) {
+      toast.success(t('files.bulkDeleted', { count: done - permanent }), {
+        action: { label: t('files.openTrash'), onClick: () => setTrashOpen(true) },
+      })
+    }
+    if (permanent > 0) toast.warning(t('files.bulkDeletedPermanently', { count: permanent }))
     if (cancelled) {
       // Say what actually happened. A cancel part-way through is not "nothing
       // happened", and pretending otherwise leaves the operator with a wrong
@@ -471,6 +480,7 @@ export default function Files() {
           )}
         </span>
       ),
+      confirmLabel: t('files.deleteSelected'),
       danger: true,
     })
     if (!ok) return
@@ -678,15 +688,24 @@ export default function Files() {
   // Delete
   const handleDelete = async (entry: FileEntry) => {
     const ok = await confirm({
-      title: t('files.deleteTitle'),
-      description: t('files.deleteConfirm', { name: entry.name }),
+      title: t('files.deleteTitle', { name: entry.name }),
+      description: t('files.deleteConfirm'),
+      confirmLabel: t('files.contextMenu.delete'),
       danger: true,
     })
     if (!ok) return
     const pathAtStart = currentPathRef.current
     try {
-      await api.deletePath(pathJoin(pathAtStart, entry.name))
-      toast.success(t('files.deleteSuccess', { name: entry.name }))
+      const { trashed } = await api.deletePath(pathJoin(pathAtStart, entry.name))
+      // A delete on another filesystem than the trash cannot be moved there
+      // and is removed outright; that is the one the operator must be told.
+      if (trashed) {
+        toast.success(t('files.deleteSuccess', { name: entry.name }), {
+          action: { label: t('files.openTrash'), onClick: () => setTrashOpen(true) },
+        })
+      } else {
+        toast.warning(t('files.deletedPermanently', { name: entry.name }))
+      }
       if (currentPathRef.current === pathAtStart) await fetchFiles()
     } catch (err: unknown) {
       const message = err instanceof Error ? err.message : t('files.deleteFailed')
@@ -1636,7 +1655,7 @@ export default function Files() {
           count: bulkDeleteRequest?.paths.length ?? 0,
           dirs: bulkDeleteRequest?.dirCount ?? 0,
           defaultValue:
-            'About to delete {{count}} entries, {{dirs}} of them folders. Everything inside a folder goes with it, and none of this can be undone.',
+            'About to move {{count}} entries, {{dirs}} of them folders, to the trash with everything inside them. Any on another disk than the trash are deleted permanently instead.',
         })}
         confirmPhrase={String(bulkDeleteRequest?.paths.length ?? '')}
         confirmLabel={t('files.deleteSelected')}
