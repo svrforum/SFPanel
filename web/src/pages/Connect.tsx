@@ -146,9 +146,13 @@ export default function Connect() {
               {t('common.close')}
             </button>
           </div>
+          {/* A log that scrolls: it takes focus so a keyboard can scroll it. */}
           <div
             ref={logRef}
-            className="bg-secondary/50 rounded-xl p-3 max-h-60 overflow-y-auto font-mono text-[12px] leading-5 space-y-0.5"
+            tabIndex={0}
+            role="log"
+            aria-label={t('connect.diagTitle')}
+            className="bg-secondary/50 rounded-xl p-3 max-h-60 overflow-y-auto font-mono text-[12px] leading-5 space-y-0.5 outline-none focus-visible:ring-2 focus-visible:ring-ring"
           >
             {diagLog.length === 0 ? (
               <p className="text-muted-foreground">{t('connect.diagEmpty')}</p>
