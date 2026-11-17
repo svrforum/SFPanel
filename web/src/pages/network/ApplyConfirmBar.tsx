@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useId, useState, type Ref } from 'react'
 import { useTranslation } from 'react-i18next'
 import { AlertTriangle } from 'lucide-react'
 import { Button } from '@/components/ui/button'
@@ -16,18 +16,26 @@ import { Button } from '@/components/ui/button'
  * Rendering this bar is itself part of the test: if the change broke the
  * connection, the page cannot load, the button cannot be pressed, and the
  * rollback happens exactly as it should.
+ *
+ * Only the title is a live region: the countdown under it changes every
+ * second and would be read out every second. The button carries both as its
+ * description, so moving focus to it says what it is for and how long is left.
  */
 export function ApplyConfirmBar({
   deadline,
   onConfirm,
   onExpired,
+  actionRef,
 }: {
   deadline: number | null
   onConfirm: () => void
   onExpired: () => void
+  actionRef?: Ref<HTMLButtonElement>
 }) {
   const { t } = useTranslation()
   const [remaining, setRemaining] = useState(0)
+  const titleId = useId()
+  const descId = useId()
 
   useEffect(() => {
     if (!deadline) return
@@ -44,17 +52,25 @@ export function ApplyConfirmBar({
   if (!deadline) return null
 
   return (
-    <div className="flex flex-wrap items-center gap-3 rounded-2xl border border-warning/30 bg-warning/10 px-4 py-3">
-      <AlertTriangle className="h-4 w-4 shrink-0 text-warning" aria-hidden="true" />
-      <div className="min-w-0 flex-1">
-        <p className="text-[13px] font-medium">{t('network.confirmTitle')}</p>
-        <p className="text-[12px] text-muted-foreground">
-          {t('network.confirmDesc', { count: remaining })}
-        </p>
+    <div className="rounded-2xl bg-card shadow-lg">
+      <div className="flex flex-wrap items-center gap-3 rounded-2xl border border-warning/30 bg-warning/10 px-4 py-3">
+        <AlertTriangle className="h-4 w-4 shrink-0 text-warning" aria-hidden="true" />
+        <div className="min-w-0 flex-1">
+          <p id={titleId} role="alert" className="text-[13px] font-medium">{t('network.confirmTitle')}</p>
+          <p id={descId} className="text-[12px] text-muted-foreground">
+            {t('network.confirmDesc', { count: remaining })}
+          </p>
+        </div>
+        <Button
+          ref={actionRef}
+          size="sm"
+          onClick={onConfirm}
+          aria-describedby={`${titleId} ${descId}`}
+          className="shrink-0 rounded-xl"
+        >
+          {t('network.confirmAction')}
+        </Button>
       </div>
-      <Button size="sm" onClick={onConfirm} className="shrink-0 rounded-xl">
-        {t('network.confirmAction')}
-      </Button>
     </div>
   )
 }

@@ -3188,7 +3188,7 @@
     "applySuccess": "네트워크 설정이 적용되었습니다",
     "applyFailed": "네트워크 설정 적용 실패",
     "applyWarning": "네트워크 설정 적용",
-    "applyWarningDesc": "네트워크 설정을 적용하면 연결이 일시적으로 끊길 수 있습니다. 계속하시겠습니까?",
+    "applyWarningDesc": "네트워크 설정을 적용하면 연결이 잠시 끊길 수 있습니다. 적용 뒤 60초 안에 '연결 유지'를 누르지 않으면 이전 설정으로 돌아갑니다.",
     "dns": "DNS 설정",
     "dnsSubtitle": "시스템 DNS 서버 설정",
     "searchDomains": "검색 도메인",

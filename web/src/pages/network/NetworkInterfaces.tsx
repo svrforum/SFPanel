@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, type ReactNode } from 'react'
+import { useState, useEffect, useCallback, useRef, type ReactNode } from 'react'
 import { useTranslation } from 'react-i18next'
 import {
   Network as NetworkIcon,
@@ -117,6 +117,8 @@ export default function NetworkInterfaces() {
   // Apply config dialog
   const [applyDialogOpen, setApplyDialogOpen] = useState(false)
   const [applying, setApplying] = useState(false)
+  // "Keep it" of the bar that replaces the Apply button once applied.
+  const keepRef = useRef<HTMLButtonElement>(null)
 
   // Docker section collapsed
   const [dockerCollapsed, setDockerCollapsed] = useState(true)
@@ -379,14 +381,6 @@ export default function NetworkInterfaces() {
 
   return (
     <div className="space-y-6">
-      {/* Sits above everything: it is the only thing on the page that matters
-          while it is showing, and it disappears on its own either way. */}
-      <ApplyConfirmBar
-        deadline={confirmDeadline}
-        onConfirm={handleConfirmApply}
-        onExpired={handleApplyExpired}
-      />
-
       {/* The network is someone else's to change here: Proxmox's, or a
           manager the panel does not write. */}
       {!writable && caps && (
@@ -668,17 +662,32 @@ export default function NetworkInterfaces() {
         )}
       </div>
 
-      {/* Floating Apply Button */}
-      {hasChanges && (
-        <div className="fixed bottom-6 left-1/2 -translate-x-1/2 z-50">
-          <Button
-            size="lg"
-            className="rounded-2xl px-6 shadow-lg"
-            onClick={() => setApplyDialogOpen(true)}
-          >
-            <Shield className="h-4 w-4" />
-            {t('network.applyConfig')}
-          </Button>
+      {/* Floating Apply button, and after an apply the bar that keeps it, in
+          the same place: where the operator just was, not at the top of a
+          page they may have scrolled away from. On a phone it clears the
+          bottom tab bar, which is drawn over anything of the same z-index
+          before it; the offset is the toaster's. The bar is the only thing on
+          the page that matters while it shows, and it goes away on its own
+          either way. */}
+      {(confirmDeadline || hasChanges) && (
+        <div className="fixed bottom-[calc(56px_+_env(safe-area-inset-bottom,_0px)_+_12px)] md:bottom-6 left-1/2 -translate-x-1/2 z-50 w-max max-w-[calc(100vw_-_2.5rem)] md:max-w-xl">
+          {confirmDeadline ? (
+            <ApplyConfirmBar
+              deadline={confirmDeadline}
+              onConfirm={handleConfirmApply}
+              onExpired={handleApplyExpired}
+              actionRef={keepRef}
+            />
+          ) : (
+            <Button
+              size="lg"
+              className="rounded-2xl px-6 shadow-lg"
+              onClick={() => setApplyDialogOpen(true)}
+            >
+              <Shield className="h-4 w-4" />
+              {t('network.applyConfig')}
+            </Button>
+          )}
         </div>
       )}
 
@@ -819,7 +828,16 @@ export default function NetworkInterfaces() {
 
       {/* Apply Config Warning Dialog */}
       <Dialog open={applyDialogOpen} onOpenChange={setApplyDialogOpen}>
-        <DialogContent>
+        {/* The button that opened this is gone once the change is applied, and
+            focus would fall to the page. It goes to the bar's "Keep it"
+            instead: the one control that stops the rollback. */}
+        <DialogContent
+          onCloseAutoFocus={(e) => {
+            if (!keepRef.current) return
+            e.preventDefault()
+            keepRef.current.focus()
+          }}
+        >
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2">
               <AlertTriangle className="h-5 w-5 text-warning" />

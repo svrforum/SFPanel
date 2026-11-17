@@ -3200,7 +3200,7 @@
     "applySuccess": "Network configuration applied",
     "applyFailed": "Failed to apply network configuration",
     "applyWarning": "Apply Network Configuration",
-    "applyWarningDesc": "Applying network configuration may temporarily disconnect your connection. Continue?",
+    "applyWarningDesc": "Applying network configuration may briefly drop your connection. Unless you press \"Keep it\" within 60 seconds of applying, the previous configuration comes back.",
     "dns": "DNS Settings",
     "dnsSubtitle": "System DNS server configuration",
     "searchDomains": "Search Domains",
