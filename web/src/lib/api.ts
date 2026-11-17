@@ -189,7 +189,7 @@ export function apiErrorFrom(status: number, body: unknown): ApiError {
   const envelope = body && typeof body === 'object' && (body as { success?: unknown }).success === false
     ? (body as { error?: { code?: string; message?: string; details?: Record<string, string> } })
     : undefined
-  if (!envelope) return Object.assign(new Error(`HTTP ${status}`), { status }) as ApiError
+  if (!envelope) return Object.assign(new Error(translate('common.httpError', `HTTP ${status}`, { status: String(status) })), { status }) as ApiError
   const code = envelope.error?.code
   const sent = envelope.error?.message || 'Unknown error'
   const details = envelope.error?.details

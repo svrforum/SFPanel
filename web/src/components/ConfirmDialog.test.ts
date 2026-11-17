@@ -4,7 +4,9 @@ import type { ConfirmOptions } from './ConfirmDialog'
 // The default button says "Confirm". On a confirmation that destroys something
 // that word is all some people read, so the type refuses a destructive one
 // that does not name its button. The directive below is the test: if the type
-// stops refusing, the type-check fails on an unused @ts-expect-error.
+// stops refusing, the type-check (tsc -b, which the build and CI run) fails on
+// an unused @ts-expect-error. The test runner alone does not check types, so
+// this file stays green there either way.
 it('holds a destructive confirmation to naming its button', () => {
   // @ts-expect-error danger without confirmLabel
   const unnamed: ConfirmOptions = { title: 'Delete rule #3', danger: true }

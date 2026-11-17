@@ -409,7 +409,7 @@ export function installReasonText(record: RunNodeRecord | undefined, t: TFunctio
       if (worded !== null) params[name] = worded
     }
     const variant = Object.hasOwn(VARIANTS, code) ? VARIANTS[code](sent, record) : null
-    text = variant ? variant(t, params) : t(CODE_MESSAGES[code], params)
+    text = variant ? variant(t, params) : t(CODE_MESSAGES[code], { serverMessage: code, ...params })
   } else {
     text = code
   }

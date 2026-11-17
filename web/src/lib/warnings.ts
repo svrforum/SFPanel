@@ -13,7 +13,7 @@ export interface ApiWarning {
 
 export function warningText(w: ApiWarning, t: TFunction): string {
   const key = CODE_MESSAGES[w.code]
-  return key ? t(key, { ...w.details, defaultValue: w.message }) : w.message
+  return key ? t(key, { serverMessage: w.message, ...w.details, defaultValue: w.message }) : w.message
 }
 
 export function toastWarnings(warnings: ApiWarning[] | undefined | null, t: TFunction): void {

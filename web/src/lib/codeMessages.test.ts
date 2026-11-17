@@ -3,6 +3,8 @@ import i18next from 'i18next'
 import ko from '@/i18n/locales/ko.json'
 import en from '@/i18n/locales/en.json'
 import { CODE_DEFAULTS, CODE_MESSAGES } from './codeMessages'
+import { warningText } from './warnings'
+import { installReasonText } from '@/pages/cluster/components/tasks/install/installRun'
 
 // That every code's message exists in both languages is checked in
 // i18n/locales.test.ts. This checks what the message asks to be filled in.
@@ -173,5 +175,38 @@ describe('apiErrorFrom, on a Korean screen', () => {
     const output = 'pvs failed: Device /dev/sdb excluded by a filter.'
     expect(refusal(api, 500, 'LVM_ERROR', output).message).toBe(output)
     expect(refusal(api, 409, 'STALE_WRITE', 'This file no longer exists').message).toBe('This file no longer exists')
+  })
+})
+
+// CODE_MESSAGES has three readers: a refusal (api.ts codeText), a warning
+// (warnings.ts) and why an install row ended (installRun.ts). A message that
+// quotes the server's sentence must get it from each of them, or the operator
+// reads the placeholder itself.
+describe('{{serverMessage}}, for every reader of the code table', () => {
+  const korean = async () => {
+    const i18n = i18next.createInstance()
+    await i18n.init({ lng: 'ko', resources: { ko: { translation: ko } }, interpolation: { escapeValue: false } })
+    return i18n.t
+  }
+  const quoting = Object.entries(CODE_MESSAGES).filter(([, key]) => placeholders(ko, key).includes('serverMessage')).map(([code]) => code)
+
+  it('is quoted by at least one code, so this test tests something', () => {
+    expect(quoting).toContain('TOOL_NOT_INSTALLED')
+  })
+
+  it('is filled when the code arrives as a warning', async () => {
+    const t = await korean()
+    for (const code of quoting) {
+      const text = warningText({ code, message: 'smartctl is not installed. Install smartmontools.' }, t)
+      expect(text, code).not.toContain('{{')
+      expect(text, code).toContain('smartctl is not installed. Install smartmontools.')
+    }
+  })
+
+  it('is filled when the code ends an install row', async () => {
+    const t = await korean()
+    for (const code of quoting) {
+      expect(installReasonText({ reason: code } as Parameters<typeof installReasonText>[0], t), code).not.toContain('{{')
+    }
   })
 })
