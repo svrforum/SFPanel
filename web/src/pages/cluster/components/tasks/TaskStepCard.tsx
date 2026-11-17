@@ -34,10 +34,10 @@ interface TaskStepCardProps {
 }
 
 const TEXTAREA = cn(
-  'w-full min-h-24 rounded-md border border-input bg-transparent px-3 py-2 font-mono text-[13px] shadow-xs outline-none',
+  'w-full min-h-24 rounded-md border border-input bg-transparent px-3 py-2 font-mono text-base md:text-[13px] shadow-xs outline-none',
   'focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring disabled:opacity-50 dark:bg-input/30',
 )
-const SELECT = 'min-h-9 w-full rounded-md border border-input bg-transparent px-3 text-[13px] dark:bg-input/30 disabled:opacity-50'
+const SELECT = 'min-h-9 w-full rounded-md border border-input bg-transparent px-3 text-base md:text-[13px] dark:bg-input/30 disabled:opacity-50'
 
 const SERVICE_ACTIONS: TaskServiceAction[] = ['start', 'stop', 'restart', 'enable', 'disable']
 const PACKAGES_ACTIONS: PackagesAction[] = ['none', 'upgradeAll', 'upgrade', 'install', 'remove']

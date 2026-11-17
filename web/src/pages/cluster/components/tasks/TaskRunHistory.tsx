@@ -25,7 +25,7 @@ import {
 
 // Deliberately a native <select>, as the audit log's filter bar: two compact
 // dropdowns, no popover chrome.
-const selectCls = 'h-9 rounded-xl border border-border bg-card px-2 text-[13px] outline-none focus-visible:ring-2 focus-visible:ring-ring min-w-0'
+const selectCls = 'h-9 rounded-xl border border-border bg-card px-2 text-base md:text-[13px] outline-none focus-visible:ring-2 focus-visible:ring-ring min-w-0'
 
 const runPath = (run: RunRecord) => `/cluster/tasks/runs/${encodeURIComponent(run.id)}`
 

@@ -539,7 +539,7 @@ function FormView({ id, doc, edit, nodes, nodesError, disabled }: FormViewProps)
             value={m.description ?? ''}
             disabled={disabled}
             rows={2}
-            className="w-full rounded-md border border-input bg-transparent px-3 py-2 text-[13px] shadow-xs outline-none focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring disabled:opacity-50 dark:bg-input/30"
+            className="w-full rounded-md border border-input bg-transparent px-3 py-2 text-base md:text-[13px] shadow-xs outline-none focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring disabled:opacity-50 dark:bg-input/30"
             onChange={(e) => setModel((mm) => withOptional(mm, 'description', e.target.value))}
           />
         </EditorField>
