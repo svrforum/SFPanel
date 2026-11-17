@@ -92,10 +92,10 @@ export default function DockerVolumes() {
     setPruning(true)
     try {
       const r = await api.pruneVolumes()
-      toast.success(t('docker.prune.success') + (r.deleted > 0 ? `: ${r.deleted} deleted` : ''))
+      toast.success(r.deleted > 0 ? t('docker.prune.deleted', { count: r.deleted }) : t('docker.prune.success'))
       fetchVolumes()
     } catch (err: unknown) {
-      toast.error(err instanceof Error ? err.message : 'Prune failed')
+      toast.error(err instanceof Error ? err.message : t('docker.prune.failed'))
     } finally {
       setPruning(false)
     }
@@ -161,7 +161,7 @@ export default function DockerVolumes() {
           <div key={v.Name} className="bg-card rounded-2xl p-4 card-shadow">
             <div className="flex items-start justify-between gap-2">
               <div className="min-w-0 flex-1">
-                <p className="text-[13px] font-medium font-mono truncate">{v.Name}</p>
+                <p className="text-[13px] font-medium font-mono break-all">{v.Name}</p>
                 <div className="flex items-center gap-2 mt-1">
                   <span className="text-[12px] text-muted-foreground">{v.Driver}</span>
                   {typeof v.size_bytes === 'number' && (
@@ -171,7 +171,7 @@ export default function DockerVolumes() {
                 </div>
                 <div className="mt-1.5">
                   <UsagePill inUse={v.in_use} usedBy={v.used_by} />
-                  <div className="flex flex-wrap gap-3 text-xs text-primary">{v.Mountpoint && <Link className="inline-flex min-h-11 items-center underline" to={`/files?path=${encodeURIComponent(v.Mountpoint)}`}>{t('docker.improvements.browse')}</Link>}<Link className="inline-flex min-h-11 items-center underline" to={`/files?path=${encodeURIComponent(v.Mountpoint.substring(0, v.Mountpoint.lastIndexOf('/')) || '/')}`}>{t('docker.improvements.backup')}</Link></div>
+                  <div className="flex flex-wrap gap-3 text-xs text-primary">{v.Mountpoint && <Link className="inline-flex min-h-11 items-center underline" to={`/files?path=${encodeURIComponent(v.Mountpoint)}`}>{t('docker.improvements.browse')}</Link>}<Link className="inline-flex min-h-11 items-center underline" to={`/files?path=${encodeURIComponent(v.Mountpoint.substring(0, v.Mountpoint.lastIndexOf('/')) || '/')}`}>{t('docker.improvements.openParent')}</Link></div>
                 </div>
               </div>
               <Button
@@ -189,17 +189,20 @@ export default function DockerVolumes() {
       </div>
 
       {/* Desktop table */}
-      <div className={`bg-card rounded-2xl card-shadow overflow-hidden ${(error || loading) && volumes.length === 0 ? 'hidden' : 'hidden md:block'}`}>
-      <Table>
+      {/* Fixed columns, as on the images table: a 64-character volume name
+          used to widen its column until size, date and delete were past the
+          card's edge, with the scrollbar at the bottom of a long table. */}
+      <div className={`bg-card rounded-2xl card-shadow overflow-hidden overflow-x-auto ${(error || loading) && volumes.length === 0 ? 'hidden' : 'hidden md:block'}`}>
+      <Table className="table-fixed w-full min-w-[760px]">
         <TableHeader>
           <TableRow>
-            <TableHead>{t('common.name')}</TableHead>
-            <TableHead>{t('common.status')}</TableHead>
-            <TableHead>{t('docker.volumes.driver')}</TableHead>
-            <TableHead>{t('docker.volumes.mountpoint')}</TableHead>
-            <TableHead className="text-right">{t('docker.volumes.size', 'Size')}</TableHead>
-            <TableHead>{t('common.created')}</TableHead>
-            <TableHead className="text-right">{t('common.actions')}</TableHead>
+            <TableHead className="w-[24%]">{t('common.name')}</TableHead>
+            <TableHead className="w-[20%]">{t('common.status')}</TableHead>
+            <TableHead className="w-[9%]">{t('docker.volumes.driver')}</TableHead>
+            <TableHead className="w-[22%]">{t('docker.volumes.mountpoint')}</TableHead>
+            <TableHead className="text-right w-[10%]">{t('docker.volumes.size', 'Size')}</TableHead>
+            <TableHead className="w-[11%]">{t('common.created')}</TableHead>
+            <TableHead className="text-right w-[56px]">{t('common.actions')}</TableHead>
           </TableRow>
         </TableHeader>
         <TableBody>
@@ -212,18 +215,18 @@ export default function DockerVolumes() {
           )}
           {sortedVolumes.map((v) => (
             <TableRow key={v.Name}>
-              <TableCell className="font-medium font-mono text-sm">
-                <div className="flex items-center gap-1.5">
+              <TableCell className="font-medium font-mono text-sm overflow-hidden">
+                <div className="flex items-center gap-1.5 min-w-0">
                   {v.in_use && <Check className="h-3.5 w-3.5 text-success shrink-0" />}
-                  {v.Name}
+                  <span className="truncate" title={v.Name}>{v.Name}</span>
                 </div>
               </TableCell>
-              <TableCell>
+              <TableCell className="overflow-hidden">
                 <UsagePill inUse={v.in_use} usedBy={v.used_by} />
-                  <div className="flex flex-wrap gap-3 text-xs text-primary">{v.Mountpoint && <Link className="inline-flex min-h-11 items-center underline" to={`/files?path=${encodeURIComponent(v.Mountpoint)}`}>{t('docker.improvements.browse')}</Link>}<Link className="inline-flex min-h-11 items-center underline" to={`/files?path=${encodeURIComponent(v.Mountpoint.substring(0, v.Mountpoint.lastIndexOf('/')) || '/')}`}>{t('docker.improvements.backup')}</Link></div>
+                  <div className="flex flex-wrap gap-3 text-xs text-primary">{v.Mountpoint && <Link className="inline-flex min-h-11 items-center underline" to={`/files?path=${encodeURIComponent(v.Mountpoint)}`}>{t('docker.improvements.browse')}</Link>}<Link className="inline-flex min-h-11 items-center underline" to={`/files?path=${encodeURIComponent(v.Mountpoint.substring(0, v.Mountpoint.lastIndexOf('/')) || '/')}`}>{t('docker.improvements.openParent')}</Link></div>
               </TableCell>
-              <TableCell className="text-muted-foreground">{v.Driver}</TableCell>
-              <TableCell className="text-muted-foreground text-xs font-mono max-w-[300px] truncate">
+              <TableCell className="text-muted-foreground truncate">{v.Driver}</TableCell>
+              <TableCell className="text-muted-foreground text-xs font-mono truncate" title={v.Mountpoint}>
                 {v.Mountpoint}
               </TableCell>
               <TableCell className="text-right font-mono text-xs">
@@ -233,7 +236,7 @@ export default function DockerVolumes() {
                   <span className="text-muted-foreground">{t('docker.volumes.measuring', 'Measuring…')}</span>
                 )}
               </TableCell>
-              <TableCell className="text-muted-foreground">{formatDate(v.CreatedAt)}</TableCell>
+              <TableCell className="text-muted-foreground truncate" title={formatDate(v.CreatedAt)}>{formatDate(v.CreatedAt)}</TableCell>
               <TableCell className="text-right">
                 <Button
                   variant="ghost"

@@ -134,10 +134,10 @@ export default function DockerImages() {
     setPruning(true)
     try {
       const r = await api.pruneImages()
-      toast.success(t('docker.prune.success') + (r.deleted > 0 ? `: ${r.deleted} deleted` : ''))
+      toast.success(r.deleted > 0 ? t('docker.prune.deleted', { count: r.deleted }) : t('docker.prune.success'))
       fetchImages()
     } catch (err: unknown) {
-      toast.error(err instanceof Error ? err.message : 'Prune failed')
+      toast.error(err instanceof Error ? err.message : t('docker.prune.failed'))
     } finally {
       setPruning(false)
     }

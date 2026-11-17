@@ -33,6 +33,13 @@ const images = [
   { Id: 'sha256:' + 'b'.repeat(64), RepoTags: ['grafana/grafana:11.2.0'], Size: 412345678, Created: 1750000000, in_use: true, used_by: ['monitoring-service-number-2'] },
 ]
 
+// An anonymous volume is named by a 64-character hash.
+const longVolume = 'f'.repeat(64)
+const volumes = [
+  { Name: longVolume, Driver: 'local', Mountpoint: `/var/lib/docker/volumes/${longVolume}/_data`, CreatedAt: '2026-09-01T00:00:00Z', in_use: false, used_by: [], size_bytes: 1000 },
+  { Name: 'database-data', Driver: 'local', Mountpoint: '/var/lib/docker/volumes/database-data/_data', CreatedAt: '2026-09-01T00:00:00Z', in_use: true, used_by: ['monitoring-service-number-1-with-a-long-name'], size_bytes: 900000000 },
+]
+
 async function open(page: Page, path: string, width: number) {
   await page.setViewportSize({ width, height: 900 })
   await page.addInitScript(() => {
@@ -48,6 +55,7 @@ async function open(page: Page, path: string, width: number) {
     else if (p === '/docker/containers') data = containers
     else if (p === '/docker/containers/stats/batch') data = {}
     else if (p === '/docker/images') data = images
+    else if (p === '/docker/volumes') data = volumes
     else if (p.startsWith('/docker/compose')) data = []
     await route.fulfill({ json: { success: true, data } })
   })
@@ -128,6 +136,16 @@ test('a long image name leaves the other columns and the delete button in view',
   await expect(page.locator('table').getByTitle('grafana/grafana:11.2.0', { exact: true })).toBeVisible()
   expect(await spilling(page)).toEqual([])
   const del = await page.locator('table tbody tr').filter({ has: page.getByTitle(longImage, { exact: true }) }).getByRole('button', { name: 'Delete' }).boundingBox()
+  const card = await page.locator('table').locator('..').boundingBox()
+  expect(del!.x + del!.width).toBeLessThanOrEqual(card!.x + card!.width)
+})
+
+// A hash-named volume widened its column until the size, date and delete
+// button sat past the card's right edge, with no sign of them.
+test('a long volume name leaves the delete button in view', async ({ page }) => {
+  await open(page, '/docker/volumes', 1280)
+  await expect(page.locator('table').getByText(longVolume, { exact: true })).toBeVisible()
+  const del = await page.locator('table tbody tr').filter({ hasText: longVolume }).getByRole('button', { name: 'Delete' }).boundingBox()
   const card = await page.locator('table').locator('..').boundingBox()
   expect(del!.x + del!.width).toBeLessThanOrEqual(card!.x + card!.width)
 })

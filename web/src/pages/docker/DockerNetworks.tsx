@@ -138,10 +138,10 @@ export default function DockerNetworks() {
     setPruning(true)
     try {
       const r = await api.pruneNetworks()
-      toast.success(t('docker.prune.success') + (r.deleted > 0 ? `: ${r.deleted} deleted` : ''))
+      toast.success(r.deleted > 0 ? t('docker.prune.deleted', { count: r.deleted }) : t('docker.prune.success'))
       fetchNetworks()
     } catch (err: unknown) {
-      toast.error(err instanceof Error ? err.message : 'Prune failed')
+      toast.error(err instanceof Error ? err.message : t('docker.prune.failed'))
     } finally {
       setPruning(false)
     }
@@ -207,7 +207,7 @@ export default function DockerNetworks() {
           <div key={n.Id} className="bg-card rounded-2xl p-4 card-shadow">
             <div className="flex items-start justify-between gap-2">
               <div className="min-w-0 flex-1">
-                <p className="text-[13px] font-medium truncate">{n.Name}</p>
+                <p className="text-[13px] font-medium break-all">{n.Name}</p>
                 <div className="flex items-center gap-2 mt-1">
                   <span className="text-[12px] text-muted-foreground font-mono">{shortId(n.Id)}</span>
                   <span className="text-[12px] text-muted-foreground">{n.Driver}</span>
