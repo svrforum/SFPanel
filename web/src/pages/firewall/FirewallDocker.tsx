@@ -1,9 +1,10 @@
 import { useState, useEffect, useCallback } from 'react'
 import { useTranslation } from 'react-i18next'
-import { Plus, Trash2, Loader2, ShieldBan, ShieldCheck, AlertCircle, AlertTriangle, RefreshCw, Container } from 'lucide-react'
+import { Plus, Trash2, Loader2, ShieldBan, ShieldCheck, AlertTriangle, Container } from 'lucide-react'
 import { toast } from 'sonner'
-import { api } from '@/lib/api'
+import { api, type ApiError } from '@/lib/api'
 import { useConfirm } from '@/components/ConfirmDialog'
+import { ListLoadState } from '@/components/ListLoadState'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import {
@@ -72,6 +73,9 @@ export default function FirewallDocker() {
   const [rules, setRules] = useState<DockerUserRule[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
+  // The server's DOCKER_FIREWALL_ERROR is the one failure that means the
+  // chains are missing (Docker installed but not running); any other is not.
+  const [chainMissing, setChainMissing] = useState(false)
   // False on a host without Docker, where neither chain exists.
   const [dockerInstalled, setDockerInstalled] = useState(true)
 
@@ -79,6 +83,7 @@ export default function FirewallDocker() {
   const [addOpen, setAddOpen] = useState(false)
   const [addForm, setAddForm] = useState<AddRuleForm>(initialForm)
   const [adding, setAdding] = useState(false)
+  const [addTried, setAddTried] = useState(false)
 
   const fetchData = useCallback(async () => {
     try {
@@ -91,6 +96,7 @@ export default function FirewallDocker() {
     } catch (err: unknown) {
       const message = err instanceof Error ? err.message : t('common.error')
       setError(message)
+      setChainMissing((err as ApiError)?.code === 'DOCKER_FIREWALL_ERROR')
     } finally {
       setLoading(false)
     }
@@ -106,23 +112,35 @@ export default function FirewallDocker() {
     )
   }
 
+  const openAdd = (form: AddRuleForm) => {
+    setAddForm(form)
+    setAddTried(false)
+    setAddOpen(true)
+  }
+
   const handleOpenAddForPort = (port: DockerPublishedPort) => {
-    setAddForm({
+    openAdd({
       port: String(port.host_port),
       protocol: port.protocol,
       source: '',
       action: 'drop',
     })
-    setAddOpen(true)
   }
 
-  // Inline validation for the add-rule port field (1-65535)
+  // Inline validation for the add-rule port field (1-65535). An empty field
+  // says so once Add was pressed; the button no longer greys out unexplained.
   const addPortNum = parseInt(addForm.port)
-  const addPortInvalid = addForm.port.trim() !== '' && (isNaN(addPortNum) || addPortNum < 1 || addPortNum > 65535)
+  const addPortInvalid = addForm.port.trim() !== ''
+    ? isNaN(addPortNum) || addPortNum < 1 || addPortNum > 65535
+    : addTried
 
   const handleAddRule = async () => {
+    setAddTried(true)
     const portNum = parseInt(addForm.port)
-    if (isNaN(portNum) || portNum < 1 || portNum > 65535) return
+    if (isNaN(portNum) || portNum < 1 || portNum > 65535) {
+      document.getElementById('docker-rule-port')?.focus()
+      return
+    }
 
     setAdding(true)
     try {
@@ -145,8 +163,14 @@ export default function FirewallDocker() {
 
   const handleDeleteRule = async (rule: DockerUserRule) => {
     if (!(await confirm({
-      title: t('firewall.docker.deleteRule'),
-      description: t('firewall.docker.deleteConfirm'),
+      title: t('firewall.docker.deleteTitle', { number: rule.number }),
+      description: t('firewall.docker.deleteConfirm', {
+        port: rule.port,
+        protocol: rule.protocol.toUpperCase(),
+        source: rule.source || t('firewall.rules.any'),
+        action: rule.action === 'drop' ? t('firewall.docker.drop') : t('firewall.docker.accept'),
+      }),
+      confirmLabel: t('firewall.docker.deleteRule'),
       danger: true,
     }))) return
     try {
@@ -158,6 +182,63 @@ export default function FirewallDocker() {
     }
   }
 
+  // Pieces shared by the tables and their phone cards.
+  const portState = (blocked: boolean) => blocked ? (
+    <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[12px] font-medium bg-destructive/10 text-destructive">
+      {t('firewall.docker.blocked')}
+    </span>
+  ) : (
+    <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[12px] font-medium bg-success/10 text-success">
+      {t('firewall.docker.open')}
+    </span>
+  )
+
+  const blockButton = (port: DockerPublishedPort, visibility: string) => (
+    <Button
+      variant="ghost"
+      size="sm"
+      className={`text-[12px] h-7 rounded-lg ${visibility}`}
+      onClick={() => handleOpenAddForPort(port)}
+    >
+      <ShieldBan className="h-3.5 w-3.5 mr-1" />
+      {t('firewall.docker.blockPort')}
+    </Button>
+  )
+
+  const ruleAction = (rule: DockerUserRule) => (
+    <>
+      <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-[12px] font-medium ${
+        rule.action === 'drop'
+          ? 'bg-destructive/10 text-destructive'
+          : 'bg-success/10 text-success'
+      }`}>
+        {rule.action === 'drop' ? t('firewall.docker.drop') : t('firewall.docker.accept')}
+      </span>
+      {rule.stale && (
+        <span
+          className="ml-1.5 inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[12px] font-medium bg-warning/10 text-warning"
+          title={t('firewall.docker.staleHint')}
+        >
+          <AlertTriangle className="h-3 w-3" />
+          {t('firewall.docker.stale')}
+        </span>
+      )}
+    </>
+  )
+
+  const deleteButton = (rule: DockerUserRule, visibility: string) => (
+    <Button
+      variant="ghost"
+      size="icon-xs"
+      className={`text-destructive hover:text-destructive/80 ${visibility}`}
+      title={t('firewall.docker.deleteRule')}
+      aria-label={t('firewall.docker.deleteRule')}
+      onClick={() => handleDeleteRule(rule)}
+    >
+      <Trash2 className="h-4 w-4" />
+    </Button>
+  )
+
   if (loading) {
     return (
       <div className="flex items-center justify-center py-12 text-muted-foreground">
@@ -167,20 +248,16 @@ export default function FirewallDocker() {
   }
 
   if (error) {
-    // Surface the real failure (permissions, remote node, …) instead of always
-    // claiming the DOCKER-USER chain is missing — same error+retry block as
-    // FirewallRules.
+    // Surface the real failure (permissions, remote node, …): the chain is
+    // named as missing only when the server says that is what failed.
     return (
-      <div className="bg-destructive/10 text-destructive rounded-xl p-3 flex items-start gap-2 mt-4">
-        <AlertCircle className="h-4 w-4 mt-0.5 shrink-0" />
-        <div className="min-w-0 flex-1">
-          <p className="text-[13px] font-medium">{t('firewall.docker.noDockerUserChain')}</p>
-          <p className="text-[12px] opacity-80 mt-0.5 break-words">{error}</p>
-        </div>
-        <Button variant="outline" size="sm" className="rounded-xl shrink-0" onClick={fetchData}>
-          <RefreshCw className="h-3.5 w-3.5" />
-          {t('common.retry')}
-        </Button>
+      <div className="mt-4">
+        <ListLoadState
+          loading={false}
+          error={error}
+          errorTitle={chainMissing ? t('firewall.docker.noDockerUserChain') : t('firewall.docker.loadError')}
+          onRetry={fetchData}
+        />
       </div>
     )
   }
@@ -225,7 +302,9 @@ export default function FirewallDocker() {
         </div>
       ) : (
         <div className="bg-card rounded-2xl card-shadow overflow-hidden">
-          <Table>
+          {/* A table from md, cards below it: on a phone the state and the
+              Block button were past the screen's edge. */}
+          <Table className="hidden md:table">
             <TableHeader>
               <TableRow>
                 <TableHead className="text-[12px]">{t('firewall.docker.hostPort')}</TableHead>
@@ -248,35 +327,37 @@ export default function FirewallDocker() {
                       <span className="text-muted-foreground">:{port.container_port}</span>
                     </TableCell>
                     <TableCell className="text-[13px] font-mono text-muted-foreground">{port.host_ip}</TableCell>
-                    <TableCell>
-                      {blocked ? (
-                        <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[12px] font-medium bg-destructive/10 text-destructive">
-                          {t('firewall.docker.blocked')}
-                        </span>
-                      ) : (
-                        <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[12px] font-medium bg-success/10 text-success">
-                          {t('firewall.docker.open')}
-                        </span>
-                      )}
-                    </TableCell>
+                    <TableCell>{portState(blocked)}</TableCell>
                     <TableCell className="text-right">
-                      {!blocked && (
-                        <Button
-                          variant="ghost"
-                          size="sm"
-                          className="opacity-100 md:opacity-0 md:group-hover:opacity-100 md:group-focus-within:opacity-100 transition-opacity text-[12px] h-7 rounded-lg"
-                          onClick={() => handleOpenAddForPort(port)}
-                        >
-                          <ShieldBan className="h-3.5 w-3.5 mr-1" />
-                          {t('firewall.docker.blockPort')}
-                        </Button>
-                      )}
+                      {!blocked && blockButton(port, 'opacity-100 md:can-hover:opacity-0 md:group-hover:opacity-100 md:group-focus-within:opacity-100 transition-opacity')}
                     </TableCell>
                   </TableRow>
                 )
               })}
             </TableBody>
           </Table>
+          <ul className="md:hidden divide-y divide-border">
+            {ports.map((port) => {
+              const blocked = isPortBlocked(port.host_port, port.protocol)
+              return (
+                <li key={`${port.host_port}-${port.protocol}-${port.container_ip}`} className="flex items-center gap-2 p-3">
+                  <div className="min-w-0 flex-1 space-y-1">
+                    <div className="flex flex-wrap items-center gap-2">
+                      <span className="font-mono text-[13px] font-medium">{port.host_port}</span>
+                      <span className="text-[12px] uppercase text-muted-foreground">{port.protocol}</span>
+                      {portState(blocked)}
+                    </div>
+                    <p className="text-[12px] text-muted-foreground break-all">
+                      <span className="font-medium text-foreground">{port.container_name}</span>:{port.container_port}
+                      {' · '}
+                      <span className="font-mono">{port.host_ip}</span>
+                    </p>
+                  </div>
+                  {!blocked && blockButton(port, 'shrink-0')}
+                </li>
+              )
+            })}
+          </ul>
         </div>
       )}
 
@@ -287,7 +368,7 @@ export default function FirewallDocker() {
           <span className="inline-flex items-center px-3 py-1 rounded-full text-[13px] font-semibold bg-primary/10 text-primary">
             {t('firewall.docker.rulesCount', { count: rules.length })}
           </span>
-          <Button size="sm" onClick={() => { setAddForm(initialForm); setAddOpen(true) }} className="rounded-xl">
+          <Button size="sm" onClick={() => openAdd(initialForm)} className="rounded-xl">
             <Plus className="h-3.5 w-3.5" />
             {t('firewall.docker.addRule')}
           </Button>
@@ -308,7 +389,7 @@ export default function FirewallDocker() {
             </div>
           )}
           <div className="bg-card rounded-2xl card-shadow overflow-hidden">
-            <Table>
+            <Table className="hidden md:table">
               <TableHeader>
                 <TableRow>
                   <TableHead className="w-16 text-[12px]">#</TableHead>
@@ -328,40 +409,31 @@ export default function FirewallDocker() {
                     <TableCell className="text-[13px] font-mono">
                       {rule.source || <span className="text-muted-foreground">*</span>}
                     </TableCell>
-                    <TableCell>
-                      <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-[12px] font-medium ${
-                        rule.action === 'drop'
-                          ? 'bg-destructive/10 text-destructive'
-                          : 'bg-success/10 text-success'
-                      }`}>
-                        {rule.action === 'drop' ? t('firewall.docker.drop') : t('firewall.docker.accept')}
-                      </span>
-                      {rule.stale && (
-                        <span
-                          className="ml-1.5 inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[12px] font-medium bg-warning/10 text-warning"
-                          title={t('firewall.docker.staleHint')}
-                        >
-                          <AlertTriangle className="h-3 w-3" />
-                          {t('firewall.docker.stale')}
-                        </span>
-                      )}
-                    </TableCell>
+                    <TableCell>{ruleAction(rule)}</TableCell>
                     <TableCell className="text-right">
-                      <Button
-                        variant="ghost"
-                        size="icon-xs"
-                        className="opacity-100 md:opacity-0 md:group-hover:opacity-100 md:group-focus-within:opacity-100 transition-opacity text-red-500 hover:text-red-600"
-                        title={t('firewall.docker.deleteRule')}
-                        aria-label={t('firewall.docker.deleteRule')}
-                        onClick={() => handleDeleteRule(rule)}
-                      >
-                        <Trash2 className="h-4 w-4" />
-                      </Button>
+                      {deleteButton(rule, 'opacity-100 md:can-hover:opacity-0 md:group-hover:opacity-100 md:group-focus-within:opacity-100 transition-opacity')}
                     </TableCell>
                   </TableRow>
                 ))}
               </TableBody>
             </Table>
+            <ul className="md:hidden divide-y divide-border">
+              {rules.map((rule) => (
+                <li key={rule.number} className="flex items-center gap-2 p-3">
+                  <div className="min-w-0 flex-1 space-y-1">
+                    <div className="flex flex-wrap items-center gap-2">
+                      <span className="font-mono text-[13px] font-medium">{rule.port}</span>
+                      <span className="text-[12px] uppercase text-muted-foreground">{rule.protocol}</span>
+                      {ruleAction(rule)}
+                    </div>
+                    <p className="text-[12px] text-muted-foreground break-all">
+                      #{rule.number} · {t('firewall.docker.source')} <span className="font-mono">{rule.source || '*'}</span>
+                    </p>
+                  </div>
+                  {deleteButton(rule, 'shrink-0')}
+                </li>
+              ))}
+            </ul>
           </div>
         </div>
       )}
@@ -376,24 +448,27 @@ export default function FirewallDocker() {
           <div className="space-y-4">
             {/* Port */}
             <div className="space-y-1.5">
-              <label className="text-[13px] font-medium">{t('firewall.docker.port')}</label>
+              <label htmlFor="docker-rule-port" className="text-[13px] font-medium">{t('firewall.docker.port')}</label>
               <Input
+                id="docker-rule-port"
                 type="number"
                 value={addForm.port}
                 onChange={(e) => setAddForm({ ...addForm, port: e.target.value })}
                 placeholder="80"
-                className={`rounded-xl text-[13px] ${addPortInvalid ? 'ring-1 ring-destructive' : ''}`}
+                aria-invalid={addPortInvalid || undefined}
+                aria-describedby={addPortInvalid ? 'docker-rule-port-error' : undefined}
+                className="rounded-xl text-base md:text-[13px]"
               />
               {addPortInvalid && (
-                <p className="text-[12px] text-destructive">{t('firewall.rules.invalidPort')}</p>
+                <p id="docker-rule-port-error" className="text-[12px] text-destructive">{t('firewall.docker.invalidPort')}</p>
               )}
             </div>
 
             {/* Protocol */}
             <div className="space-y-1.5">
-              <label className="text-[13px] font-medium">{t('firewall.docker.protocol')}</label>
+              <label htmlFor="docker-rule-protocol" className="text-[13px] font-medium">{t('firewall.docker.protocol')}</label>
               <Select value={addForm.protocol} onValueChange={(v) => setAddForm({ ...addForm, protocol: v })}>
-                <SelectTrigger className="w-full rounded-xl">
+                <SelectTrigger id="docker-rule-protocol" className="w-full rounded-xl">
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
@@ -405,21 +480,23 @@ export default function FirewallDocker() {
 
             {/* Source IP */}
             <div className="space-y-1.5">
-              <label className="text-[13px] font-medium">{t('firewall.docker.source')}</label>
+              <label htmlFor="docker-rule-source" className="text-[13px] font-medium">{t('firewall.docker.source')}</label>
               <Input
+                id="docker-rule-source"
                 value={addForm.source}
                 onChange={(e) => setAddForm({ ...addForm, source: e.target.value })}
                 placeholder="192.168.1.0/24"
-                className="rounded-xl text-[13px]"
+                aria-describedby="docker-rule-source-hint"
+                className="rounded-xl text-base md:text-[13px]"
               />
-              <p className="text-[12px] text-muted-foreground">{t('firewall.docker.sourceHint')}</p>
+              <p id="docker-rule-source-hint" className="text-[12px] text-muted-foreground">{t('firewall.docker.sourceHint')}</p>
             </div>
 
             {/* Action */}
             <div className="space-y-1.5">
-              <label className="text-[13px] font-medium">{t('firewall.docker.action')}</label>
+              <label htmlFor="docker-rule-action" className="text-[13px] font-medium">{t('firewall.docker.action')}</label>
               <Select value={addForm.action} onValueChange={(v) => setAddForm({ ...addForm, action: v })}>
-                <SelectTrigger className="w-full rounded-xl">
+                <SelectTrigger id="docker-rule-action" className="w-full rounded-xl">
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
@@ -435,7 +512,7 @@ export default function FirewallDocker() {
             </Button>
             <Button
               onClick={handleAddRule}
-              disabled={adding || !addForm.port || addPortInvalid}
+              disabled={adding}
               className="rounded-xl"
             >
               {adding && <Loader2 className="h-4 w-4 animate-spin" />}
