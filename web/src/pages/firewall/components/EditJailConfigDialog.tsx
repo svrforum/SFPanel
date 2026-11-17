@@ -96,58 +96,66 @@ export function EditJailConfigDialog({
         <div className="space-y-4">
           {/* Jail name display */}
           <div>
-            <label className="text-[12px] text-muted-foreground uppercase tracking-wider">
+            <p className="text-[12px] text-muted-foreground uppercase tracking-wider">
               Jail
-            </label>
+            </p>
             <p className="text-[13px] font-mono font-medium mt-1">{jail?.name}</p>
           </div>
 
           {/* Max Retry */}
           <div className="space-y-1.5">
-            <label className="text-[13px] font-medium">{t('firewall.fail2ban.maxRetry')}</label>
+            <label htmlFor="edit-jail-max-retry" className="text-[13px] font-medium">{t('firewall.fail2ban.maxRetry')}</label>
             <Input
+              id="edit-jail-max-retry"
               type="number"
               min={1}
               max={100}
               value={maxRetry}
               onChange={(e) => setMaxRetry(e.target.value)}
-              className="rounded-xl text-[13px] font-mono"
+              aria-describedby="edit-jail-max-retry-hint"
+              className="rounded-xl text-base md:text-[13px] font-mono"
             />
-            <p className="text-[12px] text-muted-foreground">{t('firewall.fail2ban.maxRetryHint')}</p>
+            <p id="edit-jail-max-retry-hint" className="text-[12px] text-muted-foreground">{t('firewall.fail2ban.maxRetryHint')}</p>
           </div>
 
           {/* Ban Time */}
           <div className="space-y-1.5">
-            <label className="text-[13px] font-medium">{t('firewall.fail2ban.banTime')}</label>
+            <label htmlFor="edit-jail-ban-time" className="text-[13px] font-medium">{t('firewall.fail2ban.banTime')}</label>
             <Input
+              id="edit-jail-ban-time"
               value={banTime}
               onChange={(e) => setBanTime(e.target.value)}
-              className="rounded-xl text-[13px] font-mono"
+              aria-describedby="edit-jail-ban-time-hint"
+              className="rounded-xl text-base md:text-[13px] font-mono"
             />
-            <p className="text-[12px] text-muted-foreground">{t('firewall.fail2ban.banTimeHint')}</p>
+            <p id="edit-jail-ban-time-hint" className="text-[12px] text-muted-foreground">{t('firewall.fail2ban.banTimeHint')}</p>
           </div>
 
           {/* Find Time */}
           <div className="space-y-1.5">
-            <label className="text-[13px] font-medium">{t('firewall.fail2ban.findTime')}</label>
+            <label htmlFor="edit-jail-find-time" className="text-[13px] font-medium">{t('firewall.fail2ban.findTime')}</label>
             <Input
+              id="edit-jail-find-time"
               value={findTime}
               onChange={(e) => setFindTime(e.target.value)}
-              className="rounded-xl text-[13px] font-mono"
+              aria-describedby="edit-jail-find-time-hint"
+              className="rounded-xl text-base md:text-[13px] font-mono"
             />
-            <p className="text-[12px] text-muted-foreground">{t('firewall.fail2ban.findTimeHint')}</p>
+            <p id="edit-jail-find-time-hint" className="text-[12px] text-muted-foreground">{t('firewall.fail2ban.findTimeHint')}</p>
           </div>
 
           {/* Ignore IP */}
           <div className="space-y-1.5">
-            <label className="text-[13px] font-medium">{t('firewall.fail2ban.ignoreIp')}</label>
+            <label htmlFor="edit-jail-ignore-ip" className="text-[13px] font-medium">{t('firewall.fail2ban.ignoreIp')}</label>
             <Input
+              id="edit-jail-ignore-ip"
               placeholder="127.0.0.1/8 ::1"
               value={ignoreIP}
               onChange={(e) => setIgnoreIP(e.target.value)}
-              className="rounded-xl text-[13px] font-mono"
+              aria-describedby="edit-jail-ignore-ip-hint"
+              className="rounded-xl text-base md:text-[13px] font-mono"
             />
-            <p className="text-[12px] text-muted-foreground">{t('firewall.fail2ban.ignoreIpHelp')}</p>
+            <p id="edit-jail-ignore-ip-hint" className="text-[12px] text-muted-foreground">{t('firewall.fail2ban.ignoreIpHelp')}</p>
           </div>
         </div>
 
