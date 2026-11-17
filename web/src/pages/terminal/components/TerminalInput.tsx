@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
-import { ArrowUp, BookmarkPlus, Keyboard, Loader2, Paperclip, PenLine, Plus, Settings2, X } from 'lucide-react'
+import { ArrowUp, BookmarkPlus, Keyboard, Loader2, Paperclip, PenLine, Plus, Settings2, Trash2, X } from 'lucide-react'
 import { toast } from 'sonner'
 import { api } from '@/lib/api'
 import { cn } from '@/lib/utils'
@@ -37,6 +37,12 @@ function readJSON<T>(key: string, fallback: T): T {
 }
 function writeJSON(key: string, value: unknown) {
   try { localStorage.setItem(key, JSON.stringify(value)) } catch { /* private mode */ }
+}
+// A row's text as its buttons' names carry it: one line, and short. Every row
+// had the same "Remove" and "Save" without it.
+function gist(text: string): string {
+  const line = text.replace(/\s+/g, ' ').trim()
+  return line.length > 40 ? `${line.slice(0, 40)}…` : line
 }
 
 const KEY = 'min-w-0 min-h-12 short:min-h-9 overflow-hidden rounded-lg border border-border bg-secondary text-[13px] font-semibold text-foreground select-none active:bg-accent focus-visible:outline-2 focus-visible:outline-ring'
@@ -87,6 +93,9 @@ export function TerminalInput({ kind, sessionKey, onSendKey, onSubmit, onAttach 
   const [page, setPage] = useState(0)
   const [sendEnter, setSendEnter] = useState(() => readJSON(SEND_ENTER_KEY, true))
   const [recent, setRecent] = useState<string[]>(() => readJSON<string[]>(recentKey(), []))
+  // The list as it was before the last removal, for the way back: offered in
+  // the sheet, as a snippet's is, since a toast cannot be pressed while it is up.
+  const [recentBefore, setRecentBefore] = useState<string[] | null>(null)
   const [sheetOpen, setSheetOpen] = useState(false)
   // The key rows the editor starts from, while it is open.
   const [editingKeys, setEditingKeys] = useState<StoredKeysets | null>(null)
@@ -189,6 +198,21 @@ export function TerminalInput({ kind, sessionKey, onSendKey, onSubmit, onAttach 
     el.style.height = `${Math.min(132, el.scrollHeight + 2)}px`
   }, [draft, composing])
 
+  // What was sent is kept in this browser as written — a password typed at a
+  // sudo prompt included — so each entry can be taken out, or all of them.
+  const keepRecent = (next: string[]) => {
+    setRecent(next)
+    writeJSON(recentKey(), next)
+  }
+  const forgetRecent = (text?: string) => {
+    setRecentBefore(recent)
+    keepRecent(text === undefined ? [] : recent.filter((r) => r !== text))
+  }
+  const restoreRecent = () => {
+    if (recentBefore) keepRecent(recentBefore)
+    setRecentBefore(null)
+  }
+
   const send = () => {
     const text = draft.replace(/[\r\n]+$/, '')
     // Nothing written: the bare Enter an approval prompt waits for.
@@ -197,9 +221,7 @@ export function TerminalInput({ kind, sessionKey, onSendKey, onSubmit, onAttach 
       return
     }
     onSubmit(text, sendEnter)
-    const next = [text, ...recent.filter((r) => r !== text)].slice(0, RECENT_MAX)
-    setRecent(next)
-    writeJSON(recentKey(), next)
+    keepRecent([text, ...recent.filter((r) => r !== text)].slice(0, RECENT_MAX))
     setDraft('')
   }
 
@@ -405,7 +427,10 @@ export function TerminalInput({ kind, sessionKey, onSendKey, onSubmit, onAttach 
         setSheetOpen(open)
         // Opened before the panel has answered: it is asked again.
         if (open && prefsStatus !== 'ready') void loadPrefs()
-        if (!open) setRemoved(null)
+        if (!open) {
+          setRemoved(null)
+          setRecentBefore(null)
+        }
       }}>
         <SheetContent side="bottom" className="max-h-[75dvh] gap-3 overflow-y-auto rounded-t-2xl p-4"
           onCloseAutoFocus={(e) => {
@@ -458,21 +483,41 @@ export function TerminalInput({ kind, sessionKey, onSendKey, onSubmit, onAttach 
             {snippets.map((snippet) => (
               <div key={snippet.body} className="flex items-stretch gap-1">
                 <button type="button" data-snippet onClick={() => compose(snippet.body)} className={ROW}>{snippet.body}</button>
-                <button type="button" aria-label={t('terminal.input.snippetRemove')} onClick={() => void dropSnippet(snippet)} className={ROW_ACTION}>
+                <button type="button" aria-label={t('terminal.input.snippetRemove', { text: gist(snippet.body) })} onClick={() => void dropSnippet(snippet)} className={ROW_ACTION}>
                   <X className="h-4 w-4" aria-hidden="true" />
                 </button>
               </div>
             ))}
           </section>
           <section aria-labelledby="terminal-input-recent" className="flex flex-col gap-1.5">
-            <h3 id="terminal-input-recent" className="text-[12px] font-semibold text-muted-foreground">{t('terminal.input.recent')}</h3>
-            {recent.length === 0 && <p className="text-[13px] text-muted-foreground">{t('terminal.input.recentEmpty')}</p>}
+            <div className="flex items-center justify-between gap-2">
+              <h3 id="terminal-input-recent" className="text-[12px] font-semibold text-muted-foreground">{t('terminal.input.recent')}</h3>
+              {recent.length > 0 && (
+                <button type="button" data-recent-clear onClick={() => forgetRecent()}
+                  className="flex min-h-9 items-center gap-1 rounded-lg px-2 text-[13px] font-medium text-primary active:bg-accent focus-visible:outline-2 focus-visible:outline-ring">
+                  <Trash2 className="h-4 w-4" aria-hidden="true" />{t('terminal.input.recentClear')}
+                </button>
+              )}
+            </div>
+            {recentBefore && (
+              <p role="status" className="flex min-h-11 items-center justify-between gap-2 rounded-xl bg-accent px-3 text-[13px]">
+                {t('terminal.input.recentRemoved')}
+                <button type="button" onClick={restoreRecent}
+                  className="min-h-9 rounded-lg px-2 font-medium text-primary active:bg-background focus-visible:outline-2 focus-visible:outline-ring">
+                  {t('terminal.input.undo')}
+                </button>
+              </p>
+            )}
+            {recent.length === 0 && !recentBefore && <p className="text-[13px] text-muted-foreground">{t('terminal.input.recentEmpty')}</p>}
             {recent.map((text) => (
               <div key={text} className="flex items-stretch gap-1">
                 <button type="button" data-recent onClick={() => compose(text)} className={ROW}>{text}</button>
-                <button type="button" aria-label={t('terminal.input.snippetSaveThis')} onClick={() => void keepSnippet(text)} className={ROW_ACTION}
+                <button type="button" aria-label={t('terminal.input.snippetSaveThis', { text: gist(text) })} onClick={() => void keepSnippet(text)} className={ROW_ACTION}
                   disabled={snippets.some((s) => s.body === snippetBody(text))}>
                   <BookmarkPlus className="h-4 w-4" aria-hidden="true" />
+                </button>
+                <button type="button" aria-label={t('terminal.input.recentRemove', { text: gist(text) })} onClick={() => forgetRecent(text)} className={ROW_ACTION}>
+                  <X className="h-4 w-4" aria-hidden="true" />
                 </button>
               </div>
             ))}

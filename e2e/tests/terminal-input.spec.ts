@@ -379,6 +379,35 @@ test('a draft stays with its session, and what was sent can be had again', async
   await expect.poll(t.focused).toBe('composer')
 })
 
+test('what was sent can be taken out of the list, one or all, with a way back', async ({ page }) => {
+  const t = await openTerminal(page)
+  for (const text of ['echo one', 'hunter2', 'echo three']) {
+    await t.composer.fill(text)
+    await t.send.tap()
+  }
+  const stored = () => page.evaluate(() => JSON.parse(localStorage.getItem('sfpanel_terminal_recent:local') ?? '[]'))
+  await expect.poll(stored).toEqual(['echo three', 'hunter2', 'echo one'])
+  await t.openTools()
+  const rows = t.sheet.locator('[data-recent]')
+  await expect(rows).toHaveText(['echo three', 'hunter2', 'echo one'])
+  // A password typed at a sudo prompt went in like anything else; it comes out.
+  await t.sheet.getByRole('button', { name: 'Remove from recently sent: hunter2', exact: true }).tap()
+  await expect(rows).toHaveText(['echo three', 'echo one'])
+  expect(await stored()).toEqual(['echo three', 'echo one'])
+  await expect(t.sheet.getByRole('status')).toContainText('Removed from recently sent')
+  await t.sheet.getByRole('button', { name: 'Clear all', exact: true }).tap()
+  await expect(rows).toHaveCount(0)
+  expect(await stored()).toEqual([])
+  // The way back restores the list as it was before the last removal.
+  await t.sheet.getByRole('button', { name: 'Undo', exact: true }).tap()
+  await expect(rows).toHaveText(['echo three', 'echo one'])
+  expect(await stored()).toEqual(['echo three', 'echo one'])
+  // From the keyboard as well.
+  await t.sheet.getByRole('button', { name: 'Clear all', exact: true }).focus()
+  await page.keyboard.press('Enter')
+  await expect(rows).toHaveCount(0)
+})
+
 test('an Android app up to 0.1.6 hides the input area: it draws its own keys', async ({ page }) => {
   const t = await openTerminal(page)
   await expect(t.area).toBeVisible()
