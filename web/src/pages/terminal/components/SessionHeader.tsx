@@ -96,12 +96,15 @@ export function SessionHeader({ item, hostInfo, fontSize, cols, onFontSize, sear
     <header data-terminal-chrome className="relative shrink-0 border-b border-console-border text-console-foreground">
       <div className="flex items-center gap-2 h-11 px-2 md:px-3">
         {drawer && (
-          <button type="button" onClick={drawer.onOpen} aria-label={t('terminal.rail.sessions')}
+          // The count is in the name: an aria-label on the badge inside a
+          // labelled button was dropped from it.
+          <button type="button" onClick={drawer.onOpen}
+            aria-label={drawer.waiting > 0 ? `${t('terminal.rail.sessions')}, ${t('terminal.rail.waitingCount', { n: drawer.waiting })}` : t('terminal.rail.sessions')}
             className="relative flex items-center justify-center h-8 w-8 rounded-lg text-console-muted hover:text-console-foreground hover:bg-console-foreground/10 outline-none focus-visible:ring-2 focus-visible:ring-ring">
             <PanelLeft className="h-4 w-4" aria-hidden="true" />
             {drawer.waiting > 0 && (
               <span className="absolute -top-0.5 -right-0.5 min-w-4 h-4 px-1 rounded-full bg-warning text-warning-foreground text-[10px] font-semibold flex items-center justify-center"
-                aria-label={t('terminal.rail.waitingCount', { n: drawer.waiting })}>{drawer.waiting}</span>
+                aria-hidden="true">{drawer.waiting}</span>
             )}
           </button>
         )}

@@ -1,5 +1,35 @@
 import { describe, expect, it } from 'vitest'
-import { DEFAULT_KEYSETS, KEYSETS, KEY_CATALOG, NO_BAR_MODIFIERS, activeModifiers, afterKey, barKey, isDefaultKeyset, keysetKind, keysetPages, tapModifier } from './terminalKeysets'
+import en from '@/i18n/locales/en.json'
+import ko from '@/i18n/locales/ko.json'
+import { DEFAULT_KEYSETS, KEYSETS, KEY_CATALOG, NO_BAR_MODIFIERS, activeModifiers, afterKey, barKey, barKeyName, isDefaultKeyset, keysetKind, keysetPages, tapModifier } from './terminalKeysets'
+
+// i18next's t over one locale file, enough for the key names.
+function translator(locale: Record<string, unknown>) {
+  return (key: string, options?: Record<string, unknown>) => {
+    const found = key.split('.').reduce<unknown>((node, part) => (node as Record<string, unknown>)?.[part], locale)
+    if (typeof found !== 'string') return key
+    return found.replace(/\{\{(\w+)\}\}/g, (_, name: string) => String(options?.[name] ?? ''))
+  }
+}
+
+describe('barKeyName', () => {
+  // A voice user says what they see ("Esc"), and a name that does not contain
+  // it ("이스케이프") cannot be found that way (WCAG 2.5.3). Caps that show only
+  // a symbol — an arrow, ⏎ — have no words to match.
+  it('contains what the cap shows, in both languages', () => {
+    for (const [lang, locale] of [['en', en], ['ko', ko]] as const) {
+      const t = translator(locale)
+      for (const { ids } of KEY_CATALOG) {
+        for (const id of ids) {
+          const key = barKey({ id })!
+          const visible = key.label.replace(/[⇧⏎↑↓←→]/g, '')
+          if (!visible) continue
+          expect(barKeyName(key, t).toLowerCase(), `${lang} ${id}`).toContain(visible.toLowerCase())
+        }
+      }
+    }
+  })
+})
 
 describe('keysetKind', () => {
   it('gives the AI CLIs their own keys and everything else the shell\'s', () => {

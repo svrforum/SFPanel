@@ -127,6 +127,9 @@ export function SessionRail({ groups, active, collapsed, fallback, reattachable,
                         role="img" aria-label={s ? t('ai.state.' + s.state) : t('terminal.rail.temporarySession')} />
                       <span className="h-[18px] w-[18px] rounded-md flex items-center justify-center text-[12px] font-bold shrink-0"
                         style={{ backgroundColor: `${meta.color}1a`, color: meta.color }} aria-hidden="true">{meta.initial}</span>
+                      {/* Collapsed, the row shows no title, and its name was the
+                          state alone: every tab read "Working" or "Shell". */}
+                      {collapsed && <span className="sr-only">{title}</span>}
                       {!collapsed && (
                         <div className="min-w-0 flex-1">
                           {editing === key ? (

@@ -20,9 +20,12 @@ export interface BarKey {
   modifier?: ModifierName
   /** held down, it repeats */
   repeat?: boolean
-  /** its spoken name, a key under terminal.mobile; the label says enough when absent */
+  /** its spoken name, a key under terminal.mobile; the label says enough when
+   *  absent. Where the cap shows letters the name starts with them, so a voice
+   *  user who says "PgUp" finds it (WCAG 2.5.3): "이스케이프" was the name of a
+   *  cap reading Esc. */
   name?: string
-  /** or the name itself, where it needs no translating ("Ctrl+B") */
+  /** or the name itself, where it needs no translating ("^B (Ctrl+B)") */
   spoken?: string
   /** drawn as the one key that stops things */
   danger?: boolean
@@ -46,8 +49,8 @@ export const KEY_LABEL_MAX = 8
 export const KEY_TEXT_MAX = 64
 
 const NAMED: Record<string, BarKey> = {
-  esc: { label: 'Esc', send: '\x1b', name: 'escape' },
-  tab: { label: 'Tab', send: '\t', name: 'tab' },
+  esc: { label: 'Esc', send: '\x1b' },
+  tab: { label: 'Tab', send: '\t' },
   shiftTab: { label: '⇧Tab', send: '\x1b[Z', name: 'shiftTab' },
   // Codex inside tmux answers a queued question and edits its last queued
   // message on this; with Shift on one page and ← on another it was four
@@ -58,8 +61,8 @@ const NAMED: Record<string, BarKey> = {
   down: { label: '↓', send: '\x1b[B', repeat: true, name: 'down' },
   left: { label: '←', send: '\x1b[D', repeat: true, name: 'left' },
   right: { label: '→', send: '\x1b[C', repeat: true, name: 'right' },
-  home: { label: 'Home', send: '\x1b[H', name: 'home' },
-  end: { label: 'End', send: '\x1b[F', name: 'end' },
+  home: { label: 'Home', send: '\x1b[H' },
+  end: { label: 'End', send: '\x1b[F' },
   pageUp: { label: 'PgUp', send: '\x1b[5~', name: 'pageUp' },
   pageDown: { label: 'PgDn', send: '\x1b[6~', name: 'pageDown' },
   ctrl: { label: 'Ctrl', modifier: 'ctrl' },
@@ -89,7 +92,7 @@ export function barKey(key: StoredKey): BarKey | null {
     return {
       label: `^${letter.toUpperCase()}`,
       send: String.fromCharCode(letter.charCodeAt(0) - 96),
-      ...(CONTROL_NAMES[letter] ? { name: CONTROL_NAMES[letter] } : { spoken: `Ctrl+${letter.toUpperCase()}` }),
+      ...(CONTROL_NAMES[letter] ? { name: CONTROL_NAMES[letter] } : { spoken: `^${letter.toUpperCase()} (Ctrl+${letter.toUpperCase()})` }),
       ...(letter === 'c' ? { danger: true } : {}),
     }
   }

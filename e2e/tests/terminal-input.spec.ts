@@ -160,7 +160,7 @@ test('a key leaves the keyboard where it was', async ({ page }) => {
   await t.composer.fill('half written')
   await t.key('Move cursor up').tap()
   await expect.poll(() => t.input.at(-1)).toBe('\x1b[A')
-  await t.key('Escape').tap()
+  await t.key('Esc').tap()
   await expect.poll(() => t.input.at(-1)).toBe('\x1b')
   expect(await t.focused()).toBe('composer')
   await expect(t.composer).toHaveValue('half written')
@@ -179,7 +179,7 @@ test('the terminal takes the keyboard when it is tapped, and no key brings one u
   // app the next tap anywhere on the page opened it, a key of the row included.
   await page.waitForTimeout(400)
   expect(await t.focused()).not.toBe('terminal')
-  await t.key('Escape').tap()
+  await t.key('Esc').tap()
   await expect.poll(() => t.input.at(-1)).toBe('\x1b')
   expect(await t.focused()).not.toBe('terminal')
   await t.terminal.tap()
@@ -596,7 +596,7 @@ test('the keys the operator arranged replace the panel\'s, and a key of their ow
   await expect(row.getByRole('button')).toHaveText(['Esc', '/compact', '^B', 'y', '1/1'])
   const gap = await row.evaluate(el => el.getBoundingClientRect().right - el.querySelector('button:last-of-type')!.getBoundingClientRect().right)
   expect(gap).toBeLessThan(12)
-  await t.key('Ctrl+B').tap()
+  await t.key('^B (Ctrl+B)').tap()
   expect(t.input).toEqual(['\x02'])
   // Its text as a paste, on the live screen, and the Enter it asks for.
   await t.key('/compact').tap()
@@ -622,7 +622,7 @@ test('the key editor moves, removes and adds keys, and saves the arrangement', a
   await expect(page1.getByRole('button', { name: 'Add a key to page 1' })).toHaveCount(0)
 
   // ^C to the front.
-  await page1.getByRole('button', { name: 'Interrupt (Ctrl+C)' }).tap()
+  await page1.getByRole('button', { name: '^C Interrupt (Ctrl+C)' }).tap()
   for (let i = 0; i < 5; i++) await page1.getByRole('button', { name: 'Move earlier' }).tap()
   await expect(chips).toHaveText(['^C', 'Esc', '⇧Tab', '↑', '↓', '⏎', '/'])
   // First of the first page: nowhere earlier to go.
@@ -635,7 +635,7 @@ test('the key editor moves, removes and adds keys, and saves the arrangement', a
   // Two in: one from the catalog, one of their own.
   await page1.getByRole('button', { name: 'Add a key to page 1' }).tap()
   const picker = page1.locator('[data-keys-picker]')
-  await picker.getByRole('button', { name: 'Ctrl+B', exact: true }).tap()
+  await picker.getByRole('button', { name: '^B (Ctrl+B)', exact: true }).tap()
   const add = picker.getByRole('button', { name: 'Add', exact: true })
   await expect(add).toBeDisabled()
   await picker.getByRole('textbox', { name: 'What it types' }).fill('/compact')
@@ -677,7 +677,7 @@ test('a key at its page\'s edge moves to the next page, and the panel\'s keys co
   await expect(editor.locator('[data-keys-page="2"]').getByRole('button', { name: 'Tab', exact: true })).toHaveAttribute('aria-pressed', 'true')
   // A third page, and a key on it.
   await editor.getByRole('button', { name: 'Add a page' }).tap()
-  await editor.locator('[data-keys-page="3"] [data-keys-picker]').getByRole('button', { name: 'Ctrl+L', exact: true }).tap()
+  await editor.locator('[data-keys-page="3"] [data-keys-picker]').getByRole('button', { name: '^L (Ctrl+L)', exact: true }).tap()
   // The AI tools' keys go back to the panel's own.
   await editor.getByRole('button', { name: 'AI tools' }).tap()
   await expect(chipsOf(1)).toHaveText(['⏎'])
@@ -693,7 +693,7 @@ test('an arrangement the panel does not keep stays open to try again', async ({ 
   await t.openTools()
   await t.sheet.getByRole('button', { name: /Edit the keys/ }).tap()
   const editor = page.locator('[data-keys-editor]')
-  await editor.locator('[data-keys-page="1"]').getByRole('button', { name: 'Escape', exact: true }).tap()
+  await editor.locator('[data-keys-page="1"]').getByRole('button', { name: 'Esc', exact: true }).tap()
   await editor.getByRole('button', { name: 'Remove the key' }).tap()
   await editor.getByRole('button', { name: 'Save', exact: true }).tap()
   await expect(page.getByText('Could not be saved')).toBeVisible()
