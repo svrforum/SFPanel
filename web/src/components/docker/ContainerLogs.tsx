@@ -207,20 +207,21 @@ export default function ContainerLogs({ containerId }: ContainerLogsProps) {
     <div className="bg-[#0a0a0a] rounded-2xl overflow-hidden card-shadow">
       {!connected && <Button variant="outline" className="m-2" onClick={() => setAttempt(n => n + 1)}>{t('docker.improvements.reconnect')}</Button>}
       {/* Toolbar */}
-      <div className="flex items-center justify-between px-3 py-2 bg-[#111111] border-b border-white/[0.06]">
-        <div className="flex items-center gap-2">
+      <div className="flex flex-wrap items-center justify-between gap-y-1 px-3 py-2 bg-[#111111] border-b border-white/[0.06]">
+        <div className="flex flex-wrap items-center gap-2">
           <div className="flex items-center gap-1.5">
             <Circle className={`h-2 w-2 fill-current ${connected ? 'text-success' : 'text-destructive'}`} />
-            <span className="text-[12px] text-white/40 font-medium">
+            <span className="text-[12px] text-white/70 font-medium">
               {connected ? t('terminal.connected') : t('terminal.disconnected')}
             </span>
           </div>
           {/* Log options */}
-          <div className="flex items-center gap-1 ml-2 border-l border-white/[0.08] pl-2">
+          <div className="flex flex-wrap items-center gap-1 ml-2 border-l border-white/[0.08] pl-2">
             <select
+              aria-label={t('logs.lines')}
               value={tail}
               onChange={(e) => setTail(e.target.value)}
-              className="h-5 text-[12px] bg-white/[0.06] border border-white/[0.08] text-white/60 rounded px-1 appearance-none cursor-pointer"
+              className="h-8 md:h-6 text-base md:text-[12px] bg-white/[0.06] border border-white/[0.08] text-white/70 rounded px-1 appearance-none cursor-pointer"
             >
               <option value="100">{t('logs.lineCount', '{{n}} lines', { n: 100 })}</option>
               <option value="500">{t('logs.lineCount', '{{n}} lines', { n: 500 })}</option>
@@ -228,18 +229,20 @@ export default function ContainerLogs({ containerId }: ContainerLogsProps) {
               <option value="all">{t('logs.all', 'All')}</option>
             </select>
             <select
+              aria-label={t('docker.containers.logStream')}
               value={stream}
               onChange={(e) => setStream(e.target.value)}
-              className="h-5 text-[12px] bg-white/[0.06] border border-white/[0.08] text-white/60 rounded px-1 appearance-none cursor-pointer"
+              className="h-8 md:h-6 text-base md:text-[12px] bg-white/[0.06] border border-white/[0.08] text-white/70 rounded px-1 appearance-none cursor-pointer"
             >
               <option value="all">{t('logs.all', 'All')}</option>
               <option value="stdout">stdout</option>
               <option value="stderr">stderr</option>
             </select>
             <select
+              aria-label={t('docker.containers.logSince')}
               value={since}
               onChange={(e) => setSince(e.target.value)}
-              className="h-5 text-[12px] bg-white/[0.06] border border-white/[0.08] text-white/60 rounded px-1 appearance-none cursor-pointer"
+              className="h-8 md:h-6 text-base md:text-[12px] bg-white/[0.06] border border-white/[0.08] text-white/70 rounded px-1 appearance-none cursor-pointer"
             >
               <option value="all">{t('logs.allTime', 'All time')}</option>
               <option value="1h">{t('logs.lastHours', '{{n}}h', { n: 1 })}</option>
@@ -249,9 +252,10 @@ export default function ContainerLogs({ containerId }: ContainerLogsProps) {
             <Button
               variant="ghost"
               size="icon"
-              className={`text-white/40 hover:text-white hover:bg-white/10 ${timestamps ? 'text-primary' : ''}`}
+              className={`text-white/40 hover:text-white hover:bg-white/10 ${timestamps ? 'text-primary bg-white/10' : ''}`}
               title={t('logs.timestamps', 'Timestamps')}
               aria-label={t('logs.timestamps', 'Timestamps')}
+              aria-pressed={timestamps}
               onClick={() => setTimestamps(!timestamps)}
             >
               <span className="text-[12px] font-mono">T</span>
@@ -262,9 +266,10 @@ export default function ContainerLogs({ containerId }: ContainerLogsProps) {
           <Button
             variant="ghost"
             size="icon"
-            className={`text-white/40 hover:text-white hover:bg-white/10 ${autoScroll ? 'text-primary' : ''}`}
+            className={`text-white/40 hover:text-white hover:bg-white/10 ${autoScroll ? 'text-primary bg-white/10' : ''}`}
             title={t('logs.autoScroll')}
             aria-label={t('logs.autoScroll')}
+            aria-pressed={autoScroll}
             onClick={() => {
               setAutoScroll(!autoScroll)
               if (!autoScroll) termRef.current?.scrollToBottom()
@@ -275,9 +280,10 @@ export default function ContainerLogs({ containerId }: ContainerLogsProps) {
           <Button
             variant="ghost"
             size="icon"
-            className={`text-white/40 hover:text-white hover:bg-white/10 ${searchOpen ? 'text-primary' : ''}`}
+            className={`text-white/40 hover:text-white hover:bg-white/10 ${searchOpen ? 'text-primary bg-white/10' : ''}`}
             title={t('terminal.search')}
             aria-label={t('terminal.search')}
+            aria-pressed={searchOpen}
             onClick={() => {
               setSearchOpen(!searchOpen)
               if (searchOpen) {
@@ -319,8 +325,9 @@ export default function ContainerLogs({ containerId }: ContainerLogsProps) {
                   searchAddonRef.current?.clearDecorations()
                 }
               }}
+              aria-label={t('terminal.search')}
               placeholder={t('terminal.searchPlaceholder')}
-              className="h-7 pl-7 text-[12px] bg-white/[0.06] border-white/[0.08] text-white placeholder:text-white/30 rounded-lg focus-visible:ring-ring"
+              className="h-7 pl-7 text-base md:text-[12px] bg-white/[0.06] border-white/[0.08] text-white placeholder:text-white/30 rounded-lg focus-visible:ring-ring"
               autoFocus
             />
           </div>

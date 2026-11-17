@@ -15,12 +15,7 @@ interface ComposeLogsProps {
   serviceNames: string[]
 }
 
-const TAIL_OPTIONS = [
-  { label: '100', value: 100 },
-  { label: '500', value: 500 },
-  { label: '1000', value: 1000 },
-  { label: 'All', value: 0 },
-]
+const TAIL_OPTIONS = [100, 500, 1000, 0]
 
 export default function ComposeLogs({ project, serviceNames }: ComposeLogsProps) {
   const { t } = useTranslation()
@@ -173,20 +168,21 @@ export default function ComposeLogs({ project, serviceNames }: ComposeLogsProps)
     <div className="bg-[#0a0a0a] rounded-2xl overflow-hidden card-shadow">
       {!connected && <Button variant="outline" className="m-2" onClick={() => setAttempt(n => n + 1)}>{t('docker.improvements.reconnect')}</Button>}
       {/* Toolbar */}
-      <div className="flex items-center justify-between px-3 py-2 bg-[#111111] border-b border-white/[0.06]">
-        <div className="flex items-center gap-3">
+      <div className="flex flex-wrap items-center justify-between gap-y-1 px-3 py-2 bg-[#111111] border-b border-white/[0.06]">
+        <div className="flex flex-wrap items-center gap-3">
           <div className="flex items-center gap-1.5">
             <Circle className={`h-2 w-2 fill-current ${connected ? 'text-success' : 'text-destructive'}`} />
-            <span className="text-[12px] text-white/40 font-medium">
+            <span className="text-[12px] text-white/70 font-medium">
               {connected ? t('terminal.connected') : t('terminal.disconnected')}
             </span>
           </div>
 
           {/* Service filter */}
           <select
+            aria-label={t('docker.stacks.services')}
             value={selectedService}
             onChange={(e) => setSelectedService(e.target.value)}
-            className="h-6 px-2 text-[12px] bg-white/[0.06] border border-white/[0.08] text-white/70 rounded-md focus:outline-none focus:ring-1 focus:ring-ring"
+            className="h-8 md:h-6 px-2 text-base md:text-[12px] bg-white/[0.06] border border-white/[0.08] text-white/70 rounded-md focus:outline-none focus:ring-1 focus:ring-ring"
           >
             <option value="">{t('docker.stacks.allServices', 'All services')}</option>
             {serviceNames.map(name => (
@@ -196,13 +192,14 @@ export default function ComposeLogs({ project, serviceNames }: ComposeLogsProps)
 
           {/* Tail selector */}
           <select
+            aria-label={t('logs.lines')}
             value={tail}
             onChange={(e) => setTail(Number(e.target.value))}
-            className="h-6 px-2 text-[12px] bg-white/[0.06] border border-white/[0.08] text-white/70 rounded-md focus:outline-none focus:ring-1 focus:ring-ring"
+            className="h-8 md:h-6 px-2 text-base md:text-[12px] bg-white/[0.06] border border-white/[0.08] text-white/70 rounded-md focus:outline-none focus:ring-1 focus:ring-ring"
           >
-            {TAIL_OPTIONS.map(opt => (
-              <option key={opt.value} value={opt.value}>
-                {opt.value === 0 ? t('docker.stacks.allLogs', 'All') : `${t('docker.stacks.lastLines', 'Last')} ${opt.label}`}
+            {TAIL_OPTIONS.map(n => (
+              <option key={n} value={n}>
+                {n === 0 ? t('docker.stacks.allLogs', 'All') : t('logs.lineCount', { n })}
               </option>
             ))}
           </select>
@@ -211,9 +208,10 @@ export default function ComposeLogs({ project, serviceNames }: ComposeLogsProps)
           <Button
             variant="ghost"
             size="icon-xs"
-            className={`text-white/40 hover:text-white hover:bg-white/10 ${autoScroll ? 'text-primary' : ''}`}
-            title="Auto-scroll"
-            aria-label="Auto-scroll"
+            className={`text-white/40 hover:text-white hover:bg-white/10 ${autoScroll ? 'text-primary bg-white/10' : ''}`}
+            title={t('logs.autoScroll')}
+            aria-label={t('logs.autoScroll')}
+            aria-pressed={autoScroll}
             onClick={() => {
               setAutoScroll(!autoScroll)
               if (!autoScroll) termRef.current?.scrollToBottom()
@@ -224,9 +222,10 @@ export default function ComposeLogs({ project, serviceNames }: ComposeLogsProps)
           <Button
             variant="ghost"
             size="icon-xs"
-            className={`text-white/40 hover:text-white hover:bg-white/10 ${searchOpen ? 'text-primary' : ''}`}
+            className={`text-white/40 hover:text-white hover:bg-white/10 ${searchOpen ? 'text-primary bg-white/10' : ''}`}
             title={t('terminal.search')}
             aria-label={t('terminal.search')}
+            aria-pressed={searchOpen}
             onClick={() => {
               setSearchOpen(!searchOpen)
               if (searchOpen) {
@@ -268,8 +267,9 @@ export default function ComposeLogs({ project, serviceNames }: ComposeLogsProps)
                   searchAddonRef.current?.clearDecorations()
                 }
               }}
+              aria-label={t('terminal.search')}
               placeholder={t('terminal.searchPlaceholder')}
-              className="h-7 pl-7 text-[12px] bg-white/[0.06] border-white/[0.08] text-white placeholder:text-white/30 rounded-lg focus-visible:ring-ring"
+              className="h-7 pl-7 text-base md:text-[12px] bg-white/[0.06] border-white/[0.08] text-white placeholder:text-white/30 rounded-lg focus-visible:ring-ring"
               autoFocus
             />
           </div>
