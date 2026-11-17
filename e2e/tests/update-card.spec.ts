@@ -68,7 +68,7 @@ async function startUpdate(page: Page, cluster: boolean) {
   await page.goto(cluster ? '/settings?scope=node&tab=system' : '/settings?tab=system')
   await card(page).getByRole('button', { name: 'Check for Updates' }).click()
   await card(page).getByRole('button', { name: 'Update Now' }).click()
-  await page.getByRole('dialog').getByRole('button', { name: 'Confirm' }).click()
+  await page.getByRole('dialog').getByRole('button', { name: 'Update Now' }).click()
 }
 
 test('shows why an update failed', async ({ page }) => {

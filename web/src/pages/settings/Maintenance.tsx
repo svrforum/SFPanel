@@ -111,9 +111,11 @@ export default function Maintenance({ clusterEnabled }: MaintenanceProps) {
 
   async function handleRunUpdate() {
     const named = clusterEnabled && updateNode
-    if (!(await confirm(named
-      ? { title: t('settings.updateNode', { node: updateNode }), description: t('settings.updateConfirm') }
-      : { title: t('settings.updateConfirm') }))) return
+    if (!(await confirm({
+      title: named ? t('settings.updateNode', { node: updateNode }) : t('settings.update'),
+      description: t('settings.updateConfirm'),
+      confirmLabel: t('settings.updateNow'),
+    }))) return
     setUpdating(true)
     setUpdateStep('')
     setUpdateError('')
@@ -177,7 +179,11 @@ export default function Maintenance({ clusterEnabled }: MaintenanceProps) {
   // A manager's archive carries the cluster's JWT key (config.yaml) and the
   // admin account: say so before it leaves the node. An agent's key is its own.
   async function handleDownloadBackup() {
-    if (clusterEnabled && !selectedIsAgent && !(await confirm({ title: t('settings.backupClusterWarn') }))) {
+    if (clusterEnabled && !selectedIsAgent && !(await confirm({
+      title: t('settings.downloadBackup'),
+      description: t('settings.backupClusterWarn'),
+      confirmLabel: t('settings.downloadBackup'),
+    }))) {
       return
     }
     setBackupLoading(true)
@@ -195,7 +201,12 @@ export default function Maintenance({ clusterEnabled }: MaintenanceProps) {
   async function handleRestoreBackup(e: ChangeEvent<HTMLInputElement>) {
     const file = e.target.files?.[0]
     if (!file) return
-    if (!(await confirm({ title: t('settings.restoreConfirm'), danger: true }))) {
+    if (!(await confirm({
+      title: t('settings.restore'),
+      description: t('settings.restoreConfirm', { name: file.name }),
+      confirmLabel: t('settings.restoreAction'),
+      danger: true,
+    }))) {
       e.target.value = ''
       return
     }
@@ -224,7 +235,12 @@ export default function Maintenance({ clusterEnabled }: MaintenanceProps) {
   // agent has none; the note beside the restore button says what it refuses.
   async function confirmClusterRestore(): Promise<boolean> {
     if (!clusterEnabled || selectedIsAgent) return true
-    return confirm({ title: t('settings.restoreClusterWarn'), danger: true })
+    return confirm({
+      title: t('settings.restore'),
+      description: t('settings.restoreClusterWarn'),
+      confirmLabel: t('settings.restoreAnyway'),
+      danger: true,
+    })
   }
 
   // The node restarts once the archive is in. Wait for that node — not this
@@ -293,6 +309,7 @@ export default function Maintenance({ clusterEnabled }: MaintenanceProps) {
     if (!(await confirm({
       title: t('settings.backupSchedule.restoreConfirmTitle'),
       description: t('settings.backupSchedule.restoreConfirm', { name }),
+      confirmLabel: t('settings.restoreAction'),
       danger: true,
     }))) return
     // The same question and the same wait as an upload: it is the same restore.
@@ -309,7 +326,11 @@ export default function Maintenance({ clusterEnabled }: MaintenanceProps) {
   }
 
   async function handleDeleteBackupFile(name: string) {
-    if (!(await confirm({ title: t('settings.backupSchedule.deleteConfirm', { name }), danger: true }))) return
+    if (!(await confirm({
+      title: t('settings.backupSchedule.deleteConfirm', { name }),
+      confirmLabel: t('settings.backupSchedule.deleteAction'),
+      danger: true,
+    }))) return
     try {
       await api.deleteBackupFile(name)
       toast.success(t('settings.backupSchedule.deleted'))

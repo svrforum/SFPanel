@@ -92,7 +92,7 @@ test('an agent says which backups restore on it, and asks nothing about Raft', a
   await expect(page.getByText(agentNote)).toBeVisible()
 
   await upload(page)
-  await confirmDialog(page).getByRole('button', { name: 'Confirm' }).click()
+  await confirmDialog(page).getByRole('button', { name: 'Restore this backup' }).click()
   // One question, then the upload: no Raft warning in between.
   await expect.poll(() => m.restores.length).toBe(1)
   expect(m.restores[0]).toEqual({ path: '/system/restore', node: 'agent-1' })
@@ -115,7 +115,7 @@ test("a manager's backup refused on an agent is worded", async ({ page }) => {
   // The node list says agent-1 is an agent; before it, the screen asks as for a manager.
   await expect(page.getByText(agentNote)).toBeVisible()
   await upload(page)
-  await confirmDialog(page).getByRole('button', { name: 'Confirm' }).click()
+  await confirmDialog(page).getByRole('button', { name: 'Restore this backup' }).click()
   await expect(page.getByText("A manager's backup holds the cluster's secrets and does not go on an agent.")).toBeVisible()
   await expect(page.getByText(/Refusing to restore/)).toHaveCount(0)
   // Nothing restarts after a refusal: the button comes back. It used to stay
@@ -128,12 +128,12 @@ test('a scheduled backup restore asks the cluster question and waits for the nod
   const m = await mock(page, 'm-2')
   await openSystem(page)
   await page.getByRole('button', { name: 'Restore', exact: true }).click()
-  await confirmDialog(page).getByRole('button', { name: 'Confirm' }).click()
+  await confirmDialog(page).getByRole('button', { name: 'Restore this backup' }).click()
   // The same Raft question the upload path asks, before anything is sent.
   await expect(confirmDialog(page).getByText(raftWarn)).toBeVisible()
   expect(m.restores).toHaveLength(0)
   m.setDown(true)
-  await confirmDialog(page).getByRole('button', { name: 'Confirm' }).click()
+  await confirmDialog(page).getByRole('button', { name: 'Restore anyway' }).click()
   await expect.poll(() => m.restores.length).toBe(1)
   expect(m.restores[0]).toEqual({ path: '/system/restore/file', node: 'm-2' })
   await page.evaluate(() => { (window as unknown as { before: boolean }).before = true })
@@ -158,10 +158,10 @@ test('an upload restore waits for the selected node, not this one', async ({ pag
   const m = await mock(page, 'm-2')
   await openSystem(page)
   await upload(page)
-  await confirmDialog(page).getByRole('button', { name: 'Confirm' }).click()
+  await confirmDialog(page).getByRole('button', { name: 'Restore this backup' }).click()
   m.setDown(true)
   await confirmDialog(page).getByText(raftWarn).waitFor()
-  await confirmDialog(page).getByRole('button', { name: 'Confirm' }).click()
+  await confirmDialog(page).getByRole('button', { name: 'Restore anyway' }).click()
   await expect.poll(() => m.restores.length).toBe(1)
   await page.evaluate(() => { (window as unknown as { before: boolean }).before = true })
 
@@ -184,3 +184,4 @@ test("a manager's backup download says it holds the cluster's JWT key", async ({
   await page.getByRole('button', { name: 'Download Backup' }).click()
   await expect(confirmDialog(page).getByText("A manager's backup holds the cluster's JWT key (config.yaml) and the admin account. Keep it somewhere safe.")).toBeVisible()
 })
+
