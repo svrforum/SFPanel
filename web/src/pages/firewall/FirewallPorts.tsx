@@ -3,6 +3,7 @@ import { useTranslation } from 'react-i18next'
 import { Globe, Plus, Loader2, RefreshCw, Search, ArrowUpDown, ArrowUp, ArrowDown } from 'lucide-react'
 import { toast } from 'sonner'
 import { api } from '@/lib/api'
+import { ListLoadState } from '@/components/ListLoadState'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import {
@@ -34,7 +35,9 @@ import { useLockoutGuard } from './useLockoutGuard'
 type SortKey = 'port' | 'process' | 'protocol' | 'address' | 'none'
 type SortDir = 'asc' | 'desc'
 
-/** Sortable column header — keyboard-accessible, exposes aria-sort. */
+/** Sortable column header: a button inside the header cell, which keeps its
+ * columnheader role and with it aria-sort (role="button" on the cell dropped
+ * both). */
 function SortableHead({
   label,
   active,
@@ -50,14 +53,14 @@ function SortableHead({
 }) {
   return (
     <TableHead
-      className={`cursor-pointer select-none outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring ${className ?? ''}`}
-      role="button"
-      tabIndex={0}
+      className={className}
       aria-sort={active ? (dir === 'asc' ? 'ascending' : 'descending') : 'none'}
-      onClick={onSort}
-      onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); onSort() } }}
     >
-      <span className="inline-flex items-center text-[12px]">
+      <button
+        type="button"
+        onClick={onSort}
+        className="inline-flex items-center rounded-md text-[12px] font-medium select-none outline-none focus-visible:ring-2 focus-visible:ring-ring"
+      >
         {label}
         {active ? (
           dir === 'asc'
@@ -66,7 +69,7 @@ function SortableHead({
         ) : (
           <ArrowUpDown className="h-3 w-3 ml-1 opacity-40" />
         )}
-      </span>
+      </button>
     </TableHead>
   )
 }
@@ -75,6 +78,8 @@ export default function FirewallPorts() {
   const { t } = useTranslation()
   const [ports, setPorts] = useState<ListeningPort[]>([])
   const [loading, setLoading] = useState(true)
+  // A failed first load: an empty table would read as "no open ports".
+  const [error, setError] = useState<string | null>(null)
   const [addTarget, setAddTarget] = useState<ListeningPort | null>(null)
   const [ruleAction, setRuleAction] = useState<string>('allow')
   const [ruleFrom, setRuleFrom] = useState<string>('')
@@ -94,9 +99,11 @@ export default function FirewallPorts() {
   const fetchPorts = useCallback(async () => {
     try {
       setLoading(true)
+      setError(null)
       const data = await api.getListeningPorts()
       setPorts(data.ports || [])
-    } catch {
+    } catch (err: unknown) {
+      setError(err instanceof Error ? err.message : String(err))
       toast.error(t('firewall.ports.fetchFailed'))
     } finally {
       setLoading(false)
@@ -206,6 +213,32 @@ export default function FirewallPorts() {
   // way, and it was only a toast with no way to go ahead.
   const { handleLockoutError, clearLockout, lockoutDialog } = useLockoutGuard()
 
+  const handleAddClick = () => {
+    if (fromError) {
+      document.getElementById('port-rule-from')?.focus()
+      return
+    }
+    void runAddRule(false)
+  }
+
+  // The row's "Add UFW Rule", in its table row and on its phone card.
+  const addButton = (port: ListeningPort, visibility: string) => (
+    <Button
+      variant="ghost"
+      size="sm"
+      className={`h-7 text-xs ${visibility}`}
+      onClick={() => handleOpenAddDialog(port)}
+    >
+      <Plus className="h-3.5 w-3.5 mr-1" />
+      {t('firewall.ports.addToUFW')}
+    </Button>
+  )
+
+  const clearFilters = () => {
+    setSearch('')
+    setFilterProtocol('all')
+  }
+
   const runAddRule = async (force: boolean) => {
     if (!addTarget || fromError) return
     setAdding(true)
@@ -229,7 +262,6 @@ export default function FirewallPorts() {
       setAdding(false)
     }
   }
-  const handleAddRule = () => runAddRule(false)
 
   return (
     <div className="space-y-4">
@@ -258,11 +290,11 @@ export default function FirewallPorts() {
             value={search}
             onChange={(e) => setSearch(e.target.value)}
             placeholder={t('firewall.ports.search')}
-            className="pl-9 h-9 rounded-xl bg-secondary/50 border-0 text-[13px]"
+            className="pl-9 h-9 rounded-xl bg-secondary/50 border-0 text-base md:text-[13px]"
           />
         </div>
         <Select value={filterProtocol} onValueChange={setFilterProtocol}>
-          <SelectTrigger className="w-28 h-9 rounded-xl text-[13px]">
+          <SelectTrigger aria-label={t('firewall.ports.protocol')} className="w-28 h-9 rounded-xl text-[13px]">
             <SelectValue />
           </SelectTrigger>
           <SelectContent>
@@ -274,93 +306,110 @@ export default function FirewallPorts() {
       </div>
 
       {/* Ports table */}
-      <div className="bg-card rounded-2xl card-shadow overflow-hidden">
-        <Table>
-          <TableHeader>
-            <TableRow>
-              <SortableHead
-                className="w-24"
-                label={t('firewall.ports.protocol')}
-                active={sortKey === 'protocol'}
-                dir={sortDir}
-                onSort={() => handleSort('protocol')}
-              />
-              <SortableHead
-                label={t('firewall.ports.address')}
-                active={sortKey === 'address'}
-                dir={sortDir}
-                onSort={() => handleSort('address')}
-              />
-              <SortableHead
-                className="w-24"
-                label={t('firewall.ports.port')}
-                active={sortKey === 'port'}
-                dir={sortDir}
-                onSort={() => handleSort('port')}
-              />
-              <SortableHead
-                label={t('firewall.ports.process')}
-                active={sortKey === 'process'}
-                dir={sortDir}
-                onSort={() => handleSort('process')}
-              />
-              <TableHead className="w-20 text-[12px]">{t('firewall.ports.pid')}</TableHead>
-              <TableHead className="text-right w-32 text-[12px]">{t('common.actions')}</TableHead>
-            </TableRow>
-          </TableHeader>
-          <TableBody>
-            {ports.length === 0 && !loading && (
+      {error && ports.length === 0 ? (
+        <ListLoadState
+          loading={false}
+          error={error}
+          errorTitle={t('firewall.ports.fetchFailed')}
+          onRetry={fetchPorts}
+        />
+      ) : loading && ports.length === 0 ? (
+        <ListLoadState loading error={null} errorTitle="" onRetry={fetchPorts} />
+      ) : ports.length === 0 ? (
+        <div className="bg-card rounded-2xl card-shadow p-8 text-center text-muted-foreground text-[13px]">
+          {t('firewall.ports.noPorts')}
+        </div>
+      ) : filteredAndSorted.length === 0 ? (
+        // A filter that matches nothing is not "no open ports".
+        <div className="bg-card rounded-2xl card-shadow p-8 text-center text-muted-foreground text-[13px] space-y-3">
+          <p>
+            {search.trim()
+              ? t('firewall.ports.noMatch', { q: search.trim() })
+              : t('firewall.ports.noMatchFilter')}
+          </p>
+          <Button variant="outline" size="sm" className="rounded-xl" onClick={clearFilters}>
+            {t('firewall.ports.clearFilters')}
+          </Button>
+        </div>
+      ) : (
+        <div className="bg-card rounded-2xl card-shadow overflow-hidden">
+          {/* A table from md, cards below it: on a phone the port column itself
+              was past the screen's edge. */}
+          <Table className="hidden md:table">
+            <TableHeader>
               <TableRow>
-                <TableCell colSpan={6} className="text-center text-muted-foreground py-8">
-                  {t('firewall.ports.noPorts')}
-                </TableCell>
+                <SortableHead
+                  className="w-24"
+                  label={t('firewall.ports.protocol')}
+                  active={sortKey === 'protocol'}
+                  dir={sortDir}
+                  onSort={() => handleSort('protocol')}
+                />
+                <SortableHead
+                  label={t('firewall.ports.address')}
+                  active={sortKey === 'address'}
+                  dir={sortDir}
+                  onSort={() => handleSort('address')}
+                />
+                <SortableHead
+                  className="w-24"
+                  label={t('firewall.ports.port')}
+                  active={sortKey === 'port'}
+                  dir={sortDir}
+                  onSort={() => handleSort('port')}
+                />
+                <SortableHead
+                  label={t('firewall.ports.process')}
+                  active={sortKey === 'process'}
+                  dir={sortDir}
+                  onSort={() => handleSort('process')}
+                />
+                <TableHead className="w-20 text-[12px]">{t('firewall.ports.pid')}</TableHead>
+                <TableHead className="text-right w-32 text-[12px]">{t('common.actions')}</TableHead>
               </TableRow>
-            )}
-            {loading && ports.length === 0 && (
-              <TableRow>
-                <TableCell colSpan={6} className="text-center text-muted-foreground py-8">
-                  <Loader2 className="h-5 w-5 animate-spin mx-auto" />
-                </TableCell>
-              </TableRow>
-            )}
-            {!loading && filteredAndSorted.length === 0 && ports.length > 0 && (
-              <TableRow>
-                <TableCell colSpan={6} className="text-center text-muted-foreground py-8">
-                  {t('firewall.ports.noPorts')}
-                </TableCell>
-              </TableRow>
-            )}
+            </TableHeader>
+            <TableBody>
+              {filteredAndSorted.map((port, idx) => (
+                <TableRow key={`${port.protocol}-${port.address}-${port.port}-${idx}`} className="group">
+                  <TableCell>
+                    <span className={getProtocolStyle(port.protocol)}>
+                      {port.protocol.toUpperCase()}
+                    </span>
+                  </TableCell>
+                  <TableCell className="text-[13px] font-mono">{port.address}</TableCell>
+                  <TableCell className="text-[13px] font-mono font-medium">{port.port}</TableCell>
+                  <TableCell className="text-[13px]">{port.process || '—'}</TableCell>
+                  <TableCell className="text-[13px] font-mono text-muted-foreground">
+                    {port.pid > 0 ? port.pid : '—'}
+                  </TableCell>
+                  <TableCell className="text-right">
+                    {ufwManaged && addButton(port, 'opacity-100 md:can-hover:opacity-0 md:group-hover:opacity-100 md:group-focus-within:opacity-100 transition-opacity')}
+                  </TableCell>
+                </TableRow>
+              ))}
+            </TableBody>
+          </Table>
+          <ul className="md:hidden divide-y divide-border">
             {filteredAndSorted.map((port, idx) => (
-              <TableRow key={`${port.protocol}-${port.address}-${port.port}-${idx}`} className="group">
-                <TableCell>
-                  <span className={getProtocolStyle(port.protocol)}>
-                    {port.protocol.toUpperCase()}
-                  </span>
-                </TableCell>
-                <TableCell className="text-[13px] font-mono">{port.address}</TableCell>
-                <TableCell className="text-[13px] font-mono font-medium">{port.port}</TableCell>
-                <TableCell className="text-[13px]">{port.process || '—'}</TableCell>
-                <TableCell className="text-[13px] font-mono text-muted-foreground">
-                  {port.pid > 0 ? port.pid : '—'}
-                </TableCell>
-                <TableCell className="text-right">
-                  {ufwManaged && (
-                    <Button
-                      variant="ghost"
-                      size="sm"
-                      className="h-7 text-xs opacity-100 md:opacity-0 md:group-hover:opacity-100 md:group-focus-within:opacity-100 transition-opacity"
-                      onClick={() => handleOpenAddDialog(port)}
-                    >
-                      <Plus className="h-3.5 w-3.5 mr-1" />
-                      {t('firewall.ports.addToUFW')}
-                    </Button>
-                  )}
-                </TableCell>
-              </TableRow>
+              <li key={`${port.protocol}-${port.address}-${port.port}-${idx}`} className="flex items-center gap-2 p-3">
+                <div className="min-w-0 flex-1 space-y-1">
+                  <div className="flex items-center gap-2">
+                    <span className="font-mono text-[13px] font-medium">{port.port}</span>
+                    <span className={getProtocolStyle(port.protocol)}>{port.protocol.toUpperCase()}</span>
+                  </div>
+                  <p className="text-[12px] text-muted-foreground break-all">
+                    <span className="font-mono">{port.address}</span>
+                    {' · '}
+                    {port.process || '—'}
+                    {port.pid > 0 && <span className="font-mono"> ({port.pid})</span>}
+                  </p>
+                </div>
+                {ufwManaged && addButton(port, 'shrink-0')}
+              </li>
             ))}
-          </TableBody>
-        </Table>
-      </div>
+          </ul>
+        </div>
+      )}
 
       {/* Add to UFW Dialog */}
       <Dialog open={!!addTarget} onOpenChange={(open) => { if (!open) setAddTarget(null) }}>
@@ -372,15 +421,15 @@ export default function FirewallPorts() {
             {/* Port info */}
             <div className="grid grid-cols-2 gap-3">
               <div>
-                <label className="text-[12px] text-muted-foreground uppercase tracking-wider">
+                <p className="text-[12px] text-muted-foreground uppercase tracking-wider">
                   {t('firewall.rules.port')}
-                </label>
+                </p>
                 <p className="text-[13px] font-mono font-medium mt-1">{addTarget?.port}</p>
               </div>
               <div>
-                <label className="text-[12px] text-muted-foreground uppercase tracking-wider">
+                <p className="text-[12px] text-muted-foreground uppercase tracking-wider">
                   {t('firewall.rules.protocol')}
-                </label>
+                </p>
                 <p className="text-[13px] font-mono font-medium mt-1">
                   {addTarget ? normalizeProtocol(addTarget.protocol).toUpperCase() : ''}
                 </p>
@@ -389,9 +438,9 @@ export default function FirewallPorts() {
 
             {/* Action selector */}
             <div className="space-y-1.5">
-              <label className="text-[13px] font-medium">{t('firewall.rules.action')}</label>
+              <label htmlFor="port-rule-action" className="text-[13px] font-medium">{t('firewall.rules.action')}</label>
               <Select value={ruleAction} onValueChange={setRuleAction}>
-                <SelectTrigger className="rounded-xl">
+                <SelectTrigger id="port-rule-action" className="rounded-xl">
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
@@ -405,28 +454,32 @@ export default function FirewallPorts() {
 
             {/* Source IP */}
             <div className="space-y-1.5">
-              <label className="text-[13px] font-medium">{t('firewall.rules.fromIP')}</label>
+              <label htmlFor="port-rule-from" className="text-[13px] font-medium">{t('firewall.rules.fromIP')}</label>
               <Input
+                id="port-rule-from"
                 value={ruleFrom}
                 onChange={(e) => setRuleFrom(e.target.value)}
                 placeholder={t('firewall.rules.any')}
-                className={`rounded-xl text-[13px] ${fromError ? 'ring-1 ring-destructive' : ''}`}
+                aria-invalid={fromError || undefined}
+                aria-describedby="port-rule-from-hint"
+                className="rounded-xl text-base md:text-[13px]"
               />
               {fromError ? (
-                <p className="text-[12px] text-destructive">{t('firewall.rules.invalidIP')}</p>
+                <p id="port-rule-from-hint" className="text-[12px] text-destructive">{t('firewall.rules.invalidIP')}</p>
               ) : (
-                <p className="text-[12px] text-muted-foreground">{t('firewall.rules.fromIPHint')}</p>
+                <p id="port-rule-from-hint" className="text-[12px] text-muted-foreground">{t('firewall.rules.fromIPHint')}</p>
               )}
             </div>
 
             {/* Comment */}
             <div className="space-y-1.5">
-              <label className="text-[13px] font-medium">{t('firewall.rules.comment')}</label>
+              <label htmlFor="port-rule-comment" className="text-[13px] font-medium">{t('firewall.rules.comment')}</label>
               <Input
+                id="port-rule-comment"
                 value={ruleComment}
                 onChange={(e) => setRuleComment(e.target.value)}
                 placeholder=""
-                className="rounded-xl text-[13px]"
+                className="rounded-xl text-base md:text-[13px]"
               />
             </div>
           </div>
@@ -434,7 +487,7 @@ export default function FirewallPorts() {
             <Button variant="outline" onClick={() => setAddTarget(null)} className="rounded-xl">
               {t('common.cancel')}
             </Button>
-            <Button onClick={handleAddRule} disabled={adding || fromError} className="rounded-xl">
+            <Button onClick={handleAddClick} disabled={adding} className="rounded-xl">
               {adding && <Loader2 className="h-4 w-4 animate-spin" />}
               {t('firewall.rules.addRule')}
             </Button>
