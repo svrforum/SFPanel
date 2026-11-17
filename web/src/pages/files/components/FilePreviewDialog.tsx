@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { Download, FileQuestion, Loader2 } from 'lucide-react'
-import { toast } from 'sonner'
+
 import { api } from '@/lib/api'
 import { Button } from '@/components/ui/button'
 import { formatBytes } from '@/lib/utils'
@@ -44,6 +44,8 @@ export function FilePreviewDialog({ target, onOpenChange, onDownload }: {
   const { t } = useTranslation()
   const [url, setUrl] = useState<string | null>(null)
   const [loading, setLoading] = useState(false)
+  // Why the image could not be fetched; it is not "not text".
+  const [failed, setFailed] = useState<string | null>(null)
 
   // Clear the previous image before paint when the target changes, so one
   // file's preview never flashes under another's name. Same
@@ -53,6 +55,7 @@ export function FilePreviewDialog({ target, onOpenChange, onDownload }: {
   if (prevTarget !== target) {
     setPrevTarget(target)
     setUrl(null)
+    setFailed(null)
     setLoading(!!target && target.kind === 'image' && target.size <= previewMaxBytes)
   }
 
@@ -69,7 +72,7 @@ export function FilePreviewDialog({ target, onOpenChange, onDownload }: {
         setUrl(objectUrl)
       })
       .catch((err: unknown) => {
-        if (!cancelled) toast.error(err instanceof Error ? err.message : t('files.readFailed'))
+        if (!cancelled) setFailed(err instanceof Error ? err.message : t('files.readFailed'))
       })
       .finally(() => {
         if (!cancelled) setLoading(false)
@@ -109,8 +112,11 @@ export function FilePreviewDialog({ target, onOpenChange, onDownload }: {
               <p className="text-[13px] text-muted-foreground">
                 {tooLarge
                   ? t('files.previewTooLarge', { defaultValue: 'Too large to preview — download it to open it.' })
-                  : t('files.previewBinary', { defaultValue: 'This file is not text and cannot be shown here.' })}
+                  : failed
+                    ? t('files.previewFailed')
+                    : t('files.previewBinary', { defaultValue: 'This file is not text and cannot be shown here.' })}
               </p>
+              {failed && <p className="break-words text-[12px] text-destructive">{failed}</p>}
             </div>
           )}
         </div>

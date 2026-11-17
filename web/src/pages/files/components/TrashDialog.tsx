@@ -5,6 +5,7 @@ import { toast } from 'sonner'
 import { api } from '@/lib/api'
 import { Button } from '@/components/ui/button'
 import { useConfirm } from '@/components/ConfirmDialog'
+import { ListLoadState } from '@/components/ListLoadState'
 import { formatBytes, formatDate } from '@/lib/utils'
 import {
   Dialog,
@@ -35,16 +36,20 @@ export function TrashDialog({ open, onOpenChange, onRestored }: {
   const [entries, setEntries] = useState<TrashEntry[]>([])
   const [retentionDays, setRetentionDays] = useState(7)
   const [loading, setLoading] = useState(false)
+  // A trash that could not be read is not an empty one.
+  const [error, setError] = useState<string | null>(null)
   const [busyId, setBusyId] = useState<string | null>(null)
 
   const load = useCallback(async () => {
     setLoading(true)
+    setError(null)
     try {
       const data = await api.listTrash()
       setEntries(data.entries || [])
       setRetentionDays(data.retentionDays || 7)
     } catch (err: unknown) {
-      toast.error(err instanceof Error ? err.message : t('files.trashLoadFailed', { defaultValue: 'Could not read the trash' }))
+      setEntries([])
+      setError(err instanceof Error ? err.message : t('files.trashLoadFailed', { defaultValue: 'Could not read the trash' }))
     } finally {
       setLoading(false)
     }
@@ -125,7 +130,9 @@ export function TrashDialog({ open, onOpenChange, onRestored }: {
         </DialogHeader>
 
         <div className="max-h-[50vh] overflow-y-auto rounded-xl border">
-          {loading ? (
+          {error && !loading ? (
+            <ListLoadState loading={false} error={error} errorTitle={t('files.trashLoadFailed')} onRetry={() => void load()} />
+          ) : loading ? (
             <div className="flex items-center justify-center py-12">
               <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" aria-hidden="true" />
             </div>

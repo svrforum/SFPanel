@@ -36,6 +36,7 @@ import { api } from '@/lib/api'
 import { useConfirm } from '@/components/ConfirmDialog'
 import { usePrompt } from '@/components/PromptDialog'
 import { TypeToConfirmDialog } from '@/components/TypeToConfirmDialog'
+import { ListLoadState } from '@/components/ListLoadState'
 import { formatBytes, formatDate, pathJoin, downloadBlob, cn } from '@/lib/utils'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -132,6 +133,9 @@ export default function Files() {
   const [currentPath, setCurrentPath] = useState(pathParam)
   const [files, setFiles] = useState<FileEntry[]>([])
   const [loading, setLoading] = useState(true)
+  // Why the folder could not be listed. Shown where the listing goes: a toast
+  // was gone in four seconds and left "This folder is empty" behind it.
+  const [loadError, setLoadError] = useState<string | null>(null)
   const currentPathRef = useRef(currentPath)
   useEffect(() => { currentPathRef.current = currentPath }, [currentPath])
 
@@ -194,11 +198,11 @@ export default function Files() {
   const fetchFiles = useCallback(async () => {
     try {
       setLoading(true)
+      setLoadError(null)
       const data = await api.listFiles(currentPath)
       setFiles(data || [])
     } catch (err: unknown) {
-      const message = err instanceof Error ? err.message : t('files.fetchFailed')
-      toast.error(message)
+      setLoadError(err instanceof Error ? err.message : t('files.fetchFailed'))
       setFiles([])
     } finally {
       setLoading(false)
@@ -1337,7 +1341,9 @@ export default function Files() {
           <div
             className="min-h-[240px] pb-24"
           >
-      {mode === 'grid' ? (
+      {loadError && !searchActive ? (
+        <ListLoadState loading={false} error={loadError} errorTitle={t('files.fetchFailed')} onRetry={() => void fetchFiles()} />
+      ) : mode === 'grid' ? (
         <FileGrid
           entries={displayedFiles}
           loading={loading || searchLoading}
