@@ -1526,6 +1526,14 @@ test.describe('editor', () => {
     await expect(page.getByTestId('task-pane-setup')).toContainText('Check disk')
   })
 
+  test('a template token in a hint stays on one line', async ({ page }) => {
+    await mock(page)
+    await page.goto('/cluster/tasks/new')
+    const tokens = editorPane(page).locator('code')
+    await expect(tokens).toHaveText(['{{ name }}', '{{ name }}', '{{ node.name }}', '{{ node.address }}'])
+    for (const token of await tokens.all()) await expect(token).toHaveCSS('white-space', 'nowrap')
+  })
+
   test('a step or an input removed comes back from its toast, where and as it was', async ({ page }) => {
     await mock(page)
     await page.goto('/cluster/tasks/new')

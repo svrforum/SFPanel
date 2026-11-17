@@ -1,6 +1,6 @@
 import { lazy, Suspense, useEffect, useId, useRef, useState, type ReactNode } from 'react'
 import { Link, useNavigate, useSearchParams } from 'react-router-dom'
-import { useTranslation } from 'react-i18next'
+import { Trans, useTranslation } from 'react-i18next'
 import { toast } from 'sonner'
 import { AlertTriangle, Copy, Loader2, Lock, Plus, Save, Trash2 } from 'lucide-react'
 import { api } from '@/lib/api'
@@ -52,6 +52,9 @@ interface TaskEditorProps {
 }
 
 const NO_PROBLEMS: TaskProblem[] = []
+// A template token in a hint: kept on one line, as a break at its spaces
+// reads as two things.
+const TOKEN = <code className="whitespace-nowrap" />
 const byName = (a: ClusterNode, b: ClusterNode) => a.name.localeCompare(b.name, undefined, { numeric: true })
 const taskPath = (id: string) => `/cluster/tasks/${encodeURIComponent(id)}`
 
@@ -575,7 +578,9 @@ function FormView({ id, doc, edit, nodes, nodesError, disabled }: FormViewProps)
       <section aria-labelledby={`${id}-inputs`} className="space-y-3">
         <div className="space-y-1">
           <h3 id={`${id}-inputs`} className="text-[14px] font-semibold">{t('cluster.tasks.editor.inputs')}</h3>
-          <p className="text-[12px] text-muted-foreground">{t('cluster.tasks.editor.inputsHint', { example: '{{ name }}' })}</p>
+          <p className="text-[12px] text-muted-foreground">
+            <Trans i18nKey="cluster.tasks.editor.inputsHint" values={{ example: '{{ name }}' }} components={{ code: TOKEN }} />
+          </p>
         </div>
         {inputs.map((input, i) => {
           const field = `${id}-input-${i}`
@@ -675,7 +680,11 @@ function FormView({ id, doc, edit, nodes, nodesError, disabled }: FormViewProps)
         <div className="space-y-1">
           <h3 id={`${id}-steps`} className="text-[14px] font-semibold">{t('cluster.tasks.editor.steps')}</h3>
           <p className="text-[12px] text-muted-foreground break-words">
-            {t('cluster.tasks.editor.stepsHint', { input: '{{ name }}', nodeName: '{{ node.name }}', nodeAddress: '{{ node.address }}' })}
+            <Trans
+              i18nKey="cluster.tasks.editor.stepsHint"
+              values={{ input: '{{ name }}', nodeName: '{{ node.name }}', nodeAddress: '{{ node.address }}' }}
+              components={{ code: TOKEN }}
+            />
           </p>
         </div>
         {m.steps.length === 0 && <p className="text-[13px] text-muted-foreground">{t('cluster.tasks.editor.noSteps')}</p>}

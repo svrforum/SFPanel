@@ -115,7 +115,7 @@ export function TaskTargetPicker({ nodes, nodesError, targets, onChange, disable
                   disabled={disabled}
                   onCheckedChange={() => onChange({ ...targets, nodes: toggle(targets.nodes, n.id) })}
                 />
-                <label htmlFor={box} className="min-w-0 flex-1 text-[13px] break-all cursor-pointer">{n.name}</label>
+                <label htmlFor={box} className="min-w-0 flex-1 text-[13px] break-words cursor-pointer">{n.name}</label>
                 <span className="shrink-0 text-[12px] text-muted-foreground">
                   {isAgent(n) ? t('cluster.kind.agent') : t('cluster.kind.manager')}
                   {group && ` · ${group}`}
