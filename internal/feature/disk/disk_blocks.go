@@ -219,6 +219,10 @@ func convertLsblkDevice(d lsblkDevice) BlockDevice {
 		if n, err := v.Int64(); err == nil {
 			bd.Size = n
 		}
+	case string: // lsblk before util-linux 2.33 quotes every value
+		if n, err := strconv.ParseInt(v, 10, 64); err == nil {
+			bd.Size = n
+		}
 	}
 
 	if d.FsType != nil {

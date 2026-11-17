@@ -45,11 +45,15 @@ func TestParseLsblkJSON(t *testing.T) {
 		t.Errorf("nvme0n1 child missing: %+v", devs[0].Children)
 	}
 	// sda used the polymorphic shapes — string size, string "1"/"0" for rota/ro.
-	// Implementation only handles bool/float64 for rota/ro, so the sata case
-	// keeps the JSON string-size path covered (json.Number) and string-rota
-	// falls through to the false default — confirms current behavior.
+	// Unmarshalled into interface{} a quoted size is a string, not a
+	// json.Number, and it came out as 0. Implementation only handles
+	// bool/float64 for rota/ro, so string-rota falls through to the false
+	// default — confirms current behavior.
 	if devs[1].Name != "sda" {
 		t.Errorf("expected sda second, got %q", devs[1].Name)
+	}
+	if devs[1].Size != 8589934592 {
+		t.Errorf("sda string size = %d, want 8589934592", devs[1].Size)
 	}
 	// Model is trimmed
 	if devs[1].Model != "WDC WD80EFAX" {
