@@ -72,6 +72,18 @@ for (const w of [320, 360]) {
     await expect(page.getByRole('button', { name: 'Connect drive' })).toBeVisible()
     expect(await overflow(page)).toEqual([])
   })
+  test(`raid ${w}`, async ({ page }) => {
+    await page.setViewportSize({ width: w, height: 800 })
+    await open(page, '/disk/raid', { '/raid': [{
+      name: 'md127', level: 'raid1', state: 'clean, degraded', size: 1000204886016, total: 2, active: 1, failed: 0, spare: 0,
+      devices: [{ device: 'nvme0n1p3', state: 'active', role: '0' }],
+    }] })
+    // The buttons sat on top of the array's name rather than past the edge.
+    const name = page.getByText('md127', { exact: true })
+    const box = (await name.boundingBox())!
+    expect(await page.evaluate(([x, y]) => document.elementFromPoint(x, y)?.textContent, [box.x + box.width / 2, box.y + box.height / 2] as const)).toBe('md127')
+    expect(await overflow(page)).toEqual([])
+  })
   test(`tailscale ${w}`, async ({ page }) => {
     await page.setViewportSize({ width: w, height: 800 })
     await open(page, '/network/tailscale', { '/network/tailscale/status': {
