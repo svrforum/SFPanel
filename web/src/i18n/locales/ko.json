@@ -1604,6 +1604,8 @@
         "inputRaw": "그대로 들어감",
         "addInput": "입력값 추가",
         "removeInput": "입력값 {{n}} 지우기",
+        "inputRemoved": "입력값 {{n}}을(를) 지웠습니다.",
+        "undo": "되돌리기",
         "targetsHint": "실행은 이 대상에서 시작하고, 실행할 때 바꿀 수 있습니다.",
         "steps": "단계",
         "stepsHint": "단계에서 입력값은 {{input}}처럼, 도는 노드는 {{nodeName}}·{{nodeAddress}}처럼 씁니다.",
@@ -1623,7 +1625,8 @@
           "continueOnError": "실패해도 계속",
           "moveUp": "단계 {{n}} 위로",
           "moveDown": "단계 {{n}} 아래로",
-          "remove": "단계 {{n}} 지우기"
+          "remove": "단계 {{n}} 지우기",
+          "removed": "단계 {{n}}을(를) 지웠습니다."
         },
         "packages": {
           "update": "먼저 패키지 목록 새로 받기 (apt-get update)",

@@ -1611,6 +1611,8 @@
         "inputRaw": "Goes in as typed",
         "addInput": "Add input",
         "removeInput": "Remove input {{n}}",
+        "inputRemoved": "Input {{n}} removed.",
+        "undo": "Undo",
         "targetsHint": "A run starts from these targets, and can change them.",
         "steps": "Steps",
         "stepsHint": "A step can use an input as {{input}}, and the node it runs on as {{nodeName}} or {{nodeAddress}}.",
@@ -1630,7 +1632,8 @@
           "continueOnError": "Carry on if this step fails",
           "moveUp": "Move step {{n}} up",
           "moveDown": "Move step {{n}} down",
-          "remove": "Remove step {{n}}"
+          "remove": "Remove step {{n}}",
+          "removed": "Step {{n}} removed."
         },
         "packages": {
           "update": "Refresh the package lists first (apt-get update)",

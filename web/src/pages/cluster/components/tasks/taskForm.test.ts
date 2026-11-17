@@ -8,6 +8,7 @@ import {
   formatDuration,
   hasYamlComments,
   inputNameValid,
+  insertItem,
   joinNames,
   modelTargets,
   moveItem,
@@ -165,6 +166,15 @@ describe('targets and order', () => {
     expect(moveItem(list, 2, -1)).toEqual(['a', 'c', 'b'])
     expect(moveItem(list, 0, -1)).toEqual(['a', 'b', 'c'])
     expect(list).toEqual(['a', 'b', 'c'])
+  })
+
+  it('puts a removed item back where it was, or at the end of a list grown shorter since', () => {
+    const list = ['a', 'c']
+    expect(insertItem(list, 1, 'b')).toEqual(['a', 'b', 'c'])
+    expect(insertItem(list, 0, 'z')).toEqual(['z', 'a', 'c'])
+    expect(insertItem(list, 5, 'd')).toEqual(['a', 'c', 'd'])
+    expect(insertItem([], 2, 'a')).toEqual(['a'])
+    expect(list).toEqual(['a', 'c'])
   })
 
   it('measures the document in bytes', () => {

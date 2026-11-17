@@ -287,6 +287,12 @@ export function moveItem<T>(list: T[], i: number, by: -1 | 1): T[] {
   return next
 }
 
+/** list with item put back at i, a removal undone: at the end when the list has since got shorter. */
+export function insertItem<T>(list: T[], i: number, item: T): T[] {
+  const at = Math.min(Math.max(i, 0), list.length)
+  return [...list.slice(0, at), item, ...list.slice(at)]
+}
+
 /** Over the server's 64 KiB, counted in UTF-8 bytes as it counts them. */
 export function documentTooLarge(yaml: string): boolean {
   return new TextEncoder().encode(yaml).length > MAX_DOCUMENT_BYTES

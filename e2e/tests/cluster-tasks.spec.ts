@@ -1515,6 +1515,32 @@ test.describe('editor', () => {
     await expect(page.getByTestId('task-pane-setup')).toContainText('Check disk')
   })
 
+  test('a step or an input removed comes back from its toast, where and as it was', async ({ page }) => {
+    await mock(page)
+    await page.goto('/cluster/tasks/new')
+    const editor = editorPane(page)
+    await editor.getByRole('button', { name: 'Add step' }).click()
+    await page.getByRole('menuitem', { name: 'Command' }).click()
+    await editor.getByTestId('task-step-0').getByLabel('Command', { exact: true }).fill('df -h')
+    await editor.getByRole('button', { name: 'Add step' }).click()
+    await page.getByRole('menuitem', { name: 'Reboot' }).click()
+
+    // No question first: the toast offers it back.
+    await editor.getByRole('button', { name: 'Remove step 1' }).click()
+    await expect(editor.getByTestId('task-step-1')).toHaveCount(0)
+    await expect(page.getByText('Step 1 removed.')).toBeVisible()
+    await page.getByRole('button', { name: 'Undo' }).click()
+    await expect(editor.getByTestId('task-step-0').getByLabel('Command', { exact: true })).toHaveValue('df -h')
+    await expect(editor.getByTestId('task-step-1')).toContainText('Reboot')
+
+    await editor.getByRole('button', { name: 'Add input' }).click()
+    await editor.getByTestId('task-input-0').getByLabel('Name', { exact: true }).fill('version')
+    await editor.getByRole('button', { name: 'Remove input 1' }).click()
+    await expect(editor.getByTestId('task-input-0')).toHaveCount(0)
+    await page.getByRole('button', { name: 'Undo' }).click()
+    await expect(editor.getByTestId('task-input-0').getByLabel('Name', { exact: true })).toHaveValue('version')
+  })
+
   test('a YAML with problems shows them listed and on their line, and is not saved', async ({ page }) => {
     // No newline at the end: Monaco would indent the line after it.
     const bad = 'name: Bad\nsteps:\n  - shell: { run: ls }'

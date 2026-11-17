@@ -1,4 +1,4 @@
-import { lazy, Suspense, useEffect, useId, useState, type ReactNode } from 'react'
+import { lazy, Suspense, useEffect, useId, useRef, useState, type ReactNode } from 'react'
 import { Link, useNavigate, useSearchParams } from 'react-router-dom'
 import { useTranslation } from 'react-i18next'
 import { toast } from 'sonner'
@@ -23,6 +23,7 @@ import {
   documentTooLarge,
   hasYamlComments,
   inputNameValid,
+  insertItem,
   modelTargets,
   moveItem,
   pickedTargets,
@@ -520,12 +521,38 @@ function FormView({ id, doc, edit, nodes, nodesError, disabled }: FormViewProps)
     }))
   const moveStep = (i: number, by: -1 | 1) =>
     edit((d) => ({ ...d, model: { ...d.model, steps: moveItem(d.model.steps, i, by) }, keys: moveItem(d.keys, i, by) }))
-  const removeStep = (i: number) =>
+  // A removal is undone from its toast, for as long as this form is open:
+  // the YAML view or another page has nowhere to put the item back.
+  const undos = useRef<(string | number)[]>([])
+  useEffect(() => {
+    const offered = undos.current
+    return () => offered.forEach((toastId) => toast.dismiss(toastId))
+  }, [])
+  const offerUndo = (message: string, undo: () => void) => {
+    // Longer than a toast's usual 4 s: the way to the button is longer than reading it.
+    undos.current.push(toast(message, { duration: 10_000, action: { label: t('cluster.tasks.editor.undo'), onClick: undo } }))
+  }
+  const removeStep = (i: number) => {
+    const step = m.steps[i]
     edit((d) => ({
       ...d,
       model: { ...d.model, steps: d.model.steps.filter((_, j) => j !== i) },
       keys: d.keys.filter((_, j) => j !== i),
     }))
+    // Back with a key of its own: the one it had may be another step's by now.
+    offerUndo(t('cluster.tasks.editor.step.removed', { n: i + 1 }), () =>
+      edit((d) => ({
+        ...d,
+        model: { ...d.model, steps: insertItem(d.model.steps, i, step) },
+        keys: insertItem(d.keys, i, d.keys.length === 0 ? 0 : Math.max(...d.keys) + 1),
+      })),
+    )
+  }
+  const removeInput = (i: number) => {
+    const input = inputs[i]
+    setInputs((list) => list.filter((_, j) => j !== i))
+    offerUndo(t('cluster.tasks.editor.inputRemoved', { n: i + 1 }), () => setInputs((list) => insertItem(list, i, input)))
+  }
 
   return (
     <div className="space-y-6">
@@ -585,7 +612,7 @@ function FormView({ id, doc, edit, nodes, nodesError, disabled }: FormViewProps)
                   className="ml-auto text-destructive hover:text-destructive"
                   aria-label={t('cluster.tasks.editor.removeInput', { n: i + 1 })}
                   disabled={disabled}
-                  onClick={() => setInputs((list) => list.filter((_, j) => j !== i))}
+                  onClick={() => removeInput(i)}
                 >
                   <Trash2 />
                 </Button>
