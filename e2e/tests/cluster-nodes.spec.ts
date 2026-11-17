@@ -164,6 +164,10 @@ test('filters by kind, status and group, and searches', async ({ page }) => {
 
   await page.getByRole('textbox', { name: 'Search name, address or label' }).fill('nothing-like-this')
   await expect(page.getByText('No node matches these filters.')).toBeVisible()
+  // An empty result offers the way back to every node.
+  await page.getByRole('button', { name: 'Clear search and filters' }).click()
+  await expect(bodyRows(page)).toHaveCount(43)
+  await expect(page.getByRole('textbox', { name: 'Search name, address or label' })).toHaveValue('')
 })
 
 test('starts from the filter in the address', async ({ page }) => {

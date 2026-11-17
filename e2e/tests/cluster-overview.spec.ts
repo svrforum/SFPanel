@@ -89,6 +89,7 @@ async function mock(page: Page, opts: Opts = {}) {
     else if (path === '/cluster/nodes') data = { nodes, local_id: 'm-1', is_leader: true }
     else if (path === '/cluster/overview') data = { name: 'lab', node_count: nodes.length, leader_id: 'm-1', nodes, metrics, latest_version: opts.latest }
     else if (path === '/cluster/events') data = { events: [] }
+    else if (path === '/cluster/interfaces') data = { interfaces: [{ name: 'eth0', address: '192.0.2.10' }, { name: 'eth1', address: '198.51.100.20' }] }
     await route.fulfill({ json: { success: true, data } })
   })
   const sockets: WebSocketRoute[] = []
@@ -300,6 +301,31 @@ test('keeps the disband warning when the page sees the node standalone', async (
   await expect(page.getByText('Cluster not enabled')).toHaveCount(0)
   await expect(dialog(page)).toContainText('The cluster is disbanded, with one thing left to do')
   await expect(dialog(page)).toContainText('agent-03')
+})
+
+// The standalone form's fields were named by their placeholders ("sfpanel",
+// "sha256:…"), the address chosen was a 10% tint, and Join stayed greyed out
+// until all three fields had something in them, with nothing saying why.
+test('the standalone form names its fields, and says which ones a join is missing', async ({ page }) => {
+  const { calls } = await mock(page, { standalone: true })
+  await page.goto('/cluster/overview')
+  await expect(page.getByRole('textbox', { name: 'Cluster Name' })).toHaveValue('sfpanel')
+  const addresses = page.getByRole('radiogroup', { name: 'Advertise Address' })
+  await expect(addresses.getByRole('radio', { name: /192\.0\.2\.10/ })).toBeChecked()
+  await addresses.getByRole('radio', { name: /198\.51\.100\.20/ }).check()
+  await expect(addresses.getByRole('radio', { name: /192\.0\.2\.10/ })).not.toBeChecked()
+
+  await page.getByRole('button', { name: 'Join Cluster' }).click()
+  await expect(page.getByRole('textbox', { name: 'Leader Address' })).toHaveAttribute('aria-invalid', 'true')
+  await expect(page.getByText("Enter the leader's gRPC address (IP:port).")).toBeVisible()
+  await expect(page.getByText('Paste the join token made on the leader.')).toBeVisible()
+  await expect(page.getByText('Paste the --ca value from the join command.')).toBeVisible()
+  expect(calls.filter((c) => c.path.startsWith('/cluster/join'))).toEqual([])
+
+  // Typing in a field takes its line away.
+  await page.getByRole('textbox', { name: 'Join Token' }).fill('tok')
+  await expect(page.getByText('Paste the join token made on the leader.')).toHaveCount(0)
+  await expect(page.getByText('Paste the --ca value from the join command.')).toBeVisible()
 })
 
 // A phone laid each node out on the desktop's one line: the name, three

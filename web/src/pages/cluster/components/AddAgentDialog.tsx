@@ -238,7 +238,10 @@ function AddAgentBody({ localId, onJoined, onClose }: { localId: string; onJoine
             onChange={(e) => setNameInput(e.target.value)}
             aria-invalid={!nameOk}
             aria-describedby={`${nameId}-hint`}
-            className="h-9 rounded-xl bg-secondary/50 border-0 text-[13px]"
+            autoCapitalize="off"
+            autoCorrect="off"
+            spellCheck={false}
+            className="h-9 rounded-xl bg-secondary/50 border-0 text-base md:text-[13px]"
             placeholder="agent-01"
           />
           <p id={`${nameId}-hint`} className={nameOk ? 'text-[12px] text-muted-foreground' : 'text-[12px] text-destructive'}>

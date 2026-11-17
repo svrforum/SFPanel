@@ -30,6 +30,8 @@ export function NodeLabelsDialog({
   const groupId = useId()
   const [labelKey, setLabelKey] = useState('')
   const [labelValue, setLabelValue] = useState('')
+  // An add with no key says so under the field instead of a button held back.
+  const [keyMissing, setKeyMissing] = useState(false)
 
   // Re-seed the working copy from the node each time the dialog opens.
   // setState inside an effect is intentional: the seed depends on which node
@@ -43,10 +45,14 @@ export function NodeLabelsDialog({
     setGroup(node.labels?.[GROUP_LABEL] ?? '')
     setLabelKey('')
     setLabelValue('')
+    setKeyMissing(false)
   }, [open, node])
 
   const handleAddLabel = () => {
-    if (!labelKey.trim()) return
+    if (!labelKey.trim()) {
+      setKeyMissing(true)
+      return
+    }
     // Typed as a label, the group still belongs in its own field: kept in the
     // list it would be overwritten by that field on save.
     if (labelKey.trim() === GROUP_LABEL) setGroup(labelValue.trim())
@@ -94,7 +100,7 @@ export function NodeLabelsDialog({
               value={group}
               onChange={(e) => setGroup(e.target.value)}
               aria-describedby={`${groupId}-hint`}
-              className="h-9 rounded-xl bg-secondary/50 border-0 text-[13px]"
+              className="h-9 rounded-xl bg-secondary/50 border-0 text-base md:text-[13px]"
             />
             <p id={`${groupId}-hint`} className="text-[12px] text-muted-foreground">{t('cluster.nodes.groupHint')}</p>
           </div>
@@ -109,7 +115,7 @@ export function NodeLabelsDialog({
                 <button
                   onClick={() => handleRemoveLabel(k)}
                   className="p-1 rounded hover:bg-destructive/10 transition-colors outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-0"
-                  aria-label={t('common.delete')}
+                  aria-label={t('cluster.nodes.removeLabel', { label: k })}
                 >
                   <Trash2 className="h-3.5 w-3.5 text-destructive" />
                 </button>
@@ -121,30 +127,44 @@ export function NodeLabelsDialog({
           </div>
 
           {/* Add label form */}
-          <div className="flex items-center gap-2">
-            <Input
-              value={labelKey}
-              onChange={(e) => setLabelKey(e.target.value)}
-              placeholder={t('cluster.nodes.labelKey')}
-              className="h-9 rounded-xl bg-secondary/50 border-0 text-[13px] flex-1 min-w-0"
-            />
-            <Input
-              value={labelValue}
-              onChange={(e) => setLabelValue(e.target.value)}
-              placeholder={t('cluster.nodes.labelValue')}
-              className="h-9 rounded-xl bg-secondary/50 border-0 text-[13px] flex-1 min-w-0"
-              onKeyDown={(e) => e.key === 'Enter' && handleAddLabel()}
-            />
-            <Button
-              variant="outline"
-              size="sm"
-              className="rounded-xl"
-              onClick={handleAddLabel}
-              disabled={!labelKey.trim()}
-              aria-label={t('cluster.nodes.addLabel')}
-            >
-              +
-            </Button>
+          <div className="space-y-1.5">
+            <div className="flex items-center gap-2">
+              <Input
+                value={labelKey}
+                onChange={(e) => { setLabelKey(e.target.value); setKeyMissing(false) }}
+                placeholder={t('cluster.nodes.labelKey')}
+                aria-label={t('cluster.nodes.newLabelKey')}
+                aria-invalid={keyMissing}
+                aria-describedby={keyMissing ? `${groupId}-key-missing` : undefined}
+                autoCapitalize="off"
+                autoCorrect="off"
+                spellCheck={false}
+                className="h-9 rounded-xl bg-secondary/50 border-0 text-base md:text-[13px] flex-1 min-w-0"
+              />
+              <Input
+                value={labelValue}
+                onChange={(e) => setLabelValue(e.target.value)}
+                placeholder={t('cluster.nodes.labelValue')}
+                aria-label={t('cluster.nodes.newLabelValue')}
+                autoCapitalize="off"
+                autoCorrect="off"
+                spellCheck={false}
+                className="h-9 rounded-xl bg-secondary/50 border-0 text-base md:text-[13px] flex-1 min-w-0"
+                onKeyDown={(e) => e.key === 'Enter' && handleAddLabel()}
+              />
+              <Button
+                variant="outline"
+                size="sm"
+                className="rounded-xl"
+                onClick={handleAddLabel}
+                aria-label={t('cluster.nodes.addLabel')}
+              >
+                +
+              </Button>
+            </div>
+            {keyMissing && (
+              <p id={`${groupId}-key-missing`} className="text-[12px] text-destructive">{t('cluster.nodes.labelKeyRequired')}</p>
+            )}
           </div>
         </div>
         <DialogFooter>

@@ -437,7 +437,7 @@ export default function ClusterOverview() {
                       onChange={(e) => setWaveSize(e.target.value)}
                       disabled={updating}
                       aria-describedby={waveHintId}
-                      className="h-8 w-16 rounded-xl text-[13px]"
+                      className="h-8 w-16 rounded-xl text-base md:text-[13px]"
                     />
                     <span id={waveHintId} className="sr-only">{t('cluster.overview.waveSizeHint')}</span>
                   </label>

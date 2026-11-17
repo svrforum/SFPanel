@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useId, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { api } from '@/lib/api'
 import type { ClusterNode } from '@/types/api'
@@ -24,6 +24,8 @@ export function EditNodeAddressDialog({
   const [apiAddr, setApiAddr] = useState('')
   const [grpcAddr, setGrpcAddr] = useState('')
   const [saving, setSaving] = useState(false)
+  const apiId = useId()
+  const grpcId = useId()
 
   // Re-seed the fields from the node each time the dialog opens.
   useEffect(() => {
@@ -41,7 +43,7 @@ export function EditNodeAddressDialog({
       onOpenChange(false)
       onSaved()
     } catch (err) {
-      toast.error(String(err))
+      toast.error(err instanceof Error ? err.message : String(err))
     } finally {
       setSaving(false)
     }
@@ -57,23 +59,31 @@ export function EditNodeAddressDialog({
         </DialogHeader>
         <div className="space-y-4">
           <div className="space-y-1.5">
-            <label className="text-[12px] text-muted-foreground uppercase tracking-wider">
+            <label htmlFor={apiId} className="text-[12px] text-muted-foreground uppercase tracking-wider">
               {t('cluster.nodes.apiAddress')}
             </label>
             <Input
+              id={apiId}
               value={apiAddr}
               onChange={(e) => setApiAddr(e.target.value)}
-              className="h-9 rounded-xl bg-secondary/50 border-0 text-[13px]"
+              autoCapitalize="off"
+              autoCorrect="off"
+              spellCheck={false}
+              className="h-9 rounded-xl bg-secondary/50 border-0 text-base md:text-[13px]"
             />
           </div>
           <div className="space-y-1.5">
-            <label className="text-[12px] text-muted-foreground uppercase tracking-wider">
+            <label htmlFor={grpcId} className="text-[12px] text-muted-foreground uppercase tracking-wider">
               {t('cluster.nodes.grpcAddress')}
             </label>
             <Input
+              id={grpcId}
               value={grpcAddr}
               onChange={(e) => setGrpcAddr(e.target.value)}
-              className="h-9 rounded-xl bg-secondary/50 border-0 text-[13px]"
+              autoCapitalize="off"
+              autoCorrect="off"
+              spellCheck={false}
+              className="h-9 rounded-xl bg-secondary/50 border-0 text-base md:text-[13px]"
             />
           </div>
         </div>

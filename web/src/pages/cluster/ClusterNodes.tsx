@@ -12,6 +12,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@
 import { toast } from 'sonner'
 import { cn } from '@/lib/utils'
 import {
+  ALL_NODES,
   GROUP_LABEL,
   ROLE_CHANGE_TIMEOUT_MS,
   filterFromQuery,
@@ -332,8 +333,11 @@ export default function ClusterNodes() {
       <NodeFilterBar filter={filter} onChange={setFilter} groups={groups} total={nodes.length} shown={shown.length} />
 
       {shown.length === 0 ? (
-        <div className="bg-card rounded-2xl p-8 card-shadow text-center text-[13px] text-muted-foreground">
-          {t('cluster.nodes.noMatch')}
+        <div className="bg-card rounded-2xl p-8 card-shadow text-center text-[13px] text-muted-foreground space-y-3">
+          <p>{t('cluster.nodes.noMatch')}</p>
+          <Button variant="outline" size="sm" className="rounded-xl" onClick={() => setFilter(ALL_NODES)}>
+            {t('cluster.nodes.clearFilters')}
+          </Button>
         </div>
       ) : (
         <>

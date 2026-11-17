@@ -45,7 +45,10 @@ export function ManagerTokenSection({ onCreated }: { onCreated: () => void }) {
             id="manager-token-ttl"
             value={ttl}
             onChange={(e) => setTtl(e.target.value)}
-            className="w-32 h-9 rounded-xl bg-secondary/50 border-0 text-[13px]"
+            autoCapitalize="off"
+            autoCorrect="off"
+            spellCheck={false}
+            className="w-32 h-9 rounded-xl bg-secondary/50 border-0 text-base md:text-[13px]"
             placeholder="24h"
           />
         </div>

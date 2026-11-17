@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useId, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { Server, Loader2 } from 'lucide-react'
 import { api } from '@/lib/api'
@@ -7,6 +7,8 @@ import { Input } from '@/components/ui/input'
 import { cn } from '@/lib/utils'
 import { waitForServerBack } from '@/lib/restart'
 import { toast } from 'sonner'
+
+const message = (err: unknown) => (err instanceof Error ? err.message : String(err))
 
 // What the cluster page shows while this node restarts into a new mode: after
 // an init or a join here, after a leave or a disband on the overview.
@@ -48,6 +50,11 @@ export function ClusterInitForm() {
   const [joinToken, setJoinToken] = useState('')
   const [caPin, setCaPin] = useState('')
   const [joining, setJoining] = useState(false)
+  // The fields a submit found empty, each said under its field and cleared as
+  // it is edited: a button held back until all were filled said nothing.
+  const [missing, setMissing] = useState<{ name?: boolean; leader?: boolean; token?: boolean; ca?: boolean }>({})
+  const fieldId = useId()
+  const ids = { name: `${fieldId}-name`, addr: `${fieldId}-addr`, leader: `${fieldId}-leader`, token: `${fieldId}-token`, ca: `${fieldId}-ca` }
 
   useEffect(() => {
     api.getClusterInterfaces()
@@ -61,7 +68,10 @@ export function ClusterInitForm() {
   }, [])
 
   const handleInit = async () => {
-    if (!clusterName.trim()) return
+    if (!clusterName.trim()) {
+      setMissing((m) => ({ ...m, name: true }))
+      return
+    }
     setInitializing(true)
     try {
       await api.initCluster(clusterName.trim(), selectedAddr)
@@ -71,13 +81,17 @@ export function ClusterInitForm() {
       // on timeout reload anyway so the user isn't stuck on the spinner.
       waitForServerBack({ onTimeout: () => window.location.reload() })
     } catch (err) {
-      toast.error(String(err))
+      toast.error(message(err))
       setInitializing(false)
     }
   }
 
   const handleJoin = async () => {
-    if (!leaderAddress.trim() || !joinToken.trim() || !caPin.trim()) return
+    const gaps = { leader: !leaderAddress.trim(), token: !joinToken.trim(), ca: !caPin.trim() }
+    if (gaps.leader || gaps.token || gaps.ca) {
+      setMissing((m) => ({ ...m, ...gaps }))
+      return
+    }
     setJoining(true)
     try {
       await api.joinCluster(leaderAddress.trim(), joinToken.trim(), caPin.trim(), (addrPicked.current && selectedAddr) || undefined)
@@ -85,10 +99,19 @@ export function ClusterInitForm() {
       setRestarting(true)
       waitForServerBack({ onTimeout: () => window.location.reload() })
     } catch (err) {
-      toast.error(String(err))
+      toast.error(message(err))
       setJoining(false)
     }
   }
+
+  // A field's aria wiring and, when a submit found it empty, the line that says so.
+  const invalid = (field: keyof typeof missing, hint?: string) => ({
+    'aria-invalid': !!missing[field],
+    'aria-describedby': [missing[field] ? `${ids[field]}-missing` : '', hint ?? ''].filter(Boolean).join(' ') || undefined,
+  })
+  const missingLine = (field: keyof typeof missing, key: string) =>
+    missing[field] ? <p id={`${ids[field]}-missing`} className="text-[12px] text-destructive">{t(key)}</p> : null
+  const noAutoCorrect = { autoCapitalize: 'off', autoCorrect: 'off', spellCheck: false } as const
 
   if (restarting) return <RestartingCard description={t('cluster.init.restartingDesc')} />
 
@@ -105,49 +128,65 @@ export function ClusterInitForm() {
       <div className="space-y-4">
         {/* Cluster name */}
         <div className="space-y-1.5">
-          <label className="text-[12px] text-muted-foreground uppercase tracking-wider">
+          <label htmlFor={ids.name} className="text-[12px] text-muted-foreground uppercase tracking-wider">
             {t('cluster.init.clusterName')}
           </label>
           <Input
+            id={ids.name}
             value={clusterName}
-            onChange={(e) => setClusterName(e.target.value)}
+            onChange={(e) => { setClusterName(e.target.value); setMissing((m) => ({ ...m, name: false })) }}
             placeholder="sfpanel"
-            className="h-9 rounded-xl bg-secondary/50 border-0 text-[13px]"
+            {...invalid('name')}
+            {...noAutoCorrect}
+            className="h-9 rounded-xl bg-secondary/50 border-0 text-base md:text-[13px]"
           />
+          {missingLine('name', 'cluster.init.nameRequired')}
         </div>
 
         {/* Advertise address */}
         <div className="space-y-1.5">
-          <label className="text-[12px] text-muted-foreground uppercase tracking-wider">
+          <label id={ids.addr} htmlFor={interfaces.length > 0 ? undefined : `${ids.addr}-input`} className="text-[12px] text-muted-foreground uppercase tracking-wider">
             {t('cluster.init.advertiseAddress')}
           </label>
+          {/* One address is advertised to the other nodes: a radio each, so
+              which one is chosen is not a 10% tint alone. */}
           {interfaces.length > 0 ? (
-            <div className="space-y-1.5">
+            <div role="radiogroup" aria-labelledby={ids.addr} aria-describedby={`${ids.addr}-desc`} className="space-y-1.5">
               {interfaces.map((iface) => (
-                <button
+                <label
                   key={`${iface.name}-${iface.address}`}
-                  onClick={() => pickAddr(iface.address)}
                   className={cn(
-                    'w-full flex items-center justify-between px-3 py-2 rounded-xl text-[13px] transition-colors outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-0',
+                    'w-full flex items-center gap-3 px-3 py-2 rounded-xl text-[13px] cursor-pointer transition-colors has-[:focus-visible]:ring-2 has-[:focus-visible]:ring-ring',
                     selectedAddr === iface.address
-                      ? 'bg-primary/10 ring-1 ring-primary/20'
+                      ? 'bg-primary/10 ring-1 ring-primary'
                       : 'bg-secondary/50 hover:bg-secondary'
                   )}
                 >
+                  <input
+                    type="radio"
+                    name={ids.addr}
+                    value={iface.address}
+                    checked={selectedAddr === iface.address}
+                    onChange={() => pickAddr(iface.address)}
+                    className="h-4 w-4 shrink-0 accent-primary"
+                  />
                   <span className="font-medium">{iface.address}</span>
-                  <span className="text-[12px] text-muted-foreground">{iface.name}</span>
-                </button>
+                  <span className="ml-auto text-[12px] text-muted-foreground">{iface.name}</span>
+                </label>
               ))}
             </div>
           ) : (
             <Input
+              id={`${ids.addr}-input`}
               value={selectedAddr}
               onChange={(e) => pickAddr(e.target.value)}
               placeholder="192.168.1.100"
-              className="h-9 rounded-xl bg-secondary/50 border-0 text-[13px]"
+              aria-describedby={`${ids.addr}-desc`}
+              {...noAutoCorrect}
+              className="h-9 rounded-xl bg-secondary/50 border-0 text-base md:text-[13px]"
             />
           )}
-          <p className="text-[12px] text-muted-foreground">
+          <p id={`${ids.addr}-desc`} className="text-[12px] text-muted-foreground">
             {t('cluster.init.advertiseAddressDesc')}
           </p>
         </div>
@@ -155,7 +194,7 @@ export function ClusterInitForm() {
 
       <Button
         onClick={handleInit}
-        disabled={initializing || !clusterName.trim()}
+        disabled={initializing}
         className="w-full rounded-xl"
       >
         {initializing ? (
@@ -183,46 +222,58 @@ export function ClusterInitForm() {
         </div>
 
         <div className="space-y-1.5">
-          <label className="text-[12px] text-muted-foreground uppercase tracking-wider">
+          <label htmlFor={ids.leader} className="text-[12px] text-muted-foreground uppercase tracking-wider">
             {t('cluster.join.leaderAddress')}
           </label>
           <Input
+            id={ids.leader}
             value={leaderAddress}
-            onChange={(e) => setLeaderAddress(e.target.value)}
+            onChange={(e) => { setLeaderAddress(e.target.value); setMissing((m) => ({ ...m, leader: false })) }}
             placeholder={t('cluster.join.leaderAddressPlaceholder')}
-            className="h-9 rounded-xl bg-secondary/50 border-0 text-[13px]"
+            {...invalid('leader', `${ids.leader}-desc`)}
+            {...noAutoCorrect}
+            className="h-9 rounded-xl bg-secondary/50 border-0 text-base md:text-[13px]"
           />
-          <p className="text-[12px] text-muted-foreground">{t('cluster.join.leaderAddressDesc')}</p>
+          {missingLine('leader', 'cluster.join.leaderAddressRequired')}
+          <p id={`${ids.leader}-desc`} className="text-[12px] text-muted-foreground">{t('cluster.join.leaderAddressDesc')}</p>
         </div>
 
         <div className="space-y-1.5">
-          <label className="text-[12px] text-muted-foreground uppercase tracking-wider">
+          <label htmlFor={ids.token} className="text-[12px] text-muted-foreground uppercase tracking-wider">
             {t('cluster.join.token')}
           </label>
           <Input
+            id={ids.token}
             value={joinToken}
-            onChange={(e) => setJoinToken(e.target.value)}
+            onChange={(e) => { setJoinToken(e.target.value); setMissing((m) => ({ ...m, token: false })) }}
             placeholder={t('cluster.join.tokenPlaceholder')}
-            className="h-9 rounded-xl bg-secondary/50 border-0 text-[13px] font-mono"
+            {...invalid('token')}
+            {...noAutoCorrect}
+            className="h-9 rounded-xl bg-secondary/50 border-0 text-base md:text-[13px] font-mono"
           />
+          {missingLine('token', 'cluster.join.tokenRequired')}
         </div>
 
         <div className="space-y-1.5">
-          <label className="text-[12px] text-muted-foreground uppercase tracking-wider">
+          <label htmlFor={ids.ca} className="text-[12px] text-muted-foreground uppercase tracking-wider">
             {t('cluster.join.caPin')}
           </label>
           <Input
+            id={ids.ca}
             value={caPin}
-            onChange={(e) => setCaPin(e.target.value)}
+            onChange={(e) => { setCaPin(e.target.value); setMissing((m) => ({ ...m, ca: false })) }}
             placeholder={t('cluster.join.caPinPlaceholder')}
-            className="h-9 rounded-xl bg-secondary/50 border-0 text-[13px] font-mono"
+            {...invalid('ca', `${ids.ca}-desc`)}
+            {...noAutoCorrect}
+            className="h-9 rounded-xl bg-secondary/50 border-0 text-base md:text-[13px] font-mono"
           />
-          <p className="text-[12px] text-muted-foreground">{t('cluster.join.caPinDesc')}</p>
+          {missingLine('ca', 'cluster.join.caPinRequired')}
+          <p id={`${ids.ca}-desc`} className="text-[12px] text-muted-foreground">{t('cluster.join.caPinDesc')}</p>
         </div>
 
         <Button
           onClick={handleJoin}
-          disabled={joining || !leaderAddress.trim() || !joinToken.trim() || !caPin.trim()}
+          disabled={joining}
           variant="outline"
           className="w-full rounded-xl"
         >

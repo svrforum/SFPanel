@@ -63,7 +63,7 @@ export function NodeFilterBar({ filter, onChange, groups, total, shown }: {
           onChange={(e) => set({ query: e.target.value })}
           placeholder={t('cluster.nodes.search')}
           aria-label={t('cluster.nodes.search')}
-          className="pl-9 h-9 rounded-xl bg-secondary/50 border-0 text-[13px]"
+          className="pl-9 h-9 rounded-xl bg-secondary/50 border-0 text-base md:text-[13px]"
         />
       </div>
       <Segments
