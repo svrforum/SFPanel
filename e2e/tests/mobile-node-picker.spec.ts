@@ -46,6 +46,10 @@ test('the node picker is there once the leader answers again, without a reload',
   const picker = drawer.getByRole('button', { name: 'node-a' })
   await expect(picker).toBeVisible()
   await picker.tap()
+  // The node in use is pressed, not only tinted, and each says its state.
+  await expect(drawer.getByRole('button', { name: /node-a.*This node/ })).toHaveAttribute('aria-pressed', 'true')
+  await expect(drawer.getByRole('button', { name: 'node-b' })).toHaveAttribute('aria-pressed', 'false')
+  await expect(drawer.getByRole('button', { name: 'node-b' })).toHaveAccessibleName(/Online/)
   await drawer.getByRole('button', { name: 'node-b' }).tap()
   await expect.poll(() => page.evaluate(() => localStorage.getItem('sfpanel_current_node'))).toBe('node-b')
 })

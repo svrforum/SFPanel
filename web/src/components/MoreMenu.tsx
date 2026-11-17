@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState } from 'react'
 import { useNavigate, useLocation } from 'react-router-dom'
 import { useTranslation } from 'react-i18next'
 import { Drawer } from 'vaul'
-import { LogOut, Monitor, ChevronDown, Search } from 'lucide-react'
+import { LogOut, Monitor, ChevronDown, Search, Check } from 'lucide-react'
 import { Input } from '@/components/ui/input'
 import { sectionLabel } from '@/components/cluster/treeSection'
 import { cn, nodeStatusColor } from '@/lib/utils'
@@ -45,6 +45,18 @@ const nodeMenuItems = MORE_MENU_ITEMS.map((i) => ({
   icon: i.icon,
   label: i.labelKey,
 }))
+
+// A node's state in words beside its dot, whose colour was all there was. An
+// online node, the usual case, says so to a screen reader only; one that is
+// not says it on screen too.
+function NodeState({ status }: { status: string }) {
+  const { t } = useTranslation()
+  if (!status) return null
+  const label = t(`layout.cluster.${status}`, { defaultValue: status })
+  return status === 'online'
+    ? <span className="sr-only">{label}</span>
+    : <span className="shrink-0 text-[12px] text-muted-foreground">{label}</span>
+}
 
 export default function MoreMenu({ open, onOpenChange }: MoreMenuProps) {
   const navigate = useNavigate()
@@ -102,10 +114,11 @@ export default function MoreMenu({ open, onOpenChange }: MoreMenuProps) {
                   className="flex items-center gap-2 w-full px-3 py-2.5 rounded-xl bg-secondary/50 transition-colors outline-none focus-visible:ring-2 focus-visible:ring-ring"
                 >
                   <Monitor className="h-4 w-4 text-muted-foreground shrink-0" />
-                  <span className={cn('h-2 w-2 rounded-full shrink-0', nodeStatusColor(currentNode?.status || ''))} />
+                  <span aria-hidden="true" className={cn('h-2 w-2 rounded-full shrink-0', nodeStatusColor(currentNode?.status || ''))} />
                   <span className="text-[13px] font-medium truncate">
                     {currentNode?.name || t('layout.cluster.selectNode')}
                   </span>
+                  <NodeState status={currentNode?.status || ''} />
                   <ChevronDown className={cn('h-3.5 w-3.5 text-muted-foreground ml-auto shrink-0 transition-transform', nodeOpen && 'rotate-180')} />
                 </button>
                 {nodeOpen && (
@@ -124,24 +137,30 @@ export default function MoreMenu({ open, onOpenChange }: MoreMenuProps) {
                       </div>
                     )}
                     {sections.map((section) => {
-                      const rows = section.nodes.map((node) => (
-                        <button
-                          key={node.id}
-                          onClick={() => handleNodeSelect(node.id)}
-                          className={cn(
-                            'flex items-center gap-2 w-full px-3 py-2 text-[13px] transition-colors rounded-lg outline-none focus-visible:ring-2 focus-visible:ring-ring',
-                            (selectedNode === node.id || (!selectedNode && node.id === localId))
-                              ? 'bg-primary/10 text-primary'
-                              : 'text-foreground/80'
-                          )}
-                        >
-                          <span className={cn('h-2 w-2 rounded-full shrink-0', nodeStatusColor(node.status))} />
-                          <span className="truncate">{node.name}</span>
-                          {node.id === localId && (
-                            <span className="text-[12px] text-muted-foreground">({t('layout.cluster.localNode')})</span>
-                          )}
-                        </button>
-                      ))
+                      const rows = section.nodes.map((node) => {
+                        // The chosen node has a check and says it is pressed,
+                        // not a tint alone.
+                        const chosen = selectedNode === node.id || (!selectedNode && node.id === localId)
+                        return (
+                          <button
+                            key={node.id}
+                            onClick={() => handleNodeSelect(node.id)}
+                            aria-pressed={chosen}
+                            className={cn(
+                              'flex items-center gap-2 w-full px-3 py-2 text-[13px] transition-colors rounded-lg outline-none focus-visible:ring-2 focus-visible:ring-ring',
+                              chosen ? 'bg-primary/10 text-primary font-medium' : 'text-foreground/80'
+                            )}
+                          >
+                            <span aria-hidden="true" className={cn('h-2 w-2 rounded-full shrink-0', nodeStatusColor(node.status))} />
+                            <span className="truncate">{node.name}</span>
+                            <NodeState status={node.status} />
+                            {node.id === localId && (
+                              <span className="text-[12px] text-muted-foreground">({t('layout.cluster.localNode')})</span>
+                            )}
+                            {chosen && <Check aria-hidden="true" className="ml-auto h-4 w-4 shrink-0" />}
+                          </button>
+                        )
+                      })
                       // A cluster of managers alone keeps its plain list.
                       if (!headed) return rows
                       const label = sectionLabel(section, t)
@@ -163,10 +182,14 @@ export default function MoreMenu({ open, onOpenChange }: MoreMenuProps) {
             <div className="grid grid-cols-4 gap-2 py-2">
               {(clusterEnabled ? nodeMenuItems : menuItems).map(({ path, icon: Icon, label }) => {
                 const isActive = location.pathname.startsWith(path.split('?')[0])
+                // The open page: named as such, and marked by a bar and a
+                // heavier label as well as the tint (the colours alone differ
+                // by 1.2:1 in lightness).
                 return (
                   <button
                     key={path}
                     onClick={() => handleNavigate(path)}
+                    aria-current={isActive ? 'page' : undefined}
                     className={cn(
                       'flex flex-col items-center gap-1.5 rounded-xl py-3 px-1 transition-colors outline-none focus-visible:ring-2 focus-visible:ring-ring',
                       isActive
@@ -175,9 +198,10 @@ export default function MoreMenu({ open, onOpenChange }: MoreMenuProps) {
                     )}
                   >
                     <Icon className="h-5 w-5" />
-                    <span className="text-[12px] font-medium leading-tight text-center">
+                    <span className={cn('text-[12px] leading-tight text-center', isActive ? 'font-semibold' : 'font-medium')}>
                       {t(label)}
                     </span>
+                    {isActive && <span aria-hidden="true" className="h-0.5 w-5 rounded-full bg-primary" />}
                   </button>
                 )
               })}

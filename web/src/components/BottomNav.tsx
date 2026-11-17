@@ -33,7 +33,7 @@ export default function BottomNav({ onMorePress }: BottomNavProps) {
             to={tab.to}
             className={({ isActive }) =>
               cn(
-                'flex flex-col items-center justify-center gap-0.5 flex-1 h-full active:opacity-70 transition-colors outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring',
+                'relative flex flex-col items-center justify-center gap-0.5 flex-1 h-full active:opacity-70 transition-colors outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring',
                 // Require exact match OR a trailing-slash boundary so e.g.
                 // '/dashboard' doesn't highlight on a hypothetical
                 // '/dashboard-foo' route.
@@ -43,8 +43,18 @@ export default function BottomNav({ onMorePress }: BottomNavProps) {
               )
             }
           >
-            <tab.icon className="h-[22px] w-[22px]" />
-            <span className="text-[12px] font-medium">{tab.label}</span>
+            {({ isActive }) => {
+              const current = isActive || location.pathname === tab.to || location.pathname.startsWith(tab.to + '/')
+              // The open tab has a bar over its icon and a heavier label, not
+              // only a colour: blue and grey differ by 1.2:1 in lightness.
+              return (
+                <>
+                  {current && <span aria-hidden="true" className="absolute top-0 left-1/2 h-0.5 w-8 -translate-x-1/2 rounded-full bg-primary" />}
+                  <tab.icon className="h-[22px] w-[22px]" />
+                  <span className={cn('text-[12px]', current ? 'font-semibold' : 'font-medium')}>{tab.label}</span>
+                </>
+              )
+            }}
           </NavLink>
         ))}
         <button
