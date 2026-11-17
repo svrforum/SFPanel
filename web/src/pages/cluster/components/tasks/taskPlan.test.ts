@@ -53,8 +53,10 @@ describe('verdictText', () => {
     expect(verdictText({ step: 1, refused: true, code: 'SERVICE_PROTECTED', reason: 'Refusing' }, t)).toBe('cluster.tasks.plan.verdict.serviceProtected')
   })
 
+  // The node's own sentence goes along as {{serverMessage}}, for a message
+  // that quotes it; this one does not, and reads by its key alone.
   it('words a code the error table knows through it', () => {
-    expect(verdictText({ step: 0, refused: true, code: 'TASK_NODE_BUSY', reason: 'busy' }, t)).toBe('cluster.tasks.errors.nodeBusy')
+    expect(verdictText({ step: 0, refused: true, code: 'TASK_NODE_BUSY', reason: 'busy' }, t)).toBe('cluster.tasks.errors.nodeBusy {"serverMessage":"busy"}')
   })
 
   it('shows the node reason for a code the table does not know', () => {
