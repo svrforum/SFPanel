@@ -2515,6 +2515,8 @@
     "connected": "Connected",
     "reconnecting": "Reconnecting…",
     "disconnected": "Disconnected",
+    "lost": "The connection was lost. Check the network, then reconnect.",
+    "reconnect": "Reconnect",
     "tabTitle": "Terminal {{n}}",
     "reattachedTab": "Reattached {{id}}",
     "shellBadgeHint": "Connected as {{user}} on {{host}}",

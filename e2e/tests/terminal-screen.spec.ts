@@ -1,11 +1,11 @@
-import { test, expect, type Page } from '@playwright/test'
+import { test, expect, type Page, type WebSocketRoute } from '@playwright/test'
 
 // How much of the window the terminal gets, on each kind of device. REST and
 // WebSocket are fixtures: nothing here reaches a host shell.
 
 const session = { id: 'abcdef123456', title: 'Screen test', tool: 'shell', run_as: 'tester', cwd: '/srv/app', state: 'shell', persistence: 'service', attached: true, created_at: '2026-01-01T00:00:00Z' }
 
-async function openTerminal(page: Page, path = '/terminal') {
+async function openTerminal(page: Page, path = '/terminal', onSocket?: (socket: WebSocketRoute) => void) {
   const resizes: { cols: number; rows: number }[] = []
   // What reached the session as input.
   const input: string[] = []
@@ -27,6 +27,7 @@ async function openTerminal(page: Page, path = '/terminal') {
     await route.fulfill({ json: { success: true, data } })
   })
   await page.routeWebSocket(/\/ws\//, socket => {
+    onSocket?.(socket)
     socket.onMessage(message => {
       const value = typeof message === 'string' ? message : message.toString('utf8')
       if (value.startsWith('{')) {
@@ -223,5 +224,33 @@ test.describe('a desktop', () => {
     await openTerminal(page)
     await expect(keyBar(page)).toBeVisible()
     await expect(rail(page)).toBeHidden()
+  })
+})
+
+test.describe('a connection that does not come back', () => {
+  test.use({ viewport: { width: 1440, height: 900 } })
+  test('offers a way back once the reconnects run out', async ({ page }) => {
+    await page.clock.install()
+    let refuse = true
+    let sockets = 0
+    await openTerminal(page, '/terminal', socket => {
+      sockets += 1
+      if (refuse) socket.close()
+    })
+    const lost = page.locator('[data-terminal-lost]')
+    // Six tries, a second to ten apart: the clock is moved on rather than waited for.
+    await expect.poll(async () => {
+      await page.clock.fastForward(11000)
+      return lost.isVisible()
+    }, { timeout: 20000, intervals: [300] }).toBe(true)
+    await expect(lost.getByRole('status')).toHaveText('The connection was lost. Check the network, then reconnect.')
+    refuse = false
+    const before = sockets
+    await lost.getByRole('button', { name: 'Reconnect' }).click()
+    await expect(lost).toBeHidden()
+    await expect.poll(() => sockets).toBe(before + 1)
+    // It stays connected: no notice comes back.
+    await page.clock.fastForward(11000)
+    await expect(lost).toBeHidden()
   })
 })

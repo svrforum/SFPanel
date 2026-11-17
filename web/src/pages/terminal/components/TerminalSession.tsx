@@ -21,7 +21,8 @@ import { TerminalSelection, type HandleEnd, type Point } from './TerminalSelecti
 import { TerminalContextMenu, type TerminalMenuAt } from './TerminalContextMenu'
 import { cn, copyText } from '@/lib/utils'
 import { toast } from 'sonner'
-import { ArrowDown } from 'lucide-react'
+import { ArrowDown, RotateCcw } from 'lucide-react'
+import { Button } from '@/components/ui/button'
 import { IS_MAC, MODIFIERS_CONSUMED_EVENT, MODIFIERS_EVENT, NO_MODIFIERS, terminalKey, type TerminalModifiers } from '@/lib/terminalKeys'
 
 // xterm paints into its own canvas, so it cannot inherit the app's CSS tokens
@@ -193,6 +194,10 @@ export function TerminalSession({
   // xterm's own buffer is scrolled back (a temporary shell's history is there).
   const [scrolledUp, setScrolledUp] = useState(false)
   const latestRef = useRef<() => void>(() => {})
+  // The reconnects have run out. The words in the terminal were all there was,
+  // and the only way back a reload; this puts a button beside them.
+  const [lost, setLost] = useState(false)
+  const reconnectRef = useRef<() => void>(() => {})
   const fitAddonRef = useRef<FitAddon | null>(null)
   const searchAddonRef = useRef<SearchAddon | null>(null)
   // The long-press selection (null: none), shown with xterm's own highlight.
@@ -596,11 +601,19 @@ export function TerminalSession({
           reconnectTimer = window.setTimeout(() => { void connect() }, delay)
         } else {
           term.writeln('\r\n\x1b[31m' + t('terminal.disconnected') + '\x1b[0m')
+          setLost(true)
         }
       }
     }
 
     void connect()
+    reconnectRef.current = () => {
+      if (disposed) return
+      clearTimeout(reconnectTimer)
+      attempts = 0
+      setLost(false)
+      void connect()
+    }
 
     wsCleanup = () => {
       clearTimeout(reconnectTimer)
@@ -1115,6 +1128,15 @@ export function TerminalSession({
           active ? 'block' : 'hidden'
         )}
       />
+      {lost && active && (
+        <div data-terminal-lost className="absolute inset-x-3 top-3 z-10 flex flex-wrap items-center gap-2 rounded-xl border border-border bg-card px-3 py-2 text-foreground shadow-md">
+          <p role="status" className="min-w-0 flex-1 text-[13px]">{t('terminal.lost')}</p>
+          <Button size="sm" className="rounded-xl" onClick={() => reconnectRef.current()}>
+            <RotateCcw className="h-4 w-4" aria-hidden="true" />
+            {t('terminal.reconnect')}
+          </Button>
+        </div>
+      )}
       {(historyOpen || paneCopyMode || scrolledUp) && (
         <button
           type="button"
