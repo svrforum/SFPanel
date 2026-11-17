@@ -250,8 +250,11 @@ export default function Dashboard() {
           </>}>
           <SegmentedControl label={t('dashboard.recentLogsDesc')} options={[{ value: 'firewall' as const, label: t('dashboard.logTabFirewall') }, { value: 'syslog' as const, label: t('dashboard.logTabSystem') }]} value={logTab} onChange={(tab) => { logTabDecided.current = true; setLogTab(tab) }} />
           <div className="mt-3">
-            {activeLogs.updatedAt != null && (logTab === 'firewall' ? (firewallLogs.data?.length ? <FirewallLogMiniTable entries={firewallLogs.data} /> : <p className="text-sm text-muted-foreground">{t('dashboard.noFirewallLogs')}</p>) : (systemLogs.data?.length ? <div className="max-h-64 overflow-auto rounded-xl bg-terminal p-3 font-mono text-xs text-terminal-foreground">
-              {systemLogs.data.map((line, index) => <div key={`${index}-${line.slice(0, 40)}`} className="whitespace-pre leading-6">{line}</div>)}
+            {activeLogs.updatedAt != null && (logTab === 'firewall' ? (firewallLogs.data?.length ? <FirewallLogMiniTable entries={firewallLogs.data} /> : <p className="text-sm text-muted-foreground">{t('dashboard.noFirewallLogs')}</p>) : (systemLogs.data?.length ? <div tabIndex={0} role="region" aria-label={t('dashboard.logTabSystem')} className="max-h-64 overflow-auto rounded-xl bg-terminal p-3 font-mono text-xs text-terminal-foreground focus-visible:outline-2 focus-visible:outline-ring">
+              {/* Wrapped: unwrapped, a line showed its time and host and left
+                  the message itself past the card's right edge. The box still
+                  scrolls down, so it takes focus for a keyboard. */}
+              {systemLogs.data.map((line, index) => <div key={`${index}-${line.slice(0, 40)}`} className="whitespace-pre-wrap break-all leading-6">{line}</div>)}
             </div> : <p className="text-sm text-muted-foreground">{t('dashboard.noLogs')}</p>))}
           </div>
         </DashboardSection>

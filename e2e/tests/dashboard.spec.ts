@@ -347,3 +347,25 @@ test('the memory card names the ZFS cache it does not count as used', async ({ p
   sockets.at(-1)!.send(JSON.stringify({ ...metrics, timestamp: metrics.timestamp + 2000 }))
   await expect(resources.getByText('8.0 GB / 16.0 GB', { exact: true })).toBeVisible()
 })
+
+// A syslog line ran out past the card in one unwrapped row: the time and the
+// host showed and the message did not, in a box a keyboard could not scroll.
+test('a long system log line wraps inside the card, and the box takes focus', async ({ page }) => {
+  await page.setViewportSize({ width: 1280, height: 900 })
+  const line = 'Sep 23 09:00:00 demo-server kernel: ' + 'a-very-long-message-without-spaces-'.repeat(12) + 'end-of-message'
+  await fixture(page, async (route, url) => {
+    if (url.pathname.endsWith('/logs/read') && url.searchParams.get('source') === 'syslog') {
+      await route.fulfill({ json: { success: true, data: { lines: [line] } } })
+      return true
+    }
+    return false
+  })
+  await page.goto('/dashboard')
+  const box = page.getByRole('region', { name: 'System', exact: true })
+  await expect(box).toBeVisible()
+  await expect(box).toContainText('end-of-message')
+  // Nothing past the right edge: the whole message is inside the card.
+  expect(await box.evaluate(el => el.scrollWidth <= el.clientWidth)).toBe(true)
+  await box.focus()
+  await expect(box).toBeFocused()
+})
