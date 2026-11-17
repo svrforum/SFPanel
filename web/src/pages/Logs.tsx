@@ -65,6 +65,8 @@ export default function Logs() {
   const [newSourceName, setNewSourceName] = useState('')
   const [newSourcePath, setNewSourcePath] = useState('')
   const [addingSource, setAddingSource] = useState(false)
+  // Set by the first press of Add: a field left empty says so from then on.
+  const [addTried, setAddTried] = useState(false)
 
   // Live WebSocket state (connection itself lives in <LiveLogSocket />)
   const [wsConnected, setWsConnected] = useState(false)
@@ -165,12 +167,25 @@ export default function Logs() {
     setTotalLines(0)
   }
 
+  // Said under the field, not in a toast after the press.
+  const sourceNameError = addTried && !newSourceName.trim()
+  const sourcePathError = newSourcePath.trim() ? !newSourcePath.trim().startsWith('/') : addTried
+
+  function openAddDialog(open: boolean) {
+    setAddDialogOpen(open)
+    if (open) setAddTried(false)
+  }
+
   async function handleAddSource() {
     const name = newSourceName.trim()
     const path = newSourcePath.trim()
-    if (!name || !path) return
+    setAddTried(true)
+    if (!name) {
+      document.getElementById('log-source-name')?.focus()
+      return
+    }
     if (!path.startsWith('/')) {
-      toast.error(t('logs.pathInvalid'))
+      document.getElementById('log-source-path')?.focus()
       return
     }
     setAddingSource(true)
@@ -193,8 +208,8 @@ export default function Logs() {
     if (!source.custom || !source.custom_id) return
     const ok = await confirm({
       title: t('logs.deleteSource'),
-      description: `${t('logs.deleteSourceConfirm')} — ${source.name} (${source.path})`,
-      confirmLabel: t('common.delete'),
+      description: t('logs.deleteSourceConfirm', { name: source.name, path: source.path }),
+      confirmLabel: t('logs.deleteSource'),
       danger: true,
     })
     if (!ok) return
@@ -263,7 +278,7 @@ export default function Logs() {
             <Button
               variant="ghost"
               size="icon-xs"
-              onClick={() => setAddDialogOpen(true)}
+              onClick={() => openAddDialog(true)}
               title={t('logs.addSource')}
               aria-label={t('logs.addSource')}
               className="h-6 w-6"
@@ -302,7 +317,7 @@ export default function Logs() {
                         : 'bg-secondary/50 opacity-50 cursor-not-allowed'
                   }`}
                 >
-                  <div className="flex items-start gap-2">
+                  <div className={`flex items-start gap-2 ${source.custom && source.custom_id ? 'pr-8' : ''}`}>
                     <FileText className={`h-4 w-4 mt-0.5 shrink-0 ${
                       selectedSource === source.id
                         ? 'text-primary'
@@ -338,14 +353,16 @@ export default function Logs() {
                     </div>
                   </div>
                 </button>
+                {/* 28px, and the source's text stops short of it (pr-8): a
+                    20px box sat on top of the source's own button. */}
                 {source.custom && source.custom_id && (
                   <button
                     onClick={(e) => { e.stopPropagation(); handleDeleteSource(source) }}
-                    className="absolute top-2 right-2 h-5 w-5 rounded-md flex items-center justify-center opacity-100 md:opacity-0 md:group-hover:opacity-100 md:group-focus-within:opacity-100 transition-opacity bg-destructive/10 hover:bg-destructive/20 text-destructive outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-0"
+                    className="absolute top-1.5 right-1.5 h-7 w-7 rounded-md flex items-center justify-center opacity-100 md:can-hover:opacity-0 md:group-hover:opacity-100 md:group-focus-within:opacity-100 transition-opacity bg-destructive/10 hover:bg-destructive/20 text-destructive outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-0"
                     title={t('logs.deleteSource')}
                     aria-label={t('logs.deleteSource')}
                   >
-                    <X className="h-3 w-3" />
+                    <X className="h-3.5 w-3.5" />
                   </button>
                 )}
               </div>
@@ -564,37 +581,49 @@ export default function Logs() {
       </div>
 
       {/* Add Custom Source Dialog */}
-      <Dialog open={addDialogOpen} onOpenChange={setAddDialogOpen}>
+      <Dialog open={addDialogOpen} onOpenChange={openAddDialog}>
         <DialogContent className="sm:max-w-md">
           <DialogHeader>
             <DialogTitle>{t('logs.addSourceTitle')}</DialogTitle>
           </DialogHeader>
           <div className="space-y-4 pt-2">
             <div className="space-y-2">
-              <label className="text-[13px] font-medium">{t('logs.sourceName')}</label>
+              <label htmlFor="log-source-name" className="text-[13px] font-medium">{t('logs.sourceName')}</label>
               <Input
+                id="log-source-name"
                 value={newSourceName}
                 onChange={(e) => setNewSourceName(e.target.value)}
                 placeholder={t('logs.sourceNamePlaceholder')}
-                className="h-9 rounded-xl text-[13px]"
+                aria-invalid={sourceNameError || undefined}
+                aria-describedby={sourceNameError ? 'log-source-name-error' : undefined}
+                className="h-9 rounded-xl text-base md:text-[13px]"
               />
+              {sourceNameError && (
+                <p id="log-source-name-error" className="text-[12px] text-destructive">{t('logs.nameRequired')}</p>
+              )}
             </div>
             <div className="space-y-2">
-              <label className="text-[13px] font-medium">{t('logs.sourcePath')}</label>
+              <label htmlFor="log-source-path" className="text-[13px] font-medium">{t('logs.sourcePath')}</label>
               <Input
+                id="log-source-path"
                 value={newSourcePath}
                 onChange={(e) => setNewSourcePath(e.target.value)}
                 placeholder={t('logs.sourcePathPlaceholder')}
-                className="h-9 rounded-xl text-[13px] font-mono"
+                aria-invalid={sourcePathError || undefined}
+                aria-describedby={sourcePathError ? 'log-source-path-error' : undefined}
+                className="h-9 rounded-xl text-base md:text-[13px] font-mono"
               />
+              {sourcePathError && (
+                <p id="log-source-path-error" className="text-[12px] text-destructive">{t('logs.pathInvalid')}</p>
+              )}
             </div>
             <div className="flex justify-end gap-2 pt-2">
-              <Button variant="outline" onClick={() => setAddDialogOpen(false)} className="rounded-xl">
+              <Button variant="outline" onClick={() => openAddDialog(false)} className="rounded-xl">
                 {t('common.cancel')}
               </Button>
               <Button
                 onClick={handleAddSource}
-                disabled={addingSource || !newSourceName.trim() || !newSourcePath.trim()}
+                disabled={addingSource}
                 className="rounded-xl"
               >
                 {addingSource ? t('common.saving') : t('logs.addSource')}
