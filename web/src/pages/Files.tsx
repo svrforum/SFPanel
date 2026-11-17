@@ -1089,13 +1089,15 @@ export default function Files() {
             onChange={(e) => setPathInput(e.target.value)}
             onKeyDown={handlePathKeyDown}
             onBlur={handlePathSubmit}
-            className="h-8 text-sm font-mono"
+            className="h-8 font-mono"
             placeholder="/"
+            aria-label={t('files.editPath')}
             autoFocus
           />
         </div>
       ) : (
         <nav
+          aria-label={t('files.breadcrumb')}
           className="-mx-2 flex items-center gap-1 overflow-x-auto rounded-md border border-transparent px-2 py-1.5 text-sm text-muted-foreground transition-colors cursor-text hover:border-border"
           onClick={handlePathEditStart}
         >
@@ -1123,6 +1125,7 @@ export default function Files() {
               <ChevronRight className="h-3 w-3" />
               <button
                 onClick={(e) => { e.stopPropagation(); navigateToSegment(index) }}
+                aria-current={index === pathSegments.length - 1 ? 'page' : undefined}
                 className={
                   'rounded-sm outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-0 ' +
                   (index === pathSegments.length - 1
@@ -1173,7 +1176,8 @@ export default function Files() {
                 else if (e.key === 'Escape' && searchActive) exitSearch()
               }}
               placeholder={t('files.searchPlaceholder')}
-              className="h-8 w-full pl-8 pr-8 text-sm sm:w-56"
+              aria-label={t('files.search')}
+              className="h-8 w-full pl-8 pr-8 sm:w-56"
             />
             {(searchActive || searchQuery) && (
               <button
@@ -1231,12 +1235,15 @@ export default function Files() {
             size="sm"
             className="rounded-xl"
             onClick={toggleHidden}
-            title={showHidden ? t('files.hideHidden', { defaultValue: 'Hide dotfiles' }) : t('files.showHidden', { defaultValue: 'Show dotfiles' })}
+            // One name and the pressed state, not a name that flips with it:
+            // "Hide dotfiles, pressed" read as the opposite of what was on.
+            title={t('files.showHidden', { defaultValue: 'Show dotfiles' })}
+            aria-label={t('files.showHidden', { defaultValue: 'Show dotfiles' })}
             aria-pressed={showHidden}
           >
             {showHidden ? <Eye /> : <EyeOff />}
             <span className="hidden sm:inline">
-              {showHidden ? t('files.hideHidden', { defaultValue: 'Hide dotfiles' }) : t('files.showHidden', { defaultValue: 'Show dotfiles' })}
+              {t('files.showHidden', { defaultValue: 'Show dotfiles' })}
             </span>
           </Button>
           <Button

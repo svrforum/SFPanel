@@ -100,7 +100,7 @@ export function FolderPickerDialog({ open, title, description, initialPath, conf
                 goTo(typed.trim() || '/')
               }
             }}
-            className="h-9 font-mono text-[13px]"
+            className="h-9 font-mono text-base md:text-[13px]"
             aria-label={t('files.destination', { defaultValue: 'Destination folder' })}
           />
 

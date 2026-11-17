@@ -135,7 +135,7 @@ export function PermissionsDialog({ entry, onOpenChange, onApplied }: {
                           <Checkbox
                             checked={(digits[i] & BIT[what]) !== 0}
                             onCheckedChange={() => toggle(i, what)}
-                            aria-label={`${who} ${what}`}
+                            aria-label={`${t(`files.who_${who}`)} ${t(`files.perm_${what}`)}`}
                           />
                         </td>
                       ))}
@@ -150,23 +150,23 @@ export function PermissionsDialog({ entry, onOpenChange, onApplied }: {
               <Input
                 value={octal}
                 onChange={(e) => setOctal(e.target.value.replace(/[^0-7]/g, '').slice(0, 4))}
-                className="h-8 w-24 font-mono text-[13px]"
+                className="h-8 w-24 font-mono text-base md:text-[13px]"
                 aria-label={t('files.octal', { defaultValue: 'Octal' })}
               />
             </div>
 
             <div className="grid grid-cols-2 gap-2">
               <div>
-                <label className="mb-1 block text-[12px] uppercase tracking-wider text-muted-foreground">
+                <label htmlFor="perm-owner" className="mb-1 block text-[12px] uppercase tracking-wider text-muted-foreground">
                   {t('files.owner', { defaultValue: 'Owner' })}
                 </label>
-                <Input value={owner} onChange={(e) => setOwner(e.target.value)} className="h-8 font-mono text-[13px]" />
+                <Input id="perm-owner" value={owner} onChange={(e) => setOwner(e.target.value)} className="h-8 font-mono text-base md:text-[13px]" />
               </div>
               <div>
-                <label className="mb-1 block text-[12px] uppercase tracking-wider text-muted-foreground">
+                <label htmlFor="perm-group" className="mb-1 block text-[12px] uppercase tracking-wider text-muted-foreground">
                   {t('files.group', { defaultValue: 'Group' })}
                 </label>
-                <Input value={group} onChange={(e) => setGroup(e.target.value)} className="h-8 font-mono text-[13px]" />
+                <Input id="perm-group" value={group} onChange={(e) => setGroup(e.target.value)} className="h-8 font-mono text-base md:text-[13px]" />
               </div>
             </div>
 
