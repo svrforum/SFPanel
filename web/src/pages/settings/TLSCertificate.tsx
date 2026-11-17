@@ -1,8 +1,9 @@
-import { useEffect, useState } from 'react'
+import { useCallback, useEffect, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { ShieldCheck, Download, AlertCircle } from 'lucide-react'
 import { toast } from 'sonner'
 import { Button } from '@/components/ui/button'
+import { ListLoadState } from '@/components/ListLoadState'
 import { api } from '@/lib/api'
 import { downloadBlob } from '@/lib/utils'
 import type { TLSStatus } from '@/types/api'
@@ -22,6 +23,10 @@ function formatDate(iso: string | undefined, locale: string) {
 export default function TLSCertificate() {
   const { t, i18n } = useTranslation()
   const [status, setStatus] = useState<TLSStatus | null>(null)
+  // A read that failed: the section used to vanish as if the panel served
+  // plain HTTP, and the authority could not be fetched from here.
+  const [loadError, setLoadError] = useState<string | null>(null)
+  const [attempt, setAttempt] = useState(0)
   const [downloading, setDownloading] = useState(false)
 
   useEffect(() => {
@@ -31,12 +36,17 @@ export default function TLSCertificate() {
       .then((s) => {
         if (!cancelled) setStatus(s)
       })
-      .catch(() => {
-        if (!cancelled) setStatus(null)
+      .catch((err: unknown) => {
+        if (!cancelled) setLoadError(err instanceof Error ? err.message : String(err))
       })
     return () => {
       cancelled = true
     }
+  }, [attempt])
+
+  const retry = useCallback(() => {
+    setLoadError(null)
+    setAttempt((n) => n + 1)
   }, [])
 
   const handleDownloadCA = async () => {
@@ -49,6 +59,15 @@ export default function TLSCertificate() {
     } finally {
       setDownloading(false)
     }
+  }
+
+  if (loadError) {
+    return (
+      <div className="bg-card rounded-2xl p-6 card-shadow">
+        <h3 className="text-[15px] font-semibold mb-3">{t('settings.tls.title', { defaultValue: 'HTTPS certificate' })}</h3>
+        <ListLoadState loading={false} error={loadError} errorTitle={t('settings.tls.loadFailed')} onRetry={retry} />
+      </div>
+    )
   }
 
   // Nothing to say on a panel that serves plain HTTP, and nothing to hand out

@@ -2,6 +2,7 @@ import { useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { api } from '@/lib/api'
 import { useConfirm } from '@/components/ConfirmDialog'
+import { ListLoadState } from '@/components/ListLoadState'
 import { useApiAction } from '@/hooks/useApiAction'
 import { toast } from 'sonner'
 import { Button } from '@/components/ui/button'
@@ -15,7 +16,13 @@ type ChannelType = 'discord' | 'telegram' | 'webhook'
 
 const EMPTY_FORM = { name: '', type: 'discord' as ChannelType, webhook_url: '', bot_token: '', chat_id: '' }
 
-export function ChannelsSection({ channels, onChanged }: { channels: AlertChannel[]; onChanged: () => void }) {
+export function ChannelsSection({ channels, loaded, loadError, onRetry, onChanged }: {
+  channels: AlertChannel[]
+  loaded: boolean
+  loadError: string | null
+  onRetry: () => void
+  onChanged: () => void
+}) {
   const { t } = useTranslation()
   const confirm = useConfirm()
   const [showAddChannel, setShowAddChannel] = useState(false)
@@ -187,8 +194,11 @@ export function ChannelsSection({ channels, onChanged }: { channels: AlertChanne
         </div>
       )}
 
-      {/* Channel list */}
-      {channels.length === 0 ? (
+      {/* Channel list: "none" only once the list has been read. */}
+      {(loadError || !loaded) && (
+        <ListLoadState loading={!loaded} error={loadError} errorTitle={t('settings.alerts.channels.loadFailed')} onRetry={onRetry} skeletonCount={2} />
+      )}
+      {!loaded ? null : channels.length === 0 ? (
         <p className="text-[13px] text-muted-foreground py-4">{t('settings.alerts.channels.empty')}</p>
       ) : (
         <div className="space-y-2">

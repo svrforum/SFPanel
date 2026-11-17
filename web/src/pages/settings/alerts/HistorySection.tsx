@@ -2,6 +2,7 @@ import { useState, useEffect, useCallback } from 'react'
 import { useTranslation } from 'react-i18next'
 import { api } from '@/lib/api'
 import { useConfirm } from '@/components/ConfirmDialog'
+import { ListLoadState } from '@/components/ListLoadState'
 import { useApiAction } from '@/hooks/useApiAction'
 import { Button } from '@/components/ui/button'
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
@@ -35,14 +36,20 @@ export function HistorySection() {
   const [history, setHistory] = useState<AlertHistoryEntry[]>([])
   const [historyTotal, setHistoryTotal] = useState(0)
   const [historyPage, setHistoryPage] = useState(1)
+  // Whether a page was read: a failed read showed "No alert history", the
+  // one thing this list exists to rule out.
+  const [loaded, setLoaded] = useState(false)
+  const [loadError, setLoadError] = useState<string | null>(null)
 
   const loadHistory = useCallback((page: number) => {
     api.getAlertHistory(page, HISTORY_LIMIT)
       .then((data) => {
         setHistory(data.items || [])
         setHistoryTotal(data.total || 0)
+        setLoaded(true)
+        setLoadError(null)
       })
-      .catch(() => { /* ignore */ })
+      .catch((err: unknown) => setLoadError(err instanceof Error ? err.message : String(err)))
   }, [])
 
   useEffect(() => {
@@ -92,7 +99,10 @@ export function HistorySection() {
         )}
       </div>
 
-      {history.length === 0 ? (
+      {(loadError || !loaded) && (
+        <ListLoadState loading={!loaded} error={loadError} errorTitle={t('settings.alerts.history.loadFailed')} onRetry={() => { setLoadError(null); loadHistory(historyPage) }} skeletonCount={2} />
+      )}
+      {!loaded ? null : history.length === 0 ? (
         <p className="text-[13px] text-muted-foreground py-4">{t('settings.alerts.history.empty')}</p>
       ) : (
         <>

@@ -3,6 +3,7 @@ import { useTranslation } from 'react-i18next'
 import { api } from '@/lib/api'
 import type { AuditLogEntry } from '@/types/api'
 import { useConfirm } from '@/components/ConfirmDialog'
+import { ListLoadState } from '@/components/ListLoadState'
 import { toast } from 'sonner'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -26,6 +27,11 @@ export default function Audit() {
   const [appliedUser, setAppliedUser] = useState('')
   const [filterMethod, setFilterMethod] = useState('')
   const [filterStatus, setFilterStatus] = useState('')
+  const [loaded, setLoaded] = useState(false)
+  const [loadError, setLoadError] = useState<string | null>(null)
+  // An empty page under a filter is "nothing matches", not "nothing logged":
+  // it said the latter, with no way to clear the filter, and hid Clear Logs.
+  const filtered = !!(appliedUser || filterMethod || filterStatus)
 
   const loadAuditLogs = useCallback(async (page: number) => {
     try {
@@ -36,12 +42,21 @@ export default function Audit() {
       })
       setAuditLogs(data.logs)
       setAuditTotal(data.total)
+      setLoaded(true)
+      setLoadError(null)
     } catch (err: unknown) {
       // Surface load failures — especially ?node= remote lookups — instead of
       // letting them masquerade as an empty log.
-      toast.error(err instanceof Error ? err.message : t('settings.auditLoadFailed'))
+      setLoadError(err instanceof Error ? err.message : String(err))
     }
-  }, [appliedUser, filterMethod, filterStatus, t])
+  }, [appliedUser, filterMethod, filterStatus])
+
+  function clearFilters() {
+    setUserInput('')
+    setAppliedUser('')
+    setFilterMethod('')
+    setFilterStatus('')
+  }
 
   // Reload on mount and whenever an applied filter changes (resets to page 1).
   useEffect(() => {
@@ -58,7 +73,7 @@ export default function Audit() {
             <h3 className="text-[15px] font-semibold">{t('settings.auditLog')}</h3>
             <p className="text-[13px] text-muted-foreground mt-1">{t('settings.auditLogDescription')}</p>
           </div>
-          {auditLogs.length > 0 && (
+          {(auditLogs.length > 0 || filtered) && (
             <Button
               variant="outline"
               size="sm"
@@ -109,8 +124,20 @@ export default function Audit() {
             <option value="err">≥ 400</option>
           </select>
         </div>
-        {auditLogs.length === 0 ? (
-          <p className="text-[13px] text-muted-foreground py-4">{t('settings.auditLogEmpty')}</p>
+        {loadError && (
+          <ListLoadState loading={false} error={loadError} errorTitle={t('settings.auditLoadFailed')} onRetry={() => loadAuditLogs(auditPage)} />
+        )}
+        {!loaded ? (
+          !loadError && <ListLoadState loading error={null} errorTitle={t('settings.auditLoadFailed')} onRetry={() => loadAuditLogs(auditPage)} skeletonCount={3} />
+        ) : auditLogs.length === 0 ? (
+          filtered ? (
+            <div className="flex flex-wrap items-center gap-3 py-4">
+              <p className="text-[13px] text-muted-foreground">{t('settings.auditNoMatch')}</p>
+              <Button variant="outline" size="sm" className="rounded-xl" onClick={clearFilters}>{t('settings.auditClearFilters')}</Button>
+            </div>
+          ) : (
+            <p className="text-[13px] text-muted-foreground py-4">{t('settings.auditLogEmpty')}</p>
+          )
         ) : (
           <>
             {/* Desktop table */}

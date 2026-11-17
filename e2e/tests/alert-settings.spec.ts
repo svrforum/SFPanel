@@ -37,7 +37,7 @@ const channel = { id: 1, name: 'ops', type: 'webhook', config: '{"webhook_url":"
 
 type Sent = { channels: unknown[]; rules: { type: string; severity: string; node_scope: string; node_ids: string }[]; deleted: string[] }
 
-async function mock(page: Page, { channels = [] as unknown[], nodes = { nodes: [] } as unknown } = {}): Promise<Sent> {
+async function mock(page: Page, { channels = [] as unknown[], nodes = { nodes: [] } as unknown, failing = new Set<string>() } = {}): Promise<Sent> {
   const sent: Sent = { channels: [], rules: [], deleted: [] }
   await page.addInitScript(() => {
     sessionStorage.setItem('token', 'fixture-token')
@@ -46,6 +46,10 @@ async function mock(page: Page, { channels = [] as unknown[], nodes = { nodes: [
   await page.route('**/api/v1/**', async route => {
     const req = route.request()
     const path = new URL(req.url()).pathname
+    if (req.method() === 'GET' && [...failing].some(f => path.endsWith(f))) {
+      await route.fulfill({ status: 500, json: { success: false, error: { code: 'INTERNAL_ERROR', message: 'database is locked' } } })
+      return
+    }
     let data: unknown = {}
     if (path.endsWith('/auth/setup-status')) data = { setup_required: false }
     else if (path.endsWith('/cluster/status')) data = { enabled: false }
@@ -248,4 +252,31 @@ test('a container-down rule sends the stop option in the shape the dispatcher is
   await expect(name).toBeHidden()
 
   expect(sent.rules).toEqual(contract.rule_creates)
+})
+
+// A list that could not be read said it was empty: "No channels configured"
+// sent an operator to set up the same channel again, and the rule form told
+// them to add one first.
+test('lists that could not be read say so, with a retry, not that they are empty', async ({ page }) => {
+  const failing = new Set(['/alerts/channels', '/alerts/rules', '/alerts/history'])
+  await mock(page, { failing })
+  await page.goto('/settings?tab=alerts')
+  for (const text of ['Could not load the alert channels', 'Could not load the alert rules', 'Could not load the alert history']) {
+    await expect(page.getByText(text, { exact: true }).first()).toBeVisible()
+  }
+  for (const text of ['No channels configured', 'No rules configured', 'No alert history']) {
+    await expect(page.getByText(text, { exact: true })).toHaveCount(0)
+  }
+  await page.getByRole('button', { name: 'Add Rule', exact: true }).click()
+  await expect(page.getByText('Add a channel first', { exact: true })).toHaveCount(0)
+
+  failing.clear()
+  const retry = page.getByRole('button', { name: 'Retry' })
+  for (let left = 3; left > 0; left--) {
+    await expect(retry).toHaveCount(left)
+    await retry.first().click()
+  }
+  await expect(page.getByText('No channels configured', { exact: true })).toBeVisible()
+  await expect(page.getByText('No alert history', { exact: true })).toBeVisible()
+  await expect(page.getByText('Could not load the alert rules', { exact: true })).toHaveCount(0)
 })

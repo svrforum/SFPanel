@@ -4,6 +4,7 @@ import { Link, useSearchParams } from 'react-router-dom'
 import { api } from '@/lib/api'
 import { cn } from '@/lib/utils'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
+import { ListLoadState } from '@/components/ListLoadState'
 
 // Tab panels are code-split: each tab pulls in its own state + handlers
 // only when the user opens it, keeping the initial settings chunk small.
@@ -23,13 +24,21 @@ const VALID_TABS = ['account', 'system', 'alerts', 'audit']
 export default function Settings() {
   const { t } = useTranslation()
   const [searchParams, setSearchParams] = useSearchParams()
-  const [clusterEnabled, setClusterEnabled] = useState(false)
+  // Starts from the mode the shell last read (Layout keeps it under this key)
+  // and keeps it when this read fails: a failure used to lay a cluster
+  // node's settings out as a standalone node's, with no word of it.
+  const [clusterEnabled, setClusterEnabled] = useState(() => localStorage.getItem('sfpanel-cluster-mode') === 'true')
+  const [statusError, setStatusError] = useState<string | null>(null)
+  const [statusAttempt, setStatusAttempt] = useState(0)
 
   useEffect(() => {
     api.getClusterStatus()
-      .then((s) => setClusterEnabled(s.enabled))
-      .catch(() => {})
-  }, [])
+      .then((s) => {
+        setClusterEnabled(s.enabled)
+        setStatusError(null)
+      })
+      .catch((err: unknown) => setStatusError(err instanceof Error ? err.message : String(err)))
+  }, [statusAttempt])
 
   // In cluster mode: filter tabs by context.
   //   ?scope=node → per-node SQLite settings: system (update/backup + terminal
@@ -118,6 +127,15 @@ export default function Settings() {
           </nav>
         )}
       </div>
+
+      {statusError && (
+        <ListLoadState
+          loading={false}
+          error={statusError}
+          errorTitle={t('settings.clusterStatusFailed')}
+          onRetry={() => { setStatusError(null); setStatusAttempt((n) => n + 1) }}
+        />
+      )}
 
       <Tabs value={activeTab} onValueChange={handleTabChange} className="w-full">
         <TabsList className="bg-secondary/50 rounded-xl p-1 h-auto">

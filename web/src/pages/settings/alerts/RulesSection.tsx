@@ -2,6 +2,7 @@ import { useState, useEffect, useCallback } from 'react'
 import { useTranslation } from 'react-i18next'
 import { api } from '@/lib/api'
 import { useConfirm } from '@/components/ConfirmDialog'
+import { ListLoadState } from '@/components/ListLoadState'
 import { useApiAction } from '@/hooks/useApiAction'
 import { toast } from 'sonner'
 import { Button } from '@/components/ui/button'
@@ -39,11 +40,14 @@ function conditionThreshold(condition: string): number | undefined {
   }
 }
 
-export function RulesSection({ channels }: { channels: AlertChannel[] }) {
+export function RulesSection({ channels, channelsFailed }: { channels: AlertChannel[]; channelsFailed: boolean }) {
   const { t } = useTranslation()
   const confirm = useConfirm()
 
   const [rules, setRules] = useState<AlertRule[]>([])
+  // Whether the list was read: a failed read showed "No rules configured".
+  const [loaded, setLoaded] = useState(false)
+  const [loadError, setLoadError] = useState<string | null>(null)
   const [showAddRule, setShowAddRule] = useState(false)
   const [ruleForm, setRuleForm] = useState(EMPTY_FORM)
   // Container-rule extra inputs (only used when ruleForm.type is a CONTAINER_RULE_TYPES member)
@@ -80,8 +84,12 @@ export function RulesSection({ channels }: { channels: AlertChannel[] }) {
 
   const loadRules = useCallback(() => {
     api.getAlertRules()
-      .then(setRules)
-      .catch(() => { /* ignore */ })
+      .then((list) => {
+        setRules(list)
+        setLoaded(true)
+        setLoadError(null)
+      })
+      .catch((err: unknown) => setLoadError(err instanceof Error ? err.message : String(err)))
   }, [])
 
   useEffect(() => {
@@ -323,7 +331,9 @@ export function RulesSection({ channels }: { channels: AlertChannel[] }) {
           </div>
           <div className="space-y-1.5">
             <Label className="text-[13px]">{t('settings.alerts.rules.formChannelsLabel')}</Label>
-            {channels.length === 0 ? (
+            {channelsFailed ? (
+              <p className="text-[12px] text-destructive">{t('settings.alerts.channels.loadFailed')}</p>
+            ) : channels.length === 0 ? (
               <p className="text-[12px] text-muted-foreground">{t('settings.alerts.rules.formChannelsEmpty')}</p>
             ) : (
               <div className="flex flex-wrap gap-2">
@@ -381,8 +391,11 @@ export function RulesSection({ channels }: { channels: AlertChannel[] }) {
         </div>
       )}
 
-      {/* Rule list */}
-      {rules.length === 0 ? (
+      {/* Rule list: "none" only once the list has been read. */}
+      {(loadError || !loaded) && (
+        <ListLoadState loading={!loaded} error={loadError} errorTitle={t('settings.alerts.rules.loadFailed')} onRetry={() => { setLoadError(null); loadRules() }} skeletonCount={2} />
+      )}
+      {!loaded ? null : rules.length === 0 ? (
         <p className="text-[13px] text-muted-foreground py-4">{t('settings.alerts.rules.empty')}</p>
       ) : (
         <ul className="space-y-2">
