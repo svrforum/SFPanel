@@ -1456,6 +1456,8 @@ test.describe('history', () => {
       await expect(card).toContainText('Package update')
       await expect(card).toContainText('2 nodes')
       await expect(card).toContainText('1m 35s')
+      // Each value with the table's name for it: "1m 35s" alone does not say what it is.
+      await expect(card.getByRole('term')).toHaveText(['Nodes', 'Started by', 'Started', 'Took'])
       const box = await card.boundingBox()
       expect(box && box.x >= 0 && box.x + box.width <= 412).toBe(true)
       await card.tap()

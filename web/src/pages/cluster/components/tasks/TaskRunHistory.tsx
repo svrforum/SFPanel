@@ -198,12 +198,25 @@ export function TaskRunHistory({
                   <span className="text-[13px] font-medium break-words min-w-0">{taskName(run)}</span>
                   {status(run)}
                 </div>
-                <div className="flex flex-wrap gap-x-3 gap-y-0.5 text-[12px] text-muted-foreground">
-                  <span>{nodeCount(run)}</span>
-                  <span className="break-all">{run.started_by}</span>
-                  <span title={formatDate(run.started_at)}>{when(run)}</span>
-                  <span>{took(run)}</span>
-                </div>
+                {/* The table's column names, which a value such as "8s" needs beside it. */}
+                <dl className="flex flex-wrap gap-x-3 gap-y-0.5 text-[12px] text-muted-foreground">
+                  <div className="flex gap-1">
+                    <dt>{t('cluster.tasks.history.nodes')}</dt>
+                    <dd className="text-foreground">{nodeCount(run)}</dd>
+                  </div>
+                  <div className="flex min-w-0 gap-1">
+                    <dt className="shrink-0">{t('cluster.tasks.history.startedBy')}</dt>
+                    <dd className="min-w-0 text-foreground break-all">{run.started_by}</dd>
+                  </div>
+                  <div className="flex gap-1">
+                    <dt>{t('cluster.tasks.history.startedAt')}</dt>
+                    <dd className="text-foreground" title={formatDate(run.started_at)}>{when(run)}</dd>
+                  </div>
+                  <div className="flex gap-1">
+                    <dt>{t('cluster.tasks.history.took')}</dt>
+                    <dd className="text-foreground">{took(run)}</dd>
+                  </div>
+                </dl>
               </Link>
             </li>
           ))}
