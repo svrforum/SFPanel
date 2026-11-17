@@ -1,4 +1,4 @@
-import { useEffect, useId, useRef, useState } from 'react'
+import { useEffect, useId, useRef, useState, type ReactNode } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useTranslation } from 'react-i18next'
 import { ClipboardPaste, Eye, Loader2, Lock, Network, Play, Plus, Settings2, X } from 'lucide-react'
@@ -50,6 +50,19 @@ const MODES: AgentInstallMode[] = ['auto', 'online', 'offline']
 const PLACED = new Set(['servers', 'user', 'method', 'password', 'key', 'passphrase', 'sudo_same', 'sudo_password', 'mode', 'concurrency'])
 
 const blankRow = (r: InstallServerRow) => !r.host.trim() && !r.name.trim() && !r.group.trim()
+
+// A field of a server's row, named above it on a phone, where the row is a
+// card and a placeholder would be all that told the fields apart. On a wide
+// screen the header row names the columns. The field's own aria-label keeps
+// the row's number in its name.
+function RowField({ id, label, className, children }: { id: string; label: string; className?: string; children: ReactNode }) {
+  return (
+    <div className={cn('min-w-0 space-y-1', className)}>
+      <label htmlFor={id} className="block text-[12px] font-medium text-muted-foreground md:hidden">{label}</label>
+      {children}
+    </div>
+  )
+}
 const withoutSecrets = (f: InstallForm): InstallForm => ({ ...f, password: '', key: '', passphrase: '', sudoPassword: '' })
 
 // The agent install's form: the servers (typed, pasted a line each, or picked
@@ -331,25 +344,29 @@ export function AgentInstallSetup() {
             // ("add a server") describes the first host.
             const note = shown.length > 0 ? `${id}-row-${i}-note` : undefined
             const hostNote = [note, i === 0 && fieldProblem('servers') ? `${id}-servers-note` : undefined].filter(Boolean).join(' ') || undefined
+            const field = `${id}-row-${i}`
             return (
               <div
                 key={i}
                 data-testid={`install-server-${i}`}
                 className={cn(ROW_GRID, 'rounded-xl border p-2 md:rounded-none md:border-0 md:p-0')}
               >
-                <Input
-                  aria-label={t('cluster.tasks.install.setup.rowHost', { n })}
-                  value={r.host}
-                  onChange={(e) => changeRow(i, { host: e.target.value })}
-                  placeholder={t('cluster.tasks.install.setup.host')}
-                  autoComplete="off"
-                  autoCapitalize="none"
-                  spellCheck={false}
-                  aria-invalid={shown.length > 0 || undefined}
-                  aria-describedby={hostNote}
-                  disabled={busy}
-                  className="col-span-2 md:col-span-1 font-mono"
-                />
+                <RowField id={`${field}-host`} label={t('cluster.tasks.install.setup.host')} className="col-span-2 md:col-span-1">
+                  <Input
+                    id={`${field}-host`}
+                    aria-label={t('cluster.tasks.install.setup.rowHost', { n })}
+                    value={r.host}
+                    onChange={(e) => changeRow(i, { host: e.target.value })}
+                    placeholder={t('cluster.tasks.install.setup.host')}
+                    autoComplete="off"
+                    autoCapitalize="none"
+                    spellCheck={false}
+                    aria-invalid={shown.length > 0 || undefined}
+                    aria-describedby={hostNote}
+                    disabled={busy}
+                    className="font-mono"
+                  />
+                </RowField>
                 <Button
                   type="button"
                   variant="ghost"
@@ -357,43 +374,52 @@ export function AgentInstallSetup() {
                   aria-label={t('cluster.tasks.install.setup.rowRemove', { n })}
                   onClick={() => removeRow(i)}
                   disabled={busy}
-                  className="justify-self-end md:order-last"
+                  className="justify-self-end self-end md:order-last"
                 >
                   <X className="h-4 w-4" />
                 </Button>
-                <Input
-                  aria-label={t('cluster.tasks.install.setup.rowPort', { n })}
-                  value={r.port}
-                  onChange={(e) => changeRow(i, { port: e.target.value })}
-                  inputMode="numeric"
-                  placeholder="22"
-                  autoComplete="off"
-                  aria-describedby={note}
-                  disabled={busy}
-                  className="font-mono"
-                />
-                <Input
-                  aria-label={t('cluster.tasks.install.setup.rowName', { n })}
-                  value={r.name}
-                  onChange={(e) => changeRow(i, { name: e.target.value })}
-                  placeholder={t('cluster.tasks.install.setup.namePlaceholder')}
-                  autoComplete="off"
-                  autoCapitalize="none"
-                  spellCheck={false}
-                  aria-describedby={note}
-                  disabled={busy}
-                />
-                <Input
-                  aria-label={t('cluster.tasks.install.setup.rowGroup', { n })}
-                  value={r.group}
-                  onChange={(e) => changeRow(i, { group: e.target.value })}
-                  placeholder={t('cluster.tasks.install.setup.groupPlaceholder')}
-                  autoComplete="off"
-                  autoCapitalize="none"
-                  spellCheck={false}
-                  aria-describedby={note}
-                  disabled={busy}
-                />
+                <RowField id={`${field}-port`} label={t('cluster.tasks.install.setup.port')}>
+                  <Input
+                    id={`${field}-port`}
+                    aria-label={t('cluster.tasks.install.setup.rowPort', { n })}
+                    value={r.port}
+                    onChange={(e) => changeRow(i, { port: e.target.value })}
+                    inputMode="numeric"
+                    placeholder="22"
+                    autoComplete="off"
+                    aria-describedby={note}
+                    disabled={busy}
+                    className="font-mono"
+                  />
+                </RowField>
+                <RowField id={`${field}-name`} label={t('cluster.tasks.install.setup.name')}>
+                  <Input
+                    id={`${field}-name`}
+                    aria-label={t('cluster.tasks.install.setup.rowName', { n })}
+                    value={r.name}
+                    onChange={(e) => changeRow(i, { name: e.target.value })}
+                    placeholder={t('cluster.tasks.install.setup.namePlaceholder')}
+                    autoComplete="off"
+                    autoCapitalize="none"
+                    spellCheck={false}
+                    aria-describedby={note}
+                    disabled={busy}
+                  />
+                </RowField>
+                <RowField id={`${field}-group`} label={t('cluster.tasks.install.setup.group')}>
+                  <Input
+                    id={`${field}-group`}
+                    aria-label={t('cluster.tasks.install.setup.rowGroup', { n })}
+                    value={r.group}
+                    onChange={(e) => changeRow(i, { group: e.target.value })}
+                    placeholder={t('cluster.tasks.install.setup.groupPlaceholder')}
+                    autoComplete="off"
+                    autoCapitalize="none"
+                    spellCheck={false}
+                    aria-describedby={note}
+                    disabled={busy}
+                  />
+                </RowField>
                 {shown.length > 0 && (
                   <div id={note} className="col-span-full order-last space-y-0.5">
                     {shown.map((text) => <p key={text} className="text-[12px] text-destructive">{text}</p>)}

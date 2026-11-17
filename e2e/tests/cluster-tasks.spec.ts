@@ -3041,6 +3041,11 @@ test.describe('agent install', () => {
       await page.goto(INSTALL_PATH)
       await expect(page.getByRole('button', { name: /Agent install \(SSH\)/ })).toBeVisible()
       await pane(page).getByRole('button', { name: 'Add server' }).click()
+      // A card names its fields, which a placeholder stops doing once a value is in.
+      await host(page, 1).fill('192.0.2.21')
+      for (const label of ['IP or host', 'SSH port', 'Name (optional)', 'Group (optional)']) {
+        await expect(row(page, 0).getByText(label, { exact: true })).toBeVisible()
+      }
       for (const el of [host(page, 1), host(page, 2), pane(page).getByRole('button', { name: 'Remove server 2' }), pane(page).getByRole('button', { name: 'Start install' })]) {
         await el.scrollIntoViewIfNeeded()
         const box = await el.boundingBox()
