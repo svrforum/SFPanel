@@ -2873,7 +2873,8 @@
       "infrastructure": "인프라",
       "tools": "도구"
     },
-    "editorTooLarge": "이 파일은 {{size}} MB로 편집기에서 열 수 없습니다 (최대 5 MB). 다운로드할까요?",
+    "editorTooLargeTitle": "편집기에서 열기에 너무 큰 파일입니다",
+    "editorTooLarge": "이 파일은 {{size}}이고, 편집기는 5 MB까지 엽니다. 대신 다운로드할까요?",
     "editPath": "경로 직접 입력",
     "breadcrumb": "현재 경로",
     "conflictTitle": "이 파일이 디스크에서 바뀌었습니다",

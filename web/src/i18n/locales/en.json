@@ -2884,7 +2884,8 @@
       "infrastructure": "Infrastructure",
       "tools": "Tools"
     },
-    "editorTooLarge": "This file is {{size}} MB — too large to open in the editor (max 5 MB). Download it instead?",
+    "editorTooLargeTitle": "Too large for the editor",
+    "editorTooLarge": "This file is {{size}}, and the editor opens files up to 5 MB. Download it instead?",
     "editPath": "Edit path",
     "breadcrumb": "Current path",
     "conflictTitle": "This file changed on disk",

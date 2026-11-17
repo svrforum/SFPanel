@@ -548,9 +548,11 @@ export default function Files() {
     // route them to download instead — that's almost always what they meant.
     // Single guard: every editor-open path funnels through this handler.
     if (entry.size > editMaxBytes) {
+      // A download, so not drawn as a danger, and the button says what it does.
       const ok = await confirm({
-        title: t('files.editorTooLarge', { size: Math.round(entry.size / 1024 / 1024) }),
-        danger: true,
+        title: t('files.editorTooLargeTitle'),
+        description: t('files.editorTooLarge', { size: formatBytes(entry.size) }),
+        confirmLabel: t('files.download'),
       })
       if (ok) void handleDownload(entry)
       return
