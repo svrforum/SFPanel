@@ -2074,6 +2074,7 @@
     "maxUploadSizeHint": "파일 업로드 시 허용되는 최대 크기. 기본값 1024 MB (1 GB).",
     "invalidMaxUploadSize": "1 이상의 숫자를 입력하세요",
     "settingsSaved": "설정이 저장되었습니다",
+    "settingsLoadFailed": "현재 설정을 불러오지 못했습니다",
     "settingsSaveFailed": "설정 저장 실패",
     "update": "패널 업데이트",
     "updateDescription": "최신 버전 확인 및 업데이트 설치",

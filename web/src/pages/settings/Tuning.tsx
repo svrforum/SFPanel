@@ -2,6 +2,7 @@ import { useState, useEffect, useRef, useCallback } from 'react'
 import { useTranslation } from 'react-i18next'
 import { api } from '@/lib/api'
 import { useConfirm } from '@/components/ConfirmDialog'
+import { ListLoadState } from '@/components/ListLoadState'
 import { formatBytes } from '@/lib/utils'
 import type { TuningStatus, TuningCategory } from '@/types/api'
 import { toast } from 'sonner'
@@ -23,6 +24,9 @@ export default function Tuning() {
   const [applying, setApplying] = useState<string | null>(null) // category name or 'all'
   const [resetting, setResetting] = useState(false)
   const [expanded, setExpanded] = useState<Record<string, boolean>>({})
+  // Why the status could not be read: drawn in place of the panel, with a
+  // retry, when there is nothing to show yet (it used to vanish after a toast).
+  const [loadError, setLoadError] = useState<string | null>(null)
   const [countdown, setCountdown] = useState(0) // rollback countdown seconds
   const [confirming, setConfirming] = useState(false)
   const countdownRef = useRef<ReturnType<typeof setInterval> | null>(null)
@@ -67,11 +71,13 @@ export default function Tuning() {
     try {
       const data = await api.getTuningStatus()
       setStatus(data)
+      setLoadError(null)
       // Restore countdown if there's a pending rollback on the server
       if (data.pending_rollback && data.rollback_remaining > 0 && countdown === 0) {
         startCountdown(data.rollback_remaining)
       }
-    } catch {
+    } catch (err: unknown) {
+      setLoadError(err instanceof Error ? err.message : String(err))
       toast.error(t('settings.tuning.loadFailed'))
     } finally {
       setLoading(false)
@@ -140,7 +146,11 @@ export default function Tuning() {
     )
   }
 
-  if (!status) return null
+  if (!status) {
+    return loadError
+      ? <ListLoadState loading={false} error={loadError} errorTitle={t('settings.tuning.loadFailed')} onRetry={loadStatus} />
+      : null
+  }
 
   const overallPercent = status.total_params > 0
     ? Math.round((status.applied / status.total_params) * 100)

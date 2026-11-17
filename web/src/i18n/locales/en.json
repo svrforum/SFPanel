@@ -2085,6 +2085,7 @@
     "maxUploadSizeHint": "Maximum allowed size for file uploads. Default is 1024 MB (1 GB).",
     "invalidMaxUploadSize": "Please enter a number greater than 0",
     "settingsSaved": "Settings saved",
+    "settingsLoadFailed": "Could not load the current settings",
     "settingsSaveFailed": "Failed to save settings",
     "update": "Panel Update",
     "updateDescription": "Check for updates and install the latest version",
