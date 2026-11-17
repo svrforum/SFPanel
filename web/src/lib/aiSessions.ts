@@ -11,17 +11,23 @@ export const TOOL_META: Record<AITool, { label: string; initial: string; color: 
 /**
  * Status dot per state. The active tab never pulses: the operator is looking
  * at it, so "waiting" there is just "idle at the prompt".
+ *
+ * Each state has its own shape as well as its colour — a filled dot working, a
+ * ring at the shell, a diamond waiting, a dash ended — because the colours
+ * alone were too close to tell apart (working and an idle shell 1.10:1 in the
+ * light theme, working and waiting 1.07:1), and a collapsed rail has no words
+ * beside them. The classes are merged over the rail's round 6px dot.
  */
 export function stateDotClass(state: AISessionState, active: boolean): string {
   switch (state) {
     case 'working':
       return 'bg-success'
     case 'waiting':
-      return active ? 'bg-success' : 'bg-warning animate-pulse'
+      return active ? 'bg-success' : 'rounded-none rotate-45 bg-warning animate-pulse'
     case 'shell':
-      return 'bg-muted-foreground/60'
+      return 'bg-transparent ring-1 ring-muted-foreground/60'
     case 'ended':
-      return 'bg-transparent ring-1 ring-muted-foreground/50'
+      return 'h-0.5 w-2 bg-muted-foreground/50'
   }
 }
 

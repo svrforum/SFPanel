@@ -24,6 +24,16 @@ describe('aiSessions helpers', () => {
     expect(stateDotClass('working', false)).toBe('bg-success')
   })
 
+  // Working was green and an idle shell grey at 60%: 1.10:1 apart in the light
+  // theme, so without colour vision the two dots were the same dot.
+  it('tells the states apart by shape, not by colour alone', () => {
+    const shape = (cls: string) => cls.split(' ')
+      .filter((c) => !/^(bg|ring)-(success|warning|muted-foreground)/.test(c) && !c.startsWith('animate-'))
+      .sort().join(' ')
+    const shapes = [stateDotClass('working', false), stateDotClass('shell', false), stateDotClass('waiting', false), stateDotClass('ended', false)].map(shape)
+    expect(new Set(shapes).size, shapes.join(' | ')).toBe(4)
+  })
+
   it('counts waiting sessions other than the active one', () => {
     const list = [s('a', 'waiting'), s('b', 'waiting'), s('c', 'working'), s('d', 'ended')]
     expect(waitingCount(list, 'a')).toBe(1)
