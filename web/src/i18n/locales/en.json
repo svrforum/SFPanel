@@ -2640,10 +2640,16 @@
       "ownLabelHint": "Up to 8 characters",
       "ownEnter": "Enter after it",
       "ownAdd": "Add",
+      "own_needsLabel": "A text longer than {{label}} characters needs its own label for the key",
+      "own_labelLong": "The label can be {{label}} characters at most",
+      "own_textLong": "The text can be {{text}} characters at most",
       "reset": "Back to the panel's keys",
       "save": "Save",
       "saved": "Keys saved",
-      "empty": "No keys yet"
+      "empty": "No keys yet",
+      "discardTitle": "Discard the key changes?",
+      "discardBody": "The keys have changes that are not saved. Closing loses them.",
+      "discardConfirm": "Discard"
     }
   },
   "ai": {

@@ -2629,10 +2629,16 @@
       "ownLabelHint": "8자까지",
       "ownEnter": "입력 뒤 Enter",
       "ownAdd": "추가",
+      "own_needsLabel": "{{label}}자보다 긴 글은 키에 보일 글자를 따로 정하세요",
+      "own_labelLong": "키에 보일 글자는 {{label}}자까지입니다",
+      "own_textLong": "누르면 입력할 글은 {{text}}자까지입니다",
       "reset": "기본 키로 되돌리기",
       "save": "저장",
       "saved": "키 구성을 저장했습니다",
-      "empty": "아직 키가 없습니다"
+      "empty": "아직 키가 없습니다",
+      "discardTitle": "키 편집을 버릴까요?",
+      "discardBody": "저장하지 않은 키 변경이 있습니다. 닫으면 사라집니다.",
+      "discardConfirm": "버리기"
     }
   },
   "ai": {

@@ -7,9 +7,10 @@ import { Button } from '@/components/ui/button'
 import { Checkbox } from '@/components/ui/checkbox'
 import { Input } from '@/components/ui/input'
 import { Sheet, SheetContent, SheetDescription, SheetTitle } from '@/components/ui/sheet'
+import { useConfirm } from '@/components/ConfirmDialog'
 import {
   DEFAULT_KEYSETS, KEY_CATALOG, KEY_LABEL_MAX, KEY_TEXT_MAX, LONG_LABEL, PAGES_MAX, PAGE_KEYS,
-  barKey, barKeyName, isDefaultKeyset, longLabel, storedPages,
+  barKey, barKeyName, isDefaultKeyset, longLabel, ownKeyProblem, storedPages,
   type KeysetKind, type StoredKey, type StoredKeysets,
 } from '@/lib/terminalKeysets'
 
@@ -17,7 +18,6 @@ const KINDS: KeysetKind[] = ['agent', 'shell']
 const CHIP = 'min-h-11 min-w-0 overflow-hidden rounded-lg border border-border bg-secondary text-[11px] font-semibold text-foreground active:bg-accent focus-visible:outline-2 focus-visible:outline-ring'
 const GROUPS = { basic: 'groupBasic', move: 'groupMove', modifier: 'groupModifier', control: 'groupControl' } as const
 const copy = (pages: StoredKey[][]): StoredKey[][] => pages.map((page) => [...page])
-const chars = (s: string) => [...s].length
 
 /**
  * Arranging the key row (lib/terminalKeysets): which keys, on which page, in
@@ -39,11 +39,14 @@ export function KeysEditor({ kind, saved, onSave, onClose }: {
   onClose: () => void
 }) {
   const { t } = useTranslation()
+  const confirm = useConfirm()
   const [tab, setTab] = useState<KeysetKind>(kind)
   const [draft, setDraft] = useState<Record<KeysetKind, StoredKey[][]>>(() => ({
     agent: copy(storedPages('agent', saved)),
     shell: copy(storedPages('shell', saved)),
   }))
+  // What it opened on, to tell whether closing it loses anything.
+  const [opened] = useState(() => JSON.stringify(draft))
   // The key being moved or removed, and the page a new key goes to.
   const [picked, setPicked] = useState<{ page: number; index: number } | null>(null)
   const [adding, setAdding] = useState<number | null>(null)
@@ -103,13 +106,28 @@ export function KeysEditor({ kind, saved, onSave, onClose }: {
     setAdding(null)
   }
 
-  // A key of the operator's own. The label is the text itself where that fits.
-  const ownLabel = own.label.trim() || (chars(own.text) <= KEY_LABEL_MAX ? own.text.trim() : '')
-  const ownReady = own.text !== '' && ownLabel !== '' && chars(ownLabel) <= KEY_LABEL_MAX && chars(own.text) <= KEY_TEXT_MAX
+  // A key of the operator's own. The label is the text itself where that fits;
+  // what keeps Add disabled is said under it.
+  const ownProblem = ownKeyProblem(own.text, own.label)
   const addOwn = () => {
-    if (!ownReady) return
-    add({ label: ownLabel, text: own.text, ...(own.enter ? { enter: true } : {}) })
+    if (ownProblem) return
+    add({ label: own.label.trim() || own.text.trim(), text: own.text, ...(own.enter ? { enter: true } : {}) })
     setOwn({ text: '', label: '', enter: false })
+  }
+
+  // Closed by a tap outside, a swipe or Esc, the sheet took the edits with it
+  // unasked. Nothing kept until Save, so a change is asked about first.
+  const close = async () => {
+    if (JSON.stringify(draft) !== opened) {
+      const discard = await confirm({
+        title: t('terminal.keysEditor.discardTitle'),
+        description: t('terminal.keysEditor.discardBody'),
+        confirmLabel: t('terminal.keysEditor.discardConfirm'),
+        danger: true,
+      })
+      if (!discard) return
+    }
+    onClose()
   }
 
   const save = async () => {
@@ -136,7 +154,7 @@ export function KeysEditor({ kind, saved, onSave, onClose }: {
   }
 
   return (
-    <Sheet open onOpenChange={(open) => { if (!open) onClose() }}>
+    <Sheet open onOpenChange={(open) => { if (!open) void close() }}>
       <SheetContent side="bottom" data-keys-editor className="max-h-[92dvh] gap-0 overflow-hidden rounded-t-2xl p-0">
         {/* The title, whose keys, and the buttons below stay; the pages between them scroll. */}
         <div className="flex shrink-0 flex-col gap-2 p-4 pb-3">
@@ -226,8 +244,14 @@ export function KeysEditor({ kind, saved, onSave, onClose }: {
                     <Input value={own.label} maxLength={KEY_LABEL_MAX * 2} onChange={(e) => setOwn({ ...own, label: e.target.value })}
                       aria-label={t('terminal.keysEditor.ownLabel')} placeholder={`${t('terminal.keysEditor.ownLabel')} (${t('terminal.keysEditor.ownLabelHint')})`}
                       autoCapitalize="off" autoCorrect="off" spellCheck={false} className="h-11 min-w-0 flex-1 rounded-xl text-[16px]" />
-                    <Button type="button" className="min-h-11 rounded-xl" disabled={!ownReady} onClick={addOwn}>{t('terminal.keysEditor.ownAdd')}</Button>
+                    <Button type="button" className="min-h-11 rounded-xl" disabled={ownProblem !== null} onClick={addOwn}
+                      aria-describedby={ownProblem && ownProblem !== 'noText' ? 'keys-own-problem' : undefined}>{t('terminal.keysEditor.ownAdd')}</Button>
                   </div>
+                  {ownProblem && ownProblem !== 'noText' && (
+                    <p id="keys-own-problem" role="status" className="text-[12px] text-destructive">
+                      {t(`terminal.keysEditor.own_${ownProblem}`, { label: KEY_LABEL_MAX, text: KEY_TEXT_MAX })}
+                    </p>
+                  )}
                   <label className="flex min-h-11 items-center gap-3 text-[14px]">
                     <Checkbox checked={own.enter} onCheckedChange={(v) => setOwn({ ...own, enter: v === true })} />
                     {t('terminal.keysEditor.ownEnter')}

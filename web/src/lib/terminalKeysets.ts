@@ -100,6 +100,22 @@ export function barKey(key: StoredKey): BarKey | null {
   return { label: key.label, send: key.text, own: true, enter: key.enter === true }
 }
 
+/**
+ * What stops a key of the operator's own from being added, or null when it
+ * can be. A text short enough for a cap is its own label; a longer one needs a
+ * label of its own. Lengths are in characters, as the operator counts them.
+ */
+export type OwnKeyProblem = 'noText' | 'needsLabel' | 'labelLong' | 'textLong'
+export function ownKeyProblem(text: string, label: string): OwnKeyProblem | null {
+  const chars = (s: string) => [...s].length
+  if (text === '') return 'noText'
+  if (chars(text) > KEY_TEXT_MAX) return 'textLong'
+  const shown = label.trim() || (chars(text) <= KEY_LABEL_MAX ? text.trim() : '')
+  if (shown === '') return 'needsLabel'
+  if (chars(shown) > KEY_LABEL_MAX) return 'labelLong'
+  return null
+}
+
 const char = (c: string): StoredKey => ({ label: c, text: c })
 const id = (...ids: string[]): StoredKey[] => ids.map((i) => ({ id: i }))
 

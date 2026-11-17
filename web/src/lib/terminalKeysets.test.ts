@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import en from '@/i18n/locales/en.json'
 import ko from '@/i18n/locales/ko.json'
-import { DEFAULT_KEYSETS, KEYSETS, KEY_CATALOG, NO_BAR_MODIFIERS, activeModifiers, afterKey, barKey, barKeyName, isDefaultKeyset, keysetKind, keysetPages, longLabel, tapModifier } from './terminalKeysets'
+import { DEFAULT_KEYSETS, KEYSETS, KEY_CATALOG, NO_BAR_MODIFIERS, activeModifiers, afterKey, barKey, barKeyName, isDefaultKeyset, keysetKind, keysetPages, longLabel, ownKeyProblem, tapModifier } from './terminalKeysets'
 
 // i18next's t over one locale file, enough for the key names.
 function translator(locale: Record<string, unknown>) {
@@ -11,6 +11,23 @@ function translator(locale: Record<string, unknown>) {
     return found.replace(/\{\{(\w+)\}\}/g, (_, name: string) => String(options?.[name] ?? ''))
   }
 }
+
+describe('ownKeyProblem', () => {
+  // The editor's Add stayed disabled with nothing saying why: a text longer
+  // than a cap needs a label of its own, and both have their limits.
+  it('says why a key of the operator\'s own cannot be added yet', () => {
+    expect(ownKeyProblem('', '')).toBe('noText')
+    // Eight characters: the text is its own label.
+    expect(ownKeyProblem('/compact', '')).toBeNull()
+    expect(ownKeyProblem('/compact now', '')).toBe('needsLabel')
+    expect(ownKeyProblem('/compact now', 'cmp')).toBeNull()
+    expect(ownKeyProblem('ls', 'a long label')).toBe('labelLong')
+    expect(ownKeyProblem('x'.repeat(65), 'x')).toBe('textLong')
+    // Characters are counted, not bytes or UTF-16 units.
+    expect(ownKeyProblem('한글여덟자입니다', '')).toBeNull()
+    expect(ownKeyProblem('   ', '')).toBe('needsLabel')
+  })
+})
 
 describe('longLabel', () => {
   // On a 320px screen a cap is 35px: "⇧Tab" at 13px bold was cut to "⇧Tal",

@@ -748,9 +748,42 @@ test('an arrangement the panel does not keep stays open to try again', async ({ 
   await editor.getByRole('button', { name: 'Save', exact: true }).tap()
   await expect(page.getByText('Could not be saved')).toBeVisible()
   await expect(editor).toBeVisible()
+  // Closing it with the change unsaved asks first, and keeping it keeps it.
   await page.keyboard.press('Escape')
+  const discard = page.getByRole('dialog', { name: 'Discard the key changes?' })
+  await expect(discard).toBeVisible()
+  await discard.getByRole('button', { name: 'Cancel' }).click()
+  await expect(discard).toBeHidden()
+  await expect(editor).toBeVisible()
+  // Escape is the sheet's again once the question has finished closing.
+  await expect(async () => {
+    await page.keyboard.press('Escape')
+    await expect(discard).toBeVisible({ timeout: 500 })
+  }).toPass()
+  await discard.getByRole('button', { name: 'Discard', exact: true }).click()
+  await expect(editor).toHaveCount(0)
   // Nothing changed under the terminal.
   await expect(t.area.locator('[data-terminal-keys]').getByRole('button').first()).toHaveText('Esc')
+})
+
+test('a key of one\'s own that cannot be added says why', async ({ page }) => {
+  const t = await openTerminal(page)
+  await t.openTools()
+  await t.sheet.getByRole('button', { name: /Edit the keys/ }).tap()
+  const editor = page.locator('[data-keys-editor]')
+  // Every page of the panel's own is full: a new page opens the picker.
+  await editor.getByRole('button', { name: 'Add a page' }).tap()
+  const picker = editor.locator('[data-keys-picker]')
+  await picker.getByRole('textbox', { name: 'What it types' }).fill('/compact now')
+  const add = picker.getByRole('button', { name: 'Add', exact: true })
+  await expect(add).toBeDisabled()
+  await expect(add).toHaveAccessibleDescription('A text longer than 8 characters needs its own label for the key')
+  await picker.getByRole('textbox', { name: 'What the key shows' }).fill('cmp')
+  await expect(add).toBeEnabled()
+  // A page and a key added, not saved: closing asks.
+  await add.tap()
+  await page.keyboard.press('Escape')
+  await expect(page.getByRole('dialog', { name: 'Discard the key changes?' })).toBeVisible()
 })
 
 test.describe('with a mouse and a keyboard', () => {
