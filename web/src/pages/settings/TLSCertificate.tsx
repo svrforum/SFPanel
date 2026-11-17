@@ -7,9 +7,9 @@ import { api } from '@/lib/api'
 import { downloadBlob } from '@/lib/utils'
 import type { TLSStatus } from '@/types/api'
 
-function formatDate(iso?: string) {
+function formatDate(iso: string | undefined, locale: string) {
   if (!iso) return '—'
-  return new Date(iso).toLocaleDateString()
+  return new Date(iso).toLocaleDateString(locale)
 }
 
 // TLSCertificate shows the panel's own certificate and offers its certificate
@@ -20,7 +20,7 @@ function formatDate(iso?: string) {
 // remote node with ?node= must show — and hand out — that node's CA. The API
 // client's withNode() is what carries that through the raw blob fetch.
 export default function TLSCertificate() {
-  const { t } = useTranslation()
+  const { t, i18n } = useTranslation()
   const [status, setStatus] = useState<TLSStatus | null>(null)
   const [downloading, setDownloading] = useState(false)
 
@@ -74,11 +74,11 @@ export default function TLSCertificate() {
         <Row label={t('settings.tls.authority', { defaultValue: 'Authority' })} value={status.ca_subject || '—'} />
         <Row
           label={t('settings.tls.caExpires', { defaultValue: 'Authority expires' })}
-          value={formatDate(status.ca_not_after)}
+          value={formatDate(status.ca_not_after, i18n.language)}
         />
         <Row
           label={t('settings.tls.certExpires', { defaultValue: 'Certificate expires' })}
-          value={formatDate(status.not_after)}
+          value={formatDate(status.not_after, i18n.language)}
         />
         {status.ca_fingerprint && (
           <div className="pt-1">

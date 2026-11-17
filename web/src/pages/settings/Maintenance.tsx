@@ -18,7 +18,7 @@ type MaintenanceProps = {
 }
 
 export default function Maintenance({ clusterEnabled }: MaintenanceProps) {
-  const { t } = useTranslation()
+  const { t, i18n } = useTranslation()
   const confirm = useConfirm()
 
   // System info state
@@ -499,7 +499,7 @@ export default function Maintenance({ clusterEnabled }: MaintenanceProps) {
             <div className="flex items-center gap-2 mb-1">
               <Clock className="h-3.5 w-3.5 text-muted-foreground" />
               <span className="text-[12px] text-muted-foreground uppercase tracking-wider">{t('settings.backupSchedule.lastRun')}</span>
-              <span className="text-[12px] font-medium">{new Date(schedule.last_run).toLocaleString()}</span>
+              <span className="text-[12px] font-medium">{new Date(schedule.last_run).toLocaleString(i18n.language)}</span>
               <span className={`text-[12px] font-medium ${schedule.last_status === 'error' ? 'text-destructive' : 'text-success'}`}>
                 {schedule.last_status === 'error' ? t('settings.backupSchedule.statusError') : t('settings.backupSchedule.statusSuccess')}
               </span>
@@ -530,7 +530,7 @@ export default function Maintenance({ clusterEnabled }: MaintenanceProps) {
                 <div className="min-w-0 flex-1">
                   <p className="text-[13px] font-medium truncate">{file.name}</p>
                   <p className="text-[12px] text-muted-foreground">
-                    {formatBytes(file.size)} · {new Date(file.mod_time).toLocaleString()}
+                    {formatBytes(file.size)} · {new Date(file.mod_time).toLocaleString(i18n.language)}
                   </p>
                 </div>
                 <Button

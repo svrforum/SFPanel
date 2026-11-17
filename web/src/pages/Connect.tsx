@@ -18,7 +18,7 @@ const isTauri = '__TAURI_INTERNALS__' in window
 
 export default function Connect() {
   const navigate = useNavigate()
-  const { t } = useTranslation()
+  const { t, i18n } = useTranslation()
   const [url, setUrl] = useState(localStorage.getItem('sfpanel_server_url') || '')
   const [error, setError] = useState('')
   const [loading, setLoading] = useState(false)
@@ -28,7 +28,7 @@ export default function Connect() {
 
   const addLog = (msg: string) => {
     setDiagLog((prev) => {
-      const next = [...prev, `[${new Date().toLocaleTimeString()}] ${msg}`]
+      const next = [...prev, `[${new Date().toLocaleTimeString(i18n.language)}] ${msg}`]
       setTimeout(() => { if (logRef.current) logRef.current.scrollTop = logRef.current.scrollHeight }, 0)
       return next
     })

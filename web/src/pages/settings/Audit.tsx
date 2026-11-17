@@ -16,7 +16,7 @@ const AUDIT_LIMIT = 20
 const selectCls = 'h-8 rounded-lg border border-border bg-card px-2 text-[12px] outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-0'
 
 export default function Audit() {
-  const { t } = useTranslation()
+  const { t, i18n } = useTranslation()
   const confirm = useConfirm()
   const [auditLogs, setAuditLogs] = useState<AuditLogEntry[]>([])
   const [auditTotal, setAuditTotal] = useState(0)
@@ -131,7 +131,7 @@ export default function Audit() {
                   {auditLogs.map(log => (
                     <TableRow key={log.id}>
                       <TableCell className="text-[12px] text-muted-foreground whitespace-nowrap">
-                        {new Date(log.created_at).toLocaleString()}
+                        {new Date(log.created_at).toLocaleString(i18n.language)}
                       </TableCell>
                       <TableCell className="text-[12px]">{log.username || '-'}</TableCell>
                       <TableCell>
@@ -162,7 +162,7 @@ export default function Audit() {
                 <div key={log.id} className="bg-card rounded-xl p-3 card-shadow space-y-1">
                   <div className="flex justify-between text-[12px]">
                     <span className="text-muted-foreground">{t('settings.auditTime')}</span>
-                    <span className="text-muted-foreground">{new Date(log.created_at).toLocaleString()}</span>
+                    <span className="text-muted-foreground">{new Date(log.created_at).toLocaleString(i18n.language)}</span>
                   </div>
                   <div className="flex justify-between text-[12px]">
                     <span className="text-muted-foreground">{t('settings.auditUser')}</span>

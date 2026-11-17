@@ -29,7 +29,7 @@ function parseSentChannels(raw: string): string[] {
 }
 
 export function HistorySection() {
-  const { t } = useTranslation()
+  const { t, i18n } = useTranslation()
   const confirm = useConfirm()
 
   const [history, setHistory] = useState<AlertHistoryEntry[]>([])
@@ -115,7 +115,7 @@ export function HistorySection() {
                   return (
                   <TableRow key={entry.id}>
                     <TableCell className="text-[12px] text-muted-foreground whitespace-nowrap">
-                      {new Date(entry.created_at).toLocaleString()}
+                      {new Date(entry.created_at).toLocaleString(i18n.language)}
                     </TableCell>
                     <TableCell>
                       <span className="inline-flex items-center px-1.5 py-0.5 rounded text-[12px] font-medium bg-secondary text-muted-foreground">
@@ -158,7 +158,7 @@ export function HistorySection() {
                 <div key={entry.id} className="bg-card rounded-xl p-3 card-shadow space-y-1">
                   <div className="flex justify-between text-[12px]">
                     <span className="text-muted-foreground">{t('settings.alerts.history.colTime')}</span>
-                    <span className="text-muted-foreground">{new Date(entry.created_at).toLocaleString()}</span>
+                    <span className="text-muted-foreground">{new Date(entry.created_at).toLocaleString(i18n.language)}</span>
                   </div>
                   <div className="flex justify-between text-[12px]">
                     <span className="text-muted-foreground">{t('settings.alerts.history.colType')}</span>
