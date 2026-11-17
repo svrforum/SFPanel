@@ -1666,7 +1666,8 @@ export default function Files() {
       {/* Bulk delete progress. The Cancel here actually stops the run — the
           button that sat beside the Delete action only cleared the selection,
           so pressing it looked like a stop while files kept disappearing. */}
-      <Dialog open={!!bulkProgress} onOpenChange={() => {}}>
+      {/* Its X and Escape stop the run, as the Cancel below does; they did nothing. */}
+      <Dialog open={!!bulkProgress} onOpenChange={(open) => { if (!open) bulkCancelRef.current = true }}>
         <DialogContent className="sm:max-w-md" onPointerDownOutside={(e) => e.preventDefault()}>
           <DialogHeader>
             <DialogTitle>{t('files.deleting', { defaultValue: 'Deleting' })}</DialogTitle>
@@ -1765,7 +1766,7 @@ export default function Files() {
       />
 
       {/* Upload progress dialog */}
-      <Dialog open={!!uploadProgress} onOpenChange={() => {}}>
+      <Dialog open={!!uploadProgress} onOpenChange={(open) => { if (!open) uploadAbortRef.current?.abort() }}>
         <DialogContent className="sm:max-w-md" onPointerDownOutside={(e) => e.preventDefault()}>
           <DialogHeader>
             <DialogTitle>{t('files.uploading')}</DialogTitle>
