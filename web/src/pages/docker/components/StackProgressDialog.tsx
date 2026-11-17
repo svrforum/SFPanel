@@ -9,6 +9,7 @@ import {
   DialogTitle,
 } from '@/components/ui/dialog'
 import { Button } from '@/components/ui/button'
+import { runStackStream, type StackStreamEvent } from '@/pages/docker/stackStream'
 
 export interface StackProgressState {
   open: boolean
@@ -22,8 +23,9 @@ export interface StackProgressState {
  * useStackProgress owns the deploy/update progress-modal state plus the shared
  * SSE event handler that was previously copy-pasted across handleUp /
  * handleDeploy / handleUpdate. runProgressStream opens the modal, feeds every
- * stream event into it, marks it done (and rethrows) so call sites keep their
- * own success/failure toasts and refreshes.
+ * stream event into it, marks it done and throws on a failure — a request
+ * error or an error event in the stream — so call sites keep their own
+ * success/failure toasts and refreshes.
  *
  * Co-located with StackProgressDialog on purpose; the react-refresh disable
  * mirrors ConfirmDialog.tsx.
@@ -41,11 +43,11 @@ export function useStackProgress() {
   const runProgressStream = useCallback(
     async (
       title: string,
-      run: (onEvent: (event: { phase: string; line: string }) => void) => Promise<void>,
+      run: (onEvent: (event: StackStreamEvent) => void) => Promise<void>,
     ) => {
       setProgress({ open: true, title, lines: [], done: false, error: false })
       try {
-        await run((event) => {
+        await runStackStream(run, (event) => {
           setProgress((prev) => {
             if (event.phase === 'error') {
               return { ...prev, error: true, lines: [...prev.lines, `❌ ${event.line}`] }
