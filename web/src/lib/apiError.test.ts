@@ -119,3 +119,26 @@ describe('clusterUpdateStream', () => {
     expect([err?.status, err?.code, err?.message]).toEqual([409, 'UPDATE_IN_PROGRESS', 'update already running'])
   })
 })
+
+// A backup or a download is a fetch of its own, not request(): its refusal
+// used to read "Backup failed (500)", the code and the server's sentence
+// dropped, so the page showed English with nothing to act on.
+describe('downloads', () => {
+  const calls: [string, (api: Awaited<ReturnType<typeof freshApi>>['api']) => Promise<unknown>][] = [
+    ['downloadBackup', (api) => api.downloadBackup()],
+    ['downloadBackupFile', (api) => api.downloadBackupFile('sfpanel-backup.tar.gz')],
+    ['downloadCACert', (api) => api.downloadCACert()],
+    ['downloadFile', (api) => api.downloadFile('/etc/hosts')],
+  ]
+  for (const [name, call] of calls) {
+    it(`${name} rejects with the refusal's code and sentence`, async () => {
+      const { api } = await freshApi()
+      vi.stubGlobal('fetch', () => Promise.resolve(envelope(500, { code: 'BACKUP_ERROR', message: 'disk full' })))
+      const err = await call(api).then(
+        () => undefined,
+        (e: unknown) => e as { status?: number; code?: string; message: string },
+      )
+      expect([err?.status, err?.code, err?.message]).toEqual([500, 'BACKUP_ERROR', 'disk full'])
+    })
+  }
+})

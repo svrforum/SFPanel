@@ -923,7 +923,7 @@ class ApiClient {
       method: 'POST',
       headers: this.streamHeaders(),
     })
-    if (!res.ok) throw new Error(`Backup failed (${res.status})`)
+    if (!res.ok) throw await errorFromResponse(res)
     return res.blob()
   }
 
@@ -949,7 +949,7 @@ class ApiClient {
     const res = await fetch(this.withNode(`/system/backup/files/download?name=${encodeURIComponent(name)}`), {
       headers: this.streamHeaders(),
     })
-    if (!res.ok) throw new Error(`Download failed (${res.status})`)
+    if (!res.ok) throw await errorFromResponse(res)
     return res.blob()
   }
 
@@ -1023,7 +1023,7 @@ class ApiClient {
     const res = await fetch(this.withNode('/system/tls/ca.crt'), {
       headers: this.streamHeaders(),
     })
-    if (!res.ok) throw new Error(`Download failed (${res.status})`)
+    if (!res.ok) throw await errorFromResponse(res)
     return res.blob()
   }
 
@@ -1601,9 +1601,7 @@ class ApiClient {
       headers['Authorization'] = `Bearer ${this.token}`
     }
     const res = await fetch(this.withNode(`/files/download?path=${encodeURIComponent(path)}`), { headers })
-    if (!res.ok) {
-      throw new Error(`Download failed (${res.status})`)
-    }
+    if (!res.ok) throw await errorFromResponse(res)
     return res.blob()
   }
 
