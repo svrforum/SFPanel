@@ -6814,6 +6814,8 @@ WireGuard 키페어 생성 (`wg genkey` + `wg pubkey`).
 
 **에러 응답:** `WG_RESOLVCONF_MISSING`(409, `details.iface`) — 켜려는 설정에 `DNS =`가 있는데 호스트에 `resolvconf`가 없음(Debian·Proxmox VE 기본). wg-quick이 부팅 때 실패하므로 거부한다. `POST /network/wireguard/interfaces/:name/up`도 같은 조건으로 거부한다.
 
+지금 상태는 `GET /network/wireguard/interfaces`(와 `/interfaces/:name`)의 각 인터페이스에 `autostart`(boolean)로 옵니다. `systemctl is-enabled wg-quick@<name>`이 `enabled`이면 `true`, `enabled-runtime`(다음 부팅에 사라짐)·`disabled`·`linked`·`masked`·`not-found`이면 `false`. `static`·`indirect`처럼 다른 유닛이 정하는 답, `systemctl`이 없거나 답하지 않을 때는 **필드를 빼서** 모름을 나타냅니다(`false`가 아님). 이 필드가 없는 이전 노드도 같은 모양이므로, 화면은 필드가 없으면 켜기·끄기 두 버튼을 그대로 보입니다.
+
 ---
 
 ## 호스트 네트워크 — 쓰기 가능 여부와 링크 종류
@@ -7138,7 +7140,7 @@ WireGuard 키페어 생성 (`wg genkey` + `wg pubkey`).
 |--------|------|------|------|
 | GET | `/api/v1/network/wireguard/status` | O | WireGuard 설치 상태 확인 |
 | POST | `/api/v1/network/wireguard/install` | O | WireGuard 설치 (일부 저장소만 받지 못하면 계속하고 `warnings`로 알림) |
-| GET | `/api/v1/network/wireguard/interfaces` | O | WireGuard 인터페이스 목록 |
+| GET | `/api/v1/network/wireguard/interfaces` | O | WireGuard 인터페이스 목록. 인터페이스마다 부팅 시 시작 여부 `autostart`(모르면 없음) |
 | GET | `/api/v1/network/wireguard/interfaces/:name` | O | WireGuard 인터페이스 상세 |
 | POST | `/api/v1/network/wireguard/interfaces/:name/up` | O | WireGuard 인터페이스 활성화 |
 | POST | `/api/v1/network/wireguard/interfaces/:name/down` | O | WireGuard 인터페이스 비활성화 |

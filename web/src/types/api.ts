@@ -514,6 +514,8 @@ export interface WireGuardInterface {
   address: string
   dns: string
   peers: WireGuardPeer[]
+  /** Whether wg-quick@<name> starts at boot; absent when the node could not tell. */
+  autostart?: boolean
 }
 
 export interface WireGuardPeer {

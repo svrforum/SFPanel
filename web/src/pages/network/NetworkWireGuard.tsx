@@ -242,6 +242,10 @@ export default function NetworkWireGuard() {
     setAutostartBusy(name)
     try {
       await api.setWireGuardAutostart(name, enabled)
+      // The switch shows the new state; the two-button form (state unknown)
+      // stays as it is rather than turning into a switch under the pointer.
+      setInterfaces((prev) => prev.map((i) =>
+        i.name === name && typeof i.autostart === 'boolean' ? { ...i, autostart: enabled } : i))
       toast.success(enabled
         ? t('network.wireguard.peers.autostartEnabled')
         : t('network.wireguard.peers.autostartDisabled'))
@@ -526,7 +530,36 @@ export default function NetworkWireGuard() {
               )}
             </div>
 
-            {/* Autostart */}
+            {/* Autostart: a switch showing the current state; the two buttons
+                only where the node could not tell (an older node, or systemd
+                did not answer). */}
+            {typeof iface.autostart === 'boolean' ? (
+              <div className="mt-4 pt-4 border-t border-border">
+                <button
+                  role="switch"
+                  aria-checked={iface.autostart}
+                  className="w-full flex items-center justify-between gap-3 rounded-lg outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-0 disabled:opacity-60"
+                  onClick={() => handleAutostart(iface.name, !iface.autostart)}
+                  disabled={autostartBusy === iface.name}
+                >
+                  <span className="text-[12px] text-muted-foreground flex items-center gap-1">
+                    <Power className="h-3 w-3" aria-hidden="true" />
+                    {t('network.wireguard.peers.autostart')}
+                  </span>
+                  {autostartBusy === iface.name ? (
+                    <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" aria-hidden="true" />
+                  ) : (
+                    <span aria-hidden="true" className={`w-10 h-6 shrink-0 rounded-full transition-colors relative ${
+                      iface.autostart ? 'bg-primary' : 'bg-secondary'
+                    }`}>
+                      <span className={`absolute top-1 w-4 h-4 rounded-full bg-white shadow transition-transform ${
+                        iface.autostart ? 'translate-x-5' : 'translate-x-1'
+                      }`} />
+                    </span>
+                  )}
+                </button>
+              </div>
+            ) : (
             <div className="mt-4 pt-4 border-t border-border flex items-center justify-between">
               <span className="text-[12px] text-muted-foreground flex items-center gap-1">
                 <Power className="h-3 w-3" />
@@ -554,6 +587,7 @@ export default function NetworkWireGuard() {
                 </Button>
               </div>
             </div>
+            )}
           </div>
         ))}
       </div>

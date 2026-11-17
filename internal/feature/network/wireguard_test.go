@@ -11,8 +11,9 @@ import (
 )
 
 // `wg show <iface> dump` real-shape output. Tab-separated.
-//   line 0: <iface> private_key  public_key  listen_port  fwmark
-//   line N: <peer> public_key  preshared_key  endpoint  allowed_ips  latest_handshake  rx  tx  persistent_keepalive
+//
+//	line 0: <iface> private_key  public_key  listen_port  fwmark
+//	line N: <peer> public_key  preshared_key  endpoint  allowed_ips  latest_handshake  rx  tx  persistent_keepalive
 const wgDumpFixture = "PRIV1=\tPUB1=\t51820\toff\n" +
 	"PEER1=\t(none)\t1.2.3.4:51820\t10.0.0.2/32,fd00::2/128\t1714000000\t1024\t512\t25\n" +
 	"PEER2=\t(none)\t(none)\t(none)\t0\t0\t0\toff\n"
@@ -109,6 +110,57 @@ func TestPopulateWGInterfacePeersNeverNull(t *testing.T) {
 		}
 		if !strings.Contains(string(out), `"peers":[]`) {
 			t.Errorf("%s: %s, want \"peers\":[]", tc.name, out)
+		}
+	}
+}
+
+// The page offered "enable at boot" and "disable at boot" side by side because
+// it could not tell which applied. `systemctl is-enabled` exits non-zero for
+// every answer but the enabled ones, so the word decides — and a question that
+// could not be asked is unknown (no field), never "disabled".
+func TestPopulateWGInterfaceAutostart(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		res  exec.MockResult
+		want string // the autostart member of the JSON, "" for none
+	}{
+		{"enabled", exec.MockResult{Output: "enabled\n"}, `"autostart":true`},
+		{"disabled exits 1", exec.MockResult{Output: "disabled\n", Err: errors.New("exit status 1")}, `"autostart":false`},
+		{"runtime only, gone at the next boot", exec.MockResult{Output: "enabled-runtime\n"}, `"autostart":false`},
+		{"masked", exec.MockResult{Output: "masked\n", Err: errors.New("exit status 1")}, `"autostart":false`},
+		{"no unit file", exec.MockResult{Output: "not-found\n", Err: errors.New("exit status 4")}, `"autostart":false`},
+		{"static: other units decide", exec.MockResult{Output: "static\n"}, ""},
+		{"systemctl missing", exec.MockResult{Err: errors.New(`exec: "systemctl": executable file not found in $PATH`)}, ""},
+		{"bus timeout", exec.MockResult{Output: "Failed to get unit file state for wg-quick@wg0.service: Connection timed out\n", Err: errors.New("exit status 1")}, ""},
+	} {
+		cmd := exec.NewMockCommander()
+		cmd.Outputs["systemctl"] = tc.res
+		iface := WireGuardInterface{Name: "wg0"}
+		(&WireGuardHandler{Cmd: cmd}).populateWGInterface(&iface, "[Interface]\nAddress = 10.8.0.1/24\n")
+		out, err := json.Marshal(iface)
+		if err != nil {
+			t.Fatal(err)
+		}
+		got := ""
+		for _, m := range []string{`"autostart":true`, `"autostart":false`} {
+			if strings.Contains(string(out), m) {
+				got = m
+			}
+		}
+		if strings.Contains(string(out), `"autostart":null`) {
+			got = `"autostart":null`
+		}
+		if got != tc.want {
+			t.Errorf("%s: autostart member %q, want %q (%s)", tc.name, got, tc.want, out)
+		}
+		var asked bool
+		for _, c := range cmd.Calls {
+			if c.Name == "systemctl" && reflect.DeepEqual(c.Args, []string{"is-enabled", "wg-quick@wg0"}) {
+				asked = true
+			}
+		}
+		if !asked {
+			t.Errorf("%s: never ran systemctl is-enabled wg-quick@wg0: %+v", tc.name, cmd.Calls)
 		}
 	}
 }

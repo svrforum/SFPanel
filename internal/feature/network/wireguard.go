@@ -8,6 +8,7 @@ import (
 	"regexp"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/labstack/echo/v4"
 	"github.com/svrforum/SFPanel/internal/api/response"
@@ -36,6 +37,9 @@ type WireGuardInterface struct {
 	Address    string          `json:"address,omitempty"`
 	DNS        string          `json:"dns,omitempty"`
 	Peers      []WireGuardPeer `json:"peers"`
+	// Autostart is whether wg-quick@<name> starts at boot. Absent when that
+	// could not be told, as from a node that predates the field.
+	Autostart *bool `json:"autostart,omitempty"`
 }
 
 // WireGuardPeer represents a peer in a WireGuard interface.
@@ -154,6 +158,28 @@ func (h *WireGuardHandler) isWGInterfaceActive(name string) bool {
 		return false
 	}
 	return strings.Contains(output, name+":")
+}
+
+// wgAutostart asks systemd whether wg-quick@<name> starts at boot. Only
+// "enabled" says yes. "enabled-runtime" lasts until the next boot, and
+// disabled, linked, masked and not-found never start it: no. Anything else —
+// static or indirect, where other units decide, or a systemctl that is missing
+// or does not answer — is nil, not no. is-enabled exits non-zero for every
+// answer but the enabled ones, so only the word it prints counts.
+func (h *WireGuardHandler) wgAutostart(name string) *bool {
+	out, _ := h.Cmd.RunWithTimeout(10*time.Second, "systemctl", "is-enabled", "wg-quick@"+name)
+	for _, line := range strings.Split(out, "\n") {
+		var on bool
+		switch strings.TrimSpace(line) {
+		case "enabled":
+			on = true
+		case "enabled-runtime", "disabled", "linked", "linked-runtime", "masked", "masked-runtime", "not-found":
+		default:
+			continue
+		}
+		return &on
+	}
+	return nil
 }
 
 // listWGConfigNames returns the names of all .conf files in /etc/wireguard/.
@@ -282,14 +308,15 @@ func (h *WireGuardHandler) ListInterfaces(c echo.Context) error {
 	return response.OK(c, interfaces)
 }
 
-// populateWGInterface fills Address/DNS (always from the config) and the
-// runtime-ish fields PublicKey/ListenPort/Peers. When the interface is up those
+// populateWGInterface fills Address/DNS (always from the config), Autostart
+// (from systemd) and the runtime-ish fields PublicKey/ListenPort/Peers. When the interface is up those
 // come from `wg show`; when it's down they're derived from the config file
 // (pubkey from PrivateKey, port from ListenPort, peers from [Peer] blocks) so a
 // stopped interface still yields a valid client config and correct peer list.
 func (h *WireGuardHandler) populateWGInterface(iface *WireGuardInterface, confData string) {
 	iface.Address = parseWGConfField(confData, "Address")
 	iface.DNS = parseWGConfField(confData, "DNS")
+	iface.Autostart = h.wgAutostart(iface.Name)
 
 	if iface.Active {
 		if dump, err := h.Cmd.Run("wg", "show", iface.Name, "dump"); err == nil {
