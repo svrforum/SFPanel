@@ -142,3 +142,18 @@ describe('downloads', () => {
     })
   }
 })
+
+// A reverse proxy answers a dead panel with its own HTML page. request() read
+// every body as JSON, so the operator got "Unexpected token '<'" — a parse
+// error, not the status the proxy sent.
+describe('request', () => {
+  it('rejects a body that is not JSON with its status, not a parse error', async () => {
+    const { api } = await freshApi()
+    vi.stubGlobal('fetch', () => Promise.resolve(new Response('<html><body>Bad Gateway</body></html>', { status: 502, headers: { 'Content-Type': 'text/html' } })))
+    const err = await api.getSetupStatus().then(
+      () => undefined,
+      (e: unknown) => e as { status?: number; code?: string; message: string },
+    )
+    expect([err?.status, err?.code, err?.message]).toEqual([502, undefined, 'HTTP 502'])
+  })
+})

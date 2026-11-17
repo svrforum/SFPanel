@@ -614,7 +614,15 @@ class ApiClient {
       throw new Error('Session expired')
     }
 
-    const json = await res.json()
+    // A reverse proxy answers for a panel that is down with a page of its own.
+    // Read as JSON, that reached the operator as "Unexpected token '<'": the
+    // status is what there is to say.
+    let json: { success?: boolean; data?: unknown }
+    try {
+      json = await res.json()
+    } catch {
+      throw apiErrorFrom(res.status, undefined)
+    }
 
     if (!json.success) throw apiErrorFrom(res.status, json)
 
