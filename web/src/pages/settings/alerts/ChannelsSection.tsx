@@ -1,10 +1,9 @@
-import { useState } from 'react'
+import { useId, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { api } from '@/lib/api'
 import { useConfirm } from '@/components/ConfirmDialog'
 import { ListLoadState } from '@/components/ListLoadState'
 import { useApiAction } from '@/hooks/useApiAction'
-import { toast } from 'sonner'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
@@ -15,6 +14,8 @@ import type { AlertChannel } from '@/types/api'
 type ChannelType = 'discord' | 'telegram' | 'webhook'
 
 const EMPTY_FORM = { name: '', type: 'discord' as ChannelType, webhook_url: '', bot_token: '', chat_id: '' }
+
+type ChannelField = 'name' | 'type' | 'webhook_url' | 'bot_token' | 'chat_id'
 
 export function ChannelsSection({ channels, loaded, loadError, onRetry, onChanged }: {
   channels: AlertChannel[]
@@ -28,6 +29,18 @@ export function ChannelsSection({ channels, loaded, loadError, onRetry, onChange
   const [showAddChannel, setShowAddChannel] = useState(false)
   const [channelForm, setChannelForm] = useState(EMPTY_FORM)
   const [testingId, setTestingId] = useState<number | null>(null)
+  // Each label is tied to its field, and a field the form refuses says so
+  // under itself (it was a toast that left the field unmarked).
+  const formId = useId()
+  const fieldId = (field: ChannelField) => `${formId}-${field}`
+  const [formError, setFormError] = useState<{ field: ChannelField; message: string } | null>(null)
+  const invalid = (field: ChannelField) => ({
+    'aria-invalid': formError?.field === field || undefined,
+    'aria-describedby': formError?.field === field ? `${fieldId(field)}-error` : undefined,
+  })
+  const fieldError = (field: ChannelField) => formError?.field === field && (
+    <p id={`${fieldId(field)}-error`} className="text-[12px] text-destructive">{formError.message}</p>
+  )
 
   const { run: runAddChannel, loading: channelLoading } = useApiAction(
     api.createAlertChannel.bind(api),
@@ -37,6 +50,7 @@ export function ChannelsSection({ channels, loaded, loadError, onRetry, onChange
       onSuccess: () => {
         setShowAddChannel(false)
         setChannelForm(EMPTY_FORM)
+        setFormError(null)
         onChanged()
       },
     },
@@ -64,22 +78,28 @@ export function ChannelsSection({ channels, loaded, loadError, onRetry, onChange
     },
   )
 
+  function refuse(field: ChannelField, message: string) {
+    setFormError({ field, message })
+    document.getElementById(fieldId(field))?.focus()
+  }
+
   async function handleAddChannel() {
     if (!channelForm.name.trim()) {
-      toast.error(t('settings.alerts.channels.errorNameRequired'))
+      refuse('name', t('settings.alerts.channels.errorNameRequired'))
       return
     }
     const config: Record<string, string> = {}
     if (channelForm.type === 'discord' || channelForm.type === 'webhook') {
-      if (!channelForm.webhook_url.trim()) { toast.error(t('settings.alerts.channels.errorWebhookRequired')); return }
+      if (!channelForm.webhook_url.trim()) { refuse('webhook_url', t('settings.alerts.channels.errorWebhookRequired')); return }
       config.webhook_url = channelForm.webhook_url
     } else {
       if (!channelForm.bot_token.trim() || !channelForm.chat_id.trim()) {
-        toast.error(t('settings.alerts.channels.errorTelegramRequired')); return
+        refuse(channelForm.bot_token.trim() ? 'chat_id' : 'bot_token', t('settings.alerts.channels.errorTelegramRequired')); return
       }
       config.bot_token = channelForm.bot_token
       config.chat_id = channelForm.chat_id
     }
+    setFormError(null)
     await runAddChannel({ name: channelForm.name, type: channelForm.type, config, enabled: true })
   }
 
@@ -125,18 +145,21 @@ export function ChannelsSection({ channels, loaded, loadError, onRetry, onChange
         <div className="bg-secondary/30 rounded-xl p-4 mb-4 space-y-3">
           <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
             <div className="space-y-1.5">
-              <Label className="text-[13px]">{t('settings.alerts.channels.formNameLabel')}</Label>
+              <Label htmlFor={fieldId('name')} className="text-[13px]">{t('settings.alerts.channels.formNameLabel')}</Label>
               <Input
+                id={fieldId('name')}
                 value={channelForm.name}
                 onChange={e => setChannelForm(f => ({ ...f, name: e.target.value }))}
                 placeholder={t('settings.alerts.channels.formNamePlaceholder')}
+                {...invalid('name')}
                 className="rounded-xl"
               />
+              {fieldError('name')}
             </div>
             <div className="space-y-1.5">
-              <Label className="text-[13px]">{t('settings.alerts.channels.formTypeLabel')}</Label>
+              <Label htmlFor={fieldId('type')} className="text-[13px]">{t('settings.alerts.channels.formTypeLabel')}</Label>
               <Select value={channelForm.type} onValueChange={v => setChannelForm(f => ({ ...f, type: v as ChannelType }))}>
-                <SelectTrigger className="rounded-xl w-full">
+                <SelectTrigger id={fieldId('type')} className="rounded-xl w-full">
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
@@ -149,19 +172,23 @@ export function ChannelsSection({ channels, loaded, loadError, onRetry, onChange
           </div>
           {channelForm.type === 'discord' || channelForm.type === 'webhook' ? (
             <div className="space-y-1.5">
-              <Label className="text-[13px]">
+              <Label htmlFor={fieldId('webhook_url')} className="text-[13px]">
                 {channelForm.type === 'webhook'
                   ? t('settings.alerts.channels.formWebhookUrlLabel')
                   : t('settings.alerts.channels.formWebhookLabel')}
               </Label>
               <Input
+                id={fieldId('webhook_url')}
+                type="url"
                 value={channelForm.webhook_url}
                 onChange={e => setChannelForm(f => ({ ...f, webhook_url: e.target.value }))}
                 placeholder={channelForm.type === 'webhook'
                   ? t('settings.alerts.channels.formWebhookUrlPlaceholder')
                   : t('settings.alerts.channels.formWebhookPlaceholder')}
+                {...invalid('webhook_url')}
                 className="rounded-xl"
               />
+              {fieldError('webhook_url')}
               {channelForm.type === 'webhook' && (
                 <p className="text-[12px] text-muted-foreground">{t('settings.alerts.channels.formWebhookHint')}</p>
               )}
@@ -169,22 +196,30 @@ export function ChannelsSection({ channels, loaded, loadError, onRetry, onChange
           ) : (
             <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
               <div className="space-y-1.5">
-                <Label className="text-[13px]">{t('settings.alerts.channels.formBotTokenLabel')}</Label>
+                <Label htmlFor={fieldId('bot_token')} className="text-[13px]">{t('settings.alerts.channels.formBotTokenLabel')}</Label>
                 <Input
+                  id={fieldId('bot_token')}
                   value={channelForm.bot_token}
                   onChange={e => setChannelForm(f => ({ ...f, bot_token: e.target.value }))}
                   placeholder={t('settings.alerts.channels.formBotTokenPlaceholder')}
+                  autoComplete="off"
+                  spellCheck={false}
+                  {...invalid('bot_token')}
                   className="rounded-xl"
                 />
+                {fieldError('bot_token')}
               </div>
               <div className="space-y-1.5">
-                <Label className="text-[13px]">{t('settings.alerts.channels.formChatIdLabel')}</Label>
+                <Label htmlFor={fieldId('chat_id')} className="text-[13px]">{t('settings.alerts.channels.formChatIdLabel')}</Label>
                 <Input
+                  id={fieldId('chat_id')}
                   value={channelForm.chat_id}
                   onChange={e => setChannelForm(f => ({ ...f, chat_id: e.target.value }))}
                   placeholder={t('settings.alerts.channels.formChatIdPlaceholder')}
+                  {...invalid('chat_id')}
                   className="rounded-xl"
                 />
+                {fieldError('chat_id')}
               </div>
             </div>
           )}

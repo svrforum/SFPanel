@@ -280,3 +280,29 @@ test('lists that could not be read say so, with a retry, not that they are empty
   await expect(page.getByText('No alert history', { exact: true })).toBeVisible()
   await expect(page.getByText('Could not load the alert rules', { exact: true })).toHaveCount(0)
 })
+
+// The number fields had no name at all, the others only a placeholder, and a
+// refusal was a toast that left the field unmarked.
+test('every field of the forms has a name, and a refusal is marked on its field', async ({ page }) => {
+  await mock(page, { channels: [channel] })
+  await page.goto('/settings?tab=alerts')
+
+  await page.getByRole('button', { name: 'Add Rule', exact: true }).click()
+  for (const label of ['Rule Name', 'Threshold (%)', 'Cooldown (seconds)']) await expect(page.getByLabel(label, { exact: true })).toBeVisible()
+  for (const label of ['Type', 'Severity', 'Node Scope']) await expect(page.getByRole('combobox', { name: label })).toBeVisible()
+  await expect(page.getByRole('group', { name: 'Notification Channels' })).toBeVisible()
+  await page.getByRole('button', { name: 'Add Rule', exact: true }).click()
+  const ruleName = page.getByLabel('Rule Name', { exact: true })
+  await expect(ruleName).toHaveAttribute('aria-invalid', 'true')
+  await expect(ruleName).toBeFocused()
+  await expect(ruleName).toHaveAccessibleDescription('Rule name is required')
+  await page.getByRole('button', { name: 'Cancel' }).click()
+
+  await page.getByRole('button', { name: 'Add Channel', exact: true }).click()
+  await page.getByLabel('Channel Name').fill('ops-2')
+  await page.getByRole('button', { name: 'Add Channel', exact: true }).click()
+  const url = page.getByLabel('Webhook URL')
+  await expect(url).toHaveAttribute('aria-invalid', 'true')
+  await expect(url).toBeFocused()
+  await expect(url).toHaveAccessibleDescription('Webhook URL is required')
+})

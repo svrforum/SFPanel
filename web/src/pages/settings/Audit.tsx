@@ -14,7 +14,8 @@ import { Trash2 } from 'lucide-react'
 const AUDIT_LIMIT = 20
 // Deliberately a native <select>, not ui/select (Radix): the compact h-8
 // filter bar wants plain inline dropdowns without popover chrome.
-const selectCls = 'h-8 rounded-lg border border-border bg-card px-2 text-[12px] outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-0'
+// text-base under md: under 16px, iOS zooms the page into a focused field.
+const selectCls = 'h-8 rounded-lg border border-border bg-card px-2 text-base md:text-[12px] outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-0'
 
 export default function Audit() {
   const { t, i18n } = useTranslation()
@@ -106,17 +107,20 @@ export default function Audit() {
               value={userInput}
               onChange={(e) => setUserInput(e.target.value)}
               placeholder={t('settings.auditUser')}
-              className="h-8 rounded-lg text-[12px]"
+              aria-label={t('settings.auditUser')}
+              className="h-8 rounded-lg text-base md:text-[12px]"
             />
           </form>
-          <select className={selectCls} value={filterMethod} onChange={(e) => setFilterMethod(e.target.value)}>
+          {/* Named: the first option reads as a label, but only while it is
+              the one chosen. */}
+          <select aria-label={t('settings.auditMethod')} className={selectCls} value={filterMethod} onChange={(e) => setFilterMethod(e.target.value)}>
             <option value="">{t('settings.auditMethod')}</option>
             <option value="POST">POST</option>
             <option value="PUT">PUT</option>
             <option value="PATCH">PATCH</option>
             <option value="DELETE">DELETE</option>
           </select>
-          <select className={selectCls} value={filterStatus} onChange={(e) => setFilterStatus(e.target.value)}>
+          <select aria-label={t('settings.auditStatus')} className={selectCls} value={filterStatus} onChange={(e) => setFilterStatus(e.target.value)}>
             <option value="">{t('settings.auditStatus')}</option>
             <option value="2xx">2xx</option>
             <option value="4xx">4xx</option>

@@ -132,7 +132,7 @@ export default function MoreMenu({ open, onOpenChange }: MoreMenuProps) {
                           onChange={(e) => setQuery(e.target.value)}
                           placeholder={t('cluster.tree.search')}
                           aria-label={t('cluster.tree.search')}
-                          className="pl-9 h-9 rounded-xl bg-card border-0 text-[13px]"
+                          className="pl-9 h-9 rounded-xl bg-card border-0 text-base md:text-[13px]"
                         />
                       </div>
                     )}

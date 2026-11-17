@@ -1,10 +1,9 @@
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useEffect, useCallback, useId } from 'react'
 import { useTranslation } from 'react-i18next'
 import { api } from '@/lib/api'
 import { useConfirm } from '@/components/ConfirmDialog'
 import { ListLoadState } from '@/components/ListLoadState'
 import { useApiAction } from '@/hooks/useApiAction'
-import { toast } from 'sonner'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
@@ -28,6 +27,8 @@ const EMPTY_FORM = {
   cooldown: 300, channels: [] as number[], node_scope: 'all', nodes: [] as string[],
 }
 
+type RuleField = 'name' | 'type' | 'threshold' | 'pattern' | 'count' | 'window' | 'severity' | 'cooldown' | 'channels' | 'scope' | 'nodes'
+
 // A rule row carries its threshold inside `condition`, the JSON text it was
 // created with ({operator, threshold} for host metrics). The summary used to
 // read a `threshold` field the server never sends, and said "Threshold: %".
@@ -45,6 +46,18 @@ export function RulesSection({ channels, channelsFailed }: { channels: AlertChan
   const confirm = useConfirm()
 
   const [rules, setRules] = useState<AlertRule[]>([])
+  // Each label is tied to its field (the number fields had no name at all),
+  // and a field the form refuses says so under itself, not in a toast.
+  const formId = useId()
+  const fieldId = (field: RuleField) => `${formId}-${field}`
+  const [formError, setFormError] = useState<{ field: RuleField; message: string } | null>(null)
+  const invalid = (field: RuleField) => ({
+    'aria-invalid': formError?.field === field || undefined,
+    'aria-describedby': formError?.field === field ? `${fieldId(field)}-error` : undefined,
+  })
+  const fieldError = (field: RuleField) => formError?.field === field && (
+    <p id={`${fieldId(field)}-error`} className="text-[12px] text-destructive">{formError.message}</p>
+  )
   // Whether the list was read: a failed read showed "No rules configured".
   const [loaded, setLoaded] = useState(false)
   const [loadError, setLoadError] = useState<string | null>(null)
@@ -104,6 +117,7 @@ export function RulesSection({ channels, channelsFailed }: { channels: AlertChan
       onSuccess: () => {
         setShowAddRule(false)
         setRuleForm(EMPTY_FORM)
+        setFormError(null)
         setContainerPattern('*')
         setThresholdCount(3)
         setWindowSeconds(300)
@@ -152,11 +166,20 @@ export function RulesSection({ channels, channelsFailed }: { channels: AlertChan
     return JSON.stringify({ operator: '>', threshold: ruleForm.threshold })
   }
 
+  // Focus goes to the field, or to the first control of a group.
+  function refuse(field: RuleField, message: string) {
+    setFormError({ field, message })
+    const target = document.getElementById(fieldId(field))
+    const control = target?.matches('input, button') ? target : target?.querySelector<HTMLElement>('input, button')
+    control?.focus()
+  }
+
   async function handleAddRule() {
-    if (!ruleForm.name.trim()) { toast.error(t('settings.alerts.rules.errorNameRequired')); return }
-    if (ruleForm.channels.length === 0) { toast.error(t('settings.alerts.rules.errorChannelsRequired')); return }
+    if (!ruleForm.name.trim()) { refuse('name', t('settings.alerts.rules.errorNameRequired')); return }
+    if (ruleForm.channels.length === 0) { refuse('channels', t('settings.alerts.rules.errorChannelsRequired')); return }
     // Scoped to no node, a rule is skipped on every node of a cluster.
-    if (ruleForm.node_scope === 'specific' && ruleForm.nodes.length === 0) { toast.error(t('settings.alerts.rules.errorNodesRequired')); return }
+    if (ruleForm.node_scope === 'specific' && ruleForm.nodes.length === 0) { refuse('nodes', t('settings.alerts.rules.errorNodesRequired')); return }
+    setFormError(null)
     await runAddRule({
       name: ruleForm.name,
       type: ruleForm.type,
@@ -211,18 +234,21 @@ export function RulesSection({ channels, channelsFailed }: { channels: AlertChan
         <div className="bg-secondary/30 rounded-xl p-4 mb-4 space-y-3">
           <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
             <div className="space-y-1.5">
-              <Label className="text-[13px]">{t('settings.alerts.rules.formNameLabel')}</Label>
+              <Label htmlFor={fieldId('name')} className="text-[13px]">{t('settings.alerts.rules.formNameLabel')}</Label>
               <Input
+                id={fieldId('name')}
                 value={ruleForm.name}
                 onChange={e => setRuleForm(f => ({ ...f, name: e.target.value }))}
                 placeholder={t('settings.alerts.rules.formNamePlaceholder')}
+                {...invalid('name')}
                 className="rounded-xl"
               />
+              {fieldError('name')}
             </div>
             <div className="space-y-1.5">
-              <Label className="text-[13px]">{t('settings.alerts.rules.formTypeLabel')}</Label>
+              <Label htmlFor={fieldId('type')} className="text-[13px]">{t('settings.alerts.rules.formTypeLabel')}</Label>
               <Select value={ruleForm.type} onValueChange={v => setRuleForm(f => ({ ...f, type: v }))}>
-                <SelectTrigger className="rounded-xl w-full">
+                <SelectTrigger id={fieldId('type')} className="rounded-xl w-full">
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
@@ -236,8 +262,9 @@ export function RulesSection({ channels, channelsFailed }: { channels: AlertChan
           {/* Host metric rules: percentage threshold. Hidden for container_* types. */}
           {!CONTAINER_RULE_TYPES.has(ruleForm.type) && (
             <div className="space-y-1.5">
-              <Label className="text-[13px]">{t('settings.alerts.rules.formThresholdLabel')}</Label>
+              <Label htmlFor={fieldId('threshold')} className="text-[13px]">{t('settings.alerts.rules.formThresholdLabel')}</Label>
               <Input
+                id={fieldId('threshold')}
                 type="number"
                 min={0}
                 max={100}
@@ -250,8 +277,9 @@ export function RulesSection({ channels, channelsFailed }: { channels: AlertChan
           {/* Container rules: container name pattern (wildcard, e.g. * or nginx-*) */}
           {CONTAINER_RULE_TYPES.has(ruleForm.type) && (
             <div className="space-y-1.5">
-              <Label className="text-[13px]">{t('settings.alerts.rules.formContainerPatternLabel')}</Label>
+              <Label htmlFor={fieldId('pattern')} className="text-[13px]">{t('settings.alerts.rules.formContainerPatternLabel')}</Label>
               <Input
+                id={fieldId('pattern')}
                 value={containerPattern}
                 onChange={e => setContainerPattern(e.target.value)}
                 placeholder={t('settings.alerts.rules.formContainerPatternPlaceholder')}
@@ -276,8 +304,9 @@ export function RulesSection({ channels, channelsFailed }: { channels: AlertChan
           {ruleForm.type === 'container_restart_loop' && (
             <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
               <div className="space-y-1.5">
-                <Label className="text-[13px]">{t('settings.alerts.rules.formRestartCountLabel')}</Label>
+                <Label htmlFor={fieldId('count')} className="text-[13px]">{t('settings.alerts.rules.formRestartCountLabel')}</Label>
                 <Input
+                  id={fieldId('count')}
                   type="number"
                   min={1}
                   value={thresholdCount}
@@ -286,8 +315,9 @@ export function RulesSection({ channels, channelsFailed }: { channels: AlertChan
                 />
               </div>
               <div className="space-y-1.5">
-                <Label className="text-[13px]">{t('settings.alerts.rules.formWindowLabel')}</Label>
+                <Label htmlFor={fieldId('window')} className="text-[13px]">{t('settings.alerts.rules.formWindowLabel')}</Label>
                 <Input
+                  id={fieldId('window')}
                   type="number"
                   min={30}
                   value={windowSeconds}
@@ -299,13 +329,13 @@ export function RulesSection({ channels, channelsFailed }: { channels: AlertChan
           )}
           <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
             <div className="space-y-1.5">
-              <Label className="text-[13px]">{t('settings.alerts.rules.formSeverityLabel')}</Label>
+              <Label htmlFor={fieldId('severity')} className="text-[13px]">{t('settings.alerts.rules.formSeverityLabel')}</Label>
               <Select
                 value={FIXED_SEVERITY.get(ruleForm.type) ?? ruleForm.severity}
                 disabled={FIXED_SEVERITY.has(ruleForm.type)}
                 onValueChange={v => setRuleForm(f => ({ ...f, severity: v as 'info' | 'warning' | 'critical' }))}
               >
-                <SelectTrigger className="rounded-xl w-full">
+                <SelectTrigger id={fieldId('severity')} className="rounded-xl w-full">
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
@@ -319,8 +349,9 @@ export function RulesSection({ channels, channelsFailed }: { channels: AlertChan
               )}
             </div>
             <div className="space-y-1.5">
-              <Label className="text-[13px]">{t('settings.alerts.rules.formCooldownLabel')}</Label>
+              <Label htmlFor={fieldId('cooldown')} className="text-[13px]">{t('settings.alerts.rules.formCooldownLabel')}</Label>
               <Input
+                id={fieldId('cooldown')}
                 type="number"
                 min={0}
                 value={ruleForm.cooldown}
@@ -330,13 +361,19 @@ export function RulesSection({ channels, channelsFailed }: { channels: AlertChan
             </div>
           </div>
           <div className="space-y-1.5">
-            <Label className="text-[13px]">{t('settings.alerts.rules.formChannelsLabel')}</Label>
+            <Label id={`${fieldId('channels')}-label`} className="text-[13px]">{t('settings.alerts.rules.formChannelsLabel')}</Label>
             {channelsFailed ? (
               <p className="text-[12px] text-destructive">{t('settings.alerts.channels.loadFailed')}</p>
             ) : channels.length === 0 ? (
               <p className="text-[12px] text-muted-foreground">{t('settings.alerts.rules.formChannelsEmpty')}</p>
             ) : (
-              <div className="flex flex-wrap gap-2">
+              <div
+                id={fieldId('channels')}
+                role="group"
+                aria-labelledby={`${fieldId('channels')}-label`}
+                aria-describedby={formError?.field === 'channels' ? `${fieldId('channels')}-error` : undefined}
+                className="flex flex-wrap gap-2"
+              >
                 {channels.map(ch => (
                   <label key={ch.id} className="flex items-center gap-1.5 bg-secondary/50 rounded-lg px-2.5 py-1.5 cursor-pointer">
                     <Checkbox
@@ -348,11 +385,12 @@ export function RulesSection({ channels, channelsFailed }: { channels: AlertChan
                 ))}
               </div>
             )}
+            {fieldError('channels')}
           </div>
           <div className="space-y-1.5">
-            <Label className="text-[13px]">{t('settings.alerts.rules.formNodeScopeLabel')}</Label>
+            <Label htmlFor={fieldId('scope')} className="text-[13px]">{t('settings.alerts.rules.formNodeScopeLabel')}</Label>
             <Select value={ruleForm.node_scope} onValueChange={v => setRuleForm(f => ({ ...f, node_scope: v }))}>
-              <SelectTrigger className="rounded-xl w-full max-w-[200px]">
+              <SelectTrigger id={fieldId('scope')} className="rounded-xl w-full max-w-[200px]">
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>
@@ -361,7 +399,13 @@ export function RulesSection({ channels, channelsFailed }: { channels: AlertChan
               </SelectContent>
             </Select>
             {ruleForm.node_scope === 'specific' && (
-              <div className="flex flex-wrap gap-1.5 pt-1">
+              <div
+                id={fieldId('nodes')}
+                role="group"
+                aria-label={t('settings.alerts.rules.nodeScopeSpecific')}
+                aria-describedby={formError?.field === 'nodes' ? `${fieldId('nodes')}-error` : undefined}
+                className="flex flex-wrap gap-1.5 pt-1"
+              >
                 {selectableNodes.length === 0 ? (
                   <span className="text-[12px] text-muted-foreground">{t('settings.alerts.rules.noNodes')}</span>
                 ) : (
@@ -371,6 +415,7 @@ export function RulesSection({ channels, channelsFailed }: { channels: AlertChan
                       <button
                         key={n.id}
                         type="button"
+                        aria-pressed={selected}
                         onClick={() => setRuleForm((f) => ({
                           ...f,
                           nodes: selected ? f.nodes.filter((x) => x !== n.id) : [...f.nodes, n.id],
@@ -384,6 +429,7 @@ export function RulesSection({ channels, channelsFailed }: { channels: AlertChan
                 )}
               </div>
             )}
+            {fieldError('nodes')}
           </div>
           <Button onClick={handleAddRule} disabled={ruleLoading} className="rounded-xl">
             {ruleLoading ? t('settings.alerts.rules.addInProgress') : t('settings.alerts.rules.addButton')}
