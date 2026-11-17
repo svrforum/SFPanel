@@ -32,7 +32,6 @@ import { StatusPill, type StatusPillTone } from '@/components/StatusPill'
 import type { Metrics, ProcessInfo } from '@/types/api'
 import { clampNice, reniceStart, reniceToSend, statusLabelKey } from './processes/processView'
 import {
-  Table,
   TableBody,
   TableCell,
   TableHead,
@@ -50,7 +49,11 @@ import {
 
 type SortField = 'cpu' | 'memory' | 'pid' | 'name'
 type ViewMode = 'list' | 'tree'
+// Estimates only: every row is measured once drawn. A phone card wraps to as
+// many lines as its width needs, and a fixed 68px row let the next card cover
+// the wrapped lines.
 const ROW_HEIGHT = 44
+const CARD_HEIGHT = 120
 
 // A process plus its computed tree depth (for flattened-DFS tree rendering).
 type TreeRow = { proc: ProcessInfo; depth: number }
@@ -75,7 +78,6 @@ export default function Processes() {
   const [viewMode, setViewMode] = useState<ViewMode>('list')
   const [sysMetrics, setSysMetrics] = useState<Metrics | null>(null)
   const scrollRef = useRef<HTMLDivElement>(null)
-  const rowHeight = isMobile ? 68 : ROW_HEIGHT
 
   // Real-time metrics via WebSocket
   const onMetrics = useCallback((data: Metrics) => {
@@ -167,9 +169,12 @@ export default function Processes() {
   const rowVirtualizer = useVirtualizer({
     count: viewMode === 'tree' ? treeRows.length : sorted.length,
     getScrollElement: () => scrollRef.current,
-    estimateSize: () => rowHeight,
+    estimateSize: () => (isMobile ? CARD_HEIGHT : ROW_HEIGHT),
     overscan: 20,
   })
+  // Only the layout on screen is measured: the other one is display:none and
+  // would measure every row as 0.
+  const measureRow = rowVirtualizer.measureElement
 
   // Row lookup for the virtualizer, normalized to {proc, depth}.
   const rowAt = (index: number): TreeRow | undefined => {
@@ -288,8 +293,13 @@ export default function Processes() {
   )
 
   // Shared desktop table row; `depth` indents the name cell in tree mode.
-  const renderDesktopRow = (proc: ProcessInfo, depth = 0) => (
-    <TableRow key={proc.pid} className="group">
+  const renderDesktopRow = (proc: ProcessInfo, depth: number, index: number) => (
+    <TableRow
+      key={proc.pid}
+      data-index={index}
+      ref={isMobile ? undefined : measureRow}
+      className="group"
+    >
       <TableCell className="font-mono text-xs w-20">{proc.pid}</TableCell>
       <TableCell>
         <div className="flex items-start gap-1" style={{ paddingLeft: depth * 16 }}>
@@ -344,8 +354,19 @@ export default function Processes() {
       <div className="min-w-0 flex-1">
         <div className="flex items-center gap-1.5">
           {depth > 0 && <CornerDownRight className="h-3 w-3 shrink-0 text-muted-foreground/50" />}
-          <p className="text-[13px] font-medium truncate">{proc.name}</p>
+          <p className="text-[13px] font-medium truncate" title={proc.command}>{proc.name}</p>
           {guardBadge(proc)}
+        </div>
+        {proc.command !== proc.name && (
+          <p className="text-[12px] text-muted-foreground truncate" title={proc.command}>
+            {proc.command}
+          </p>
+        )}
+        <div className="flex items-center gap-2 mt-1 text-[12px] text-muted-foreground min-w-0">
+          <StatusPill tone={statusTone(proc.status)}>
+            {statusLabel(proc.status)}
+          </StatusPill>
+          <span className="truncate">{proc.user}</span>
         </div>
         <div className="flex items-center gap-3 mt-1 text-[12px] text-muted-foreground flex-wrap">
           <span className="font-mono">PID {proc.pid}</span>
@@ -525,10 +546,12 @@ export default function Processes() {
         <>
           {/* Mobile card view */}
           <div className="md:hidden">
+            {/* The floor keeps a short phone's list taller than two cards:
+                100dvh - 420px is 148px on a 568px-tall screen. */}
             <div
               ref={isMobile ? scrollRef : undefined}
-              className="overflow-auto space-y-2"
-              style={{ maxHeight: 'calc(100vh - 420px)' }}
+              className="overflow-auto"
+              style={{ maxHeight: 'max(60dvh, calc(100dvh - 420px))' }}
             >
               <div style={{ height: rowVirtualizer.getTotalSize(), position: 'relative' }}>
                 {rowVirtualizer.getVirtualItems().map((virtualRow) => {
@@ -537,8 +560,10 @@ export default function Processes() {
                   return (
                     <div
                       key={row.proc.pid}
-                      className="absolute left-0 right-0 px-0.5"
-                      style={{ top: virtualRow.start, height: virtualRow.size }}
+                      data-index={virtualRow.index}
+                      ref={isMobile ? measureRow : undefined}
+                      className="absolute left-0 right-0 px-0.5 pb-2"
+                      style={{ transform: `translateY(${virtualRow.start}px)` }}
                     >
                       {renderMobileCard(row.proc, row.depth)}
                     </div>
@@ -548,39 +573,41 @@ export default function Processes() {
             </div>
           </div>
 
-          {/* Desktop table view */}
+          {/* Desktop table view: one table, so the body's columns are the
+              header's. A header table over a separate body table sized its
+              columns apart, and CPU values stood under MEM %. */}
           <div className="hidden md:block bg-card rounded-2xl card-shadow overflow-hidden">
-            <Table>
-              <TableHeader>
-                <TableRow>
-                  <TableHead className="w-20">PID</TableHead>
-                  <TableHead>{t('processes.name')}</TableHead>
-                  <TableHead>{t('processes.user')}</TableHead>
-                  <TableHead className="w-20 text-right">CPU %</TableHead>
-                  <TableHead className="w-20 text-right">MEM %</TableHead>
-                  <TableHead className="w-24 text-right">{t('processes.rss')}</TableHead>
-                  <TableHead className="w-16">{t('processes.nice')}</TableHead>
-                  <TableHead className="w-24">{t('processes.status')}</TableHead>
-                  <TableHead className="text-right w-24">{t('common.actions')}</TableHead>
-                </TableRow>
-              </TableHeader>
-            </Table>
             <div
               ref={isMobile ? undefined : scrollRef}
               className="overflow-auto"
               style={{ maxHeight: 'calc(100vh - 420px)' }}
             >
-              <Table>
+              {/* A plain table: the Table primitive wraps itself in an
+                  overflow box, which the sticky header would stick to. */}
+              <table data-slot="table" className="w-full caption-bottom text-sm">
+                <TableHeader className="sticky top-0 z-10 bg-card shadow-[inset_0_-1px_0_var(--border)]">
+                  <TableRow>
+                    <TableHead className="w-20">PID</TableHead>
+                    <TableHead>{t('processes.name')}</TableHead>
+                    <TableHead>{t('processes.user')}</TableHead>
+                    <TableHead className="w-20 text-right">CPU %</TableHead>
+                    <TableHead className="w-20 text-right">MEM %</TableHead>
+                    <TableHead className="w-24 text-right">{t('processes.rss')}</TableHead>
+                    <TableHead className="w-16">{t('processes.nice')}</TableHead>
+                    <TableHead className="w-24">{t('processes.status')}</TableHead>
+                    <TableHead className="text-right w-24">{t('common.actions')}</TableHead>
+                  </TableRow>
+                </TableHeader>
                 <TableBody>
                   <tr style={{ height: rowVirtualizer.getVirtualItems()[0]?.start ?? 0 }} />
                   {rowVirtualizer.getVirtualItems().map((virtualRow) => {
                     const row = rowAt(virtualRow.index)
                     if (!row) return null
-                    return renderDesktopRow(row.proc, row.depth)
+                    return renderDesktopRow(row.proc, row.depth, virtualRow.index)
                   })}
                   <tr style={{ height: rowVirtualizer.getTotalSize() - (rowVirtualizer.getVirtualItems().at(-1)?.end ?? 0) }} />
                 </TableBody>
-              </Table>
+              </table>
             </div>
           </div>
         </>
