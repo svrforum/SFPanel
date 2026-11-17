@@ -212,6 +212,13 @@ export function TerminalInput({ kind, sessionKey, onSendKey, onSubmit, onAttach 
     if (recentBefore) keepRecent(recentBefore)
     setRecentBefore(null)
   }
+  // The undo lasts as long as the sheet that offered it. However the sheet
+  // closes — a row sent to the composer, the key editor opened — it is gone:
+  // offered again later it would bring a removed entry back and drop what was
+  // sent since.
+  useEffect(() => {
+    if (!sheetOpen) setRecentBefore(null)
+  }, [sheetOpen])
 
   const send = () => {
     const text = draft.replace(/[\r\n]+$/, '')

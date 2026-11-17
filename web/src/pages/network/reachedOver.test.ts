@@ -25,3 +25,13 @@ describe('reachedOver', () => {
     expect(reachedOver(null, ['100.64.0.1'])).toBe(false)
   })
 })
+
+// The server leaves an interface's address out when its config has no Address
+// line: the list then holds an undefined, and taking that interface down threw
+// before any confirmation could be shown.
+describe('reachedOver, with an interface that has no address', () => {
+  it('says no instead of throwing', () => {
+    expect(reachedOver('10.8.0.1', [undefined])).toBe(false)
+    expect(reachedOver('10.8.0.1', [undefined, '10.8.0.1/24'])).toBe(true)
+  })
+})

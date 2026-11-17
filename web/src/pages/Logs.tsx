@@ -129,6 +129,9 @@ export default function Logs() {
 
   // Append live-tail batches (capped by the shared slack window)
   const handleLiveLines = useCallback((batch: string[]) => {
+    // Lines are arriving: the read that failed earlier no longer describes what
+    // there is to show, and its block would hide them.
+    setLogError(null)
     setLogLines((prev) => appendLogLines(prev, batch))
   }, [])
 

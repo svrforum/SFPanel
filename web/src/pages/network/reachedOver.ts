@@ -3,11 +3,12 @@
 // address — so that taking the VPN down would cut this very page off.
 // addresses are as the server lists them: one each, or a comma-separated
 // list with prefixes ("10.8.0.1/24, fd00:8::1/64").
-export function reachedOver(host: string | null, addresses: string[], dnsSuffix = ''): boolean {
+// An interface whose config has no Address line is listed with none.
+export function reachedOver(host: string | null, addresses: (string | undefined)[], dnsSuffix = ''): boolean {
   if (!host) return false
   const h = host.replace(/^\[|\]$/g, '').toLowerCase()
   const own = addresses
-    .flatMap((a) => a.split(','))
+    .flatMap((a) => (a ?? '').split(','))
     .map((a) => a.trim().split('/')[0].toLowerCase())
     .filter(Boolean)
   if (own.includes(h)) return true
