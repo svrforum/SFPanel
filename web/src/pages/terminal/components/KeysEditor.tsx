@@ -10,7 +10,7 @@ import { Sheet, SheetContent, SheetDescription, SheetTitle } from '@/components/
 import { useConfirm } from '@/components/ConfirmDialog'
 import {
   DEFAULT_KEYSETS, KEY_CATALOG, KEY_LABEL_MAX, KEY_TEXT_MAX, LONG_LABEL, PAGES_MAX, PAGE_KEYS,
-  barKey, barKeyName, isDefaultKeyset, longLabel, ownKeyProblem, storedPages,
+  barKey, barKeyName, isDefaultKeyset, longLabel, tightLabel, TIGHT_LABEL, ownKeyProblem, storedPages,
   type KeysetKind, type StoredKey, type StoredKeysets,
 } from '@/lib/terminalKeysets'
 
@@ -149,7 +149,7 @@ export function KeysEditor({ kind, saved, onSave, onClose }: {
 
   const drawn = (key: StoredKey) => {
     const bar = barKey(key)
-    const look = (label: string, danger: boolean) => cn(/^[↑↓←→⏎]$/.test(label) && 'text-[15px] font-normal', longLabel(label) && LONG_LABEL, danger && 'text-destructive')
+    const look = (label: string, danger: boolean) => cn(/^[↑↓←→⏎]$/.test(label) && 'text-[15px] font-normal', longLabel(label) && LONG_LABEL, tightLabel(label) && TIGHT_LABEL, danger && 'text-destructive')
     return bar ? { label: bar.label, name: barKeyName(bar, t), look: look(bar.label, bar.danger === true) } : { label: '?', name: '?', look: '' }
   }
 

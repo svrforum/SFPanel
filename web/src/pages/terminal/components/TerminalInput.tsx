@@ -7,7 +7,7 @@ import { cn } from '@/lib/utils'
 import { Checkbox } from '@/components/ui/checkbox'
 import { Sheet, SheetContent, SheetTitle } from '@/components/ui/sheet'
 import { MODIFIERS_CONSUMED_EVENT, MODIFIERS_EVENT, terminalKey } from '@/lib/terminalKeys'
-import { LONG_LABEL, NO_BAR_MODIFIERS, activeModifiers, afterKey, barKeyName, keysetPages, longLabel, tapModifier, type BarKey, type BarModifiers, type KeysetKind, type StoredKeysets } from '@/lib/terminalKeysets'
+import { LONG_LABEL, NO_BAR_MODIFIERS, activeModifiers, afterKey, barKeyName, keysetPages, longLabel, tightLabel, TIGHT_LABEL, tapModifier, type BarKey, type BarModifiers, type KeysetKind, type StoredKeysets } from '@/lib/terminalKeysets'
 import { attachedText, carriedFiles } from '@/lib/terminalAttach'
 import { snippetBody, snippetRefusal } from '@/lib/terminalPrefs'
 import { useTerminalPrefs } from '@/hooks/useTerminalPrefs'
@@ -403,7 +403,7 @@ export function TerminalInput({ kind, sessionKey, onSendKey, onSubmit, onAttach 
             <button key={`${page}:${i}`} type="button" aria-label={barKeyName(key, t)}
               aria-pressed={key.modifier ? state > 0 : undefined}
               data-locked={state === 2 ? '' : undefined}
-              className={cn(KEY, /^[↑↓←→⏎]$/.test(key.label) && 'text-[17px] font-normal', longLabel(key.label) && LONG_LABEL, key.danger && 'text-destructive',
+              className={cn(KEY, /^[↑↓←→⏎]$/.test(key.label) && 'text-[17px] font-normal', longLabel(key.label) && LONG_LABEL, tightLabel(key.label) && TIGHT_LABEL, key.danger && 'text-destructive',
                 state === 1 && 'border-primary bg-primary/15', state === 2 && 'border-primary bg-primary text-primary-foreground')}
               onPointerDown={(e) => { e.preventDefault(); startHold(key) }}
               onClick={() => press(key)}>

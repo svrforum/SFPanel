@@ -168,17 +168,25 @@ export function keysetPages(kind: KeysetKind, saved: StoredKeysets | undefined):
 }
 
 /**
- * A cap is some forty pixels wide, and 35 on a 320px screen. What fits it in
- * one line at full size is three characters: at four "⇧Tab" was cut to "⇧Tal"
- * there, and Home and PgUp with it. A longer label — four characters, or an
- * operator's "/compact" — is set smaller and breaks into two lines rather than
- * being cut off. No side padding: with it a 35px cap had 29px for "Home" at
- * 10px, which is 30, and broke it as "Hom" over "e".
+ * A cap is some forty pixels wide. What fits it in one line at full size is
+ * four characters or so; a longer label — an operator's "/compact" — is set
+ * smaller and breaks into two lines rather than being cut off.
  */
 export function longLabel(label: string): boolean {
-  return [...label].length > 3
+  return [...label].length > 4
 }
 export const LONG_LABEL = 'text-[10px] leading-[1.15] whitespace-normal break-all'
+
+/**
+ * On a 320px screen a cap is 35px, and four characters at full size no longer
+ * fit it: "⇧Tab" was cut to "⇧Tal", and Home and PgUp with it. There, and only
+ * there, they are set smaller. On a wider phone Ctrl and Home stay as large as
+ * every other key.
+ */
+export function tightLabel(label: string): boolean {
+  return [...label].length === 4
+}
+export const TIGHT_LABEL = 'max-[340px]:text-[10px]'
 
 /** A key's name for a screen reader; `t` is the page's translator. */
 export function barKeyName(key: BarKey, t: (key: string, options?: Record<string, unknown>) => string): string {

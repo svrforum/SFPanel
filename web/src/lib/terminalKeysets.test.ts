@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import en from '@/i18n/locales/en.json'
 import ko from '@/i18n/locales/ko.json'
-import { DEFAULT_KEYSETS, KEYSETS, KEY_CATALOG, NO_BAR_MODIFIERS, activeModifiers, afterKey, barKey, barKeyName, isDefaultKeyset, keysetKind, keysetPages, longLabel, ownKeyProblem, tapModifier } from './terminalKeysets'
+import { DEFAULT_KEYSETS, KEYSETS, KEY_CATALOG, NO_BAR_MODIFIERS, activeModifiers, afterKey, barKey, barKeyName, isDefaultKeyset, keysetKind, keysetPages, longLabel, tightLabel, TIGHT_LABEL, ownKeyProblem, tapModifier } from './terminalKeysets'
 
 // i18next's t over one locale file, enough for the key names.
 function translator(locale: Record<string, unknown>) {
@@ -30,11 +30,17 @@ describe('ownKeyProblem', () => {
 })
 
 describe('longLabel', () => {
-  // On a 320px screen a cap is 35px: "⇧Tab" at 13px bold was cut to "⇧Tal",
-  // and Home and PgUp did not fit either. Four characters are set smaller.
-  it('sets four characters and more smaller, and three at full size', () => {
-    for (const label of ['⇧Tab', 'Home', 'PgUp', 'PgDn', 'Ctrl', 'Shift', '/compact']) expect(longLabel(label), label).toBe(true)
-    for (const label of ['Esc', 'Tab', 'End', 'Alt', '^C', '⇧←', '↑', '/']) expect(longLabel(label), label).toBe(false)
+  it('sets more than four characters smaller, on two lines', () => {
+    for (const label of ['Shift', '/compact']) expect(longLabel(label), label).toBe(true)
+    for (const label of ['⇧Tab', 'Home', 'PgUp', 'PgDn', 'Ctrl', 'Esc', 'Tab', 'End', 'Alt', '^C', '⇧←', '↑', '/']) expect(longLabel(label), label).toBe(false)
+  })
+
+  // On a 320px screen a cap is 35px: "⇧Tab" at full size was cut to "⇧Tal",
+  // and Home and PgUp did not fit either. Only there are they set smaller.
+  it('marks four characters, which are small only on a narrow screen', () => {
+    for (const label of ['⇧Tab', 'Home', 'PgUp', 'PgDn', 'Ctrl']) expect(tightLabel(label), label).toBe(true)
+    for (const label of ['Esc', 'Tab', 'Shift', '/compact', '↑']) expect(tightLabel(label), label).toBe(false)
+    expect(TIGHT_LABEL).toBe('max-[340px]:text-[10px]')
   })
 })
 
