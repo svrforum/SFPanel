@@ -1213,7 +1213,7 @@ export default function DockerStacks({ clusterMode = false }: { clusterMode?: bo
 
               <TabsContent value="editor">
                 <p className="mb-3 text-sm text-muted-foreground" role="status">{t(editorDirty ? 'docker.improvements.unsaved' : 'docker.improvements.savedHint')}</p>
-                {editorDirty && <Button variant="outline" className="mb-3" onClick={async () => { if (await confirm({ title: t('docker.improvements.discard'), description: t('docker.improvements.discardConfirm'), danger: true })) { drafts.current.delete(draftKey); setEditYaml(diskYaml); setEditEnv(diskEnv); setEditorAttempt(n => n + 1) } }}>{t('docker.improvements.discard')}</Button>}
+                {editorDirty && <Button variant="outline" className="mb-3" onClick={async () => { if (await confirm({ title: t('docker.improvements.discard'), description: t('docker.improvements.discardConfirm'), confirmLabel: t('docker.improvements.discard'), danger: true })) { drafts.current.delete(draftKey); setEditYaml(diskYaml); setEditEnv(diskEnv); setEditorAttempt(n => n + 1) } }}>{t('docker.improvements.discard')}</Button>}
                 {editorLoading ? <p>{t('common.loading')}</p> : editorError ? <ListErrorBanner message={editorError} onRetry={() => setEditorAttempt(n => n + 1)} /> : <>
                 {/* Only once the editor tab is the active one — a TabsContent
                     that is not selected still mounts its children. */}

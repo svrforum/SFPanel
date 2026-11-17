@@ -10,15 +10,22 @@ import {
 } from '@/components/ui/dialog'
 import { Button } from '@/components/ui/button'
 
-export interface ConfirmOptions {
+interface ConfirmBase {
   title: string
   /** Plain text or JSX — callers may pass <strong>-emphasized names. */
   description?: ReactNode
-  confirmLabel?: string
   cancelLabel?: string
-  /** Render the confirm button in the destructive (red) style. */
-  danger?: boolean
 }
+
+/**
+ * A confirmation that destroys something names what its button does: "Delete
+ * rule", never the default "Confirm", which says nothing to someone who reads
+ * the button and not the title. The type holds every caller to it.
+ */
+export type ConfirmOptions = ConfirmBase & (
+  | { /** Render the confirm button in the destructive (red) style. */ danger: true; confirmLabel: string }
+  | { danger?: false; confirmLabel?: string }
+)
 
 type ConfirmFn = (opts: ConfirmOptions) => Promise<boolean>
 
