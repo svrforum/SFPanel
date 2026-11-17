@@ -380,7 +380,7 @@ function RunForm({ task }: { task: TaskView }) {
               value={batch}
               disabled={busy}
               onChange={(e) => setBatch(e.target.value)}
-              className="w-28"
+              className="block w-28"
             />
             <p className="text-[12px] text-muted-foreground max-w-xs">{t('cluster.tasks.setup.batchHint')}</p>
           </div>

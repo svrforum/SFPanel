@@ -654,7 +654,7 @@ function FormView({ id, doc, edit, nodes, nodesError, disabled }: FormViewProps)
                 const n = Math.trunc(Number(e.target.value))
                 setModel((mm) => ({ ...mm, batch: e.target.value === '' || !Number.isFinite(n) ? 0 : n }))
               }}
-              className="w-28"
+              className="block w-28"
             />
             <p className="text-[12px] text-muted-foreground max-w-xs">{t('cluster.tasks.setup.batchHint')}</p>
           </div>
