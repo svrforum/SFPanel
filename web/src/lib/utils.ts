@@ -1,3 +1,4 @@
+import i18next from 'i18next'
 import { clsx, type ClassValue } from "clsx"
 import { twMerge } from "tailwind-merge"
 
@@ -22,7 +23,9 @@ export function formatDate(value: string | number): string {
     ? new Date(value * 1000)
     : new Date(value)
   if (isNaN(date.getTime())) return '-'
-  return date.toLocaleString()
+  // In the interface's language, not the browser's: the two differ on a phone
+  // set to English that reads the panel in Korean.
+  return date.toLocaleString(i18next.language)
 }
 
 export function formatUptime(seconds: number): string {
