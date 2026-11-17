@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import type { TFunction } from 'i18next'
 import type { PlanNode, TaskPlan } from '@/types/api'
-import { confirmSteps, leftReasonText, planBlocked, planNeedsReview, runErrorText, verdictText } from './taskPlan'
+import { confirmSteps, leftReasonText, planBlocked, runErrorText, verdictText } from './taskPlan'
 
 // A translator that names the key it was asked for, and its values.
 const t = ((key: string, opts?: Record<string, unknown>) => {
@@ -27,24 +27,6 @@ describe('confirmSteps', () => {
   it('lists nothing for a clean plan or one with no node', () => {
     expect(confirmSteps(plan())).toEqual([])
     expect(confirmSteps(plan({ waves: null }))).toEqual([])
-  })
-})
-
-describe('planNeedsReview', () => {
-  it('starts a clean plan straight away', () => {
-    expect(planNeedsReview(plan())).toBe(false)
-  })
-
-  it.each<[string, Partial<TaskPlan>]>([
-    ['a step to confirm', { waves: [[pn('a-1', { verdicts: [{ step: 0, needs_confirm: true }] })]] }],
-    ['a refused step', { waves: [[pn('a-1', { verdicts: [{ step: 0, refused: true, code: 'INVALID_PATH' }] })]] }],
-    ['a Proxmox host skipping its reboot', { waves: [[pn('m-1', { verdicts: [{ step: 0, refused: true, code: 'TASK_REBOOT_PVE_HOST' }] })]] }],
-    ['a node that could not be checked', { waves: [[pn('a-1', { verdicts: undefined, check_error: 'timeout' })]] }],
-    ['a node left out', { left: [pn('a-3', { reason: 'offline', verdicts: undefined })] }],
-    ['a manager not ready', { managers_not_ready: ['manager-3 (offline)'] }],
-    ['no node at all', { waves: null }],
-  ])('shows the preview for %s', (_what, over) => {
-    expect(planNeedsReview(plan(over))).toBe(true)
   })
 })
 

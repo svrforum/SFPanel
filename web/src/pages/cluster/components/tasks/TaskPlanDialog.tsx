@@ -9,7 +9,7 @@ import { StatusPill } from '@/components/StatusPill'
 import { cn } from '@/lib/utils'
 import type { CheckVerdict, PlanNode, TaskPlan } from '@/types/api'
 import { notReadyText } from '@/lib/clusterRotation'
-import { PVE_REBOOT_CODE, confirmSteps, leftReasonText, planBlocked, verdictSays, verdictText, type RunErrorText } from './taskPlan'
+import { PVE_REBOOT_CODE, confirmSteps, leftReasonText, planBlocked, planNodes, verdictSays, verdictText, type RunErrorText } from './taskPlan'
 
 /** An input as the run fills it: the value given, else the default. */
 export interface FilledInput {
@@ -75,8 +75,9 @@ function NodeVerdicts({ node, stepName }: { node: PlanNode; stepName: (step: num
 // anything. The values as the run fills them, the nodes batch by batch with
 // each node's verdicts, the nodes left out and why, one confirmation per step
 // that needs one (it covers every node), and the managers a start would wait
-// for. [Run] starts this plan: it is held back while a confirmation is
-// unticked, a manager is not ready, or no node is left.
+// for. [Run on N nodes] starts this plan, and is the only button that starts
+// a run: it is held back while a confirmation is unticked, a manager is not
+// ready, or no node is left.
 export function TaskPlanDialog({
   open, onOpenChange, name, plan, inputs, stepName, confirmed, onConfirmedChange, changed, error, busy, onRun,
 }: TaskPlanDialogProps) {
@@ -201,7 +202,7 @@ export function TaskPlanDialog({
           <Button variant="outline" onClick={() => onOpenChange(false)} disabled={busy}>{t('common.cancel')}</Button>
           <Button onClick={onRun} disabled={!canRun}>
             {busy && <Loader2 className="h-4 w-4 animate-spin" />}
-            {t('cluster.tasks.setup.run')}
+            {t('cluster.tasks.plan.runOn', { count: planNodes(plan).length })}
           </Button>
         </DialogFooter>
       </DialogContent>

@@ -5,7 +5,7 @@ import { warningText } from '@/lib/warnings'
 import type { CheckVerdict, PlanLeftReason, PlanNode, TaskPlan } from '@/types/api'
 
 // Reading a preview (POST /cluster/task-runs/plan): what needs confirming,
-// whether the operator has to see it at all, and whether it may start.
+// and whether it may start.
 
 /** A Proxmox VE host refuses a reboot step; a run skips it there. */
 export const PVE_REBOOT_CODE = 'TASK_REBOOT_PVE_HOST'
@@ -30,17 +30,6 @@ export function confirmSteps(plan: TaskPlan): number[] {
     for (const v of n.verdicts ?? []) if (v.needs_confirm) steps.add(v.step)
   }
   return [...steps].sort((a, b) => a - b)
-}
-
-/**
- * Whether [Run] has to show the preview before it starts: a step to confirm
- * or refused (a Proxmox host's skipped reboot too), a node that could not be
- * checked or is left out, a manager not ready, or no node at all. A clean
- * plan starts straight away.
- */
-export function planNeedsReview(plan: TaskPlan): boolean {
-  if (planBlocked(plan) || (plan.left?.length ?? 0) > 0) return true
-  return planNodes(plan).some((n) => !!n.check_error || (n.verdicts ?? []).some(verdictSays))
 }
 
 /**

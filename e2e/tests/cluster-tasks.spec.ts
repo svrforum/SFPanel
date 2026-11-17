@@ -490,8 +490,8 @@ test.describe('run setup', () => {
     await expect(left).toContainText('Offline')
     await expect(left).toContainText('No such node')
 
-    // Nothing to confirm: Run is there to press.
-    await expect(dialog.getByRole('button', { name: 'Run' })).toBeEnabled()
+    // Nothing to confirm: Run is there to press, and says where it goes.
+    await expect(dialog.getByRole('button', { name: 'Run on 4 nodes' })).toBeEnabled()
   })
 
   test('a confirmed step goes to the start with the preview plan_id and the same inputs and targets', async ({ page }) => {
@@ -516,12 +516,12 @@ test.describe('run setup', () => {
     await expect(pane.getByTestId('task-target-count')).toHaveText('5 nodes targeted')
     await pane.getByRole('button', { name: 'Run' }).click()
 
-    // A step to confirm: Run shows the preview first.
+    // Run shows the preview, and a step to confirm holds its start back.
     const dialog = previewDialog(page)
     const confirm = dialog.getByRole('checkbox', { name: 'Confirm “Restart nginx” on every node' })
     await expect(confirm).toBeVisible()
     await expect(dialog).toContainText('This unit is needed to manage the host or run its guests')
-    const run = dialog.getByRole('button', { name: 'Run' })
+    const run = dialog.getByRole('button', { name: 'Run on 3 nodes' })
     await expect(run).toBeDisabled()
     expect(posts(calls, '/cluster/task-runs')).toHaveLength(0)
     await confirm.click()
@@ -540,7 +540,7 @@ test.describe('run setup', () => {
     expect(start.body).toEqual({ ...(plan.body as object), confirmed: [1], plan_id: 'p-1' })
   })
 
-  test('a task with nothing to confirm starts at one press of Run', async ({ page }) => {
+  test('a task with nothing to confirm is previewed too, and starts from the preview naming its nodes', async ({ page }) => {
     const { calls } = await mock(page, {
       taskDetails: TASK_DETAILS,
       replies: { 'POST /cluster/task-runs/plan': planReply(), 'POST /cluster/task-runs': started('20261101-120001-000001') },
@@ -555,6 +555,14 @@ test.describe('run setup', () => {
     await pane.getByRole('checkbox', { name: 'agent-02' }).click()
     await expect(pane.getByTestId('task-target-count')).toHaveText('2 nodes targeted')
     await pane.getByRole('button', { name: 'Run' }).click()
+
+    // A root command on every node: shown before it starts, whatever the
+    // server finds to say about it.
+    const dialog = previewDialog(page)
+    await expect(dialog.getByTestId('plan-wave')).toContainText('agent-01')
+    await expect(dialog.getByTestId('plan-wave')).toContainText('agent-02')
+    expect(posts(calls, '/cluster/task-runs')).toHaveLength(0)
+    await dialog.getByRole('button', { name: 'Run on 2 nodes' }).click()
 
     await expect(page).toHaveURL(/\/cluster\/tasks\/runs\/20261101-120001-000001$/)
     await expect(page.getByTestId('task-pane-run')).toBeVisible()
@@ -589,7 +597,7 @@ test.describe('run setup', () => {
     const wave = previewDialog(page).getByTestId('plan-wave').first()
     await expect(wave).toContainText('manager-2')
     await expect(wave).toContainText('Skipped (Proxmox host)')
-    await previewDialog(page).getByRole('button', { name: 'Run' }).click()
+    await previewDialog(page).getByRole('button', { name: 'Run on 2 nodes' }).click()
     await expect(page).toHaveURL(/\/cluster\/tasks\/runs\//)
     expect(posts(calls, '/cluster/task-runs')[0].body).not.toHaveProperty('confirmed')
   })
@@ -615,7 +623,7 @@ test.describe('run setup', () => {
     const dialog = previewDialog(page)
     const confirm = dialog.getByRole('checkbox', { name: 'Confirm “Restart nginx” on every node' })
     await confirm.click()
-    await dialog.getByRole('button', { name: 'Run' }).click()
+    await dialog.getByRole('button', { name: 'Run on 1 node' }).click()
 
     await expect(dialog.getByTestId('plan-notice')).toHaveText(
       'The task, its inputs or its targets changed since the preview, so it was previewed again. Check it and run again.',
@@ -625,7 +633,7 @@ test.describe('run setup', () => {
     await expect(confirm).not.toBeChecked()
     expect(posts(calls, '/cluster/task-runs/plan')).toHaveLength(2)
     await confirm.click()
-    await dialog.getByRole('button', { name: 'Run' }).click()
+    await dialog.getByRole('button', { name: 'Run on 2 nodes' }).click()
     await expect(page).toHaveURL(/\/cluster\/tasks\/runs\//)
     const starts = posts(calls, '/cluster/task-runs')
     expect(starts.map((c) => (c.body as { plan_id: string }).plan_id)).toEqual(['p-1', 'p-2'])
@@ -693,9 +701,10 @@ test.describe('run setup', () => {
     })
     await page.goto(`/cluster/tasks/${DEPLOY_ID}`)
     await setup(page).getByLabel('Version').fill('1.2.3')
-    // A clean preview: Run starts it, and the start finds the document changed.
+    // A clean preview: its Run starts it, and the start finds the document changed.
     await setup(page).getByRole('button', { name: 'Run' }).click()
     const dialog = previewDialog(page)
+    await dialog.getByRole('button', { name: 'Run on 2 nodes' }).click()
     await expect(dialog.getByTestId('plan-notice')).toBeVisible()
     await expect(dialog.getByRole('checkbox', { name: 'Confirm “Stop docker” on every node' })).toBeVisible()
     // The values the new document asks for, the one typed kept.
@@ -726,7 +735,7 @@ test.describe('run setup', () => {
     await setup(page).getByLabel('Version').fill('1.2.3')
     const answered = page.waitForResponse('**/api/v1/cluster/task-runs/plan')
     await setup(page).getByRole('button', { name: 'Run' }).click()
-    // A clean preview would start at once; the operator has moved on by then.
+    // The preview would open over the next task; the operator has moved on by then.
     await list(page).getByRole('link', { name: 'Rotate logs' }).click()
     await expect(page).toHaveURL(/\/cluster\/tasks\/1b2c3d4e5f607182$/)
     await answered
@@ -749,7 +758,7 @@ test.describe('run setup', () => {
     const waiting = dialog.getByTestId('plan-managers')
     await expect(waiting).toContainText('The run cannot start until every manager is online and runs a version that knows group tasks')
     await expect(waiting.getByRole('listitem')).toHaveText(['manager-3: offline', 'manager-2: runs 0.79.0, which does not know group tasks — update it'])
-    await expect(dialog.getByRole('button', { name: 'Run' })).toBeDisabled()
+    await expect(dialog.getByRole('button', { name: 'Run on 2 nodes' })).toBeDisabled()
     expect(posts(calls, '/cluster/task-runs')).toHaveLength(0)
   })
 
@@ -767,7 +776,10 @@ test.describe('run setup', () => {
     await setup(page).getByRole('button', { name: 'Run' }).click()
     await expect(error).toHaveText('The request is too large: the panel takes at most 1 MiB.')
     await setup(page).getByRole('button', { name: 'Run' }).click()
-    await expect(error).toHaveText('The cluster leader is changing or catching up. Try again in a few seconds.')
+    // The start is the preview's: its refusal is said there.
+    const dialog = previewDialog(page)
+    await dialog.getByRole('button', { name: 'Run on 2 nodes' }).click()
+    await expect(dialog.getByTestId('plan-error')).toHaveText('The cluster leader is changing or catching up. Try again in a few seconds.')
     await expect(page).toHaveURL(new RegExp(`/cluster/tasks/${DEPLOY_ID}$`))
   })
 
@@ -782,7 +794,8 @@ test.describe('run setup', () => {
     await page.goto(`/cluster/tasks/${DEPLOY_ID}`)
     await setup(page).getByLabel('Version').fill('1.2.3')
     await setup(page).getByRole('button', { name: 'Run' }).click()
-    await expect(setup(page).getByTestId('task-run-error')).toHaveText(
+    await previewDialog(page).getByRole('button', { name: 'Run on 2 nodes' }).click()
+    await expect(previewDialog(page).getByTestId('plan-error')).toHaveText(
       'agent-02 is held by another run under way. Try again once that run has finished.',
     )
   })
@@ -871,7 +884,7 @@ test.describe('run setup', () => {
       await page.goto(`/cluster/tasks/${DEPLOY_ID}`)
       await setup(page).getByLabel('Version').fill('1.2.3')
       await setup(page).getByRole('button', { name: 'Preview' }).click()
-      const run = previewDialog(page).getByRole('button', { name: 'Run' })
+      const run = previewDialog(page).getByRole('button', { name: 'Run on 2 nodes' })
       await expect(run).toBeVisible()
       const box = await previewDialog(page).boundingBox()
       expect(box && box.x >= 0 && box.x + box.width <= 412).toBe(true)

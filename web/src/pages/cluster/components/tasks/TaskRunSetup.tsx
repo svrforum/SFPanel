@@ -14,7 +14,7 @@ import { builtinText } from './taskBuiltins'
 import { TaskTargetPicker, type PickedTargets } from './TaskTargetPicker'
 import { TaskPlanDialog, type FilledInput } from './TaskPlanDialog'
 import { checkInputs, countTargets, runInputs, type InputProblem } from './taskTargets'
-import { planNeedsReview, runErrorText, type RunErrorText } from './taskPlan'
+import { runErrorText, type RunErrorText } from './taskPlan'
 import { runStatusText, runStatusTone } from './taskRunStatus'
 import { clonePath, editPath } from './taskForm'
 import { shortSha } from './taskImport'
@@ -45,11 +45,11 @@ interface Review {
 }
 
 // The chosen task, set up to run: what it does, the values it asks for, the
-// nodes it takes and how, then [Preview] and [Run]. [Run] always takes a
-// preview first and starts that plan straight away when there is nothing to
-// show (no step to confirm or refused, no node left out or unchecked, every
-// manager ready); otherwise it opens the preview. The last runs of the task
-// sit underneath. Above them, what can be done to the task itself: the
+// nodes it takes and how, then [Preview] and [Run]. Both open the preview,
+// and only its own button, which says how many nodes it runs on, starts the
+// run: a command or a reboot on every node is one press away otherwise, and
+// nothing the server checks stops it. The last runs of the task sit
+// underneath. Above them, what can be done to the task itself: the
 // operator's own tasks are edited and deleted; a built-in is only cloned;
 // a Git task is cloned or deleted (it changes only when fetched again).
 export function TaskRunSetup({ task, onDeleted }: TaskRunSetupProps) {
@@ -250,14 +250,13 @@ function RunForm({ task }: { task: TaskView }) {
   // made from the new document (the values typed for inputs it still has,
   // the targets as picked), and its preview is shown, with the reason, for
   // the operator to look at and confirm again.
-  const start = async (plan: TaskPlan, req: TaskRunRequest, steps: number[], fromReview: boolean) => {
-    const fail = fromReview ? setReviewError : setError
+  const start = async (plan: TaskPlan, req: TaskRunRequest, steps: number[]) => {
     try {
       const { run_id } = await api.startTaskRun({ ...req, plan_id: plan.plan_id, ...(steps.length > 0 ? { confirmed: steps } : {}) })
       if (mounted.current) navigate(`/cluster/tasks/runs/${encodeURIComponent(run_id)}`)
     } catch (err) {
       if ((err as ApiError).code !== 'TASK_PLAN_CHANGED') {
-        fail(runErrorText(err, t, nodeName))
+        setReviewError(runErrorText(err, t, nodeName))
         return
       }
       try {
@@ -274,15 +273,14 @@ function RunForm({ task }: { task: TaskView }) {
         const again = { ...req, inputs: runInputs(fresh.task, kept) }
         openReview(await api.planTaskRun(again), again, true)
       } catch (again) {
-        fail(runErrorText(again, t, nodeName))
+        setReviewError(runErrorText(again, t, nodeName))
       }
     }
   }
 
-  // [Preview] always opens the preview; [Run] opens it only when there is
-  // something to see, and otherwise starts what it previewed. A preview that
-  // answers once the operator has left this task does neither.
-  const go = async (andRun: boolean) => {
+  // [Preview] and [Run] both open the preview. A preview that answers once
+  // the operator has left this task opens nothing.
+  const go = async () => {
     setAttempted(true)
     if (problems.length > 0) return
     const req = request()
@@ -291,8 +289,7 @@ function RunForm({ task }: { task: TaskView }) {
     try {
       const plan = await api.planTaskRun(req)
       if (!mounted.current) return
-      if (andRun && !planNeedsReview(plan)) await start(plan, req, [], false)
-      else openReview(plan, req, false)
+      openReview(plan, req, false)
     } catch (err) {
       setError(runErrorText(err, t, nodeName))
     } finally {
@@ -305,7 +302,7 @@ function RunForm({ task }: { task: TaskView }) {
     setBusy(true)
     setReviewError(null)
     try {
-      await start(review.plan, review.request, confirmed, true)
+      await start(review.plan, review.request, confirmed)
     } finally {
       setBusy(false)
     }
@@ -386,11 +383,11 @@ function RunForm({ task }: { task: TaskView }) {
       </section>
 
       <div className="flex flex-wrap gap-2">
-        <Button variant="outline" onClick={() => go(false)} disabled={busy || noTargets}>
+        <Button variant="outline" onClick={() => go()} disabled={busy || noTargets}>
           <Eye className="h-4 w-4" />
           {t('cluster.tasks.setup.preview')}
         </Button>
-        <Button onClick={() => go(true)} disabled={busy || noTargets}>
+        <Button onClick={() => go()} disabled={busy || noTargets}>
           {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : <Play className="h-4 w-4" />}
           {t('cluster.tasks.setup.run')}
         </Button>

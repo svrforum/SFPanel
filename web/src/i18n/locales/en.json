@@ -1497,6 +1497,8 @@
         "managersNotReady": "The run cannot start until every manager is online and runs a version that knows group tasks. Waiting for:",
         "notReadyVersion": "{{name}}: runs {{version}}, which does not know group tasks — update it",
         "changed": "The task, its inputs or its targets changed since the preview, so it was previewed again. Check it and run again.",
+        "runOn_one": "Run on {{count}} node",
+        "runOn_other": "Run on {{count}} nodes",
         "leftReason": {
           "unknown": "No such node",
           "offline": "Offline",
