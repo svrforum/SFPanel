@@ -3328,7 +3328,7 @@
     "totalLines": "{{count}} total lines",
     "linesShown": "lines shown",
     "connected": "Connected",
-    "disconnected": "Disconnected",
+    "connecting": "Connecting…",
     "loading": "Loading log…",
     "empty": "No log entries found",
     "loadSourcesFailed": "Failed to load log sources",
@@ -3358,7 +3358,8 @@
     "systemSource": "System",
     "customSource": "Custom",
     "viewRaw": "Raw",
-    "viewParsed": "Parsed",
+    "viewParsed": "Structured",
+    "viewMode": "View",
     "col": {
       "timestamp": "Time",
       "service": "Service",
@@ -4134,14 +4135,7 @@
       "title": "Firewall Logs",
       "description": "View UFW and Fail2ban logs in real-time",
       "sourceFirewall": "Firewall",
-      "sourceFail2ban": "Fail2ban",
-      "liveMode": "Live",
-      "lines": "lines",
-      "noLogs": "No logs available",
-      "connecting": "Connecting…",
-      "connected": "Connected",
-      "rawView": "Raw",
-      "parsedView": "Parsed"
+      "sourceFail2ban": "Fail2ban"
     },
     "portmap": {
       "loadFailed": "Failed to load port map.",

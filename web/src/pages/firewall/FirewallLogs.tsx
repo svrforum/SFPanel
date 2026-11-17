@@ -2,10 +2,10 @@ import { useEffect, useState, useCallback } from 'react'
 import { useTranslation } from 'react-i18next'
 import { api } from '@/lib/api'
 import { downloadBlob } from '@/lib/utils'
-import { toast } from 'sonner'
 import { Button } from '@/components/ui/button'
 import { RefreshCw, Radio, ArrowDown, Trash2, Search, Download } from 'lucide-react'
 import { hasParsedView } from '@/lib/logParsers'
+import { ListLoadState } from '@/components/ListLoadState'
 import { LiveLogSocket } from '@/components/logviewer/LiveLogSocket'
 import { LogSearchBar } from '@/components/logviewer/LogSearchBar'
 import { LogTable } from '@/components/logviewer/LogTable'
@@ -30,6 +30,8 @@ export default function FirewallLogs() {
   const [lineCount, setLineCount] = useState<LineCount>(500)
   const [logLoading, setLogLoading] = useState(false)
   const [totalLines, setTotalLines] = useState(0)
+  // A failed read: the empty viewer would read as "no logs".
+  const [logError, setLogError] = useState<string | null>(null)
   const [viewMode, setViewMode] = useState<'raw' | 'parsed'>('parsed')
 
   // Live WebSocket state (connection itself lives in <LiveLogSocket />)
@@ -41,19 +43,17 @@ export default function FirewallLogs() {
   // Fetch logs
   useEffect(() => {
     loadLog(selectedSource, lineCount)
-    // loadLog is a function declaration redefined per render.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [selectedSource, lineCount])
 
   async function loadLog(source: string, lines: number) {
     setLogLoading(true)
+    setLogError(null)
     try {
       const data: LogResponse = await api.readLog(source, lines)
       setLogLines(data.lines)
       setTotalLines(data.total_lines)
     } catch (err: unknown) {
-      const message = err instanceof Error ? err.message : String(err)
-      toast.error(message || t('logs.loadLogFailed'))
+      setLogError(err instanceof Error ? err.message : String(err))
       setLogLines([])
       setTotalLines(0)
     } finally {
@@ -96,6 +96,8 @@ export default function FirewallLogs() {
   }
 
   // Download
+  const sourceName = selectedSource === 'firewall' ? t('firewall.logs.sourceFirewall') : t('firewall.logs.sourceFail2ban')
+
   const handleDownload = useCallback(() => {
     if (logLines.length === 0) return
     const blob = new Blob([logLines.join('\n')], { type: 'text/plain' })
@@ -122,8 +124,10 @@ export default function FirewallLogs() {
       {/* Source toggle + Toolbar */}
       <div className="flex flex-wrap items-center gap-2">
         {/* Source toggle */}
-        <div className="flex items-center bg-secondary/50 rounded-xl p-0.5 mr-2">
+        <div role="group" aria-label={t('logs.sources')} className="flex items-center bg-secondary/50 rounded-xl p-0.5 mr-2">
           <button
+            type="button"
+            aria-pressed={selectedSource === 'firewall'}
             onClick={() => handleSourceChange('firewall')}
             className={`px-3 py-1 rounded-lg text-xs font-medium transition outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-0 ${
               selectedSource === 'firewall'
@@ -134,6 +138,8 @@ export default function FirewallLogs() {
             {t('firewall.logs.sourceFirewall')}
           </button>
           <button
+            type="button"
+            aria-pressed={selectedSource === 'fail2ban'}
             onClick={() => handleSourceChange('fail2ban')}
             className={`px-3 py-1 rounded-lg text-xs font-medium transition outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-0 ${
               selectedSource === 'fail2ban'
@@ -146,13 +152,14 @@ export default function FirewallLogs() {
         </div>
 
         {/* Line count */}
-        <div className="flex items-center gap-1 mr-2">
-          <span className="text-xs text-muted-foreground mr-1">{t('firewall.logs.lines')}:</span>
+        <div role="group" aria-labelledby="firewall-log-lines-label" className="flex items-center gap-1 mr-2">
+          <span id="firewall-log-lines-label" className="text-xs text-muted-foreground mr-1">{t('logs.lines')}:</span>
           {LINE_COUNT_OPTIONS.map((count) => (
             <Button
               key={count}
               variant={lineCount === count ? 'default' : 'outline'}
               size="xs"
+              aria-pressed={lineCount === count}
               onClick={() => setLineCount(count)}
             >
               {count.toLocaleString()}
@@ -162,8 +169,10 @@ export default function FirewallLogs() {
 
         {/* Raw / Parsed toggle */}
         {hasParsedView(selectedSource) && (
-          <div className="flex items-center bg-secondary/50 rounded-xl p-0.5">
+          <div role="group" aria-label={t('logs.viewMode')} className="flex items-center bg-secondary/50 rounded-xl p-0.5">
             <button
+              type="button"
+              aria-pressed={viewMode === 'raw'}
               onClick={() => setViewMode('raw')}
               className={`px-3 py-1 rounded-lg text-xs font-medium transition outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-0 ${
                 viewMode === 'raw'
@@ -171,9 +180,11 @@ export default function FirewallLogs() {
                   : 'text-muted-foreground hover:text-foreground'
               }`}
             >
-              {t('firewall.logs.rawView')}
+              {t('logs.viewRaw')}
             </button>
             <button
+              type="button"
+              aria-pressed={viewMode === 'parsed'}
               onClick={() => setViewMode('parsed')}
               className={`px-3 py-1 rounded-lg text-xs font-medium transition outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-0 ${
                 viewMode === 'parsed'
@@ -181,7 +192,7 @@ export default function FirewallLogs() {
                   : 'text-muted-foreground hover:text-foreground'
               }`}
             >
-              {t('firewall.logs.parsedView')}
+              {t('logs.viewParsed')}
             </button>
           </div>
         )}
@@ -193,10 +204,11 @@ export default function FirewallLogs() {
           variant={isLive ? 'default' : 'outline'}
           size="sm"
           onClick={handleToggleLive}
+          aria-pressed={isLive}
           className={isLive ? 'bg-red-600 hover:bg-red-700 text-white' : ''}
         >
           <Radio className={`h-3.5 w-3.5 ${isLive ? 'animate-pulse' : ''}`} />
-          {t('firewall.logs.liveMode')}
+          {t('logs.live')}
           {isLive && wsConnected && (
             <span className="ml-1 h-1.5 w-1.5 rounded-full bg-white animate-pulse" />
           )}
@@ -207,6 +219,7 @@ export default function FirewallLogs() {
           variant={autoScroll ? 'default' : 'outline'}
           size="sm"
           onClick={() => setAutoScroll(!autoScroll)}
+          aria-pressed={autoScroll}
           title={t('logs.autoScroll')}
           aria-label={t('logs.autoScroll')}
         >
@@ -227,8 +240,10 @@ export default function FirewallLogs() {
 
         {/* Search */}
         <Button
+          ref={viewer.setSearchToggleEl}
           variant={viewer.searchOpen ? 'default' : 'outline'}
           size="icon-sm"
+          aria-pressed={viewer.searchOpen}
           onClick={viewer.toggleSearch}
           title={t('logs.search')}
           aria-label={t('logs.search')}
@@ -266,8 +281,8 @@ export default function FirewallLogs() {
       {/* Log info bar */}
       <div className="flex items-center justify-between px-3 py-1.5 bg-secondary/50 border border-b-0 rounded-t-xl text-xs text-muted-foreground">
         <div className="flex items-center gap-3">
-          <span className="font-medium">{selectedSource === 'firewall' ? t('firewall.logs.sourceFirewall') : 'Fail2ban'}</span>
-          <span>{logLines.length.toLocaleString()} {t('firewall.logs.lines')}</span>
+          <span className="font-medium">{sourceName}</span>
+          <span>{logLines.length.toLocaleString()} {t('logs.linesShown')}</span>
         </div>
         <div className="flex items-center gap-3">
           {totalLines > 0 && (
@@ -276,21 +291,33 @@ export default function FirewallLogs() {
           {isLive && (
             <span className="flex items-center gap-1">
               <span className={`h-1.5 w-1.5 rounded-full ${wsConnected ? 'bg-green-500' : 'bg-red-500'}`} />
-              {wsConnected ? t('firewall.logs.connected') : t('firewall.logs.connecting')}
+              {wsConnected ? t('logs.connected') : t('logs.connecting')}
             </span>
           )}
         </div>
       </div>
 
       {/* Log content — virtualized */}
-      <LogTable
-        viewer={viewer}
-        lines={logLines}
-        loading={logLoading}
-        loadingText={t('logs.loading')}
-        emptyText={t('firewall.logs.noLogs')}
-        className="max-h-[calc(100vh-380px)] border-t-0 -mt-4"
-      />
+      {logError ? (
+        <div className="rounded-b-xl border border-t-0 -mt-4 p-3">
+          <ListLoadState
+            loading={false}
+            error={logError}
+            errorTitle={t('logs.loadLogFailed')}
+            onRetry={handleRefresh}
+          />
+        </div>
+      ) : (
+        <LogTable
+          viewer={viewer}
+          label={sourceName}
+          lines={logLines}
+          loading={logLoading}
+          loadingText={t('logs.loading')}
+          emptyText={t('logs.empty')}
+          className="max-h-[calc(100vh-380px)] border-t-0 -mt-4"
+        />
+      )}
     </div>
   )
 }

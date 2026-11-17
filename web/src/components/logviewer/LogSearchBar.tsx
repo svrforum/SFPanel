@@ -39,16 +39,17 @@ export function LogSearchBar({ viewer, className }: { viewer: LogViewer; classNa
           }
         }}
         placeholder={t('logs.searchPlaceholder')}
-        className="h-7 text-sm flex-1"
+        className="h-7 text-base md:text-sm flex-1"
         autoFocus
       />
-      {searchQuery && (
-        <span className="text-xs text-muted-foreground whitespace-nowrap">
-          {matchingLines.length > 0
+      {/* Always present, so a screen reader hears the count change. */}
+      <span role="status" className={cn('text-xs text-muted-foreground whitespace-nowrap', !searchQuery && 'sr-only')}>
+        {searchQuery
+          ? matchingLines.length > 0
             ? `${currentMatch + 1} / ${matchingLines.length}`
-            : t('logs.noMatches')}
-        </span>
-      )}
+            : t('logs.noMatches')
+          : ''}
+      </span>
       <Button
         variant="ghost"
         size="icon-xs"

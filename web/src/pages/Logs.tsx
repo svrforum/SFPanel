@@ -10,6 +10,7 @@ import { Input } from '@/components/ui/input'
 import { hasParsedView } from '@/lib/logParsers'
 import { useConfirm } from '@/components/ConfirmDialog'
 import { GuideAccordion } from '@/components/GuideAccordion'
+import { ListLoadState } from '@/components/ListLoadState'
 import { LiveLogSocket } from '@/components/logviewer/LiveLogSocket'
 import { LogSearchBar } from '@/components/logviewer/LogSearchBar'
 import { LogTable } from '@/components/logviewer/LogTable'
@@ -51,6 +52,8 @@ export default function Logs() {
   const [lineCount, setLineCount] = useState<LineCount>(500)
   const [logLoading, setLogLoading] = useState(false)
   const [totalLines, setTotalLines] = useState(0)
+  // A failed read: the empty viewer would read as "no log entries".
+  const [logError, setLogError] = useState<string | null>(null)
 
   // View mode
   const [viewMode, setViewMode] = useState<'raw' | 'parsed'>('parsed')
@@ -100,19 +103,17 @@ export default function Logs() {
     if (selectedSource) {
       loadLog(selectedSource, lineCount)
     }
-    // loadLog isn't memoized; including it would re-fire on every render.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [selectedSource, lineCount])
 
   async function loadLog(source: string, lines: number) {
     setLogLoading(true)
+    setLogError(null)
     try {
       const data: LogResponse = await api.readLog(source, lines)
       setLogLines(data.lines)
       setTotalLines(data.total_lines)
     } catch (err: unknown) {
-      const message = err instanceof Error ? err.message : t('logs.loadLogFailed')
-      toast.error(message)
+      setLogError(err instanceof Error ? err.message : String(err))
       setLogLines([])
       setTotalLines(0)
     } finally {
@@ -357,14 +358,15 @@ export default function Logs() {
             </Button>
 
             {/* Line count selector */}
-            <div className="flex items-center gap-1 mr-2 overflow-x-auto no-scrollbar">
-              <span className="text-xs text-muted-foreground mr-1 shrink-0">{t('logs.lines')}:</span>
+            <div role="group" aria-labelledby="log-lines-label" className="flex items-center gap-1 mr-2 overflow-x-auto no-scrollbar">
+              <span id="log-lines-label" className="text-xs text-muted-foreground mr-1 shrink-0">{t('logs.lines')}:</span>
               {LINE_COUNT_OPTIONS.map((count) => (
                 <Button
                   key={count}
                   variant={lineCount === count ? 'default' : 'outline'}
                   size="xs"
                   className="rounded-xl shrink-0"
+                  aria-pressed={lineCount === count}
                   onClick={() => setLineCount(count)}
                 >
                   {count.toLocaleString()}
@@ -374,8 +376,10 @@ export default function Logs() {
 
             {/* Raw / Parsed toggle */}
             {hasParsedView(selectedSource) && (
-              <div className="flex items-center bg-secondary/50 rounded-xl p-0.5">
+              <div role="group" aria-label={t('logs.viewMode')} className="flex items-center bg-secondary/50 rounded-xl p-0.5">
                 <button
+                  type="button"
+                  aria-pressed={viewMode === 'raw'}
                   onClick={() => setViewMode('raw')}
                   className={`px-3 py-1 rounded-lg text-xs font-medium transition outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-0 ${
                     viewMode === 'raw'
@@ -386,6 +390,8 @@ export default function Logs() {
                   {t('logs.viewRaw')}
                 </button>
                 <button
+                  type="button"
+                  aria-pressed={viewMode === 'parsed'}
                   onClick={() => setViewMode('parsed')}
                   className={`px-3 py-1 rounded-lg text-xs font-medium transition outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-0 ${
                     viewMode === 'parsed'
@@ -406,10 +412,11 @@ export default function Logs() {
               size="sm"
               onClick={handleToggleLive}
               disabled={!selectedSource}
+              aria-pressed={isLive}
               className={`rounded-xl ${isLive ? 'bg-red-600 hover:bg-red-700 text-white' : ''}`}
             >
               <Radio className={`h-3.5 w-3.5 ${isLive ? 'animate-pulse' : ''}`} />
-              <span className="hidden sm:inline">{t('logs.live')}</span>
+              <span className="sr-only sm:not-sr-only">{t('logs.live')}</span>
               {isLive && wsConnected && (
                 <span className="ml-1 h-1.5 w-1.5 rounded-full bg-white animate-pulse" />
               )}
@@ -421,10 +428,11 @@ export default function Logs() {
               size="sm"
               className="rounded-xl"
               onClick={() => setAutoScroll(!autoScroll)}
+              aria-pressed={autoScroll}
               title={t('logs.autoScroll')}
             >
               <ArrowDown className="h-3.5 w-3.5" />
-              <span className="hidden sm:inline">{t('logs.autoScroll')}</span>
+              <span className="sr-only sm:not-sr-only">{t('logs.autoScroll')}</span>
             </Button>
 
             {/* Refresh */}
@@ -442,9 +450,11 @@ export default function Logs() {
 
             {/* Search toggle */}
             <Button
+              ref={viewer.setSearchToggleEl}
               variant={viewer.searchOpen ? 'default' : 'outline'}
               size="icon-sm"
               className="rounded-xl"
+              aria-pressed={viewer.searchOpen}
               onClick={viewer.toggleSearch}
               title={t('logs.search')}
               aria-label={t('logs.search')}
@@ -504,29 +514,41 @@ export default function Logs() {
               {isLive && (
                 <span className="flex items-center gap-1">
                   <span className={`h-1.5 w-1.5 rounded-full ${wsConnected ? 'bg-green-500' : 'bg-red-500'}`} />
-                  {wsConnected ? t('logs.connected') : t('logs.disconnected')}
+                  {wsConnected ? t('logs.connected') : t('logs.connecting')}
                 </span>
               )}
             </div>
           </div>
 
           {/* Log content — virtualized */}
-          <LogTable
-            viewer={viewer}
-            lines={logLines}
-            loading={logLoading}
-            loadingText={t('logs.loading')}
-            emptyText={t('logs.empty')}
-            className="flex-1 max-h-[calc(100vh-320px)] overflow-x-auto"
-            placeholder={
-              !selectedSource ? (
-                <div className="text-center space-y-2">
-                  <FileText className="h-12 w-12 mx-auto text-gray-500" />
-                  <p>{t('logs.selectSourcePrompt')}</p>
-                </div>
-              ) : undefined
-            }
-          />
+          {selectedSource && logError ? (
+            <div className="rounded-b-xl border p-3">
+              <ListLoadState
+                loading={false}
+                error={logError}
+                errorTitle={t('logs.loadLogFailed')}
+                onRetry={handleRefresh}
+              />
+            </div>
+          ) : (
+            <LogTable
+              viewer={viewer}
+              label={selectedSourceData?.name ?? t('logs.title')}
+              lines={logLines}
+              loading={logLoading}
+              loadingText={t('logs.loading')}
+              emptyText={t('logs.empty')}
+              className="flex-1 max-h-[calc(100vh-320px)] overflow-x-auto"
+              placeholder={
+                !selectedSource ? (
+                  <div className="text-center space-y-2">
+                    <FileText className="h-12 w-12 mx-auto text-gray-500" />
+                    <p>{t('logs.selectSourcePrompt')}</p>
+                  </div>
+                ) : undefined
+              }
+            />
+          )}
         </div>
       </div>
 

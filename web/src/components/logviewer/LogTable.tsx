@@ -19,6 +19,7 @@ import type { LogViewer } from './useLogViewer'
  */
 export function LogTable({
   viewer,
+  label,
   lines,
   loading,
   loadingText,
@@ -27,6 +28,8 @@ export function LogTable({
   className,
 }: {
   viewer: LogViewer
+  /** Names the scrollable log region for a screen reader (the source's name). */
+  label: string
   lines: string[]
   loading: boolean
   loadingText: string
@@ -56,23 +59,28 @@ export function LogTable({
   return (
     // The terminal's own surface tokens: the hard-coded #1e1e1e was a second
     // dark log surface beside --terminal, and its greys failed contrast on it.
+    // A focusable region, so the keyboard can scroll it too. Its floor gives
+    // way on a short screen, where 500px was nearly the whole of it.
     <div
       ref={setContainerEl}
-      className={cn('min-h-[500px] overflow-auto rounded-b-xl border bg-terminal text-terminal-foreground font-mono text-sm', className)}
+      tabIndex={0}
+      role="region"
+      aria-label={label}
+      className={cn('min-h-[min(500px,60dvh)] overflow-auto rounded-b-xl border bg-terminal text-terminal-foreground font-mono text-sm outline-none focus-visible:ring-2 focus-visible:ring-ring', className)}
     >
       {placeholder ? (
-        <div className="flex items-center justify-center h-full min-h-[500px] text-gray-400">
+        <div className="flex items-center justify-center h-full min-h-[min(500px,60dvh)] text-gray-400">
           {placeholder}
         </div>
       ) : loading && lines.length === 0 ? (
-        <div className="flex items-center justify-center h-full min-h-[500px] text-gray-400">
+        <div className="flex items-center justify-center h-full min-h-[min(500px,60dvh)] text-gray-400">
           <div className="text-center space-y-2">
             <RefreshCw className="h-8 w-8 mx-auto text-gray-500 animate-spin" />
             <p>{loadingText}</p>
           </div>
         </div>
       ) : lines.length === 0 ? (
-        <div className="flex items-center justify-center h-full min-h-[500px] text-gray-400">
+        <div className="flex items-center justify-center h-full min-h-[min(500px,60dvh)] text-gray-400">
           <div className="text-center space-y-2">
             <FileText className="h-12 w-12 mx-auto text-gray-500" />
             <p>{emptyText}</p>
@@ -131,9 +139,8 @@ export function LogTable({
                     </td>
                     <td
                       colSpan={columns.length}
-                      className="px-3 py-0 whitespace-nowrap overflow-hidden text-ellipsis text-gray-400"
+                      className="px-3 py-0 whitespace-nowrap text-gray-400"
                       style={{ fontSize: '12px', lineHeight: '20px' }}
-                      title={entry.rawLine}
                     >
                       {searchQuery && isMatch ? highlightText(entry.rawLine, searchQuery) : entry.rawLine}
                     </td>
@@ -159,9 +166,8 @@ export function LogTable({
                     return (
                       <td
                         key={col.key}
-                        className={`px-3 py-0 text-left text-gray-200 whitespace-nowrap overflow-hidden ${col.flex ? 'text-ellipsis' : ''}`}
+                        className={`px-3 py-0 text-left text-gray-200 whitespace-nowrap ${col.flex ? '' : 'overflow-hidden'}`}
                         style={{ fontSize: '12px', lineHeight: '20px' }}
-                        title={col.flex ? rendered.text : undefined}
                       >
                         {rendered.pill && rendered.color ? (
                           <span
@@ -196,7 +202,9 @@ export function LogTable({
           </tbody>
         </table>
       ) : (
-        /* Raw view — virtualized */
+        /* Raw view — virtualized. A row is as wide as its line (at least the
+           view), and the region scrolls sideways to its end: an ellipsis and
+           a title left the rest of the line to a mouse hover alone. */
         <div style={{ height: totalSize, position: 'relative' }}>
           <table className="w-full border-collapse" style={{ position: 'absolute', top: 0, left: 0, right: 0 }}>
             <tbody>
@@ -217,7 +225,7 @@ export function LogTable({
                       position: 'absolute',
                       top: virtualRow.start,
                       left: 0,
-                      right: 0,
+                      minWidth: '100%',
                       display: 'flex',
                     }}
                     className={`hover:bg-white/5 ${isCurrentMatch ? 'bg-yellow-500/20' : isMatch ? 'bg-yellow-500/10' : ''} ${levelBorder}`}
@@ -229,9 +237,8 @@ export function LogTable({
                       {index + 1}
                     </td>
                     <td
-                      className={`px-3 py-0 whitespace-nowrap overflow-hidden text-ellipsis flex-1 ${levelText}`}
+                      className={`px-3 py-0 whitespace-nowrap flex-1 ${levelText}`}
                       style={{ fontSize: '12px', lineHeight: '20px' }}
-                      title={line}
                     >
                       {searchQuery && isMatch ? highlightText(line, searchQuery) : line}
                     </td>

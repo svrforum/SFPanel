@@ -28,14 +28,29 @@ export function useLogViewer({ sourceId, lines, viewMode, autoScroll }: UseLogVi
   // setSearchInputEl) so no ref object is read during render.
   const containerRef = useRef<HTMLDivElement | null>(null)
   const searchInputRef = useRef<HTMLInputElement | null>(null)
+  const searchToggleRef = useRef<HTMLButtonElement | null>(null)
   const setContainerEl = useCallback((el: HTMLDivElement | null) => {
     containerRef.current = el
   }, [])
   const setSearchInputEl = useCallback((el: HTMLInputElement | null) => {
     searchInputRef.current = el
   }, [])
+  const setSearchToggleEl = useCallback((el: HTMLButtonElement | null) => {
+    searchToggleRef.current = el
+  }, [])
 
   const [searchOpen, setSearchOpen] = useState(false)
+
+  // Closing the search bar removes whatever in it had focus, which drops to
+  // the page; hand it back to the button that opens the bar.
+  const wasOpenRef = useRef(false)
+  useEffect(() => {
+    const wasOpen = wasOpenRef.current
+    wasOpenRef.current = searchOpen
+    if (wasOpen && !searchOpen && (!document.activeElement || document.activeElement === document.body)) {
+      searchToggleRef.current?.focus()
+    }
+  }, [searchOpen])
   const [searchQuery, setSearchQuery] = useState('')
   const [currentMatch, setCurrentMatch] = useState(0)
 
@@ -163,6 +178,7 @@ export function useLogViewer({ sourceId, lines, viewMode, autoScroll }: UseLogVi
   return {
     setContainerEl,
     setSearchInputEl,
+    setSearchToggleEl,
     searchOpen,
     searchQuery,
     setSearchQuery,
