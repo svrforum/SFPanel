@@ -14,6 +14,7 @@ import {
 import type { FileEntry } from '@/types/api'
 import type { EntryAction } from '../entryActions'
 import { useInnerTrigger } from '../innerTrigger'
+import { isDirLike } from '../useFileView'
 
 /** Formats the panel can render a thumbnail for. Anything else gets an icon. */
 const THUMBNAILABLE = /\.(jpe?g|png|gif)$/i
@@ -33,7 +34,7 @@ function thumbSize() {
 
 function TileIcon({ entry }: { entry: FileEntry }) {
   const cls = 'h-10 w-10'
-  if (entry.isDir) return <Folder className={cn(cls, 'text-blue-500')} aria-hidden="true" />
+  if (isDirLike(entry)) return <Folder className={cn(cls, 'text-blue-500')} aria-hidden="true" />
   if (entry.kind === 'image') return <ImageIcon className={cn(cls, 'text-violet-500')} aria-hidden="true" />
   if (/\.(zip|tar|tgz|gz)$/i.test(entry.name)) return <FileArchive className={cn(cls, 'text-emerald-600')} aria-hidden="true" />
   if (entry.kind === 'binary') return <File className={cn(cls, 'text-muted-foreground')} aria-hidden="true" />
@@ -192,7 +193,7 @@ function GridTile({ index, entry, selected, active, onToggleSelect, onOpen, acti
               {entry.name}
             </p>
             <p className="text-center text-[12px] text-muted-foreground">
-              {entry.isDir ? '' : formatBytes(entry.size)}
+              {isDirLike(entry) ? '' : formatBytes(entry.size)}
             </p>
           </button>
         </div>

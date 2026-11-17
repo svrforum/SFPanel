@@ -87,7 +87,7 @@ const FileEditorDialog = lazy(() =>
 )
 import { FilePreviewDialog, type PreviewTarget } from './files/components/FilePreviewDialog'
 import { isTextFile } from './files/components/fileLanguages'
-import { useFileView, useVisibleEntries, sortEntries, type SortKey } from './files/useFileView'
+import { useFileView, useVisibleEntries, sortEntries, isDirLike, type SortKey } from './files/useFileView'
 import { FileGrid } from './files/components/FileGrid'
 import { useInnerTrigger } from './files/innerTrigger'
 import { useVirtualRows, VIRTUALIZE_THRESHOLD } from './files/useVirtualRows'
@@ -827,7 +827,7 @@ export default function Files() {
 
   // Open a search-result row: navigate into dirs, files jump to the parent dir.
   const handleSearchResultClick = (entry: FileEntry) => {
-    if (entry.isDir) {
+    if (isDirLike(entry)) {
       const path = entry.path
       exitSearch()
       navigateTo(path)
@@ -842,7 +842,7 @@ export default function Files() {
   const openEntry = (entry: FileEntry) => {
     if (searchActive) {
       handleSearchResultClick(entry)
-    } else if (entry.isDir) {
+    } else if (isDirLike(entry)) {
       handleDirectoryClick(entry)
     } else {
       void handleEditFile(entry)
@@ -968,7 +968,7 @@ export default function Files() {
     {
       key: 'edit',
       Icon: Pencil,
-      show: !searchActive && !entry.isDir,
+      show: !searchActive && !isDirLike(entry),
       rowOnly: true,
       label: t('files.edit'),
       menuLabel: t('files.contextMenu.edit'),
@@ -977,7 +977,7 @@ export default function Files() {
     {
       key: 'download',
       Icon: Download,
-      show: !searchActive && !entry.isDir,
+      show: !searchActive && !isDirLike(entry),
       label: t('files.download'),
       menuLabel: t('files.contextMenu.download'),
       onClick: () => void handleDownload(entry),
@@ -1001,7 +1001,7 @@ export default function Files() {
     {
       key: 'extract',
       Icon: PackageOpen,
-      show: !entry.isDir && isArchiveName(entry.name),
+      show: !isDirLike(entry) && isArchiveName(entry.name),
       label: t('files.extract', { defaultValue: 'Extract' }),
       menuLabel: t('files.extractTitle', { defaultValue: 'Extract archive' }),
       onClick: () => void handleExtract(entry),
@@ -1509,7 +1509,7 @@ export default function Files() {
                       onClick={(e) => { e.stopPropagation(); openEntry(entry) }}
                       className="flex items-center gap-2 w-full text-left rounded-sm outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-0"
                     >
-                      {entry.isDir ? (
+                      {isDirLike(entry) ? (
                         <Folder className="h-4 w-4 text-blue-500 shrink-0" />
                       ) : isTextFile(entry.name) ? (
                         <FileText className="h-4 w-4 text-amber-500 shrink-0" />
@@ -1534,7 +1534,7 @@ export default function Files() {
                     </button>
                   </TableCell>
                   <TableCell className="text-muted-foreground text-sm">
-                    {entry.isDir ? '-' : formatBytes(entry.size)}
+                    {isDirLike(entry) ? '-' : formatBytes(entry.size)}
                   </TableCell>
                   <TableCell className="text-muted-foreground text-sm">
                     {formatDate(entry.modTime)}
@@ -1593,12 +1593,12 @@ export default function Files() {
               </ContextMenuTrigger>
               <ContextMenuContent>
                 <ContextMenuItem onClick={() => openEntry(entry)}>
-                  {entry.isDir ? (
+                  {isDirLike(entry) ? (
                     <Folder className="h-4 w-4" />
                   ) : (
                     <FileText className="h-4 w-4" />
                   )}
-                  {entry.isDir
+                  {isDirLike(entry)
                     ? t('files.contextMenu.open')
                     : t('files.contextMenu.edit')}
                 </ContextMenuItem>

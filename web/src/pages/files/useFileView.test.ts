@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { sortEntries, isHiddenEntry, type SortState } from './useFileView'
+import { sortEntries, isDirLike, isHiddenEntry, type SortState } from './useFileView'
 import type { FileEntry } from '@/types/api'
 
 function entry(name: string, opts: Partial<FileEntry> = {}): FileEntry {
@@ -68,10 +68,33 @@ describe('sortEntries', () => {
     expect(once).toEqual(twice)
   })
 
+  // /bin, /lib and /sbin are links to directories on a merged-/usr system:
+  // the server says so (targetIsDir), and they belong with the folders.
+  it('keeps a link to a directory with the directories', () => {
+    const entries = [
+      entry('a.txt'),
+      entry('bin', { isDir: false, linkTarget: 'usr/bin', targetIsDir: true, size: 7 }),
+      entry('etc', { isDir: true }),
+      entry('vmlinuz', { isDir: false, linkTarget: 'boot/vmlinuz', targetIsDir: false }),
+    ]
+    expect(sortEntries(entries, asc('name')).map((e) => e.name)).toEqual(['bin', 'etc', 'a.txt', 'vmlinuz'])
+    expect(sortEntries(entries, desc('size')).slice(0, 2).map((e) => e.name)).toEqual(['bin', 'etc'])
+  })
+
   it('does not mutate its input', () => {
     const entries = [entry('b.txt'), entry('a.txt')]
     sortEntries(entries, asc('name'))
     expect(entries.map((e) => e.name)).toEqual(['b.txt', 'a.txt'])
+  })
+})
+
+describe('isDirLike', () => {
+  it('takes a link to a directory for one, and a link to a file for a file', () => {
+    expect(isDirLike(entry('etc', { isDir: true }))).toBe(true)
+    expect(isDirLike(entry('bin', { linkTarget: 'usr/bin', targetIsDir: true }))).toBe(true)
+    expect(isDirLike(entry('vmlinuz', { linkTarget: 'boot/vmlinuz', targetIsDir: false }))).toBe(false)
+    // A dangling link, or a server from before targetIsDir, says nothing.
+    expect(isDirLike(entry('gone', { linkTarget: 'nowhere' }))).toBe(false)
   })
 })
 

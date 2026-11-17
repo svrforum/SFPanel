@@ -20,9 +20,10 @@ import { formatBytes, formatDate } from '@/lib/utils'
 import type { FileEntry } from '@/types/api'
 import type { EntryAction } from '../entryActions'
 import { useInnerTrigger } from '../innerTrigger'
+import { isDirLike } from '../useFileView'
 
 function EntryIcon({ entry }: { entry: FileEntry }) {
-  if (entry.isDir) return <Folder className="h-5 w-5 shrink-0 text-blue-500" aria-hidden="true" />
+  if (isDirLike(entry)) return <Folder className="h-5 w-5 shrink-0 text-blue-500" aria-hidden="true" />
   if (entry.kind === 'image') return <ImageIcon className="h-5 w-5 shrink-0 text-violet-500" aria-hidden="true" />
   if (entry.kind === 'binary') return <File className="h-5 w-5 shrink-0 text-muted-foreground" aria-hidden="true" />
   return <FileText className="h-5 w-5 shrink-0 text-amber-500" aria-hidden="true" />
@@ -145,7 +146,7 @@ function FileCard({ index, entry, rowPath, selected, actions, onToggleSelect, on
                   <p className="mt-0.5 break-all font-mono text-[12px] text-muted-foreground">→ {entry.linkTarget}</p>
                 )}
                 <div className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-0.5 text-[12px] text-muted-foreground">
-                  <span>{entry.isDir ? t('files.folder', { defaultValue: 'Folder' }) : formatBytes(entry.size)}</span>
+                  <span>{isDirLike(entry) ? t('files.folder', { defaultValue: 'Folder' }) : formatBytes(entry.size)}</span>
                   <span>{formatDate(entry.modTime)}</span>
                   <span className="font-mono">{entry.mode || '-'}</span>
                   {entry.owner && (

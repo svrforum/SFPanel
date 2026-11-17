@@ -106,6 +106,16 @@ export function useFileView() {
   return { sort, toggleSort, chooseSort, showHidden, toggleHidden, mode, setMode }
 }
 
+/**
+ * A directory, or a link the server says resolves to one. The listing reports
+ * a symlink as itself (isDir false, a few bytes), so /bin on a merged-/usr
+ * system was drawn as a file, offered Edit and Download, and opened the editor
+ * on a click; it is a folder to open.
+ */
+export function isDirLike(entry: FileEntry) {
+  return entry.isDir || entry.targetIsDir === true
+}
+
 /** True for dotfiles, which the hidden toggle filters out. */
 export function isHiddenEntry(entry: FileEntry) {
   return entry.name.startsWith('.')
@@ -122,12 +132,14 @@ export function isHiddenEntry(entry: FileEntry) {
 export function sortEntries(entries: FileEntry[], sort: SortState): FileEntry[] {
   const factor = sort.direction === 'asc' ? 1 : -1
   return [...entries].sort((a, b) => {
-    if (a.isDir !== b.isDir) return a.isDir ? -1 : 1
+    const aDir = isDirLike(a)
+    const bDir = isDirLike(b)
+    if (aDir !== bDir) return aDir ? -1 : 1
     switch (sort.key) {
       case 'size':
         // Directories have no meaningful size, so they fall back to name and
         // keep a stable order rather than shuffling on every re-sort.
-        if (a.isDir && b.isDir) return a.name.localeCompare(b.name)
+        if (aDir && bDir) return a.name.localeCompare(b.name)
         return (a.size - b.size) * factor
       case 'modTime': {
         const diff = new Date(a.modTime).getTime() - new Date(b.modTime).getTime()
