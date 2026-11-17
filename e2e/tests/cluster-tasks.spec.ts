@@ -826,6 +826,7 @@ test.describe('run setup', () => {
     // Beside the buttons too, which may be a screen below the field; the field takes the focus.
     await expect(setup(page).getByTestId('task-run-error')).toHaveText('Correct the fields marked above.')
     await expect(setup(page).getByLabel('Version')).toBeFocused()
+    await expect(setup(page).getByLabel('Version')).toHaveAccessibleDescription('This value is required.')
     expect(posts(calls, '/cluster/task-runs/plan')).toHaveLength(0)
     // The warning about what happens to the values sits above them.
     await expect(setup(page)).toContainText('Input values are kept in the run history and copied to every manager. Do not enter passwords.')
@@ -2369,6 +2370,10 @@ test.describe('agent install', () => {
     await expect(pane(page).getByTestId('install-account')).toContainText('Enter the SSH user.')
     await expect(pane(page).getByTestId('install-account')).toContainText('Enter the login password.')
     await expect(pane(page).getByRole('alert')).toContainText('Correct the fields marked above.')
+    // Each field is described by its problem, for a screen reader on the field.
+    await expect(host(page, 1)).toHaveAccessibleDescription('Enter an IP address or a host name.')
+    await expect(pane(page).getByTestId('install-account').getByRole('textbox', { name: 'User' })).toHaveAccessibleDescription('Enter the SSH user.')
+    await expect(pane(page).getByTestId('install-account').getByLabel('Login password', { exact: true })).toHaveAccessibleDescription('Enter the login password.')
     expect(calls).toEqual([])
     // Each problem goes as it is put right.
     await host(page, 1).fill('192.0.2.21')

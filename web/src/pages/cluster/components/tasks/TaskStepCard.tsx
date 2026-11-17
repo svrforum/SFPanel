@@ -1,4 +1,4 @@
-import { useId, useState, type ReactNode } from 'react'
+import { cloneElement, isValidElement, useId, useState, type ReactNode } from 'react'
 import { useTranslation } from 'react-i18next'
 import type { TFunction } from 'i18next'
 import { ArrowDown, ArrowUp, Trash2 } from 'lucide-react'
@@ -74,20 +74,36 @@ function packagesActionLabel(action: PackagesAction, t: TFunction): string {
   }
 }
 
+// A field with its label above it and, under it, its problem or else its
+// hint. The note describes the field that carries the id, so a screen reader
+// reads it with the field; a field wrapped in something else (SecretField)
+// points at `${id}-note` itself.
 export function EditorField({ id, label, hint, error, children }: { id: string; label: string; hint?: string; error?: string; children: ReactNode }) {
+  const note = error || hint ? `${id}-note` : undefined
+  const field = note && isValidElement<{ id?: string; 'aria-describedby'?: string }>(children) && children.props.id === id
+    ? cloneElement(children, { 'aria-describedby': note })
+    : children
   return (
     <div className="min-w-0 space-y-1">
       <label htmlFor={id} className="text-[12px] font-medium text-muted-foreground">{label}</label>
-      {children}
-      {error ? <p className="text-[12px] text-destructive">{error}</p> : hint && <p className="text-[12px] text-muted-foreground">{hint}</p>}
+      {field}
+      {error ? <p id={note} className="text-[12px] text-destructive">{error}</p> : hint && <p id={note} className="text-[12px] text-muted-foreground">{hint}</p>}
     </div>
   )
 }
 
-export function EditorCheck({ id, label, checked, onChange, disabled }: { id: string; label: string; checked: boolean; onChange: (on: boolean) => void; disabled?: boolean }) {
+export function EditorCheck({ id, label, checked, onChange, disabled, describedBy }: {
+  id: string
+  label: string
+  checked: boolean
+  onChange: (on: boolean) => void
+  disabled?: boolean
+  /** The ID of a problem said about the box, under it. */
+  describedBy?: string
+}) {
   return (
     <div className="flex items-center gap-2 min-h-9">
-      <Checkbox id={id} checked={checked} disabled={disabled} onCheckedChange={(on) => onChange(on === true)} />
+      <Checkbox id={id} checked={checked} disabled={disabled} aria-describedby={describedBy} onCheckedChange={(on) => onChange(on === true)} />
       <label htmlFor={id} className="text-[13px] cursor-pointer">{label}</label>
     </div>
   )

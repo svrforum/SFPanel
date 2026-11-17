@@ -347,12 +347,13 @@ function RunForm({ task }: { task: TaskView }) {
                   value={values[input.name] ?? ''}
                   placeholder={input.default ? t('cluster.tasks.setup.defaultValue', { value: input.default }) : undefined}
                   aria-invalid={shown ? true : undefined}
+                  aria-describedby={shown ? `${field}-note` : undefined}
                   disabled={busy}
                   onChange={(e) => setValues((v) => ({ ...v, [input.name]: e.target.value }))}
                   className="font-mono"
                 />
                 {shown && (
-                  <p className="text-[12px] text-destructive">
+                  <p id={`${field}-note`} className="text-[12px] text-destructive">
                     {shown.reason === 'required' ? t('cluster.tasks.setup.inputRequired') : t('cluster.tasks.setup.inputTooLarge')}
                   </p>
                 )}

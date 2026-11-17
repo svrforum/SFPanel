@@ -57,7 +57,12 @@ export function AccountFields({ id, value, onChange, problem, stored, disabled }
       </div>
       <div className="space-y-1">
         <p id={`${id}-method`} className="text-[12px] font-medium text-muted-foreground">{t('cluster.tasks.install.setup.method')}</p>
-        <div role="radiogroup" aria-labelledby={`${id}-method`} className="flex flex-wrap gap-x-4 gap-y-1">
+        <div
+          role="radiogroup"
+          aria-labelledby={`${id}-method`}
+          aria-describedby={problem('method') ? `${id}-method-note` : undefined}
+          className="flex flex-wrap gap-x-4 gap-y-1"
+        >
           {METHODS.map((m) => (
             <label key={m} className="flex items-center gap-2 min-h-9 text-[13px] cursor-pointer">
               <input
@@ -72,7 +77,7 @@ export function AccountFields({ id, value, onChange, problem, stored, disabled }
             </label>
           ))}
         </div>
-        {problem('method') && <p className="text-[12px] text-destructive">{problem('method')}</p>}
+        {problem('method') && <p id={`${id}-method-note`} className="text-[12px] text-destructive">{problem('method')}</p>}
       </div>
 
       {value.method === 'password' && (
@@ -125,9 +130,10 @@ export function AccountFields({ id, value, onChange, problem, stored, disabled }
               checked={value.sudoSame}
               onChange={(sudoSame) => onChange({ sudoSame })}
               disabled={disabled}
+              describedBy={problem('sudo_same') ? `${id}-sudo-same-note` : undefined}
             />
           )}
-          {problem('sudo_same') && <p className="text-[12px] text-destructive">{problem('sudo_same')}</p>}
+          {problem('sudo_same') && <p id={`${id}-sudo-same-note`} className="text-[12px] text-destructive">{problem('sudo_same')}</p>}
           {(value.method !== 'password' || !value.sudoSame) && (
             <div className="max-w-xs">
               <SecretField
@@ -176,6 +182,8 @@ function SecretField({ id, label, showLabel, hideLabel, value, onChange, hint, e
           autoCapitalize="none"
           spellCheck={false}
           aria-invalid={!!error || undefined}
+          // EditorField's note: the field sits inside the toggle's frame.
+          aria-describedby={error || hint ? `${id}-note` : undefined}
           disabled={disabled}
           className="pr-10"
         />

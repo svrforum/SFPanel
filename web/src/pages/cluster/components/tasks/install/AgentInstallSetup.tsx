@@ -327,6 +327,10 @@ export function AgentInstallSetup() {
           {form.servers.map((r, i) => {
             const n = i + 1
             const shown = rowProblems(i)
+            // A row's problems describe each of its fields; the list's own
+            // ("add a server") describes the first host.
+            const note = shown.length > 0 ? `${id}-row-${i}-note` : undefined
+            const hostNote = [note, i === 0 && fieldProblem('servers') ? `${id}-servers-note` : undefined].filter(Boolean).join(' ') || undefined
             return (
               <div
                 key={i}
@@ -342,6 +346,7 @@ export function AgentInstallSetup() {
                   autoCapitalize="none"
                   spellCheck={false}
                   aria-invalid={shown.length > 0 || undefined}
+                  aria-describedby={hostNote}
                   disabled={busy}
                   className="col-span-2 md:col-span-1 font-mono"
                 />
@@ -363,6 +368,7 @@ export function AgentInstallSetup() {
                   inputMode="numeric"
                   placeholder="22"
                   autoComplete="off"
+                  aria-describedby={note}
                   disabled={busy}
                   className="font-mono"
                 />
@@ -374,6 +380,7 @@ export function AgentInstallSetup() {
                   autoComplete="off"
                   autoCapitalize="none"
                   spellCheck={false}
+                  aria-describedby={note}
                   disabled={busy}
                 />
                 <Input
@@ -384,17 +391,18 @@ export function AgentInstallSetup() {
                   autoComplete="off"
                   autoCapitalize="none"
                   spellCheck={false}
+                  aria-describedby={note}
                   disabled={busy}
                 />
                 {shown.length > 0 && (
-                  <div className="col-span-full order-last space-y-0.5">
+                  <div id={note} className="col-span-full order-last space-y-0.5">
                     {shown.map((text) => <p key={text} className="text-[12px] text-destructive">{text}</p>)}
                   </div>
                 )}
               </div>
             )
           })}
-          {fieldProblem('servers') && <p className="text-[12px] text-destructive">{fieldProblem('servers')}</p>}
+          {fieldProblem('servers') && <p id={`${id}-servers-note`} className="text-[12px] text-destructive">{fieldProblem('servers')}</p>}
         </div>
         <div className="flex flex-wrap gap-2">
           <Button type="button" variant="outline" size="sm" onClick={() => changeServers([...form.servers, emptyServerRow()])} disabled={busy}>
@@ -544,7 +552,12 @@ export function AgentInstallSetup() {
         <h3 id={`${id}-how`} className="text-[14px] font-semibold">{t('cluster.tasks.install.setup.how')}</h3>
         <div className="space-y-1">
           <p id={`${id}-mode`} className="text-[12px] font-medium text-muted-foreground">{t('cluster.tasks.install.setup.mode')}</p>
-          <div role="radiogroup" aria-labelledby={`${id}-mode`} className="space-y-1">
+          <div
+            role="radiogroup"
+            aria-labelledby={`${id}-mode`}
+            aria-describedby={fieldProblem('mode') ? `${id}-mode-note` : undefined}
+            className="space-y-1"
+          >
             {MODES.map((m) => (
               <label key={m} className="flex items-start gap-2 text-[13px] cursor-pointer">
                 <input
@@ -562,7 +575,7 @@ export function AgentInstallSetup() {
               </label>
             ))}
           </div>
-          {fieldProblem('mode') && <p className="text-[12px] text-destructive">{fieldProblem('mode')}</p>}
+          {fieldProblem('mode') && <p id={`${id}-mode-note`} className="text-[12px] text-destructive">{fieldProblem('mode')}</p>}
         </div>
         <EditorField
           id={`${id}-concurrency`}

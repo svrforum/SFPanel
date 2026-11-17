@@ -245,9 +245,10 @@ export function TaskGitImportDialog({ from, onClose, onChanged }: TaskGitImportD
             placeholder={t('cluster.tasks.import.urlPlaceholder')}
             autoComplete="off"
             aria-invalid={urlError || undefined}
+            aria-describedby={urlError ? `${id}-url-note` : undefined}
             disabled={busy}
           />
-          {urlError && <p className="text-[12px] text-destructive">{t('cluster.tasks.import.urlInvalid')}</p>}
+          {urlError && <p id={`${id}-url-note`} className="text-[12px] text-destructive">{t('cluster.tasks.import.urlInvalid')}</p>}
         </div>
         <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
           <div className="space-y-1">
@@ -256,10 +257,18 @@ export function TaskGitImportDialog({ from, onClose, onChanged }: TaskGitImportD
           </div>
           <div className="space-y-1 sm:col-span-2">
             <Label htmlFor={`${id}-path`}>{t('cluster.tasks.import.folder')}</Label>
-            <Input id={`${id}-path`} value={path} onChange={(e) => setPath(e.target.value)} placeholder={t('cluster.tasks.import.folderPlaceholder')} autoComplete="off" disabled={busy} />
+            <Input
+              id={`${id}-path`}
+              value={path}
+              onChange={(e) => setPath(e.target.value)}
+              placeholder={t('cluster.tasks.import.folderPlaceholder')}
+              autoComplete="off"
+              aria-describedby={`${id}-path-note`}
+              disabled={busy}
+            />
           </div>
         </div>
-        <p className="text-[12px] text-muted-foreground">{t('cluster.tasks.import.folderHint')}</p>
+        <p id={`${id}-path-note`} className="text-[12px] text-muted-foreground">{t('cluster.tasks.import.folderHint')}</p>
         <div className="space-y-1">
           <Label htmlFor={`${id}-token`}>{t('cluster.tasks.import.token')}</Label>
           <div className="relative">
@@ -269,6 +278,7 @@ export function TaskGitImportDialog({ from, onClose, onChanged }: TaskGitImportD
               value={token}
               onChange={(e) => setToken(e.target.value)}
               autoComplete="off"
+              aria-describedby={`${id}-token-note`}
               className="pr-10"
               disabled={busy}
             />
@@ -281,7 +291,7 @@ export function TaskGitImportDialog({ from, onClose, onChanged }: TaskGitImportD
               {tokenVisible ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
             </button>
           </div>
-          <p className="text-[12px] text-muted-foreground">{t('cluster.tasks.import.tokenHint')}</p>
+          <p id={`${id}-token-note`} className="text-[12px] text-muted-foreground">{t('cluster.tasks.import.tokenHint')}</p>
         </div>
         {errorBox}
       </form>
