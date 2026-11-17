@@ -3537,6 +3537,7 @@
     "installingNode": "Installing Node.js…",
     "nodeInstallSuccess": "Node.js installed successfully!",
     "nodeRequired": "Please install Node.js first",
+    "toolStatusUnknown": "Could not check whether it is installed",
     "nodeVersionManage": "Node.js Version Manager",
     "nodeVersionDescription": "Switch between installed Node.js versions or install new ones",
     "nodeInstalledVersions": "Installed Versions",

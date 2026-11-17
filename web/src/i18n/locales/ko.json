@@ -3525,6 +3525,7 @@
     "installingNode": "Node.js 설치 중…",
     "nodeInstallSuccess": "Node.js가 성공적으로 설치되었습니다!",
     "nodeRequired": "Node.js를 먼저 설치해주세요",
+    "toolStatusUnknown": "설치 여부를 확인하지 못했습니다",
     "nodeVersionManage": "Node.js 버전 관리",
     "nodeVersionDescription": "설치된 Node.js 버전을 전환하거나 새 버전을 설치합니다",
     "nodeInstalledVersions": "설치된 버전",

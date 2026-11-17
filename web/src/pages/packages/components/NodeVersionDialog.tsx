@@ -16,6 +16,7 @@ import {
   DialogTitle,
 } from '@/components/ui/dialog'
 import type { DevToolStatus } from '@/pages/packages/components/DevToolsCard'
+import { failure } from '@/pages/packages/failure'
 
 // NVM-backed Node.js version management: list/switch/remove installed
 // versions and install remote LTS releases (SSE streamed into the shared
@@ -53,8 +54,8 @@ export function NodeVersionDialog({
       const data = await api.getNodeVersions()
       setNodeVersions(data.versions || [])
       setRemoteLTS(data.remote_lts || [])
-    } catch {
-      toast.error(t('packages.nodeVersionsFailed'))
+    } catch (err) {
+      toast.error(failure(t('packages.nodeVersionsFailed'), err))
     } finally {
       setLoading(false)
     }
@@ -71,8 +72,8 @@ export function NodeVersionDialog({
       toast.success(t('packages.nodeSwitched', { version }))
       await fetchNodeVersions()
       await onNodeChanged()
-    } catch {
-      toast.error(t('packages.nodeSwitchFailed'))
+    } catch (err) {
+      toast.error(failure(t('packages.nodeSwitchFailed'), err))
     } finally {
       setSwitching(null)
     }
@@ -117,8 +118,8 @@ export function NodeVersionDialog({
       toast.success(t('packages.nodeVersionRemoved', { version }))
       await fetchNodeVersions()
       await onNodeChanged()
-    } catch {
-      toast.error(t('packages.nodeVersionRemoveFailed'))
+    } catch (err) {
+      toast.error(failure(t('packages.nodeVersionRemoveFailed'), err))
     } finally {
       setRemoving(null)
     }

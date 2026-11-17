@@ -47,6 +47,12 @@ export function DevToolsCard({ output }: { output: SSEOutput }) {
   const [checking, setChecking] = useState<Record<ToolId, boolean>>({
     node: false,
   })
+  // Why a status could not be read. Shown in place of the install button: a
+  // failed check is not "not installed", and offering to install a tool that
+  // is there would run its installer again.
+  const [statusErrors, setStatusErrors] = useState<Record<ToolId, string | null>>({
+    node: null,
+  })
   const [installing, setInstalling] = useState<ToolId | null>(null)
   const [nodeVersionDialog, setNodeVersionDialog] = useState(false)
 
@@ -55,8 +61,9 @@ export function DevToolsCard({ output }: { output: SSEOutput }) {
     try {
       const data = await STATUS_CALLS[id]()
       setStatuses((prev) => ({ ...prev, [id]: data }))
-    } catch {
-      // silent — the card just keeps showing "not installed"
+      setStatusErrors((prev) => ({ ...prev, [id]: null }))
+    } catch (err) {
+      setStatusErrors((prev) => ({ ...prev, [id]: err instanceof Error ? err.message : '' }))
     } finally {
       setChecking((prev) => ({ ...prev, [id]: false }))
     }
@@ -144,6 +151,8 @@ export function DevToolsCard({ output }: { output: SSEOutput }) {
               initial={tool.initial}
               checking={checking[tool.id]}
               installed={!!status?.installed}
+              statusError={statusErrors[tool.id]}
+              onRetry={() => fetchStatus(tool.id)}
               version={status?.version}
               installLabel={t(tool.installKey)}
               installing={installing === tool.id}

@@ -7,6 +7,7 @@ import type { DockerStatus } from '@/types/api'
 import { Button } from '@/components/ui/button'
 import { cn } from '@/lib/utils'
 import { streamErrorMessage, StreamReportedError, type SSEOutput } from '@/components/OutputDialog'
+import { failure } from '@/pages/packages/failure'
 
 // Docker engine status + one-click install (SSE streamed into the shared
 // output dialog; postTextStream keeps the cluster ?node= scope). On a Proxmox
@@ -24,8 +25,8 @@ export function DockerStatusCard({ output }: { output: SSEOutput }) {
     try {
       const data = await api.getDockerStatus()
       setDockerStatus(data)
-    } catch {
-      toast.error(t('packages.dockerStatusFailed'))
+    } catch (err) {
+      toast.error(failure(t('packages.dockerStatusFailed'), err))
     } finally {
       setChecking(false)
     }

@@ -1,6 +1,6 @@
 import type { ReactNode } from 'react'
 import { useTranslation } from 'react-i18next'
-import { CheckCircle2, Download, Loader2 } from 'lucide-react'
+import { AlertCircle, CheckCircle2, Download, Loader2 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 
 // One card in the Dev Tools grid. Adding a CLI is a new entry in the TOOLS
@@ -15,6 +15,8 @@ export function DevToolCard({
   initial,
   checking,
   installed,
+  statusError,
+  onRetry,
   version,
   installLabel,
   installing,
@@ -30,6 +32,9 @@ export function DevToolCard({
   initial: string
   checking: boolean
   installed: boolean
+  /** Set when the status could not be read ('' when no reason came back). */
+  statusError?: string | null
+  onRetry?: () => void
   version?: string
   installLabel: string
   installing: boolean
@@ -60,6 +65,20 @@ export function DevToolCard({
           <Loader2 className="h-3.5 w-3.5 animate-spin" aria-hidden="true" />
           <span className="text-[12px]">{t('packages.checking')}</span>
         </div>
+      ) : statusError != null ? (
+        <div className="space-y-2">
+          <div className="flex items-start gap-1.5 text-muted-foreground">
+            <AlertCircle className="h-3.5 w-3.5 mt-0.5 shrink-0" aria-hidden="true" />
+            <span className="text-[12px] break-words">
+              {statusError ? `${t('packages.toolStatusUnknown')}: ${statusError}` : t('packages.toolStatusUnknown')}
+            </span>
+          </div>
+          {onRetry && (
+            <Button size="sm" variant="outline" className="rounded-xl w-full" onClick={onRetry}>
+              {t('common.retry')}
+            </Button>
+          )}
+        </div>
       ) : installed ? (
         installedExtra ?? (
           <div className="flex items-center gap-1.5">
@@ -88,7 +107,7 @@ export function DevToolCard({
           )}
         </Button>
       )}
-      {footnote && !installed && (
+      {footnote && !installed && statusError == null && (
         <p className="text-[12px] text-muted-foreground">{footnote}</p>
       )}
     </div>

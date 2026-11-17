@@ -10,6 +10,7 @@ import { StatusPill } from '@/components/StatusPill'
 import { useConfirm } from '@/components/ConfirmDialog'
 import type { SSEOutput } from '@/components/OutputDialog'
 import type { AptTransactions } from '@/pages/packages/useAptTransaction'
+import { failure } from '@/pages/packages/failure'
 import {
   Table,
   TableBody,
@@ -43,8 +44,8 @@ export function PackageSearchCard({ output, tx }: { output: SSEOutput; tx: AptTr
       if ((data.packages || []).length === 0) {
         toast.info(t('packages.noSearchResults'))
       }
-    } catch {
-      toast.error(t('packages.searchFailed'))
+    } catch (err) {
+      toast.error(failure(t('packages.searchFailed'), err))
     } finally {
       setSearching(false)
     }
