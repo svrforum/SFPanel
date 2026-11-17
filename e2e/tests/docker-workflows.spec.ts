@@ -201,3 +201,21 @@ test('deployment previews unchanged configuration, then validates before saving 
  expect(save).toBeGreaterThan(validate)
  expect(deploy).toBeGreaterThan(save)
 })
+
+// The new-stack dialog named /opt/stacks, the default, whatever
+// server.stacks_path said. With no stack yet to read the folder off, the
+// node's overview says it; a node too old to say leaves the setting named.
+for (const [node, overview, hint] of [
+  ['a node that sends the folder', { version: 'review', stacks_path: '/srv/stacks' }, 'Path: /srv/stacks/web'],
+  ['an older node', { version: 'review' }, 'Created as the web folder in the server.stacks_path folder (/opt/stacks by default).'],
+] as const) {
+  test(`a first stack's folder is named from the node's setting: ${node}`, async ({ page, context }) => {
+    await fixture(context)
+    await page.route('**/api/v1/docker/compose', route => route.fulfill({ json: { success: true, data: [] } }))
+    await page.route('**/api/v1/system/overview**', route => route.fulfill({ json: { success: true, data: overview } }))
+    await page.goto('/docker/stacks?new=1')
+    const dialog = page.getByRole('dialog', { name: 'New Stack' })
+    await dialog.getByLabel('Stack Name').fill('web')
+    await expect(dialog.locator('#project-name-hint')).toContainText(hint)
+  })
+}

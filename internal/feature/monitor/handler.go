@@ -3,6 +3,7 @@ package featuremonitor
 import (
 	"log/slog"
 	"net/http"
+	"path/filepath"
 	"strings"
 	"sync"
 
@@ -13,6 +14,9 @@ import (
 
 type Handler struct {
 	Version string
+	// StacksPath is server.stacks_path, the folder compose stacks and App
+	// Store installs go in, named on the pages that create them.
+	StacksPath string
 }
 
 func (h *Handler) GetSystemInfo(c echo.Context) error {
@@ -51,6 +55,9 @@ type DashboardOverview struct {
 	Version        string                 `json:"version"`
 	MetricsHistory []monitor.MetricsPoint `json:"metrics_history"`
 	UpdateInfo     *monitor.UpdateInfo    `json:"update_info,omitempty"`
+	// StacksPath rides on the overview because Layout fetches it for every
+	// node and shares it with the pages, so naming the folder costs no request.
+	StacksPath string `json:"stacks_path,omitempty"`
 }
 
 // GetOverview returns combined system info and metrics history in a single call
@@ -97,11 +104,15 @@ func (h *Handler) GetOverview(c echo.Context) error {
 
 	updateInfo := monitor.GetUpdateInfo(h.Version)
 
-	return response.OK(c, DashboardOverview{
+	overview := DashboardOverview{
 		Host:           hostInfo,
 		Metrics:        metrics,
 		Version:        strings.TrimPrefix(h.Version, "v"),
 		MetricsHistory: metricsHistory,
 		UpdateInfo:     &updateInfo,
-	})
+	}
+	if h.StacksPath != "" {
+		overview.StacksPath = filepath.Clean(h.StacksPath)
+	}
+	return response.OK(c, overview)
 }

@@ -181,7 +181,7 @@ func NewRouter(database *sql.DB, auditWriter *sfdb.AsyncWriter, alertManager *fe
 	cmd := commonExec.NewCommander()
 
 	authHandler := &featureAuth.Handler{DB: database, Config: cfg, ClusterMgr: clusterMgr, AuditWriter: auditWriter}
-	dashboardHandler := &featureMonitor.Handler{Version: version}
+	dashboardHandler := &featureMonitor.Handler{Version: version, StacksPath: cfg.Server.StacksPath}
 
 	systemHandler := &featureSystem.Handler{
 		Version:     version,

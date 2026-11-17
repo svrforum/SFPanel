@@ -125,3 +125,19 @@ test('a detail that fails to load says so and offers a retry', async ({ page }) 
   await expect(dialog.getByRole('heading', { name: 'example', exact: true }).last()).toBeVisible()
   await expect(dialog.getByText('Could not load the app details')).toHaveCount(0)
 })
+
+// The guide named /opt/stacks, the default, whatever server.stacks_path said.
+// It reads the folder off the overview the page already has; a node too old to
+// send it leaves the setting named.
+for (const [node, overview, path] of [
+  ['a node that sends the folder', { version: 'review', stacks_path: '/srv/stacks' }, 'Storage path /srv/stacks/<app-id>/'],
+  ['an older node', { version: 'review' }, 'Storage path <app-id>/ in the server.stacks_path folder (/opt/stacks by default)'],
+] as const) {
+  test(`the guide names the folder installs go in: ${node}`, async ({ page }) => {
+    await mock(page, { app: app('example'), compose: 'services: {}\n', readme: '', installed: false })
+    await page.route('**/api/v1/system/overview**', route => route.fulfill({ json: { success: true, data: overview } }))
+    await page.goto('/appstore')
+    await page.getByRole('button', { name: 'How does the App Store work?' }).click()
+    await expect(page.getByText(path, { exact: true })).toBeVisible()
+  })
+}

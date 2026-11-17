@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback, useRef } from 'react'
 import { useTranslation } from 'react-i18next'
-import { Link, useNavigate, useParams } from 'react-router-dom'
+import { Link, useNavigate, useOutletContext, useParams } from 'react-router-dom'
 import { Search, RotateCcw, Loader2, Package, Info, ChevronDown, ChevronUp, X, AlertCircle, Star, ArrowDownUp, CheckCircle2 } from 'lucide-react'
 import { toast } from 'sonner'
 import { api } from '@/lib/api'
@@ -8,6 +8,7 @@ import { appStoreIconUrl } from '@/lib/appstore'
 import { Input } from '@/components/ui/input'
 import { Button } from '@/components/ui/button'
 import AppStoreDetailModal from '@/pages/AppStoreDetail'
+import type { LayoutOutletContext } from '@/components/Layout'
 import type { AppStoreCategory, AppStoreApp } from '@/types/api'
 
 export default function AppStore() {
@@ -29,6 +30,12 @@ export default function AppStore() {
   const [showGuide, setShowGuide] = useState(false)
   const [failedIcons, setFailedIcons] = useState<Set<string>>(new Set())
   const [updates, setUpdates] = useState<Record<string, boolean>>({})
+
+  // The folder installs go in (server.stacks_path), from the overview Layout
+  // already fetched for this node. An older node sends none, and the guide
+  // then names the setting.
+  const sharedOverview = useOutletContext<LayoutOutletContext | undefined>()?.overview
+  const stacksPath = sharedOverview?.node === api.currentNode ? sharedOverview.data?.stacks_path : undefined
 
   // The URL (/appstore/:appId) is the source of truth for which detail is open.
   const selectedAppId = appId ?? null
@@ -200,7 +207,8 @@ export default function AppStore() {
             </div>
             <div className="flex flex-wrap gap-x-4 gap-y-1 pt-1">
               <span className="text-[12px] text-muted-foreground">
-                <span className="font-medium text-foreground">{t('appStore.guidePath')}</span> {t('appStore.guidePathValue')}
+                <span className="font-medium text-foreground">{t('appStore.guidePath')}</span>{' '}
+                {stacksPath ? `${stacksPath.replace(/\/+$/, '')}/<app-id>/` : t('appStore.guidePathValue')}
               </span>
               <span className="text-[12px] text-muted-foreground">
                 <span className="font-medium text-foreground">{t('appStore.guideFiles')}</span> docker-compose.yml, .env

@@ -84,6 +84,9 @@ export interface DashboardOverview {
   version: string
   metrics_history: MetricsPoint[]
   update_info?: UpdateInfo
+  // server.stacks_path, where compose stacks and App Store installs go.
+  // Absent from older nodes.
+  stacks_path?: string
 }
 
 // Docker

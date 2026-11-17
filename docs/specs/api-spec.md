@@ -568,7 +568,8 @@ AuditMiddleware는 **비-GET/HEAD/OPTIONS** 요청만 기록합니다. `/api/v1/
     "metrics": { "cpu": 23.5, "mem_percent": 50.0, "disk_percent": 34.0, "…": "…" },
     "version": "0.16.1",
     "metrics_history": [ { "time": 1740000000000, "cpu": 23.5, "mem_percent": 50.0 } ],
-    "update_info": { "latest_version": "0.16.2", "…": "…" }
+    "update_info": { "latest_version": "0.16.2", "…": "…" },
+    "stacks_path": "/opt/stacks"
   }
 }
 ```
@@ -580,6 +581,7 @@ AuditMiddleware는 **비-GET/HEAD/OPTIONS** 요청만 기록합니다. `/api/v1/
 | `version` | string | 패널 버전 (`v` 접두사 제거됨) |
 | `metrics_history` | array | 메트릭 히스토리 포인트 (`range` 윈도우) |
 | `update_info` | object | 최신 버전/업데이트 가용 정보 (`latest_version` 등) |
+| `stacks_path` | string | 이 노드의 `server.stacks_path`(컴포즈 스택과 앱스토어 설치가 들어가는 폴더). 끝의 `/`는 뺌. 이전 노드는 보내지 않으므로, 화면은 없으면 설정 이름(기본 `/opt/stacks`)으로 말함. Layout이 노드마다 이미 받아 페이지와 나누는 응답이라, 앱스토어 안내는 요청을 더하지 않고 읽음 |
 
 ---
 

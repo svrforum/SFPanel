@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { toast } from 'sonner'
 import { api } from '@/lib/api'
@@ -40,8 +40,8 @@ export function CreateStackDialog({
   onOpenChange: (open: boolean) => void
   /**
    * The folder stacks live in (server.stacks_path), read off an existing
-   * stack's path. Unknown while there is none: the hint then names the setting
-   * instead of guessing /opt/stacks.
+   * stack's path. While there is none the dialog asks the node; a node too old
+   * to say leaves the hint naming the setting instead of guessing /opt/stacks.
    */
   stacksRoot?: string
   /** Fired with the new project name so the caller can refresh + navigate. */
@@ -52,6 +52,20 @@ export function CreateStackDialog({
   const [newName, setNewName] = useState('')
   const [newYaml, setNewYaml] = useState(DEFAULT_COMPOSE)
   const [creating, setCreating] = useState(false)
+
+  // No stack to read the folder off: the node's overview carries it. Kept with
+  // the node it came from, so another node's folder is never shown.
+  const [asked, setAsked] = useState<{ node: string | null; path?: string }>()
+  useEffect(() => {
+    if (!open || stacksRoot) return
+    let cancelled = false
+    const node = api.currentNode
+    api.getDashboardOverview('1h')
+      .then((o) => { if (!cancelled) setAsked({ node, path: o.stacks_path }) })
+      .catch(() => {})
+    return () => { cancelled = true }
+  }, [open, stacksRoot])
+  const root = stacksRoot || (asked?.node === api.currentNode ? asked.path?.replace(/\/+$/, '') : undefined)
 
   const handleCreate = async () => {
     if (!newName.trim() || !newYaml.trim()) return
@@ -114,8 +128,8 @@ export function CreateStackDialog({
                 onChange={(e) => setNewName(e.target.value)} />
               <p id="project-name-hint" className="text-[12px] text-muted-foreground">
                 {t('docker.stacks.nameRule')}{' '}
-                {stacksRoot
-                  ? t('docker.stacks.createPathHint', { path: `${stacksRoot}/${newName || '{name}'}` })
+                {root
+                  ? t('docker.stacks.createPathHint', { path: `${root}/${newName || '{name}'}` })
                   : t('docker.stacks.createPathHintUnknown', { name: newName || '{name}' })}
               </p>
             </div>
