@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
-import { Loader2 } from 'lucide-react'
+import { AlertTriangle, Loader2 } from 'lucide-react'
 import { api } from '@/lib/api'
 import type { ServiceDeps } from '@/types/api'
 import {
@@ -70,6 +70,7 @@ export function ServiceDetailDialog({
         <div className="flex gap-1 rounded-xl bg-muted p-1 w-fit">
           <button
             onClick={() => setDialogView('logs')}
+            aria-pressed={dialogView === 'logs'}
             className={`px-3 py-1 text-[12px] rounded-lg transition-colors outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-0 ${dialogView === 'logs' ? 'bg-card font-semibold shadow-sm' : 'text-muted-foreground'}`}
           >
             {t('services.logsTab')}
@@ -77,6 +78,7 @@ export function ServiceDetailDialog({
           <button
             onClick={() => setDialogView('unit')}
             disabled={!unitFile}
+            aria-pressed={dialogView === 'unit'}
             className={`px-3 py-1 text-[12px] rounded-lg transition-colors disabled:opacity-40 outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-0 ${dialogView === 'unit' ? 'bg-card font-semibold shadow-sm' : 'text-muted-foreground'}`}
           >
             {t('services.unitTab')}
@@ -86,8 +88,11 @@ export function ServiceDetailDialog({
         {serviceDeps && (serviceDeps.required_by?.length || serviceDeps.requires?.length || serviceDeps.wanted_by?.length) ? (
           <div className="space-y-2">
             {serviceDeps.required_by && serviceDeps.required_by.length > 0 && (
-              <div className="p-3 bg-amber-500/10 rounded-xl">
-                <p className="text-[12px] font-medium text-amber-500">{t('services.dependents')}</p>
+              <div className="p-3 bg-warning/10 rounded-xl">
+                <p className="text-[12px] font-medium text-foreground flex items-center gap-1.5">
+                  <AlertTriangle className="h-3.5 w-3.5 shrink-0 text-warning" aria-hidden />
+                  {t('services.dependents')}
+                </p>
                 <p className="text-[13px] mt-1">{serviceDeps.required_by.join(', ')}</p>
               </div>
             )}

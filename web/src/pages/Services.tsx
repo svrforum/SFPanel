@@ -13,6 +13,7 @@ import {
   MoreHorizontal,
   Lock,
   ShieldAlert,
+  AlertTriangle,
 } from 'lucide-react'
 import { toast } from 'sonner'
 import { api } from '@/lib/api'
@@ -24,6 +25,7 @@ import { useConfirm } from '@/components/ConfirmDialog'
 import { TypeToConfirmDialog } from '@/components/TypeToConfirmDialog'
 import { StatusPill, type StatusPillTone } from '@/components/StatusPill'
 import { ServiceDetailDialog } from '@/pages/services/components/ServiceDetailDialog'
+import { bootLabelKey, matchesFilter, sortServices, stateLabelKey, type ServiceFilter } from '@/pages/services/serviceState'
 import {
   Table,
   TableBody,
@@ -40,7 +42,6 @@ import {
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu'
 
-type FilterType = 'all' | 'running' | 'failed' | 'inactive'
 type Action = 'start' | 'enable' | ServiceAction
 
 const isServiceAction = (a: Action): a is ServiceAction => a === 'stop' || a === 'restart' || a === 'disable'
@@ -71,64 +72,52 @@ export default function Services() {
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [searchQuery, setSearchQuery] = useState('')
-  const [filter, setFilter] = useState<FilterType>('all')
+  const [filter, setFilter] = useState<ServiceFilter>('all')
   const [actionLoading, setActionLoading] = useState<string | null>(null)
   const [logService, setLogService] = useState<string | null>(null)
   // A unit the host needs: the action waits for its name to be typed.
   const [typedTarget, setTypedTarget] = useState<{ name: string; action: ServiceAction } | null>(null)
   const confirm = useConfirm()
 
+  // A failed poll keeps the list it has, under a note that stays until a poll
+  // answers: a toast every 15 seconds said "action failed" for a list read.
   const fetchServices = useCallback(async () => {
     try {
-      setError(null)
       const data = await api.listServices()
       setAllServices(data.services || [])
+      setError(null)
     } catch (err: unknown) {
       setError(err instanceof Error ? err.message : String(err))
-      toast.error(t('services.actionFailed'))
     } finally {
       setLoading(false)
     }
-  }, [t])
+  }, [])
 
   // Fetch on mount + every 15s while the tab is visible (paused when hidden).
   useVisibleInterval(fetchServices, 15000)
 
-  // Client-side filtering
-  const filtered = useMemo(() => {
-    let list = allServices
-
-    // Filter by type
-    if (filter !== 'all') {
-      list = list.filter((s) => {
-        switch (filter) {
-          case 'running':
-            return s.active_state === 'active' && s.sub_state === 'running'
-          case 'failed':
-            return s.active_state === 'failed'
-          case 'inactive':
-            return s.active_state === 'inactive'
-          default:
-            return true
-        }
-      })
-    }
-
-    // Filter by search query
-    if (searchQuery) {
-      const q = searchQuery.toLowerCase()
-      list = list.filter(
-        (s) =>
-          s.name.toLowerCase().includes(q) ||
-          s.description.toLowerCase().includes(q)
-      )
-    }
-
-    // Sort by name
-    return [...list].sort((a, b) =>
-      a.name.toLowerCase().localeCompare(b.name.toLowerCase())
+  // Client-side filtering: the search first, so each filter's count is what
+  // choosing it would show.
+  const searched = useMemo(() => {
+    if (!searchQuery) return allServices
+    const q = searchQuery.toLowerCase()
+    return allServices.filter(
+      (s) =>
+        s.name.toLowerCase().includes(q) ||
+        s.description.toLowerCase().includes(q)
     )
-  }, [allServices, filter, searchQuery])
+  }, [allServices, searchQuery])
+
+  const filtered = useMemo(
+    () => sortServices(searched.filter((s) => matchesFilter(s, filter)), filter),
+    [searched, filter],
+  )
+
+  const narrowed = searchQuery !== '' || filter !== 'all'
+  const clearFilters = () => {
+    setSearchQuery('')
+    setFilter('all')
+  }
 
   const actionText = (action: ServiceAction, unit: string) => {
     switch (action) {
@@ -217,14 +206,13 @@ export default function Services() {
 
   // Full action menu (start/stop/restart, boot enable/disable, logs) — shared
   // by the desktop table cell and the mobile card so both expose the same set.
-  const renderActionsMenu = (svc: ServiceInfo, triggerClassName?: string) => (
+  const renderActionsMenu = (svc: ServiceInfo) => (
     <DropdownMenu>
       <DropdownMenuTrigger asChild>
         <Button
           variant="ghost"
           size="icon-xs"
-          aria-label={t('services.actions')}
-          className={triggerClassName}
+          aria-label={t('services.actionsFor', { unit: svc.name })}
           disabled={actionLoading?.startsWith(svc.name + ':') || false}
         >
           {actionLoading?.startsWith(svc.name + ':') ? (
@@ -269,7 +257,36 @@ export default function Services() {
     </DropdownMenu>
   )
 
-  const filters: { key: FilterType; labelKey: string }[] = [
+  // The state and boot badges in the filters' words; systemd's own word stays
+  // as the title.
+  const stateBadge = (svc: ServiceInfo) => {
+    const raw = svc.sub_state || svc.active_state
+    const key = stateLabelKey(svc.active_state, svc.sub_state)
+    return (
+      <StatusPill tone={activeStateTone(svc.active_state, svc.sub_state)}>
+        <span title={raw}>{key ? t(key) : raw}</span>
+      </StatusPill>
+    )
+  }
+  const bootBadge = (svc: ServiceInfo) => {
+    const key = bootLabelKey(svc.enabled)
+    return (
+      <StatusPill tone={enabledTone(svc.enabled)}>
+        <span title={svc.enabled}>{key ? t(key) : svc.enabled}</span>
+      </StatusPill>
+    )
+  }
+
+  const emptyText = narrowed ? (
+    <div className="space-y-3">
+      <p>{t('services.noMatch')}</p>
+      <Button variant="outline" size="sm" className="rounded-xl" onClick={clearFilters}>
+        {t('services.clearFilters')}
+      </Button>
+    </div>
+  ) : t('services.noServices')
+
+  const filters: { key: ServiceFilter; labelKey: string }[] = [
     { key: 'all', labelKey: 'services.filterAll' },
     { key: 'running', labelKey: 'services.filterRunning' },
     { key: 'failed', labelKey: 'services.filterFailed' },
@@ -298,9 +315,10 @@ export default function Services() {
           <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
           <Input
             placeholder={t('services.search')}
+            aria-label={t('services.searchLabel')}
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
-            className="pl-9 h-9 rounded-xl bg-secondary/50 border-0 text-[13px]"
+            className="pl-9 h-9 rounded-xl bg-secondary/50 border-0 text-base md:text-[13px]"
           />
         </div>
         <Button variant="outline" size="sm" className="rounded-xl" onClick={fetchServices} disabled={loading}>
@@ -309,25 +327,37 @@ export default function Services() {
         </Button>
       </div>
 
-      {/* Filter buttons */}
-      <div className="flex items-center gap-2">
+      {/* Filter buttons, each with what choosing it would show */}
+      <div className="flex flex-wrap items-center gap-2">
         {filters.map((f) => (
           <Button
             key={f.key}
             variant={filter === f.key ? 'default' : 'outline'}
             size="sm"
+            aria-pressed={filter === f.key}
             onClick={() => setFilter(f.key)}
             className="h-7 text-xs rounded-xl"
           >
-            {t(f.labelKey)}
+            {t(f.labelKey)}{' '}
+            <span className="tabular-nums">{searched.filter((s) => matchesFilter(s, f.key)).length}</span>
           </Button>
         ))}
-        {(searchQuery || filter !== 'all') && (
+        {narrowed && (
           <span className="text-xs text-muted-foreground ml-2">
             {filtered.length} / {allServices.length}
           </span>
         )}
       </div>
+
+      {error && allServices.length > 0 && (
+        <div role="status" className="bg-warning/10 text-warning rounded-xl p-3 flex items-start gap-2">
+          <AlertTriangle className="h-4 w-4 mt-0.5 shrink-0" aria-hidden />
+          <div className="min-w-0">
+            <p className="text-[13px] font-medium">{t('services.loadFailed')}</p>
+            <p className="text-[12px] opacity-80 mt-0.5 break-words">{error}</p>
+          </div>
+        </div>
+      )}
 
       {/* Load error / loading skeleton (first load only) */}
       {allServices.length === 0 && (
@@ -343,7 +373,7 @@ export default function Services() {
       <div className="md:hidden space-y-2">
         {filtered.length === 0 && !loading && !error && (
           <div className="text-center text-muted-foreground py-8 text-[13px]">
-            {t('services.noServices')}
+            {emptyText}
           </div>
         )}
         {filtered.map((svc) => (
@@ -357,12 +387,8 @@ export default function Services() {
                   </p>
                 )}
                 <div className="flex items-center gap-2 mt-2">
-                  <StatusPill tone={activeStateTone(svc.active_state, svc.sub_state)}>
-                    {svc.sub_state || svc.active_state}
-                  </StatusPill>
-                  <StatusPill tone={enabledTone(svc.enabled)}>
-                    {svc.enabled}
-                  </StatusPill>
+                  {stateBadge(svc)}
+                  {bootBadge(svc)}
                 </div>
               </div>
               <div className="flex items-center gap-1 shrink-0">
@@ -370,7 +396,7 @@ export default function Services() {
                   variant="ghost"
                   size="icon-xs"
                   title={t('services.start')}
-                  aria-label={t('services.start')}
+                  aria-label={t('services.startUnit', { unit: svc.name })}
                   disabled={svc.active_state === 'active' || !!actionLoading?.startsWith(svc.name + ':')}
                   onClick={() => handleAction(svc, 'start')}
                 >
@@ -380,7 +406,7 @@ export default function Services() {
                   variant="ghost"
                   size="icon-xs"
                   title={t('services.stop')}
-                  aria-label={t('services.stop')}
+                  aria-label={t('services.stopUnit', { unit: svc.name })}
                   disabled={svc.active_state === 'inactive' || !!actionLoading?.startsWith(svc.name + ':')}
                   onClick={() => handleAction(svc, 'stop')}
                 >
@@ -390,7 +416,7 @@ export default function Services() {
                   variant="ghost"
                   size="icon-xs"
                   title={t('services.restart')}
-                  aria-label={t('services.restart')}
+                  aria-label={t('services.restartUnit', { unit: svc.name })}
                   disabled={!!actionLoading?.startsWith(svc.name + ':')}
                   onClick={() => handleAction(svc, 'restart')}
                 >
@@ -419,12 +445,12 @@ export default function Services() {
             {filtered.length === 0 && !loading && !error && (
               <TableRow>
                 <TableCell colSpan={5} className="text-center text-muted-foreground py-8">
-                  {t('services.noServices')}
+                  {emptyText}
                 </TableCell>
               </TableRow>
             )}
             {filtered.map((svc) => (
-              <TableRow key={svc.name} className="group">
+              <TableRow key={svc.name}>
                 <TableCell>
                   <span className="font-medium text-[13px] truncate block" title={svc.name}>{svc.name}</span>
                 </TableCell>
@@ -433,18 +459,10 @@ export default function Services() {
                     {svc.description}
                   </span>
                 </TableCell>
-                <TableCell>
-                  <StatusPill tone={activeStateTone(svc.active_state, svc.sub_state)}>
-                    {svc.sub_state || svc.active_state}
-                  </StatusPill>
-                </TableCell>
-                <TableCell>
-                  <StatusPill tone={enabledTone(svc.enabled)}>
-                    {svc.enabled}
-                  </StatusPill>
-                </TableCell>
+                <TableCell>{stateBadge(svc)}</TableCell>
+                <TableCell>{bootBadge(svc)}</TableCell>
                 <TableCell className="text-right">
-                  {renderActionsMenu(svc, 'opacity-100 md:opacity-0 md:group-hover:opacity-100 md:group-focus-within:opacity-100 transition-opacity')}
+                  {renderActionsMenu(svc)}
                 </TableCell>
               </TableRow>
             ))}
