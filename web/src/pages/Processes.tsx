@@ -30,6 +30,7 @@ import { Input } from '@/components/ui/input'
 import { ListLoadState } from '@/components/ListLoadState'
 import { StatusPill, type StatusPillTone } from '@/components/StatusPill'
 import type { Metrics, ProcessInfo } from '@/types/api'
+import { clampNice, reniceStart, reniceToSend } from './processes/processView'
 import {
   Table,
   TableBody,
@@ -69,7 +70,7 @@ export default function Processes() {
   const [killTarget, setKillTarget] = useState<ProcessInfo | null>(null)
   const [killing, setKilling] = useState(false)
   const [reniceTarget, setReniceTarget] = useState<ProcessInfo | null>(null)
-  const [reniceValue, setReniceValue] = useState(0)
+  const [reniceValue, setReniceValue] = useState<number | null>(null)
   const [renicing, setRenicing] = useState(false)
   const [viewMode, setViewMode] = useState<ViewMode>('list')
   const [sysMetrics, setSysMetrics] = useState<Metrics | null>(null)
@@ -196,17 +197,21 @@ export default function Processes() {
   }
 
   const openRenice = (proc: ProcessInfo) => {
-    setReniceValue(proc.nice)
+    setReniceValue(reniceStart(proc.nice))
     setReniceTarget(proc)
   }
 
-  const clampNice = (n: number) => Math.max(-20, Math.min(19, Math.round(n)))
+  // Only a value the operator picked is ever sent (see reniceToSend).
+  const reniceNext = reniceTarget ? reniceToSend(reniceValue, reniceTarget.nice) : null
+  const reniceCurrent = reniceTarget ? reniceStart(reniceTarget.nice) : null
+  const stepNice = (by: number) =>
+    setReniceValue((v) => clampNice((v ?? reniceCurrent ?? 0) + by))
 
   const handleRenice = async () => {
-    if (!reniceTarget) return
+    if (!reniceTarget || reniceNext === null) return
     setRenicing(true)
     try {
-      const nice = clampNice(reniceValue)
+      const nice = reniceNext
       await api.reniceProcess(reniceTarget.pid, nice)
       toast.success(t('processes.reniceSuccess', { pid: reniceTarget.pid, nice }))
       setReniceTarget(null)
@@ -681,13 +686,19 @@ export default function Processes() {
           </DialogHeader>
           <div className="space-y-3 text-sm">
             <p className="text-muted-foreground">{t('processes.reniceDescription')}</p>
+            <p className="text-muted-foreground">
+              {reniceCurrent === null
+                ? t('processes.niceCurrentUnknown')
+                : t('processes.niceCurrent', { nice: reniceCurrent })}
+            </p>
             <div className="flex items-center justify-center gap-3">
               <Button
                 variant="outline"
                 size="icon"
                 className="rounded-xl"
-                onClick={() => setReniceValue((v) => clampNice(v - 1))}
-                disabled={renicing || reniceValue <= -20}
+                onClick={() => stepNice(-1)}
+                disabled={renicing || reniceValue === -20}
+                aria-label={t('processes.niceDown')}
               >
                 -
               </Button>
@@ -695,16 +706,18 @@ export default function Processes() {
                 type="number"
                 min={-20}
                 max={19}
-                value={reniceValue}
-                onChange={(e) => setReniceValue(clampNice(Number(e.target.value)))}
-                className="w-20 h-10 text-center rounded-xl font-mono text-[15px]"
+                value={reniceValue ?? ''}
+                onChange={(e) => setReniceValue(e.target.value === '' ? null : clampNice(Number(e.target.value)))}
+                aria-label={t('processes.nice')}
+                className="w-20 h-10 text-center rounded-xl font-mono text-base"
               />
               <Button
                 variant="outline"
                 size="icon"
                 className="rounded-xl"
-                onClick={() => setReniceValue((v) => clampNice(v + 1))}
-                disabled={renicing || reniceValue >= 19}
+                onClick={() => stepNice(1)}
+                disabled={renicing || reniceValue === 19}
+                aria-label={t('processes.niceUp')}
               >
                 +
               </Button>
@@ -714,7 +727,7 @@ export default function Processes() {
             <Button variant="ghost" className="rounded-xl" onClick={() => setReniceTarget(null)}>
               {t('common.cancel')}
             </Button>
-            <Button className="rounded-xl" onClick={handleRenice} disabled={renicing}>
+            <Button className="rounded-xl" onClick={handleRenice} disabled={renicing || reniceNext === null}>
               {renicing ? <Loader2 className="animate-spin h-4 w-4" /> : <Gauge className="h-4 w-4" />}
               {t('processes.renice')}
             </Button>
