@@ -421,10 +421,10 @@ export default function NetworkWireGuard() {
                     className="font-mono text-[12px] truncate min-w-0 max-w-[200px] hover:text-primary flex items-center gap-1 outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-0"
                     onClick={() => copyToClipboard(iface.public_key, iface.name)}
                     title={iface.public_key}
-                    aria-label={t('common.copy')}
                   >
-                    {iface.public_key.substring(0, 20)}...
-                    {copiedKey === iface.name ? <Check className="h-3 w-3 text-success" /> : <Copy className="h-3 w-3" />}
+                    {iface.public_key.substring(0, 20)}…
+                    <span className="sr-only">{t('common.copy')}</span>
+                    {copiedKey === iface.name ? <Check className="h-3 w-3 text-success" aria-hidden="true" /> : <Copy className="h-3 w-3" aria-hidden="true" />}
                   </button>
                 </div>
               )}

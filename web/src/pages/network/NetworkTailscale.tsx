@@ -604,10 +604,13 @@ export default function NetworkTailscale() {
                 <button
                   className="font-mono flex items-center gap-1 hover:text-primary min-w-0 rounded-sm outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-0"
                   onClick={() => copyToClipboard(status.self!.tailscale_ip, 'ip4')}
-                  aria-label={t('common.copy')}
                 >
+                  {/* Named by the address it shows, then the action: "Copy"
+                      alone left a voice command nothing to say, and a screen
+                      reader nothing to tell one from another. */}
                   <span className="truncate min-w-0">{status.self.tailscale_ip}</span>
-                  {copiedField === 'ip4' ? <Check className="h-3 w-3 text-success shrink-0" /> : <Copy className="h-3 w-3 shrink-0" />}
+                  <span className="sr-only">{t('common.copy')}</span>
+                  {copiedField === 'ip4' ? <Check className="h-3 w-3 text-success shrink-0" aria-hidden="true" /> : <Copy className="h-3 w-3 shrink-0" aria-hidden="true" />}
                 </button>
               </div>
               {status.self.tailscale_ipv6 && (
@@ -616,11 +619,11 @@ export default function NetworkTailscale() {
                   <button
                     className="font-mono text-[12px] flex items-center gap-1 hover:text-primary truncate min-w-0 max-w-[200px] rounded-sm outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-0"
                     onClick={() => copyToClipboard(status.self!.tailscale_ipv6, 'ip6')}
-                    aria-label={t('common.copy')}
                     title={status.self.tailscale_ipv6}
                   >
                     {status.self.tailscale_ipv6}
-                    {copiedField === 'ip6' ? <Check className="h-3 w-3 text-success" /> : <Copy className="h-3 w-3" />}
+                    <span className="sr-only">{t('common.copy')}</span>
+                    {copiedField === 'ip6' ? <Check className="h-3 w-3 text-success" aria-hidden="true" /> : <Copy className="h-3 w-3" aria-hidden="true" />}
                   </button>
                 </div>
               )}
@@ -781,14 +784,14 @@ export default function NetworkTailscale() {
                       <button
                         className="group hover:text-primary flex items-center gap-1 rounded-sm outline-none focus-visible:ring-2 focus-visible:ring-ring"
                         onClick={() => copyToClipboard(peer.tailscale_ip, peer.tailscale_ip)}
-                        aria-label={t('common.copy')}
                         title={t('common.copy')}
                       >
                         {peer.tailscale_ip}
+                        <span className="sr-only">{t('common.copy')}</span>
                         {copiedField === peer.tailscale_ip ? (
-                          <Check className="h-3 w-3 text-success" />
+                          <Check className="h-3 w-3 text-success" aria-hidden="true" />
                         ) : (
-                          <Copy className="h-3 w-3 opacity-60 transition-opacity md:opacity-0 md:group-hover:opacity-100 md:group-focus-visible:opacity-100" />
+                          <Copy className="h-3 w-3 opacity-60 transition-opacity md:can-hover:opacity-0 md:group-hover:opacity-100 md:group-focus-visible:opacity-100" aria-hidden="true" />
                         )}
                       </button>
                     </TableCell>
