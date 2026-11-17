@@ -2391,7 +2391,8 @@ test.describe('agent install', () => {
     await account.getByRole('textbox', { name: 'User' }).fill('ubuntu')
     const password = account.getByLabel('Login password', { exact: true })
     await expect(password).toHaveAttribute('type', 'password')
-    await expect(password).toHaveAttribute('autocomplete', 'off')
+    // Another system's password: neither filled from nor saved as the panel's login.
+    await expect(password).toHaveAttribute('autocomplete', 'new-password')
     await password.fill(PASSWORD)
     await account.getByRole('button', { name: 'Show the login password' }).click()
     await expect(password).toHaveAttribute('type', 'text')

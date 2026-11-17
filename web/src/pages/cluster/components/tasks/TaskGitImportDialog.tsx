@@ -277,7 +277,8 @@ export function TaskGitImportDialog({ from, onClose, onChanged }: TaskGitImportD
               type={tokenVisible ? 'text' : 'password'}
               value={token}
               onChange={(e) => setToken(e.target.value)}
-              autoComplete="off"
+              // GitHub's, not the panel's login: browsers ignore off on a password field.
+              autoComplete="new-password"
               aria-describedby={`${id}-token-note`}
               className="pr-10"
               disabled={busy}

@@ -156,8 +156,9 @@ export function AccountFields({ id, value, onChange, problem, stored, disabled }
   )
 }
 
-// A secret typed in: masked unless the operator asks to see it, and kept out
-// of the browser's password manager.
+// A secret typed in: masked unless the operator asks to see it. It is another
+// system's, so it is marked new-password: browsers ignore off on a password
+// field, and would fill in, or offer to save, the panel's own login here.
 function SecretField({ id, label, showLabel, hideLabel, value, onChange, hint, error, disabled }: {
   id: string
   label: string
@@ -178,7 +179,7 @@ function SecretField({ id, label, showLabel, hideLabel, value, onChange, hint, e
           type={visible ? 'text' : 'password'}
           value={value}
           onChange={(e) => onChange(e.target.value)}
-          autoComplete="off"
+          autoComplete="new-password"
           autoCapitalize="none"
           spellCheck={false}
           aria-invalid={!!error || undefined}
