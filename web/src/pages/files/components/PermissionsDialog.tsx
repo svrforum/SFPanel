@@ -6,6 +6,7 @@ import { api } from '@/lib/api'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Checkbox } from '@/components/ui/checkbox'
+import { useConfirm } from '@/components/ConfirmDialog'
 import {
   Dialog,
   DialogContent,
@@ -39,6 +40,7 @@ export function PermissionsDialog({ entry, onOpenChange, onApplied }: {
   onApplied: () => void
 }) {
   const { t } = useTranslation()
+  const confirm = useConfirm()
   const [octal, setOctal] = useState('644')
   const [owner, setOwner] = useState('')
   const [group, setGroup] = useState('')
@@ -74,6 +76,17 @@ export function PermissionsDialog({ entry, onOpenChange, onApplied }: {
 
   const handleApply = async () => {
     if (!entry) return
+    // Down a whole tree there is no way back but changing each entry again,
+    // and one tick of a box was all it took.
+    if (recursive && entry.isDir) {
+      const ok = await confirm({
+        title: t('files.recursiveTitle', { name: entry.name }),
+        description: t('files.recursiveBody', { path: entry.path }),
+        confirmLabel: t('files.recursiveConfirm'),
+        danger: true,
+      })
+      if (!ok) return
+    }
     setSaving(true)
     try {
       // Only send what actually changed. Issuing a chown that sets the same
