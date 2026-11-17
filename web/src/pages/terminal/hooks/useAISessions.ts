@@ -15,17 +15,22 @@ const POLL_MS = 5000
 export function useAISessions() {
   const [sessions, setSessions] = useState<AISession[]>([])
   const [loaded, setLoaded] = useState(false)
+  // Why the last ask failed. Before a first list has come, the page shows it
+  // instead of "No sessions yet", which is not what is known.
+  const [error, setError] = useState<string | null>(null)
 
   const refresh = useCallback(async () => {
     try {
       setSessions(await api.getAISessions())
       setLoaded(true)
-    } catch {
+      setError(null)
+    } catch (err: unknown) {
       // Keep the last good list; the next tick retries.
+      setError(err instanceof Error ? err.message : '')
     }
   }, [])
 
   useVisibleInterval(() => { void refresh() }, POLL_MS)
 
-  return { sessions, loaded, refresh }
+  return { sessions, loaded, error, refresh }
 }

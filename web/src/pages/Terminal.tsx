@@ -81,7 +81,7 @@ export default function TerminalPage() {
   const [searchQuery, setSearchQuery] = useState('')
   const [hostInfo, setHostInfo] = useState<TerminalInfo | null>(null)
   const searchInputRef = useRef<HTMLInputElement>(null)
-  const { sessions, loaded, refresh } = useAISessions()
+  const { sessions, loaded, error: sessionsError, refresh } = useAISessions()
   const pty = usePtyTabs()
   // `pty` is a fresh object every render, so the memos and the fetch below
   // depend on these three values rather than on the hook's result.
@@ -539,6 +539,7 @@ export default function TerminalPage() {
           )}
           {activeItem?.kind !== 'pty' && (
             <SessionPane session={activeItem?.kind === 'tmux' ? activeItem.session : null} fallback={fallback} fontSize={fontSize}
+              loaded={loaded} loadError={sessionsError} onRetry={() => { void refresh() }}
               touchScroll={tools?.touch_scroll === true}
               touchHistory={tools?.touch_history === true}
               attachLatest={tools?.attach_latest === true} onNew={onNew}

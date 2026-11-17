@@ -181,6 +181,19 @@ test.describe('a desktop', () => {
     // With a keyboard on the desk the terminal has it from the start.
     await expect.poll(() => page.evaluate(() => document.activeElement?.classList.contains('xterm-helper-textarea'))).toBe(true)
   })
+  test('a session list that cannot be had says so, rather than "no sessions"', async ({ page }) => {
+    await openTerminal(page)
+    let fail = true
+    await page.route('**/api/v1/ai/sessions', route => fail
+      ? route.fulfill({ status: 500, json: { success: false, error: { code: 'INTERNAL_ERROR', message: 'could not list sessions' } } })
+      : route.fallback())
+    await page.reload()
+    await expect(page.getByRole('alert').filter({ hasText: 'Could not load the sessions' })).toBeVisible()
+    await expect(page.getByText('No sessions yet')).toHaveCount(0)
+    fail = false
+    await page.getByRole('button', { name: 'Retry' }).click()
+    await expect(page.locator('[data-terminal-session="active"]')).toBeVisible()
+  })
   test('the rail is a tablist per directory, and the arrows walk across them', async ({ page }) => {
     const other = { ...session, id: 'bbbbbb123456', title: 'Other dir', cwd: '/opt/other' }
     await openTerminal(page, '/terminal', undefined, [session, other])
