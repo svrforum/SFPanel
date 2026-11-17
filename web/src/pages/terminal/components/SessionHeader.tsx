@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState, type RefObject } from 'react'
 import { useTranslation } from 'react-i18next'
-import { Eraser, Maximize2, Minimize2, Minus, MoreHorizontal, PanelLeft, Plus, Search, ShieldAlert, User as UserIcon, X } from 'lucide-react'
+import { Eraser, Maximize2, Minimize2, Minus, MoreHorizontal, PanelLeft, Paperclip, Plus, Search, ShieldAlert, User as UserIcon, X } from 'lucide-react'
 import type { TerminalInfo } from '@/types/api'
 import { TOOL_META, dangerousFlagFor, launchSummary } from '@/lib/aiSessions'
 import { activeKey, type RailItem } from '@/lib/sessionRail'
@@ -44,6 +44,10 @@ export interface SessionHeaderProps {
   drawer?: { onOpen: () => void; waiting: number }
   /** present on a desktop: the app sidebar's width given to the terminal, or back */
   focus?: { on: boolean; onToggle: () => void }
+  /** present on a desktop where the session takes files: a picker, beside
+   *  dropping a file on the terminal and pasting one, which a pointer that
+   *  cannot drag had no way to (WCAG 2.5.7) */
+  onAttachFiles?: (files: File[]) => void
 }
 
 const ICON = 'h-7 w-7 p-0 text-console-muted hover:text-console-foreground hover:bg-console-foreground/10'
@@ -55,8 +59,9 @@ const ICON = 'h-7 w-7 p-0 text-console-muted hover:text-console-foreground hover
  * so every action exists somewhere visible, and on a phone (where the rail
  * is in a drawer) the Android app can open them through [data-session-menu].
  */
-export function SessionHeader({ item, hostInfo, fontSize, cols, onFontSize, search, onClear, onSelectText, onRename, onAction, compact, drawer, focus }: SessionHeaderProps) {
+export function SessionHeader({ item, hostInfo, fontSize, cols, onFontSize, search, onClear, onSelectText, onRename, onAction, compact, drawer, focus, onAttachFiles }: SessionHeaderProps) {
   const { t } = useTranslation()
+  const fileRef = useRef<HTMLInputElement>(null)
   // The toolbar shows from the md width up, which a tablet has: 36px there, as
   // 28 is a mouse's target.
   const icon = cn(ICON, compact && 'h-9 w-9')
@@ -154,6 +159,13 @@ export function SessionHeader({ item, hostInfo, fontSize, cols, onFontSize, sear
           <div className="w-px h-4 bg-console-border mx-1" aria-hidden="true" />
           <Button variant="ghost" size="sm" className={cn(icon, searchOpen && 'text-primary')} onClick={onSearchToggle} title={`${t('terminal.search')} (${IS_MAC ? '⌘F' : 'Ctrl+Shift+F'})`} aria-label={t('terminal.search')}><Search className="h-3.5 w-3.5" /></Button>
           <Button variant="ghost" size="sm" className={icon} onClick={onClear} title={t('terminal.clear')} aria-label={t('terminal.clear')}><Eraser className="h-3.5 w-3.5" /></Button>
+          {onAttachFiles && (
+            <>
+              <Button variant="ghost" size="sm" className={icon} onClick={() => fileRef.current?.click()} title={t('terminal.input.attach')} aria-label={t('terminal.input.attach')}><Paperclip className="h-3.5 w-3.5" /></Button>
+              <input ref={fileRef} type="file" multiple hidden data-terminal-header-attach
+                onChange={(e) => { const files = Array.from(e.target.files ?? []); e.target.value = ''; if (files.length > 0) onAttachFiles(files) }} />
+            </>
+          )}
           {focus && (
             <Button variant="ghost" size="sm" className={cn(icon, focus.on && 'text-primary')} onClick={focus.onToggle} aria-pressed={focus.on} title={focusLabel} aria-label={focusLabel}>
               {focus.on ? <Minimize2 className="h-3.5 w-3.5" /> : <Maximize2 className="h-3.5 w-3.5" />}

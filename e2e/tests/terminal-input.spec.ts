@@ -829,6 +829,15 @@ test.describe('with a mouse and a keyboard', () => {
     expect(t.uploaded).toEqual(['aaaaaaaaaaa1:error.log', 'aaaaaaaaaaa1:trace.txt'])
   })
 
+  test('a file can be picked with a button as well as dropped', async ({ page }) => {
+    const t = await openTerminal(page)
+    const chooser = page.waitForEvent('filechooser')
+    await page.getByRole('button', { name: 'Attach a photo or a file', exact: true }).click()
+    await (await chooser).setFiles({ name: 'error.log', mimeType: 'text/plain', buffer: Buffer.from('x') })
+    await expect.poll(() => t.input).toEqual(['/home/tester/.sfpanel-ai/uploads/aaaaaaaaaaa1/20261114-093005-error.log '])
+    expect(t.uploaded).toEqual(['aaaaaaaaaaa1:error.log'])
+  })
+
   test('files dropped with text beside them are still files', async ({ page }) => {
     // What a file manager on Linux hands over: the files, and their paths as text.
     const t = await openTerminal(page)

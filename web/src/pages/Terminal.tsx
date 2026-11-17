@@ -503,7 +503,8 @@ export default function TerminalPage() {
           onClear={clearTerminal} onSelectText={openSelectText} onRename={onRename} onAction={onAction}
           compact={compact}
           drawer={compact ? { onOpen: () => setDrawerOpen(true), waiting } : undefined}
-          focus={compact ? undefined : { on: focus, onToggle: () => setFocus(!focus) }} />
+          focus={compact ? undefined : { on: focus, onToggle: () => setFocus(!focus) }}
+          onAttachFiles={!compact && canAttach ? (files) => { void attachToTerminal(files) } : undefined} />
         {fallback && tools && (
           <div className="shrink-0 px-3 pt-3 space-y-2">
             <p className="text-[12px] text-console-muted">{t('terminal.fallback.banner')}</p>
