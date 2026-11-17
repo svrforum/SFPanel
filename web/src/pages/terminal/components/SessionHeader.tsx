@@ -117,7 +117,7 @@ export function SessionHeader({ item, hostInfo, fontSize, cols, onFontSize, sear
             editing ? (
               <input ref={editRef} value={name} onChange={(e) => setName(e.target.value)} onBlur={commit}
                 onKeyDown={(e) => { if (e.key === 'Enter') commit(); if (e.key === 'Escape') setEditingKey(null); e.stopPropagation() }}
-                className="w-full max-w-xs bg-transparent border-b border-primary outline-none text-[14px] font-semibold text-console-foreground" maxLength={64} autoFocus />
+                className="w-full max-w-xs bg-transparent border-b border-primary outline-none text-base md:text-[14px] font-semibold text-console-foreground" maxLength={64} autoFocus />
             ) : (
               <button type="button" onClick={startEditing} title={t('ai.tabs.rename')}
                 className="block max-w-full truncate text-[14px] font-semibold text-left outline-none rounded focus-visible:ring-2 focus-visible:ring-ring">{title}</button>
@@ -234,7 +234,8 @@ export function SessionHeader({ item, hostInfo, fontSize, cols, onFontSize, sear
               if (e.key === 'Enter') { e.preventDefault(); if (e.shiftKey) onSearchNext(); else onSearchPrev() }
               if (e.key === 'Escape') onSearchClose()
             }}
-            placeholder={t('terminal.searchPlaceholder')} className="h-7 text-xs bg-card border-border text-foreground flex-1 min-w-0" autoFocus />
+            placeholder={t('terminal.searchPlaceholder')} aria-label={t('terminal.search')}
+            className="h-7 text-base md:text-xs bg-card border-border text-foreground flex-1 min-w-0" autoFocus />
           {/* The visible label is an arrow on a phone, so the name has to be
               on the button rather than in its text. */}
           <Button variant="ghost" size="sm" className="h-7 px-2 text-xs text-console-muted hover:text-console-foreground hover:bg-console-foreground/10" onClick={onSearchPrev} aria-label={t('terminal.prev')}>

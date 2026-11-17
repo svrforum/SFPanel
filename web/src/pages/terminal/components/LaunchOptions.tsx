@@ -153,7 +153,7 @@ export function LaunchOptions({
             value={value.model ?? ''}
             onChange={(e) => set({ model: e.target.value || undefined })}
             placeholder={t('ai.launch.modelPlaceholder')}
-            className="font-mono text-[12px]"
+            className="font-mono text-base md:text-[12px]"
             maxLength={64}
             spellCheck={false}
             aria-invalid={modelError}
@@ -187,7 +187,7 @@ export function LaunchOptions({
             value={extraRaw}
             onChange={(e) => onExtraRawChange(e.target.value)}
             placeholder={t('ai.launch.extraPlaceholder')}
-            className="font-mono text-[12px]"
+            className="font-mono text-base md:text-[12px]"
             spellCheck={false}
             aria-invalid={extraError !== null}
             aria-describedby="ai-launch-extra-hint"

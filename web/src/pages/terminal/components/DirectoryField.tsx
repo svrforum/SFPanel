@@ -68,7 +68,7 @@ export function DirectoryField({
         spellCheck={false}
         value={value}
         placeholder={placeholder}
-        className="font-mono text-[12px]"
+        className="font-mono text-base md:text-[12px]"
         onFocus={() => { setOpen(true); setQuery(''); setActive(-1) }}
         onBlur={() => setOpen(false)}
         onChange={(e) => { onChange(e.target.value); setQuery(e.target.value); setOpen(true); setActive(-1) }}

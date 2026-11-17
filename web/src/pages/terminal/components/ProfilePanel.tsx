@@ -158,7 +158,7 @@ export function ProfilePanel({ tool, account, onSessionsChanged }: ProfilePanelP
             // same name and paints its 409 over a create that succeeded.
             if (e.key === 'Enter') { e.preventDefault(); if (!creating) void create() }
           }}
-          placeholder={t('ai.profiles.namePlaceholder')} className="h-7 font-mono text-[12px]" maxLength={32} spellCheck={false}
+          placeholder={t('ai.profiles.namePlaceholder')} className="h-7 font-mono text-base md:text-[12px]" maxLength={32} spellCheck={false}
           aria-label={t('ai.profiles.label')} />
         <Button variant="outline" size="sm" className="h-7 rounded-lg shrink-0" disabled={creating || !name.trim()} onClick={() => void create()}>
           {creating ? <Loader2 className="animate-spin" aria-hidden="true" /> : null}

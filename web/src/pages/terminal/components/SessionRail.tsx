@@ -140,7 +140,7 @@ export function SessionRail({ groups, active, collapsed, fallback, reattachable,
                               /* double-click selects a word in the field; the row would
                                  read it as "rename" and restart the edit, losing the text */
                               onDoubleClick={(e) => e.stopPropagation()}
-                              className="w-full bg-transparent border-b border-primary outline-none text-[13px] text-console-foreground" maxLength={64} autoFocus />
+                              className="w-full bg-transparent border-b border-primary outline-none text-base md:text-[13px] text-console-foreground" maxLength={64} autoFocus />
                           ) : (
                             <div className="flex items-center gap-1.5 min-w-0">
                               <span className="text-[13px] font-medium truncate">{title}</span>

@@ -417,7 +417,7 @@ export function NewSessionDialog({
                     // the same name again and paint that 409 over a create
                     // that had already succeeded.
                     onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); if (!creating) void createProfile() } }}
-                    placeholder={t('ai.profiles.namePlaceholder')} className="font-mono text-[12px]" maxLength={32} spellCheck={false} />
+                    placeholder={t('ai.profiles.namePlaceholder')} className="font-mono text-base md:text-[12px]" maxLength={32} spellCheck={false} />
                   <Button type="button" variant="outline" className="rounded-xl" onClick={createProfile} disabled={creating || !newName.trim()}>
                     {creating ? <><Loader2 className="animate-spin" aria-hidden="true" />{t('ai.profiles.creating')}</> : t('common.create')}
                   </Button>
