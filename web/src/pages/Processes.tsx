@@ -29,7 +29,7 @@ import { Input } from '@/components/ui/input'
 import { ListLoadState } from '@/components/ListLoadState'
 import { StatusPill, type StatusPillTone } from '@/components/StatusPill'
 import type { Metrics, ProcessInfo } from '@/types/api'
-import { clampNice, reniceStart, reniceToSend, statusLabelKey } from './processes/processView'
+import { clampNice, nicesAsListed, reniceStart, reniceToSend, statusLabelKey } from './processes/processView'
 import {
   TableBody,
   TableCell,
@@ -89,7 +89,9 @@ export default function Processes() {
     try {
       setError(null)
       const data = await api.listProcesses()
-      setAllProcesses(data.processes || [])
+      const listed = data.processes || []
+      const nices = nicesAsListed(listed.map((p) => p.nice))
+      setAllProcesses(listed.map((p, i) => (p.nice === nices[i] ? p : { ...p, nice: nices[i] })))
     } catch (err: unknown) {
       setError(err instanceof Error ? err.message : String(err))
       toast.error(t('processes.fetchFailed'))
@@ -169,6 +171,10 @@ export default function Processes() {
     count: viewMode === 'tree' ? treeRows.length : sorted.length,
     getScrollElement: () => scrollRef.current,
     estimateSize: () => (isMobile ? CARD_HEIGHT : ROW_HEIGHT),
+    // A measured height belongs to the process, not to the place in the list:
+    // the list is sorted again every refresh, and a height kept by index left
+    // one card overlapping the next when a taller and a shorter one swapped.
+    getItemKey: (i) => (viewMode === 'tree' ? treeRows[i]?.proc.pid : sorted[i]?.pid) ?? i,
     overscan: 20,
   })
   // Only the layout on screen is measured: the other one is display:none and

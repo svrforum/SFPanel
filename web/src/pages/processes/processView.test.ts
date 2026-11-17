@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { reniceStart, reniceToSend, statusLabelKey } from './processView'
+import { nicesAsListed, reniceStart, reniceToSend, statusLabelKey } from './processView'
 
 // Opening the renice dialog and pressing its button sent 19: the list carried
 // getpriority's 20 - nice, the dialog started from that 20, and the clamp
@@ -60,5 +60,19 @@ describe('statusLabelKey', () => {
   it('has no key for a state it does not know', () => {
     expect(statusLabelKey('sleeping')).toBeNull()
     expect(statusLabelKey('')).toBeNull()
+  })
+})
+
+// A node still on the server before the fix lists getpriority's raw number,
+// 20 - nice. The fixed server never sends more than 19, so one such number
+// says the whole list is raw, and every row is read back accordingly.
+describe('nicesAsListed', () => {
+  it('reads a raw list back to nice values', () => {
+    // An ordinary process (20), a kernel thread (40), one at nice 5 (15), one whose read failed (0).
+    expect(nicesAsListed([20, 40, 15, 0])).toEqual([0, -20, 5, 0])
+  })
+
+  it('leaves a list of nice values alone', () => {
+    expect(nicesAsListed([0, -20, 5, 19, -4])).toEqual([0, -20, 5, 19, -4])
   })
 })
