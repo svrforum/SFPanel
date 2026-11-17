@@ -65,3 +65,38 @@ test('swap on a device is typed out, and overwriting data is asked for', async (
     { type: 'partition', device: 'sdb2', force: true },
   ])
 })
+
+// "Remove" only ran swapoff: the file and its fstab line stayed, and the swap
+// was back after a reboot. And swapoff pulls what is in the swap into RAM,
+// which the resize dialog warned about and this one did not.
+test('turning swap off says what it does, and warns when RAM cannot take it', async ({ page }) => {
+  const deletes: unknown[] = []
+  await page.addInitScript(() => {
+    sessionStorage.setItem('token', 'fixture-token')
+    localStorage.setItem('i18nextLng', 'en')
+    localStorage.setItem('sfpanel_language', 'en')
+  })
+  await page.route('**/api/v1/**', async route => {
+    const req = route.request()
+    const p = new URL(req.url()).pathname.replace('/api/v1', '')
+    let data: unknown = {}
+    if (p === '/swap' && req.method() === 'DELETE') {
+      deletes.push(req.postDataJSON())
+      data = { message: 'swap disabled on /swapfile' }
+    } else if (p === '/auth/setup-status') data = { setup_required: false }
+    else if (p === '/cluster/status') data = { enabled: false }
+    else if (p === '/swap') data = { total: 4294967296, used: 3221225472, free: 1073741824, swappiness: 60, entries: [{ name: '/swapfile', type: 'file', size: 4294967296, used: 3221225472, priority: -2 }] }
+    else if (p === '/swap/resize-check') data = { current_size_mb: 4096, disk_free_mb: 10000, max_size_mb: 14096, swap_used_mb: 3072, ram_free_mb: 512, swapoff_safe: false }
+    await route.fulfill({ json: { success: true, data } })
+  })
+  await page.routeWebSocket(/\/ws\//, () => {})
+  await page.goto('/disk/swap')
+
+  await page.getByRole('row', { name: /\/swapfile/ }).getByRole('button', { name: 'Turn off swap' }).click()
+  const dialog = page.getByRole('dialog', { name: 'Turn off swap on /swapfile' })
+  await expect(dialog).toContainText('The file or partition is not deleted, and an /etc/fstab entry for it turns it back on at the next boot.')
+  await expect(dialog.getByRole('alert')).toContainText('Not enough free RAM to safely disable swap.')
+  await dialog.getByRole('button', { name: 'Turn off swap' }).click()
+  await expect(page.getByText('Swap turned off')).toBeVisible()
+  expect(deletes).toEqual([{ path: '/swapfile' }])
+})

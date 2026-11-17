@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback } from 'react'
 import { Trans, useTranslation } from 'react-i18next'
-import { Plus, Trash2, MemoryStick, Save, Maximize2 } from 'lucide-react'
+import { Plus, PowerOff, MemoryStick, Save, Maximize2, AlertTriangle } from 'lucide-react'
 import { toast } from 'sonner'
 import { api } from '@/lib/api'
 import { formatBytes } from '@/lib/utils'
@@ -56,8 +56,11 @@ export default function DiskSwap() {
   // Picked from the devices nothing holds, not typed.
   const devices = useFreeDevices(createOpen && createMode === 'partition')
 
-  // Remove
+  // Turn off: the route only runs swapoff (see disk_swap.go RemoveSwap).
+  // swapoff pulls what is in the swap back into RAM, so the same RAM check the
+  // resize dialog makes applies here.
   const [removeTarget, setRemoveTarget] = useState<SwapEntry | null>(null)
+  const [removeUnsafe, setRemoveUnsafe] = useState(false)
 
   // Resize
   const [resizeTarget, setResizeTarget] = useState<SwapEntry | null>(null)
@@ -170,6 +173,24 @@ export default function DiskSwap() {
   const handleRemove = () => {
     if (removeTarget) void runRemove(removeTarget.name)
   }
+
+  const openRemove = (entry: SwapEntry) => {
+    setRemoveUnsafe(false)
+    setRemoveTarget(entry)
+  }
+
+  useEffect(() => {
+    if (!removeTarget) return
+    let cancelled = false
+    api.checkSwapResize(removeTarget.name)
+      .then((c) => {
+        if (!cancelled) setRemoveUnsafe(!c.swapoff_safe)
+      })
+      .catch(() => {
+        // An older node, or nothing to measure: no warning to show.
+      })
+    return () => { cancelled = true }
+  }, [removeTarget])
 
   const usedPercent = summary.total > 0 ? (summary.used / summary.total) * 100 : 0
 
@@ -315,9 +336,9 @@ export default function DiskSwap() {
                       size="icon-xs"
                       title={t('disk.swap.remove')}
                       aria-label={t('disk.swap.remove')}
-                      onClick={() => setRemoveTarget(entry)}
+                      onClick={() => openRemove(entry)}
                     >
-                      <Trash2 />
+                      <PowerOff />
                     </Button>
                   </div>
                 </TableCell>
@@ -450,7 +471,7 @@ export default function DiskSwap() {
       <Dialog open={!!removeTarget} onOpenChange={(open) => !open && setRemoveTarget(null)}>
         <DialogContent>
           <DialogHeader>
-            <DialogTitle>{t('disk.swap.removeTitle')}</DialogTitle>
+            <DialogTitle>{t('disk.swap.removeTitle', { name: removeTarget?.name ?? '' })}</DialogTitle>
             <DialogDescription>
               <Trans
                 i18nKey="disk.swap.removeConfirm"
@@ -459,6 +480,12 @@ export default function DiskSwap() {
               />
             </DialogDescription>
           </DialogHeader>
+          {removeUnsafe && (
+            <div role="alert" className="flex items-start gap-2 bg-destructive/10 border border-destructive/30 rounded-xl px-3 py-2.5">
+              <AlertTriangle className="h-4 w-4 text-destructive shrink-0 mt-0.5" aria-hidden="true" />
+              <p className="text-[12px] text-destructive">{t('disk.swap.swapoffWarning')}</p>
+            </div>
+          )}
           <DialogFooter>
             <Button variant="outline" onClick={() => setRemoveTarget(null)}>
               {t('common.cancel')}
