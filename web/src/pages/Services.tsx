@@ -436,8 +436,8 @@ export default function Services() {
             <TableRow>
               <TableHead className="w-[30%]">{t('services.name')}</TableHead>
               <TableHead>{t('services.description')}</TableHead>
-              <TableHead className="w-24">{t('services.status')}</TableHead>
-              <TableHead className="w-24">{t('services.boot')}</TableHead>
+              <TableHead className="w-36">{t('services.status')}</TableHead>
+              <TableHead className="w-44">{t('services.boot')}</TableHead>
               <TableHead className="text-right w-14">{t('services.actions')}</TableHead>
             </TableRow>
           </TableHeader>

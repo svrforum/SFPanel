@@ -81,9 +81,6 @@
       "localNode": "This node",
       "selectNode": "Select node",
       "nodeCount": "{{count}} nodes",
-      "online": "Online",
-      "offline": "Offline",
-      "suspect": "Suspect",
       "unknownNode": "Unknown node"
     },
     "mobileNav": {
@@ -473,7 +470,6 @@
     },
     "stacks": {
       "title": "Stacks",
-      "newStack": "New Stack",
       "noStacks": "No stacks found",
       "selectStack": "Select a stack from the list",
       "backToList": "Back to the stack list",
@@ -845,7 +841,6 @@
     "improvements": {
       "search": "Search names, tags or containers",
       "all": "All",
-      "running": "Running",
       "attention": "Needs attention",
       "sort": "Sort",
       "sizeSort": "Largest first",
@@ -3565,8 +3560,10 @@
     "upgradingAll": "Upgrading all packages",
     "upgradingSelected": "Upgrading {{count}} packages",
     "upgradeSelected": "Upgrade Selected ({{count}})",
-    "upgradeAllTitle": "Upgrade all {{count}} packages?",
-    "upgradeSelectedTitle": "Upgrade the {{count}} selected packages?",
+    "upgradeAllTitle_one": "Upgrade the one package?",
+    "upgradeAllTitle_other": "Upgrade all {{count}} packages?",
+    "upgradeSelectedTitle_one": "Upgrade the selected package?",
+    "upgradeSelectedTitle_other": "Upgrade the {{count}} selected packages?",
     "upgradeDesc": "apt installs the new versions. Services of the upgraded packages may restart, and the old versions are not put back afterwards.",
     "upgradeAction": "Upgrade",
     "upgradeComplete": "Packages upgraded",
@@ -4142,7 +4139,7 @@
       "disable": "Disable",
       "enableTitle": "Enable the firewall",
       "disableTitle": "Disable the firewall",
-      "enableConfirm": "Turning the firewall on applies the default incoming policy ({{policy}}) at once. If it is deny, connections to any port without an allow rule are blocked.",
+      "enableConfirm": "Turning the firewall on applies the default incoming policy at once. With the default (deny), connections to any port without an allow rule are blocked.",
       "disableConfirm": "Turning the firewall off stops every rule, and the server is left unprotected.",
       "notInstalled": "Not installed",
       "notInstalledHint": "ufw is not installed on this host. Install it from Packages to manage the firewall here."

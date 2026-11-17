@@ -42,6 +42,12 @@ export default function Security() {
   const [disablePassword, setDisablePassword] = useState('')
   const [disableCode, setDisableCode] = useState('')
   const [disableCodeError, setDisableCodeError] = useState('')
+  // Closing it, however it closes, forgets what was typed: a password left in
+  // a field nobody sees is still sent by whoever opens the dialog next.
+  const closeDisable = (open: boolean) => {
+    setDisableOpen(open)
+    if (!open) { setDisablePassword(''); setDisableCode(''); setDisableCodeError('') }
+  }
 
   // Recovery codes state
   const [recoveryGenerated, setRecoveryGenerated] = useState(false)
@@ -372,7 +378,7 @@ export default function Security() {
         )}
       </div>
 
-      <Dialog open={disableOpen} onOpenChange={(open) => { if (!disableLoading) setDisableOpen(open) }}>
+      <Dialog open={disableOpen} onOpenChange={(open) => { if (!disableLoading) closeDisable(open) }}>
         <DialogContent>
           <form onSubmit={handleDisable2FA} className="grid gap-4">
             <DialogHeader>
@@ -411,7 +417,7 @@ export default function Security() {
               {disableCodeError && <p id="disable-2fa-code-error" className="text-[12px] text-destructive">{disableCodeError}</p>}
             </div>
             <DialogFooter>
-              <Button type="button" variant="outline" onClick={() => setDisableOpen(false)} disabled={disableLoading}>
+              <Button type="button" variant="outline" onClick={() => closeDisable(false)} disabled={disableLoading}>
                 {t('common.cancel')}
               </Button>
               <Button type="submit" variant="destructive" loading={disableLoading}>

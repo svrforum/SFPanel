@@ -78,7 +78,9 @@ export default function Tuning() {
       }
     } catch (err: unknown) {
       setLoadError(err instanceof Error ? err.message : String(err))
-      toast.error(t('settings.tuning.loadFailed'))
+      // With nothing loaded yet the page itself shows the failure; a toast on
+      // top of it said the same thing twice.
+      if (status) toast.error(t('settings.tuning.loadFailed'))
     } finally {
       setLoading(false)
     }

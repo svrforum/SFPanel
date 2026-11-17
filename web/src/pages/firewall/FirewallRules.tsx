@@ -288,7 +288,7 @@ export default function FirewallRules() {
       title: action,
       description: status.active
         ? t('firewall.status.disableConfirm')
-        : t('firewall.status.enableConfirm', { policy: status.default_incoming }),
+        : t('firewall.status.enableConfirm'),
       confirmLabel: action,
       danger: status.active,
     }))) return

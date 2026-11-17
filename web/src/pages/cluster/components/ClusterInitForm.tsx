@@ -168,6 +168,10 @@ export function ClusterInitForm() {
                     value={iface.address}
                     checked={selectedAddr === iface.address}
                     onChange={() => pickAddr(iface.address)}
+                    // A radio that is already checked fires no change, and the
+                    // first address starts out checked: without this, pressing
+                    // it to say "this one" sent no address at all.
+                    onClick={() => pickAddr(iface.address)}
                     className="h-4 w-4 shrink-0 accent-primary"
                   />
                   <span className="font-medium">{iface.address}</span>

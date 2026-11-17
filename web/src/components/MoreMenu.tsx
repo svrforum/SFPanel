@@ -52,7 +52,7 @@ const nodeMenuItems = MORE_MENU_ITEMS.map((i) => ({
 function NodeState({ status }: { status: string }) {
   const { t } = useTranslation()
   if (!status) return null
-  const label = t(`layout.cluster.${status}`, { defaultValue: status })
+  const label = t(`cluster.status.${status}`, { defaultValue: status })
   return status === 'online'
     ? <span className="sr-only">{label}</span>
     : <span className="shrink-0 text-[12px] text-muted-foreground">{label}</span>
