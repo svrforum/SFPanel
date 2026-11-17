@@ -315,6 +315,7 @@ export default function DockerImages() {
             <Label htmlFor="pull-image">{t('docker.images.imageReference')}</Label>
             <p className="text-sm text-muted-foreground">{t('docker.improvements.pullHint')}</p>
             <DockerHubSearch
+              id="pull-image"
               value={pullImage}
               onChange={setPullImage}
               placeholder="e.g., nginx:latest"

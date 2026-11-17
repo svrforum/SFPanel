@@ -9,13 +9,16 @@ interface DockerHubSearchProps {
   value: string
   onChange: (value: string) => void
   placeholder?: string
+  /** For the label beside it: <Label htmlFor> names the input by this id. */
+  id?: string
 }
 
-export default function DockerHubSearch({ value, onChange, placeholder }: DockerHubSearchProps) {
+export default function DockerHubSearch({ value, onChange, placeholder, id }: DockerHubSearchProps) {
   const { t } = useTranslation()
   const [query, setQuery] = useState(value)
   const [results, setResults] = useState<DockerHubSearchResult[]>([])
   const [loading, setLoading] = useState(false)
+  const [searchError, setSearchError] = useState<string | null>(null)
   const [showDropdown, setShowDropdown] = useState(false)
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const containerRef = useRef<HTMLDivElement>(null)
@@ -42,6 +45,7 @@ export default function DockerHubSearch({ value, onChange, placeholder }: Docker
 
     if (term.trim().length < 2) {
       setResults([])
+      setSearchError(null)
       setShowDropdown(false)
       return
     }
@@ -51,9 +55,13 @@ export default function DockerHubSearch({ value, onChange, placeholder }: Docker
       try {
         const data = await api.searchDockerHub(term.trim(), 10)
         setResults(data || [])
+        setSearchError(null)
         setShowDropdown(true)
-      } catch {
+      } catch (err) {
+        // A failed search used to look like a search with no results.
         setResults([])
+        setSearchError(err instanceof Error ? err.message : String(err))
+        setShowDropdown(true)
       } finally {
         setLoading(false)
       }
@@ -71,11 +79,12 @@ export default function DockerHubSearch({ value, onChange, placeholder }: Docker
       <div className="relative">
         <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
         <Input
+          id={id}
           value={query}
           onChange={(e) => handleSearch(e.target.value)}
           onFocus={() => results.length > 0 && setShowDropdown(true)}
           placeholder={placeholder || t('docker.search.placeholder')}
-          className="pl-9 h-9 rounded-xl bg-secondary/50 border-0 text-[13px]"
+          className="pl-9 h-9 rounded-xl bg-secondary/50 border-0 text-base md:text-[13px]"
         />
         {loading && (
           <Loader2 className="absolute right-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground animate-spin" />
@@ -119,7 +128,14 @@ export default function DockerHubSearch({ value, onChange, placeholder }: Docker
         </div>
       )}
 
-      {showDropdown && !loading && results.length === 0 && query.trim().length >= 2 && (
+      {showDropdown && !loading && searchError && (
+        <div role="alert" className="absolute z-50 w-full mt-1 bg-card rounded-xl card-shadow border border-border/50 p-4 text-[13px]">
+          <p className="text-destructive">{t('docker.search.failed')}</p>
+          <p className="mt-0.5 text-[12px] text-muted-foreground break-words">{searchError}</p>
+        </div>
+      )}
+
+      {showDropdown && !loading && !searchError && results.length === 0 && query.trim().length >= 2 && (
         <div className="absolute z-50 w-full mt-1 bg-card rounded-xl card-shadow border border-border/50 p-4 text-center text-[13px] text-muted-foreground">
           {t('docker.search.noResults')}
         </div>

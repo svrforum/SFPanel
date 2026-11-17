@@ -505,6 +505,7 @@
       "placeholder": "Docker Hub에서 이미지 검색…",
       "searching": "검색 중…",
       "noResults": "검색 결과가 없습니다",
+      "failed": "Docker Hub를 검색하지 못했습니다. 이미지 참조를 직접 입력해도 받을 수 있습니다.",
       "official": "공식",
       "stars": "스타"
     },
@@ -578,6 +579,7 @@
       "deleteFailed": "컨테이너 삭제 실패",
       "fetchFailed": "컨테이너 목록을 가져올 수 없습니다",
       "loadError": "컨테이너를 불러올 수 없습니다",
+      "inspectFailed": "컨테이너 상세 정보를 불러오지 못했습니다",
       "stackGroup": "스택: {{name}}",
       "standalone": "독립 컨테이너",
       "service": "서비스: {{name}}",

@@ -507,6 +507,7 @@
       "placeholder": "Search Docker Hub…",
       "searching": "Searching…",
       "noResults": "No results found",
+      "failed": "Could not search Docker Hub. You can still pull by typing the image reference.",
       "official": "Official",
       "stars": "stars"
     },
@@ -580,6 +581,7 @@
       "deleteFailed": "Failed to delete container",
       "fetchFailed": "Failed to fetch containers",
       "loadError": "Could not load containers",
+      "inspectFailed": "Could not load the container details",
       "stackGroup": "Stack: {{name}}",
       "standalone": "Standalone Containers",
       "service": "Service: {{name}}",

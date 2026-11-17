@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef } from 'react'
 import { useTranslation } from 'react-i18next'
-import { toast } from 'sonner'
-import { Cpu, MemoryStick, Info, Globe, ChevronRight, HardDrive, Network, Variable } from 'lucide-react'
+import { Cpu, MemoryStick, Info, Globe, ChevronRight, HardDrive, Network, Variable, AlertCircle, RefreshCw } from 'lucide-react'
+import { Button } from '@/components/ui/button'
 import { api } from '@/lib/api'
 import { formatBytes } from '@/lib/utils'
 import type {
@@ -22,6 +22,8 @@ export default function ContainerInspect({ containerId }: { containerId: string 
   const { t } = useTranslation()
   const [data, setData] = useState<ContainerInspectDetail | null>(null)
   const [loading, setLoading] = useState(true)
+  const [error, setError] = useState<string | null>(null)
+  const [attempt, setAttempt] = useState(0)
   const [stats, setStats] = useState<SingleContainerStats | null>(null)
   const statsInterval = useRef<ReturnType<typeof setInterval> | null>(null)
 
@@ -29,6 +31,7 @@ export default function ContainerInspect({ containerId }: { containerId: string 
     let cancelled = false
     const load = async () => {
       setLoading(true)
+      setError(null)
       try {
         const inspectData = await api.inspectContainer(containerId)
         if (cancelled) return
@@ -45,7 +48,9 @@ export default function ContainerInspect({ containerId }: { containerId: string 
           }, 3000)
         }
       } catch (err) {
-        if (!cancelled) toast.error(err instanceof Error ? err.message : t('docker.containers.fetchFailed'))
+        // Said where the detail would be, with a retry: a toast alone left an
+        // empty panel behind it.
+        if (!cancelled) setError(err instanceof Error ? err.message : t('docker.containers.fetchFailed'))
       } finally {
         if (!cancelled) setLoading(false)
       }
@@ -55,10 +60,26 @@ export default function ContainerInspect({ containerId }: { containerId: string 
       cancelled = true
       if (statsInterval.current) clearInterval(statsInterval.current)
     }
-  }, [containerId, t])
+  }, [containerId, t, attempt])
 
   if (loading) {
     return <div className="flex items-center justify-center py-8 text-muted-foreground">{t('common.loading')}</div>
+  }
+
+  if (error) {
+    return (
+      <div className="bg-destructive/10 text-destructive rounded-xl p-3 flex items-start gap-2">
+        <AlertCircle className="h-4 w-4 mt-0.5 shrink-0" />
+        <div className="min-w-0 flex-1">
+          <p className="text-[13px] font-medium">{t('docker.containers.inspectFailed')}</p>
+          <p className="text-[12px] opacity-80 mt-0.5 break-words">{error}</p>
+        </div>
+        <Button variant="outline" size="sm" className="rounded-xl shrink-0" onClick={() => setAttempt((n) => n + 1)}>
+          <RefreshCw className="h-3.5 w-3.5" />
+          {t('common.retry')}
+        </Button>
+      </div>
+    )
   }
 
   if (!data) return null
@@ -119,13 +140,13 @@ export default function ContainerInspect({ containerId }: { containerId: string 
         </h4>
         <div className="grid grid-cols-[auto_minmax(0,1fr)] gap-x-4 gap-y-1 text-sm bg-muted/30 rounded-lg p-3">
           <div className="text-muted-foreground shrink-0">{t('docker.containers.image')}</div>
-          <div className="font-mono text-xs truncate min-w-0 text-right" title={data.image}>{data.image}</div>
+          <div className="font-mono text-xs break-all min-w-0 text-right">{data.image}</div>
           <div className="text-muted-foreground shrink-0">{t('docker.containers.command')}</div>
-          <div className="font-mono text-xs truncate min-w-0 text-right" title={data.cmd || data.entrypoint}>{data.cmd || data.entrypoint || '-'}</div>
+          <div className="font-mono text-xs break-all min-w-0 text-right">{data.cmd || data.entrypoint || '-'}</div>
           <div className="text-muted-foreground shrink-0">{t('docker.containers.workingDir')}</div>
-          <div className="font-mono text-xs truncate min-w-0 text-right" title={data.working_dir || '/'}>{data.working_dir || '/'}</div>
+          <div className="font-mono text-xs break-all min-w-0 text-right">{data.working_dir || '/'}</div>
           <div className="text-muted-foreground shrink-0">{t('docker.containers.hostname')}</div>
-          <div className="font-mono text-xs truncate min-w-0 text-right" title={data.hostname}>{data.hostname}</div>
+          <div className="font-mono text-xs break-all min-w-0 text-right">{data.hostname}</div>
           <div className="text-muted-foreground shrink-0">{t('docker.containers.startedAt')}</div>
           <div className="text-xs truncate min-w-0 text-right">{data.started_at ? new Date(data.started_at).toLocaleString() : '-'}</div>
         </div>
@@ -174,9 +195,9 @@ export default function ContainerInspect({ containerId }: { containerId: string 
             {data.mounts.map((m: ContainerInspectMount, i: number) => (
               <div key={i} className="bg-muted/30 rounded-lg px-3 py-2 text-xs font-mono flex items-center gap-2 min-w-0">
                 <span className="inline-flex items-center px-1.5 py-0 rounded text-[12px] font-medium border border-border shrink-0">{m.type}</span>
-                <span className="truncate min-w-0 flex-1" title={m.source}>{m.source}</span>
+                <span className="break-all min-w-0 flex-1">{m.source}</span>
                 <ChevronRight className="h-3 w-3 text-muted-foreground shrink-0" />
-                <span className="truncate min-w-0 flex-1" title={m.destination}>{m.destination}</span>
+                <span className="break-all min-w-0 flex-1">{m.destination}</span>
                 <span className={`inline-flex items-center px-1.5 py-0 rounded text-[12px] font-medium ml-auto shrink-0 ${m.rw === 'true' ? 'bg-secondary text-secondary-foreground' : 'border border-border'}`}>
                   {m.rw === 'true' ? 'rw' : 'ro'}
                 </span>
@@ -221,7 +242,7 @@ export default function ContainerInspect({ containerId }: { containerId: string 
                 <div key={i} className="text-xs font-mono py-0.5 flex min-w-0">
                   <span className="text-blue-400 shrink-0 break-all">{key}</span>
                   <span className="text-muted-foreground mx-1 shrink-0">=</span>
-                  <span className="text-foreground truncate min-w-0" title={val}>{val}</span>
+                  <span className="text-foreground break-all min-w-0">{val}</span>
                 </div>
               )
             })}
