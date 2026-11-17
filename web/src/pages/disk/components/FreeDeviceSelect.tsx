@@ -66,6 +66,12 @@ export function DeviceFacts({ device, disks }: { device: BlockDevice | undefined
       <dd className="font-mono">{formatBytes(device.size)}</dd>
       <dt className="text-muted-foreground">{t('disk.facts.fstype')}</dt>
       <dd className="font-mono">{device.fstype || t('disk.facts.none')}</dd>
+      {device.label && (
+        <>
+          <dt className="text-muted-foreground">{t('disk.facts.label')}</dt>
+          <dd className="break-words">{device.label}</dd>
+        </>
+      )}
       {device.parttypename && (
         <>
           <dt className="text-muted-foreground">{t('disk.partitions.type')}</dt>

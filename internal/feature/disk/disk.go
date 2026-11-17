@@ -40,6 +40,9 @@ type BlockDevice struct {
 	PartType     string `json:"parttype,omitempty"`
 	PartTypeName string `json:"parttypename,omitempty"`
 	UUID         string `json:"uuid,omitempty"`
+	// Label is the file system's label ("backup"), which tells one unmounted
+	// disk from another where the operator confirms writing over it.
+	Label string `json:"label,omitempty"`
 	// Boot marks a partition that holds a boot loader (EFI System, BIOS
 	// boot, or on Proxmox VE an ESP proxmox-boot-tool keeps in sync); the
 	// handlers refuse to delete or format one.

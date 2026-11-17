@@ -7170,7 +7170,7 @@ WireGuard 키페어 생성 (`wg genkey` + `wg pubkey`).
 
 | 메서드 | 경로 | 인증 | 설명 |
 |--------|------|------|------|
-| GET | `/api/v1/disks/overview` | O | 디스크 목록. 디스크마다 `pttype`(`gpt`/`dos`, 파티션 테이블이 없으면 빈 문자열, v0.78.12+). 파티션마다 `parttype`(GPT 유형 GUID, MBR이면 `0x83` 꼴)·`parttypename`·`uuid`, 부팅 파티션(EFI System·BIOS boot, PVE에서는 `/etc/kernel/proxmox-boot-uuids`의 ESP)이면 `boot: true`. PVE에서 게스트 볼륨인 디스크(zvol·RBD·NBD)는 `owner`(`"VMID 100"`, `"zvol rpool/swap"`) (v0.78.14+) |
+| GET | `/api/v1/disks/overview` | O | 디스크 목록. 디스크마다 `pttype`(`gpt`/`dos`, 파티션 테이블이 없으면 빈 문자열, v0.78.12+). 파티션마다 `parttype`(GPT 유형 GUID, MBR이면 `0x83` 꼴)·`parttypename`·`uuid`, 파일시스템 레이블이 있으면 `label`(`"backup"`; 없으면 필드 없음, lsblk의 `null`은 보내지 않음), 부팅 파티션(EFI System·BIOS boot, PVE에서는 `/etc/kernel/proxmox-boot-uuids`의 ESP)이면 `boot: true`. PVE에서 게스트 볼륨인 디스크(zvol·RBD·NBD)는 `owner`(`"VMID 100"`, `"zvol rpool/swap"`) (v0.78.14+) |
 | GET | `/api/v1/disks/iostat` | O | I/O 통계 |
 | POST | `/api/v1/disks/usage` | O | 디스크 사용량 |
 | GET | `/api/v1/disks/smartmontools-status` | O | smartmontools 설치 상태 |

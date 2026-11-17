@@ -76,7 +76,7 @@ func (h *Handler) getCachedDiskData(ctx context.Context) ([]BlockDevice, []IOSta
 	// holding the write lock across them would block concurrent readers. Take
 	// the write lock only to publish.
 	outStr, err := h.Cmd.RunCtx(ctx, "lsblk", "-J", "-b", "-o",
-		"NAME,SIZE,TYPE,FSTYPE,PTTYPE,PARTTYPE,PARTTYPENAME,UUID,MOUNTPOINT,MODEL,SERIAL,ROTA,RO,TRAN,STATE,VENDOR")
+		"NAME,SIZE,TYPE,FSTYPE,PTTYPE,PARTTYPE,PARTTYPENAME,UUID,LABEL,MOUNTPOINT,MODEL,SERIAL,ROTA,RO,TRAN,STATE,VENDOR")
 	if err != nil {
 		return nil, nil, fmt.Errorf("lsblk failed: %s", response.SanitizeOutput(strings.TrimSpace(outStr)))
 	}
@@ -202,6 +202,7 @@ type lsblkDevice struct {
 	PartType     *string `json:"parttype"`
 	PartTypeName *string `json:"parttypename"`
 	UUID         *string `json:"uuid"`
+	Label        *string `json:"label"`
 }
 
 // convertLsblkDevice converts a raw lsblk device to our BlockDevice type.
@@ -234,6 +235,9 @@ func convertLsblkDevice(d lsblkDevice) BlockDevice {
 	}
 	if d.UUID != nil {
 		bd.UUID = *d.UUID
+	}
+	if d.Label != nil {
+		bd.Label = *d.Label
 	}
 	if d.MountPoint != nil {
 		bd.MountPoint = *d.MountPoint

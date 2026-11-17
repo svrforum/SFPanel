@@ -286,6 +286,9 @@ export interface BlockDevice {
   parttype?: string
   parttypename?: string
   uuid?: string
+  // The file system's label ("backup"). Absent when there is none, and from
+  // older nodes.
+  label?: string
   // A partition that holds a boot loader; the server refuses to delete or
   // format it.
   boot?: boolean

@@ -4109,6 +4109,7 @@
     "required": "Required",
     "facts": {
       "fstype": "File system on it now",
+      "label": "Label on it now",
       "none": "None found",
       "disk": "Disk"
     }

@@ -92,7 +92,7 @@ func listDisks(t *testing.T) map[string]BlockDevice {
 	if err := json.Unmarshal(rec.Body.Bytes(), &body); err != nil {
 		t.Fatalf("%v: %s", err, rec.Body.String())
 	}
-	if c := findCall(cmd.Calls, "lsblk"); c == nil || c.Args[len(c.Args)-1] != "NAME,SIZE,TYPE,FSTYPE,PTTYPE,PARTTYPE,PARTTYPENAME,UUID,MOUNTPOINT,MODEL,SERIAL,ROTA,RO,TRAN,STATE,VENDOR" {
+	if c := findCall(cmd.Calls, "lsblk"); c == nil || c.Args[len(c.Args)-1] != "NAME,SIZE,TYPE,FSTYPE,PTTYPE,PARTTYPE,PARTTYPENAME,UUID,LABEL,MOUNTPOINT,MODEL,SERIAL,ROTA,RO,TRAN,STATE,VENDOR" {
 		t.Errorf("lsblk %v", c)
 	}
 	all := map[string]BlockDevice{}

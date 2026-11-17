@@ -1,7 +1,9 @@
 package disk
 
 import (
+	"encoding/json"
 	"reflect"
+	"strings"
 	"testing"
 )
 
@@ -12,12 +14,12 @@ const lsblkJSON = `{
   "blockdevices": [
     {"name": "nvme0n1", "size": 512110190592, "type": "disk", "rota": false, "ro": false, "model": "Samsung SSD 970", "tran": "nvme",
       "children": [
-        {"name": "nvme0n1p1", "size": 536870912, "type": "part", "fstype": "vfat", "mountpoint": "/boot/efi", "rota": false, "ro": false}
+        {"name": "nvme0n1p1", "size": 536870912, "type": "part", "fstype": "vfat", "label": null, "mountpoint": "/boot/efi", "rota": false, "ro": false}
       ]
     },
     {"name": "sda", "size": "8589934592", "type": "disk", "rota": "1", "ro": "0", "model": " WDC WD80EFAX  ", "tran": "sata",
       "children": [
-        {"name": "sda1", "size": 8588886016, "type": "part", "rota": true, "ro": false}
+        {"name": "sda1", "size": 8588886016, "type": "part", "fstype": "ext4", "label": "backup", "rota": true, "ro": false}
       ]
     },
     {"name": "loop0", "size": 67108864, "type": "loop", "rota": false, "ro": true},
@@ -55,6 +57,38 @@ func TestParseLsblkJSON(t *testing.T) {
 	}
 }
 
+// The label is what tells one unmounted disk from another in the format
+// confirmation. lsblk answers null for a file system without one, and a disk
+// with a partition table has none of its own: neither may become "null".
+func TestParseLsblkJSONLabel(t *testing.T) {
+	devs, err := parseLsblkJSON([]byte(lsblkJSON))
+	if err != nil {
+		t.Fatalf("parse: %v", err)
+	}
+	for _, tc := range []struct {
+		dev  BlockDevice
+		want string
+	}{
+		{devs[1].Children[0], "backup"}, // "label": "backup"
+		{devs[0].Children[0], ""},       // "label": null
+		{devs[0], ""},                   // no label member
+	} {
+		if tc.dev.Label != tc.want {
+			t.Errorf("%s: label %q, want %q", tc.dev.Name, tc.dev.Label, tc.want)
+		}
+		out, err := json.Marshal(tc.dev)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if tc.want == "" && strings.Contains(string(out), `"label"`) {
+			t.Errorf("%s: an unlabelled device is sent with a label: %s", tc.dev.Name, out)
+		}
+		if tc.want != "" && !strings.Contains(string(out), `"label":"`+tc.want+`"`) {
+			t.Errorf("%s: label not sent: %s", tc.dev.Name, out)
+		}
+	}
+}
+
 func TestParseLsblkJSON_Empty(t *testing.T) {
 	devs, err := parseLsblkJSON([]byte(`{"blockdevices": []}`))
 	if err != nil {
@@ -74,9 +108,9 @@ func TestParseLsblkJSON_Malformed(t *testing.T) {
 
 func TestComputeSmartStatus(t *testing.T) {
 	cases := []struct {
-		name                          string
+		name                    string
 		value, worst, threshold int
-		want                          string
+		want                    string
 	}{
 		{"no threshold = ok", 100, 100, 0, "ok"},
 		{"value at threshold", 50, 50, 50, "fail"},

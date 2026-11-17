@@ -21,7 +21,7 @@ const disks = [
     pttype: 'gpt', children: [
       part('nvme0n1p1', { size: 1031168, parttype: '21686148-6449-6e6f-744e-656564454649', parttypename: 'BIOS boot', boot: true }),
       part('nvme0n1p2', { fstype: 'vfat', parttype: 'c12a7328-f81f-11d2-ba4b-00a0c93ec93b', parttypename: 'EFI System', boot: true }),
-      part('nvme0n1p3', { size: 1999323037696, fstype: 'zfs_member', parttype: '6a898cc3-1dd2-11b2-99a6-080020736631', parttypename: 'Solaris /usr & Apple ZFS' }),
+      part('nvme0n1p3', { size: 1999323037696, fstype: 'zfs_member', label: 'rpool', parttype: '6a898cc3-1dd2-11b2-99a6-080020736631', parttypename: 'Solaris /usr & Apple ZFS' }),
     ],
   }),
   disk('sdb', {
@@ -115,7 +115,8 @@ test('RAID offers neither guest volumes nor boot or extended partitions', async 
 
 // Format took a typed device name, and its confirmation asked for the same
 // name again: a typo reached a guest's disk or a data disk. The device is now
-// picked from those nothing holds, and the confirmation shows what is on it.
+// picked from those nothing holds, and the confirmation shows what is on it,
+// its label too: the label is what tells one unmounted disk from another.
 // What the server still refuses comes back worded in the panel's language.
 test('format offers only free devices, shows what is on one, and a refusal is worded', async ({ page }) => {
   await open(page, '/disk/filesystems')
@@ -135,7 +136,8 @@ test('format offers only free devices, shows what is on one, and a refusal is wo
   await form.getByLabel('Device').selectOption('nvme0n1p3')
   await form.getByRole('button', { name: 'Format' }).click()
   const confirm = page.getByRole('dialog').filter({ hasText: 'To confirm, type:' })
-  await expect(confirm.getByRole('definition')).toHaveText(['1.8 TB', 'zfs_member', 'Solaris /usr & Apple ZFS', 'nvme0n1', 'Example NVMe 2TB'])
+  await expect(confirm.getByRole('definition')).toHaveText(['1.8 TB', 'zfs_member', 'rpool', 'Solaris /usr & Apple ZFS', 'nvme0n1', 'Example NVMe 2TB'])
+  await expect(confirm.getByRole('term').nth(2)).toHaveText('Label on it now')
   await confirm.getByPlaceholder('nvme0n1p3').fill('nvme0n1p3')
   await confirm.getByRole('button', { name: 'Format' }).click()
   await expect(page.getByText('This device is in use (mounted, LVM, RAID, ZFS or swap). Release it first.')).toBeVisible()
