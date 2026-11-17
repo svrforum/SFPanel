@@ -2697,6 +2697,8 @@
       "closeConfirmTitle": "Kill this session?",
       "closeConfirmDesc": "The running {{title}} session ends immediately and the tab disappears.",
       "removeEnded": "Remove from list",
+      "removeEndedConfirmTitle": "Remove \"{{title}}\" from the list?",
+      "removeEndedConfirmDesc": "The ended session's record goes with it, and it can no longer be restarted with the same settings.",
       "ended": "Session ended",
       "endedHint": "The host rebooted, the shell exited, or it was killed elsewhere. You can restart it with the same settings.",
       "processMode": "This session will not survive a panel restart (the panel could not hand its tmux server to systemd)",

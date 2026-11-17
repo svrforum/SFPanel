@@ -250,7 +250,12 @@ export default function TerminalPage() {
       case 'info': toast.info(sessionInfoLine(s, t), { duration: Infinity, closeButton: true }); break
       case 'rerun': await act(() => api.rerunAISession(s.id)); break
       case 'restart': await act(() => api.restartAISession(s.id)); break
-      case 'removeEnded': await act(() => api.deleteAISession(s.id)); break
+      // Asked first: with the record goes the restart with the same settings.
+      case 'removeEnded':
+        if (await confirm({ title: t('ai.tabs.removeEndedConfirmTitle', { title: s.title }), description: t('ai.tabs.removeEndedConfirmDesc'), confirmLabel: t('ai.tabs.removeEnded') })) {
+          await act(() => api.deleteAISession(s.id))
+        }
+        break
       case 'kill':
         if (await confirm({ title: t('ai.tabs.closeConfirmTitle'), description: t('ai.tabs.closeConfirmDesc', { title: s.title }), danger: true, confirmLabel: t('ai.tabs.close') })) {
           await act(() => api.deleteAISession(s.id))
