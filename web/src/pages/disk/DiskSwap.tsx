@@ -56,7 +56,7 @@ export default function DiskSwap() {
   const [overwrite, setOverwrite] = useState<{ device: string; signature: string } | null>(null)
   const [creatingDevice, setCreatingDevice] = useState(false)
   // Picked from the devices nothing holds, not typed.
-  const devices = useFreeDevices(createOpen && createMode === 'partition')
+  const devices = useFreeDevices(createOpen && createMode === 'partition', { arrays: true })
   // Set by a press of Create with a field empty: from then on the field says so.
   const [createTried, setCreateTried] = useState(false)
 
@@ -436,7 +436,7 @@ export default function DiskSwap() {
             ) : (
               <div className="space-y-2">
                 <Label htmlFor="swap-device">{t('disk.swap.device')}</Label>
-                <FreeDeviceSelect id="swap-device" value={createDevice} onChange={setCreateDevice} {...devices} invalid={deviceMissing} describedBy="swap-device-note" />
+                <FreeDeviceSelect allowOther id="swap-device" value={createDevice} onChange={setCreateDevice} {...devices} invalid={deviceMissing} describedBy="swap-device-note" />
                 <FieldNote id="swap-device-note" missing={deviceMissing} />
               </div>
             )}
@@ -447,11 +447,7 @@ export default function DiskSwap() {
             </Button>
             <Button
               onClick={handleCreate}
-              disabled={
-                creating ||
-                creatingDevice ||
-                (createMode === 'partition' && !devices.loading && devices.free.length === 0)
-              }
+              disabled={creating || creatingDevice}
             >
               {creating ? t('common.creating') : t('common.create')}
             </Button>

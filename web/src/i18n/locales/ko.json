@@ -4087,6 +4087,9 @@
     "toolMissingHint": "터미널에서 아래 명령으로 설치한 뒤 다시 시도하세요.",
     "noFreeDevices": "고를 수 있는 장치가 없습니다. 마운트되지 않았고 파티션·LVM·RAID·스왑에 쓰이지 않는 디스크와 파티션만 나옵니다.",
     "pickDevice": "장치를 고르세요",
+    "otherDevice": "목록에 없는 장치 직접 입력…",
+    "otherDeviceLabel": "장치 이름",
+    "otherDeviceHint": "논리 볼륨이나 암호화 매핑은 /dev 아래 이름으로 입력합니다(예: dm-0). 터미널에서 lsblk -o NAME,KNAME으로 볼 수 있습니다.",
     "required": "필수 항목입니다",
     "facts": {
       "fstype": "지금 있는 파일시스템",

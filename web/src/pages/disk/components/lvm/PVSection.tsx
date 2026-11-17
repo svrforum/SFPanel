@@ -40,7 +40,7 @@ export function PVSection({ pvs, onChanged }: {
   const [device, setDevice] = useState('')
   const [deleteTarget, setDeleteTarget] = useState<PhysicalVolume | null>(null)
   // Picked from the devices nothing holds, not typed.
-  const devices = useFreeDevices(createOpen)
+  const devices = useFreeDevices(createOpen, { arrays: true })
   // Set by a press of Create with nothing picked: from then on it says so.
   const [createTried, setCreateTried] = useState(false)
 
@@ -159,14 +159,14 @@ export function PVSection({ pvs, onChanged }: {
           </DialogHeader>
           <div className="space-y-2">
             <Label htmlFor="pv-device">{t('disk.lvm.pv.device')}</Label>
-            <FreeDeviceSelect id="pv-device" value={device} onChange={setDevice} {...devices} invalid={createTried && !device} describedBy="pv-device-note" />
+            <FreeDeviceSelect allowOther id="pv-device" value={device} onChange={setDevice} {...devices} invalid={createTried && !device} describedBy="pv-device-note" />
             <FieldNote id="pv-device-note" missing={createTried && !device} />
           </div>
           <DialogFooter>
             <Button variant="outline" onClick={closeCreate}>
               {t('common.cancel')}
             </Button>
-            <Button onClick={handleCreate} disabled={creating || (!devices.loading && devices.free.length === 0)}>
+            <Button onClick={handleCreate} disabled={creating}>
               {creating ? t('common.creating') : t('common.create')}
             </Button>
           </DialogFooter>

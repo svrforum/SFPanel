@@ -28,6 +28,24 @@ export function freeDevices(disks: BlockDevice[]): BlockDevice[] {
   return free
 }
 
+// freeArrays lists the md arrays nothing is on yet: not mounted, nothing built
+// on top. An array is what a file system, a physical volume or swap goes on
+// next, so the lists for those uses add these; the list an array is built from
+// does not. lsblk shows an array under each of its members, hence once by name.
+export function freeArrays(disks: BlockDevice[]): BlockDevice[] {
+  const found = new Map<string, BlockDevice>()
+  const walk = (devices: BlockDevice[]) => {
+    for (const d of devices) {
+      if (d.owner) continue
+      const children = d.children ?? []
+      if (/^(raid\d+|md|linear)$/.test(d.type) && !d.mountpoint && children.length === 0 && !found.has(d.name)) found.set(d.name, d)
+      walk(children)
+    }
+  }
+  walk(disks)
+  return [...found.values()]
+}
+
 // diskOf finds the disk a listed device is on; a whole disk is its own.
 export function diskOf(disks: BlockDevice[], name: string): BlockDevice | undefined {
   return disks.find((d) => d.name === name || (d.children ?? []).some((c) => c.name === name))

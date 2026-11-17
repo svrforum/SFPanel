@@ -45,7 +45,7 @@ test('swap on a device is typed out, and overwriting data is asked for', async (
   const form = page.getByRole('dialog', { name: 'Create Swap' })
   await form.getByRole('button', { name: 'Partition-based' }).click()
   // The mounted sdb1 is not offered.
-  await expect(form.getByLabel('Device').getByRole('option')).toHaveText(['Pick a device', 'sdb2 — 4.0 GB · ext4 · Example HDD'])
+  await expect(form.getByLabel('Device').getByRole('option')).toHaveText(['Pick a device', 'sdb2 — 4.0 GB · ext4 · Example HDD', 'A device that is not listed…'])
   await form.getByLabel('Device').selectOption('sdb2')
   await form.getByRole('button', { name: 'Create', exact: true }).click()
 

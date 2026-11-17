@@ -65,7 +65,7 @@ export default function DiskFilesystems() {
   const [formatConfirmOpen, setFormatConfirmOpen] = useState(false)
   // The device is picked from those nothing holds, not typed: the typed-out
   // confirmation only asked for the same typo again.
-  const formatDevices = useFreeDevices(formatOpen)
+  const formatDevices = useFreeDevices(formatOpen, { arrays: true })
   // Set by a press of Format or Mount with a field empty: from then on the
   // field says so.
   const [formatTried, setFormatTried] = useState(false)
@@ -326,6 +326,7 @@ export default function DiskFilesystems() {
             <div className="space-y-2">
               <Label htmlFor="format-device">{t('disk.filesystems.device')}</Label>
               <FreeDeviceSelect
+                allowOther
                 id="format-device"
                 value={formatDevice}
                 onChange={setFormatDevice}
@@ -372,7 +373,7 @@ export default function DiskFilesystems() {
                 }
                 setFormatConfirmOpen(true)
               }}
-              disabled={formatting || (!formatDevices.loading && formatDevices.free.length === 0)}
+              disabled={formatting}
             >
               {formatting ? t('disk.filesystems.formatting') : t('disk.filesystems.format')}
             </Button>

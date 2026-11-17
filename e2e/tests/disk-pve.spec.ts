@@ -127,7 +127,7 @@ test('format offers only free devices, shows what is on one, and a refusal is wo
   await page.getByRole('button', { name: 'Format', exact: true }).click()
   const form = page.getByRole('dialog')
   // No guest volume, no boot partition, no extended partition.
-  await expect(form.getByLabel('Device').getByRole('option')).toHaveText(['Pick a device', /^nvme0n1p3 /, /^sdb1 /, /^sdb5 /])
+  await expect(form.getByLabel('Device').getByRole('option')).toHaveText(['Pick a device', /^nvme0n1p3 /, /^sdb1 /, /^sdb5 /, 'A device that is not listed…'])
   // Nothing picked: Format says what is missing instead of greying out.
   await form.getByRole('button', { name: 'Format' }).click()
   await expect(form.getByText('Required', { exact: true })).toBeVisible()
@@ -141,4 +141,22 @@ test('format offers only free devices, shows what is on one, and a refusal is wo
   await confirm.getByPlaceholder('nvme0n1p3').fill('nvme0n1p3')
   await confirm.getByRole('button', { name: 'Format' }).click()
   await expect(page.getByText('This device is in use (mounted, LVM, RAID, ZFS or swap). Release it first.')).toBeVisible()
+})
+
+// A logical volume or a crypt mapping is not in lsblk's list by its /dev name
+// (lsblk says "vg0-data", the device is dm-0), so the list cannot offer it:
+// the name can be typed instead.
+test('format lets a device that is not listed be typed', async ({ page }) => {
+  await open(page, '/disk/filesystems')
+  await page.getByRole('button', { name: 'Format', exact: true }).click()
+  const form = page.getByRole('dialog')
+  await form.getByLabel('Device', { exact: true }).selectOption({ label: 'A device that is not listed…' })
+  const typed = form.getByRole('textbox', { name: 'Device name' })
+  await typed.fill('dm-0')
+  await form.getByRole('button', { name: 'Format' }).click()
+  // The confirmation asks for the typed name, and has nothing to say about a
+  // device the list does not know.
+  const confirm = page.getByRole('dialog').filter({ hasText: 'To confirm, type:' })
+  await expect(confirm.getByPlaceholder('dm-0')).toBeVisible()
+  await expect(confirm.getByRole('definition')).toHaveCount(0)
 })

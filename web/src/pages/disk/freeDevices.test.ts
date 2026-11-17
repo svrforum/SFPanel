@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import type { BlockDevice } from '@/types/api'
-import { diskOf, freeDevices } from './freeDevices'
+import { diskOf, freeArrays, freeDevices } from './freeDevices'
 
 const dev = (name: string, extra: Partial<BlockDevice> = {}): BlockDevice => ({
   name, size: 1, type: 'part', fstype: '', mountpoint: '', model: '', serial: '',
@@ -64,5 +64,30 @@ describe('diskOf', () => {
     expect(diskOf(disks, 'sdb1')?.name).toBe('sdb')
     expect(diskOf(disks, 'sdc')?.name).toBe('sdc')
     expect(diskOf(disks, 'nope')).toBeUndefined()
+  })
+})
+
+// A mirror the panel made out of two partitions: lsblk lists md0 under each of
+// its members. Formatting it, or making it a physical volume, is the next step
+// after creating it, so a list for those uses must offer it — once.
+describe('freeArrays', () => {
+  const member = (name: string, children: BlockDevice[]) => dev(name, { fstype: 'linux_raid_member', children })
+  const mirror = (extra: Partial<BlockDevice> = {}) => dev('md0', { type: 'raid1', size: 1000, ...extra })
+  const host = (md: Partial<BlockDevice> = {}): BlockDevice[] => [
+    dev('sdb', { type: 'disk', children: [member('sdb1', [mirror(md)])] }),
+    dev('sdc', { type: 'disk', children: [member('sdc1', [mirror(md)])] }),
+  ]
+
+  it('offers an array nothing is on, once', () => {
+    expect(freeArrays(host()).map((d) => d.name)).toEqual(['md0'])
+  })
+
+  it('leaves out an array that is mounted or holds something', () => {
+    expect(freeArrays(host({ mountpoint: '/srv' }))).toEqual([])
+    expect(freeArrays(host({ children: [dev('vg0-data', { type: 'lvm' })] }))).toEqual([])
+  })
+
+  it('is not part of what an array can be built from', () => {
+    expect(freeDevices(host()).map((d) => d.name)).toEqual([])
   })
 })

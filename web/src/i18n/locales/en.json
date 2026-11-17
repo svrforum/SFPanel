@@ -4106,6 +4106,9 @@
     "toolMissingHint": "Install it from a terminal with the command below, then try again.",
     "noFreeDevices": "No device to pick. Only disks and partitions that are not mounted and not used by partitions, LVM, RAID or swap are listed.",
     "pickDevice": "Pick a device",
+    "otherDevice": "A device that is not listed…",
+    "otherDeviceLabel": "Device name",
+    "otherDeviceHint": "A logical volume or a crypt mapping goes by its name under /dev (for example dm-0). lsblk -o NAME,KNAME in a terminal shows it.",
     "required": "Required",
     "facts": {
       "fstype": "File system on it now",
