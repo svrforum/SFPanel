@@ -9,6 +9,7 @@ import (
 
 	"github.com/labstack/echo/v4"
 	"github.com/svrforum/SFPanel/internal/api/response"
+	"github.com/svrforum/SFPanel/internal/cluster"
 	"github.com/svrforum/SFPanel/internal/docker"
 )
 
@@ -53,6 +54,8 @@ func (h *Handler) ClusterStacks(c echo.Context) error {
 				Stacks: []docker.ComposeProjectWithStatus{},
 			}
 			if node.ID == localID {
+				// This node is the one answering.
+				ns.Status = string(cluster.StatusOnline)
 				if projects, err := h.Compose.ListProjectsWithStatus(ctx); err != nil {
 					ns.Error = "list_failed"
 				} else if projects != nil {
@@ -66,27 +69,38 @@ func (h *Handler) ClusterStacks(c echo.Context) error {
 				nctx, cancel := context.WithTimeout(ctx, 15*time.Second)
 				status, body, err := mgr.ProxyToNode(nctx, node.ID, http.MethodGet, "/api/v1/docker/compose", nil, username)
 				cancel()
-				switch {
-				case err != nil:
-					ns.Error = "unreachable"
-				case status == http.StatusNotFound:
-					// Node is reachable but Docker isn't enabled there, so its compose
-					// routes aren't registered (socket-gating). An empty list with no
-					// error is the right answer, not "unreachable".
-				case status != http.StatusOK:
-					ns.Error = "unreachable"
-				default:
-					var wrap struct {
-						Data []docker.ComposeProjectWithStatus `json:"data"`
-					}
-					if json.Unmarshal(body, &wrap) == nil && wrap.Data != nil {
-						ns.Stacks = wrap.Data
-					}
-				}
+				applyRemoteAnswer(&ns, status, body, err)
 			}
 			out[i] = ns
 		}()
 	}
 	wg.Wait()
 	return response.OK(c, out)
+}
+
+// applyRemoteAnswer fills ns from a peer's answer to the compose list. A peer
+// that answered is online, whatever this node's heartbeat view says: on a
+// follower that view only knows the peers it has heard from, and it drew a
+// red dot beside the stacks the same peer had just returned. A peer that did
+// not answer keeps the heartbeat's word.
+func applyRemoteAnswer(ns *ClusterNodeStacks, status int, body []byte, err error) {
+	switch {
+	case err != nil:
+		ns.Error = "unreachable"
+	case status == http.StatusNotFound:
+		// Node is reachable but Docker isn't enabled there, so its compose
+		// routes aren't registered (socket-gating). An empty list with no
+		// error is the right answer, not "unreachable".
+		ns.Status = string(cluster.StatusOnline)
+	case status != http.StatusOK:
+		ns.Error = "unreachable"
+	default:
+		ns.Status = string(cluster.StatusOnline)
+		var wrap struct {
+			Data []docker.ComposeProjectWithStatus `json:"data"`
+		}
+		if json.Unmarshal(body, &wrap) == nil && wrap.Data != nil {
+			ns.Stacks = wrap.Data
+		}
+	}
 }
