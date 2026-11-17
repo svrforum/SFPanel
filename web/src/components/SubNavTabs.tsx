@@ -1,6 +1,6 @@
-import type { ReactNode } from 'react'
+import { useEffect, useRef, type ReactNode } from 'react'
 import { useTranslation } from 'react-i18next'
-import { NavLink } from 'react-router-dom'
+import { NavLink, useLocation } from 'react-router-dom'
 import { type LucideIcon } from 'lucide-react'
 
 export interface SubNavItem {
@@ -17,9 +17,17 @@ export interface SubNavItem {
  */
 export function SubNavTabs({ items, children }: { items: SubNavItem[]; children?: ReactNode }) {
   const { t } = useTranslation()
+  const { pathname } = useLocation()
+  const row = useRef<HTMLDivElement>(null)
+
+  // The strip hides its scrollbar, so a tab opened from a link or a bookmark
+  // could sit cut off past the edge on a phone. Same as the cluster tabs.
+  useEffect(() => {
+    row.current?.querySelector<HTMLElement>('[aria-current="page"]')?.scrollIntoView({ block: 'nearest', inline: 'nearest' })
+  }, [pathname])
 
   return (
-    <div className="flex items-center gap-1 bg-secondary/30 rounded-xl p-1 overflow-x-auto no-scrollbar">
+    <div ref={row} className="flex items-center gap-1 bg-secondary/30 rounded-xl p-1 overflow-x-auto no-scrollbar">
       {items.map(({ to, icon: Icon, label }) => (
         <NavLink
           key={to}
