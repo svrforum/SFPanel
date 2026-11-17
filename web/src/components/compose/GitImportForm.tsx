@@ -86,7 +86,7 @@ export function GitImportForm({ onSuccess, onCancel }: Props) {
   return (
     <form onSubmit={onSubmit} className="space-y-3 text-[13px]">
       <div>
-        <Label htmlFor="git-url">GitHub repo URL *</Label>
+        <Label htmlFor="git-url">{t('compose.gitImport.urlLabel')} *</Label>
         <Input
           id="git-url"
           value={url}
@@ -101,11 +101,11 @@ export function GitImportForm({ onSuccess, onCancel }: Props) {
 
       <div className="grid grid-cols-3 gap-2">
         <div>
-          <Label htmlFor="git-branch">branch</Label>
+          <Label htmlFor="git-branch">{t('compose.gitImport.branchLabel')}</Label>
           <Input id="git-branch" value={branch} onChange={e => setBranch(e.target.value)} />
         </div>
         <div className="col-span-2">
-          <Label htmlFor="git-path">path</Label>
+          <Label htmlFor="git-path">{t('compose.gitImport.pathLabel')}</Label>
           <Input id="git-path" value={path} onChange={e => setPath(e.target.value)} />
         </div>
       </div>
@@ -125,7 +125,8 @@ export function GitImportForm({ onSuccess, onCancel }: Props) {
           <button
             type="button"
             onClick={() => setTokenVisible(v => !v)}
-            className="absolute right-2 top-1/2 -translate-y-1/2 text-muted-foreground rounded-sm outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-0"
+            className="absolute right-1 top-1/2 -translate-y-1/2 inline-flex h-7 w-7 items-center justify-center text-muted-foreground rounded-md outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-0"
+            aria-pressed={tokenVisible}
             aria-label={tokenVisible ? t('compose.gitImport.tokenHide', 'Hide token') : t('compose.gitImport.tokenShow', 'Show token')}
           >
             {tokenVisible ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}

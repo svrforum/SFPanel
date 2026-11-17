@@ -159,6 +159,12 @@ export function HealthcheckComposerDialog({
   const validTest = spec.test_type === 'NONE' || spec.test_value.trim() !== ''
   const validReplace = !hasExisting || replace
   const canSubmit = validDurations && validTest && validReplace && spec.retries > 0
+  // Said under the button it keeps disabled; it used to stay grey with no word.
+  const blockReason = !validTest ? t('compose.healthcheck.needTest')
+    : !validDurations ? t('compose.healthcheck.needDuration')
+    : spec.retries <= 0 ? t('compose.healthcheck.needRetries')
+    : !validReplace ? t('compose.healthcheck.needOverwrite')
+    : ''
   const canTest = spec.test_type !== 'NONE' && spec.test_value.trim() !== '' && !testing && !submitting
 
   async function onSubmit(e: React.FormEvent) {
@@ -223,7 +229,7 @@ export function HealthcheckComposerDialog({
             <Label htmlFor="hc-preset">{t('compose.healthcheck.preset', 'Preset')}</Label>
             <select
               id="hc-preset"
-              className="w-full h-9 border rounded-md px-2 text-[13px] bg-transparent outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-0"
+              className="w-full h-9 border rounded-md px-2 text-base md:text-[13px] bg-transparent outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-0"
               defaultValue="Custom"
               onChange={(e) => {
                 const p = PRESETS.find((x) => x.label === e.target.value)
@@ -347,6 +353,10 @@ export function HealthcheckComposerDialog({
             </label>
           )}
 
+          {blockReason && (
+            <p id="hc-block-reason" className="text-[12px] text-muted-foreground">{blockReason}</p>
+          )}
+
           <DialogFooter className="flex !justify-between">
             {hasExisting ? (
               <Button type="button" variant="ghost" className="text-destructive hover:bg-destructive/10" onClick={onRemove} disabled={removing || submitting}>
@@ -357,7 +367,7 @@ export function HealthcheckComposerDialog({
               <Button type="button" variant="outline" onClick={() => onOpenChange(false)} disabled={submitting}>
                 {t('common.cancel')}
               </Button>
-              <Button type="submit" disabled={submitting || !canSubmit}>
+              <Button type="submit" disabled={submitting || !canSubmit} aria-describedby={blockReason ? 'hc-block-reason' : undefined}>
                 {submitting ? t('compose.healthcheck.applying', 'Applying…') : t('compose.healthcheck.apply', 'Apply to compose YAML')}
               </Button>
             </div>

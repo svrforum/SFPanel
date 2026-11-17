@@ -145,7 +145,7 @@ export function DiffSheet({ open, onOpenChange, projectName, proposedYaml, onApp
             onClick={onApply}
             disabled={!data || (isEmpty && !allowUnchanged) || !!error || loading}
           >
-            {t('compose.diff.apply', 'Apply as-is')}
+            {t('compose.diff.apply', 'Save and deploy')}
           </Button>
         </SheetFooter>
       </SheetContent>

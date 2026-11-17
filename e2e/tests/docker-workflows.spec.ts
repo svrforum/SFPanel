@@ -192,7 +192,7 @@ test('deployment previews unchanged configuration, then validates before saving 
  await page.getByRole('button',{name:'Deploy',exact:true}).click()
  await expect(page.getByRole('dialog')).toContainText('No changes')
  expect(state.requests.some(r=>r.method === 'PUT')).toBe(false)
- await page.getByRole('dialog').getByRole('button',{name:/Apply/}).click()
+ await page.getByRole('dialog').getByRole('button',{name:'Save and deploy',exact:true}).click()
  await expect.poll(()=>state.requests.some(r=>r.path.endsWith('/up-stream'))).toBe(true)
  const validate = state.requests.findIndex(r=>r.path.endsWith('/validate'))
  const save = state.requests.findIndex(r=>r.method === 'PUT')

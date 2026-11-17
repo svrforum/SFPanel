@@ -134,28 +134,32 @@ export function StackEditorPanel({
       {/* Compose / Env sub-tabs */}
       <div className="flex items-center gap-1 bg-secondary/40 rounded-xl p-1 w-fit overflow-x-auto">
         <button
+          type="button"
+          aria-pressed={tab === 'compose'}
           className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-[13px] font-medium transition outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-0 ${
-            tab === 'compose' ? 'bg-primary/10 text-primary card-shadow' : 'text-muted-foreground hover:text-foreground'
+            tab === 'compose' ? 'bg-background text-foreground card-shadow' : 'text-muted-foreground hover:text-foreground'
           }`}
           onClick={() => onTabChange('compose')}
         >
-          <FileCode className={`h-3.5 w-3.5 ${tab === 'compose' ? 'text-primary' : ''}`} />
+          <FileCode className="h-3.5 w-3.5" />
           {composeFileName}
         </button>
         <button
+          type="button"
+          aria-pressed={tab === 'env'}
           className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-[13px] font-medium transition outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-0 ${
-            tab === 'env' ? 'bg-warning/10 text-warning card-shadow' : 'text-muted-foreground hover:text-foreground'
+            tab === 'env' ? 'bg-background text-foreground card-shadow' : 'text-muted-foreground hover:text-foreground'
           }`}
           onClick={() => onTabChange('env')}
         >
-          <FileText className={`h-3.5 w-3.5 ${tab === 'env' ? 'text-warning' : ''}`} />
+          <FileText className="h-3.5 w-3.5" />
           .env
         </button>
       </div>
 
       {tab === 'compose' ? (
         <>
-          <div className="rounded-2xl overflow-hidden border-t-2 border-t-primary card-shadow">
+          <div className="rounded-2xl overflow-hidden card-shadow">
             <ComposeEditor value={yaml} onChange={onYamlChange} />
           </div>
           {validationResult && (
@@ -200,7 +204,7 @@ export function StackEditorPanel({
             <Button
               onClick={onDeploy}
               disabled={saving || deploying || !yaml.trim()}
-              className="rounded-xl bg-success hover:bg-success/90"
+              className="rounded-xl"
             >
               <ArrowUp className="h-3.5 w-3.5" />
               {deploying ? t('common.saving') : t('docker.stacks.deploy')}
@@ -209,7 +213,7 @@ export function StackEditorPanel({
         </>
       ) : (
         <>
-          <div className="rounded-2xl overflow-hidden border-t-2 border-t-warning card-shadow">
+          <div className="rounded-2xl overflow-hidden card-shadow">
             <ComposeEditor value={env} onChange={onEnvChange} language="ini" />
           </div>
           <div className="flex justify-end gap-2">
