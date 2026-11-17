@@ -155,7 +155,10 @@ export function OutputDialog({ state, onClose }: { state: SSEOutputState; onClos
         if (!open && state.done) onClose()
       }}
     >
-      <DialogContent className="sm:max-w-2xl">
+      {/* No corner X while the command runs: it did nothing then, as the
+          dialog stays until the stream ends (closing it would leave the
+          command's output to land in the next dialog opened). */}
+      <DialogContent className="sm:max-w-2xl" showCloseButton={state.done}>
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2">
             {!state.done && <Loader2 className="h-4 w-4 animate-spin" aria-hidden="true" />}
