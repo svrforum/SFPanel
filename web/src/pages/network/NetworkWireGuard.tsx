@@ -453,9 +453,17 @@ export default function NetworkWireGuard() {
                           {t('network.wireguard.publicKey')}
                         </span>
                         <div className="flex items-center gap-1">
-                          <span className="font-mono text-[12px]" title={peer.public_key}>
-                            {peer.public_key.substring(0, 16)}...
-                          </span>
+                          {/* A peer has no name: its key is what tells it from
+                              the others, so the whole key is a copy away. */}
+                          <button
+                            className="font-mono text-[12px] hover:text-primary flex items-center gap-1 rounded-sm outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-0"
+                            onClick={() => copyToClipboard(peer.public_key, `${iface.name}:${peer.public_key}`)}
+                            title={peer.public_key}
+                          >
+                            {peer.public_key.substring(0, 16)}…
+                            <span className="sr-only">{t('common.copy')}</span>
+                            {copiedKey === `${iface.name}:${peer.public_key}` ? <Check className="h-3 w-3 text-success" aria-hidden="true" /> : <Copy className="h-3 w-3" aria-hidden="true" />}
+                          </button>
                           <Button
                             variant="ghost"
                             size="icon-xs"

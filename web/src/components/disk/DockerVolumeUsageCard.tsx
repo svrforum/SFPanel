@@ -68,8 +68,9 @@ export function DockerVolumeUsageCard() {
             <div className="space-y-1 text-[12px]">
               {top10.map((v) => (
                 <div key={v.Name} className="flex justify-between">
-                  <span className="truncate flex-1 mr-2">{v.Name}</span>
-                  <span className="font-mono text-muted-foreground">{formatBytes(v.size_bytes ?? 0)}</span>
+                  {/* Wrapped, not cut: a volume is often a 64-character hash. */}
+                  <span className="break-all min-w-0 flex-1 mr-2">{v.Name}</span>
+                  <span className="font-mono text-muted-foreground shrink-0">{formatBytes(v.size_bytes ?? 0)}</span>
                 </div>
               ))}
             </div>

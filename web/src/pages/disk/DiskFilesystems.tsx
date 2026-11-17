@@ -238,7 +238,8 @@ export default function DiskFilesystems() {
             )}
             {shownFilesystems.map((fs) => (
               <TableRow key={`${fs.source}-${fs.mount_point}`}>
-                <TableCell className="font-medium font-mono text-sm max-w-[180px] truncate" title={fs.source}>
+                {/* Wrapped, not cut: a title cannot be read by touch or keyboard. */}
+                <TableCell className="font-medium font-mono text-sm max-w-[180px] whitespace-normal break-all">
                   {fs.source}
                 </TableCell>
                 <TableCell>
@@ -278,7 +279,7 @@ export default function DiskFilesystems() {
                   </div>
                 </TableCell>
                 </>)}
-                <TableCell className="text-muted-foreground font-mono text-xs max-w-[150px] truncate" title={fs.mount_point}>
+                <TableCell className="text-muted-foreground font-mono text-xs max-w-[150px] whitespace-normal break-all">
                   {fs.mount_point}
                 </TableCell>
                 <TableCell className="text-right">

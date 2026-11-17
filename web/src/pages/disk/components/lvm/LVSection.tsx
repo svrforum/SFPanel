@@ -204,7 +204,7 @@ export function LVSection({ lvs, vgs, onChanged }: {
                       )}
                     </TableCell>
                     <TableCell className="font-mono text-xs text-muted-foreground">{lv.attr}</TableCell>
-                    <TableCell className="font-mono text-xs text-muted-foreground max-w-[200px] truncate" title={lv.path}>
+                    <TableCell className="font-mono text-xs text-muted-foreground max-w-[200px] whitespace-normal break-all">
                       {lv.path}
                     </TableCell>
                     <TableCell className="text-right">
