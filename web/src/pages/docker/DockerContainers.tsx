@@ -4,6 +4,7 @@ import { useNavigate, useSearchParams } from 'react-router-dom'
 import { Play, Square, RotateCw, Trash2, RefreshCw, Terminal, Info, Cpu, MemoryStick, Search, ChevronRight, ChevronDown, Plus, Layers, Pause, CheckSquare, Loader2, Activity, Box, AlertCircle, ChevronsDownUp, ChevronsUpDown } from 'lucide-react'
 import { toast } from 'sonner'
 import { containerNeedsAttention } from '@/lib/containerState'
+import { runEach } from '@/pages/docker/stackStream'
 import { ContainerStateBadge } from '@/components/docker/ContainerStateBadge'
 import { useDockerResource } from '@/hooks/useDockerResource'
 import ResourceStatus from '@/components/ResourceStatus'
@@ -536,10 +537,15 @@ export default function DockerContainers() {
       if (action === 'start') await api.startContainer(containerId)
       else if (action === 'stop') await api.stopContainer(containerId)
       else if (action === 'restart') await api.restartContainer(containerId)
-      toast.success(t('docker.containers.actionSuccess', { action }))
+      // One whole sentence per action: the action's own name used to be
+      // dropped into a shared one ("컨테이너 stop 성공").
+      const name = formatContainerName(containers.find((c) => c.Id === containerId)?.Names ?? [])
+      toast.success(action === 'start' ? t('docker.containers.startDone', { name })
+        : action === 'stop' ? t('docker.containers.stopDone', { name })
+        : t('docker.containers.restartDone', { name }))
       await fetchContainers()
     } catch (err: unknown) {
-      const message = err instanceof Error ? err.message : t('docker.containers.actionFailed', { action })
+      const message = err instanceof Error ? err.message : t('docker.containers.actionFailed')
       toast.error(message)
     } finally {
       setActionLoading(null)
@@ -642,25 +648,57 @@ export default function DockerContainers() {
     if (ok) await handleStackAction(action, stackName)
   }
 
+  const nameOf = (id: string) => formatContainerName(containers.find((c) => c.Id === id)?.Names ?? [])
+
   const handleBatchAction = async (action: 'start' | 'stop' | 'restart' | 'remove') => {
     if (selectedIds.size === 0) return
+    const ids = Array.from(selectedIds)
+    // Stopping, restarting and removing take something away from every
+    // container chosen (removal is forced, running or not), so the dialog
+    // names each one first. Starting takes nothing away, as for one container.
+    if (action !== 'start') {
+      const count = ids.length
+      const title = action === 'stop' ? t('docker.containers.batchStopTitle', { count })
+        : action === 'restart' ? t('docker.containers.batchRestartTitle', { count })
+        : t('docker.containers.batchDeleteTitle', { count })
+      const ok = await confirm({
+        title,
+        description: (
+          <span>
+            {action === 'stop' ? t('docker.containers.batchStopConfirm')
+              : action === 'restart' ? t('docker.containers.batchRestartConfirm')
+              : t('docker.containers.batchDeleteConfirm')}
+            <span className="mt-2 block max-h-40 space-y-0.5 overflow-y-auto font-mono text-[12px]">
+              {ids.map((id) => <span key={id} className="block break-all">{nameOf(id)}</span>)}
+            </span>
+          </span>
+        ),
+        confirmLabel: title,
+        danger: action !== 'restart',
+      })
+      if (!ok) return
+    }
     setActionLoading('batch')
     try {
-      const ids = Array.from(selectedIds)
-      for (const id of ids) {
-        try {
-          if (action === 'start') await api.startContainer(id)
-          else if (action === 'stop') await api.stopContainer(id)
-          else if (action === 'restart') await api.restartContainer(id)
-          else if (action === 'remove') await api.removeContainer(id)
-        } catch { /* continue on individual failures */ }
+      const failed = await runEach(ids, (id) => action === 'start' ? api.startContainer(id)
+        : action === 'stop' ? api.stopContainer(id)
+        : action === 'restart' ? api.restartContainer(id)
+        : api.removeContainer(id))
+      const count = ids.length - failed.length
+      // A failure is named, not folded into a count of everything attempted.
+      if (failed.length > 0) {
+        toast.error(t('docker.containers.batchFailed', { count: failed.length, names: failed.map(nameOf).join(', ') }))
       }
-      toast.success(t('docker.containers.batchSuccess', { count: ids.length, action }))
-      setSelectedIds(new Set())
-      setBatchMode(false)
+      if (count > 0) {
+        toast.success(action === 'start' ? t('docker.containers.batchStartDone', { count })
+          : action === 'stop' ? t('docker.containers.batchStopDone', { count })
+          : action === 'restart' ? t('docker.containers.batchRestartDone', { count })
+          : t('docker.containers.batchDeleteDone', { count }))
+      }
+      // Failed ones stay chosen, so the next try is one press away.
+      setSelectedIds(new Set(failed))
+      if (failed.length === 0) setBatchMode(false)
       await fetchContainers()
-    } catch (err: unknown) {
-      toast.error(err instanceof Error ? err.message : t('docker.containers.batchFailed'))
     } finally {
       setActionLoading(null)
     }
