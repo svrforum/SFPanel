@@ -454,12 +454,14 @@ export default function DockerStacks({ clusterMode = false }: { clusterMode?: bo
     try {
       await runProgressStream(t('docker.stacks.deploying'), (onEvent) => api.composeUpStream(name, onEvent))
       toast.success(t('docker.compose.upSuccess', { name }))
+    } catch (err: unknown) {
+      toast.error(err instanceof Error ? err.message : t('docker.compose.upFailed'))
+    } finally {
+      // Failed or not: a start that stopped halfway left some containers up.
       await Promise.all([
         refreshList(),
         selectedName === name ? fetchServices(name) : Promise.resolve(),
       ])
-    } catch (err: unknown) {
-      toast.error(err instanceof Error ? err.message : t('docker.compose.upFailed'))
     }
   }
 
@@ -571,9 +573,10 @@ export default function DockerStacks({ clusterMode = false }: { clusterMode?: bo
     try {
       await runProgressStream(t('docker.stacks.deploying'), (onEvent) => api.composeUpStream(selectedName, onEvent))
       toast.success(t('docker.stacks.deploySuccess'))
-      await Promise.all([refreshList(), fetchServices(selectedName)])
     } catch (err: unknown) {
       toast.error(err instanceof Error ? err.message : t('docker.stacks.deployFailed'))
+    } finally {
+      await Promise.all([refreshList(), fetchServices(selectedName)])
     }
   }
 
@@ -616,11 +619,15 @@ export default function DockerStacks({ clusterMode = false }: { clusterMode?: bo
     try {
       await runProgressStream(t('docker.stacks.updating'), (onEvent) => api.updateStackStream(selectedName, onEvent))
       toast.success(t('docker.stacks.updateSuccess'))
+    } catch (err: unknown) {
+      toast.error(err instanceof Error ? err.message : t('docker.stacks.updateFailed'))
+    } finally {
+      // An update that failed has still written its rollback point (the server
+      // records it before it pulls) and may have recreated some services: the
+      // rollback button and the lists must show that, not the state before.
       setUpdateCheck(null)
       api.hasRollback(selectedName).then(r => setRollbackInfo(r)).catch(() => {})
       await Promise.all([refreshList(), fetchServices(selectedName)])
-    } catch (err: unknown) {
-      toast.error(err instanceof Error ? err.message : t('docker.stacks.updateFailed'))
     }
   }
 
