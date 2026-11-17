@@ -45,6 +45,9 @@ export function AddPeerDialog({
   const [peerRoutes, setPeerRoutes] = useState('')
   const [peerCreating, setPeerCreating] = useState(false)
   const [clientConfig, setClientConfig] = useState<string | null>(null)
+  // Set by a press of Create with a field empty: from then on the field says
+  // so. The button greyed out until the form was complete said nothing.
+  const [tried, setTried] = useState(false)
 
   const generateKeypair = useCallback(async () => {
     setGenLoading(true)
@@ -63,6 +66,7 @@ export function AddPeerDialog({
     if (!iface) return
     setKeypair(null)
     setClientConfig(null)
+    setTried(false)
     setPeerAddress('')
     setPeerEndpoint(`${window.location.hostname}:${iface.listen_port || ''}`)
     setPeerDns(iface.dns || '')
@@ -88,8 +92,18 @@ export function AddPeerDialog({
     return lines.join('\n')
   }
 
+  const addressMissing = tried && !peerAddress.trim()
+  const endpointMissing = tried && !peerEndpoint.trim()
+  const routesMissing = tried && !peerRoutes.trim()
+
   const handleCreatePeer = async () => {
-    if (!iface || !keypair || !peerAddress.trim()) return
+    if (!iface || !keypair) return
+    if (!peerAddress.trim() || !peerEndpoint.trim() || !peerRoutes.trim()) {
+      setTried(true)
+      const first = !peerAddress.trim() ? 'peer-address' : !peerEndpoint.trim() ? 'peer-endpoint' : 'peer-routes'
+      document.getElementById(first)?.focus()
+      return
+    }
     setPeerCreating(true)
     try {
       const keepalive = parseInt(peerKeepalive, 10)
@@ -165,8 +179,12 @@ export function AddPeerDialog({
                   onChange={(e) => setPeerAddress(e.target.value)}
                   placeholder="10.0.0.2/32"
                   className="font-mono text-base md:text-[13px]"
+                  aria-invalid={addressMissing || undefined}
+                  aria-describedby="peer-address-note"
                 />
-                <p className="text-[12px] text-muted-foreground">{t('network.wireguard.peers.clientAddressHint')}</p>
+                <p id="peer-address-note" className={`text-[12px] ${addressMissing ? 'text-destructive' : 'text-muted-foreground'}`}>
+                  {addressMissing ? t('network.required') : t('network.wireguard.peers.clientAddressHint')}
+                </p>
               </div>
 
               <div className="space-y-2">
@@ -177,8 +195,12 @@ export function AddPeerDialog({
                   onChange={(e) => setPeerEndpoint(e.target.value)}
                   placeholder="vpn.example.com:51820"
                   className="font-mono text-base md:text-[13px]"
+                  aria-invalid={endpointMissing || undefined}
+                  aria-describedby="peer-endpoint-note"
                 />
-                <p className="text-[12px] text-muted-foreground">{t('network.wireguard.peers.serverEndpointHint')}</p>
+                <p id="peer-endpoint-note" className={`text-[12px] ${endpointMissing ? 'text-destructive' : 'text-muted-foreground'}`}>
+                  {endpointMissing ? t('network.required') : t('network.wireguard.peers.serverEndpointHint')}
+                </p>
               </div>
 
               <div className="space-y-2">
@@ -189,8 +211,12 @@ export function AddPeerDialog({
                   onChange={(e) => setPeerRoutes(e.target.value)}
                   placeholder="10.8.0.0/24"
                   className="font-mono text-base md:text-[13px]"
+                  aria-invalid={routesMissing || undefined}
+                  aria-describedby="peer-routes-note"
                 />
-                <p className="text-[12px] text-muted-foreground">{t('network.wireguard.peers.clientRoutesHint')}</p>
+                <p id="peer-routes-note" className={`text-[12px] ${routesMissing ? 'text-destructive' : 'text-muted-foreground'}`}>
+                  {routesMissing ? t('network.required') : t('network.wireguard.peers.clientRoutesHint')}
+                </p>
               </div>
 
               <div className="grid grid-cols-2 gap-3">
@@ -223,7 +249,7 @@ export function AddPeerDialog({
               </Button>
               <Button
                 onClick={handleCreatePeer}
-                disabled={peerCreating || genLoading || !keypair || !peerAddress.trim() || !peerEndpoint.trim() || !peerRoutes.trim()}
+                disabled={peerCreating || genLoading || !keypair}
               >
                 {peerCreating && <Loader2 className="h-3.5 w-3.5 animate-spin" />}
                 {peerCreating ? t('network.wireguard.peers.creating') : t('network.wireguard.peers.create')}

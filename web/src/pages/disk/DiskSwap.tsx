@@ -29,6 +29,8 @@ import { SwapResizeDialog } from './components/SwapResizeDialog'
 import { DeviceFacts, FreeDeviceSelect } from './components/FreeDeviceSelect'
 import { TabLoading, RefreshButton } from './components/TabToolbar'
 import { useFreeDevices } from './useFreeDevices'
+import { FieldNote } from './components/FieldNote'
+import { focusFirst } from './focusFirst'
 
 import type { SwapEntry, SwapInfo } from '@/types/api'
 
@@ -55,6 +57,8 @@ export default function DiskSwap() {
   const [creatingDevice, setCreatingDevice] = useState(false)
   // Picked from the devices nothing holds, not typed.
   const devices = useFreeDevices(createOpen && createMode === 'partition')
+  // Set by a press of Create with a field empty: from then on the field says so.
+  const [createTried, setCreateTried] = useState(false)
 
   // Turn off: the route only runs swapoff (see disk_swap.go RemoveSwap).
   // swapoff pulls what is in the swap back into RAM, so the same RAM check the
@@ -94,6 +98,7 @@ export default function DiskSwap() {
     setCreatePath('')
     setCreateSizeMB('')
     setCreateDevice('')
+    setCreateTried(false)
   }
 
   const { run: runSaveSwappiness, loading: savingSwappiness } = useApiAction(
@@ -120,16 +125,28 @@ export default function DiskSwap() {
     },
   )
 
+  const pathMissing = createTried && !createPath.trim()
+  const sizeMissing = createTried && !createSizeMB.trim()
+  const deviceMissing = createTried && !createDevice.trim()
+
   const handleCreate = () => {
     if (createMode === 'file') {
-      if (!createPath.trim() || !createSizeMB.trim()) return
+      if (!createPath.trim() || !createSizeMB.trim()) {
+        setCreateTried(true)
+        focusFirst([['swap-path', !createPath.trim()], ['swap-size', !createSizeMB.trim()]])
+        return
+      }
       void runCreate({
         type: 'file',
         path: createPath.trim(),
         size_mb: parseInt(createSizeMB, 10),
       })
     } else {
-      if (!createDevice.trim()) return
+      if (!createDevice.trim()) {
+        setCreateTried(true)
+        focusFirst([['swap-device', true]])
+        return
+      }
       setDeviceConfirmOpen(true)
     }
   }
@@ -397,7 +414,10 @@ export default function DiskSwap() {
                     placeholder="/swapfile"
                     value={createPath}
                     onChange={(e) => setCreatePath(e.target.value)}
+                    aria-invalid={pathMissing || undefined}
+                    aria-describedby="swap-path-note"
                   />
+                  <FieldNote id="swap-path-note" missing={pathMissing} />
                 </div>
                 <div className="space-y-2">
                   <Label htmlFor="swap-size">{t('disk.swap.sizeMB')}</Label>
@@ -407,14 +427,17 @@ export default function DiskSwap() {
                     placeholder="2048"
                     value={createSizeMB}
                     onChange={(e) => setCreateSizeMB(e.target.value)}
+                    aria-invalid={sizeMissing || undefined}
+                    aria-describedby="swap-size-note"
                   />
-                  <p className="text-[12px] text-muted-foreground">{t('disk.swap.sizeHint')}</p>
+                  <FieldNote id="swap-size-note" missing={sizeMissing} hint={t('disk.swap.sizeHint')} />
                 </div>
               </>
             ) : (
               <div className="space-y-2">
                 <Label htmlFor="swap-device">{t('disk.swap.device')}</Label>
-                <FreeDeviceSelect id="swap-device" value={createDevice} onChange={setCreateDevice} {...devices} />
+                <FreeDeviceSelect id="swap-device" value={createDevice} onChange={setCreateDevice} {...devices} invalid={deviceMissing} describedBy="swap-device-note" />
+                <FieldNote id="swap-device-note" missing={deviceMissing} />
               </div>
             )}
           </div>
@@ -427,8 +450,7 @@ export default function DiskSwap() {
               disabled={
                 creating ||
                 creatingDevice ||
-                (createMode === 'file' && (!createPath.trim() || !createSizeMB.trim())) ||
-                (createMode === 'partition' && !createDevice.trim())
+                (createMode === 'partition' && !devices.loading && devices.free.length === 0)
               }
             >
               {creating ? t('common.creating') : t('common.create')}

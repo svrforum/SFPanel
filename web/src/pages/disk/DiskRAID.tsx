@@ -18,6 +18,8 @@ import {
 import { TypeToConfirmDialog } from '@/components/TypeToConfirmDialog'
 import { NativeSelect } from './components/NativeSelect'
 import { FreeDeviceSelect } from './components/FreeDeviceSelect'
+import { FieldNote } from './components/FieldNote'
+import { focusFirst } from './focusFirst'
 import { TabLoading, CountPill, RefreshButton } from './components/TabToolbar'
 import { LoadFailure } from './components/LoadFailure'
 import { useFreeDevices } from './useFreeDevices'
@@ -72,6 +74,8 @@ export default function DiskRAID() {
   const [newName, setNewName] = useState('')
   const [newLevel, setNewLevel] = useState('raid1')
   const [selectedDevices, setSelectedDevices] = useState<string[]>([])
+  // Set by a press of Create with something missing: from then on it says so.
+  const [createTried, setCreateTried] = useState(false)
   // mdadm --create writes over every member: typed confirmation first.
   const [createConfirmOpen, setCreateConfirmOpen] = useState(false)
 
@@ -82,6 +86,7 @@ export default function DiskRAID() {
   const [addDiskOpen, setAddDiskOpen] = useState(false)
   const [addDiskArray, setAddDiskArray] = useState<RAIDArray | null>(null)
   const [addDiskDevice, setAddDiskDevice] = useState('')
+  const [addDiskTried, setAddDiskTried] = useState(false)
 
   // Remove disk dialog
   const [removeDiskOpen, setRemoveDiskOpen] = useState(false)
@@ -122,6 +127,7 @@ export default function DiskRAID() {
     setNewName('')
     setNewLevel('raid1')
     setSelectedDevices([])
+    setCreateTried(false)
   }
 
   const { run: runCreate, loading: creating } = useApiAction(
@@ -138,8 +144,16 @@ export default function DiskRAID() {
     },
   )
 
+  // The server takes no array of fewer than two members.
+  const nameMissing = createTried && !newName.trim()
+  const devicesShort = createTried && selectedDevices.length < 2
+
   const handleCreate = () => {
-    if (!newName.trim() || selectedDevices.length === 0) return
+    if (!newName.trim() || selectedDevices.length < 2) {
+      setCreateTried(true)
+      focusFirst([['raid-name', !newName.trim()], ['raid-devices', selectedDevices.length < 2]])
+      return
+    }
     setCreateConfirmOpen(true)
   }
 
@@ -182,7 +196,12 @@ export default function DiskRAID() {
   )
 
   const handleAddDisk = () => {
-    if (!addDiskArray || !addDiskDevice.trim()) return
+    if (!addDiskArray) return
+    if (!addDiskDevice.trim()) {
+      setAddDiskTried(true)
+      focusFirst([['add-disk-device', true]])
+      return
+    }
     void runAddDisk(addDiskArray.name, addDiskDevice.trim())
   }
 
@@ -208,6 +227,7 @@ export default function DiskRAID() {
   const openAddDisk = (arr: RAIDArray) => {
     setAddDiskArray(arr)
     setAddDiskDevice('')
+    setAddDiskTried(false)
     setAddDiskOpen(true)
   }
 
@@ -375,7 +395,10 @@ export default function DiskRAID() {
                 placeholder="md0"
                 value={newName}
                 onChange={(e) => setNewName(e.target.value)}
+                aria-invalid={nameMissing || undefined}
+                aria-describedby="raid-name-note"
               />
+              <FieldNote id="raid-name-note" missing={nameMissing} />
             </div>
             <div className="space-y-2">
               <Label htmlFor="raid-level">{t('disk.raid.level')}</Label>
@@ -391,7 +414,7 @@ export default function DiskRAID() {
               </NativeSelect>
             </div>
             <div className="space-y-2">
-              <Label>{t('disk.raid.devices')}</Label>
+              <Label id="raid-devices-label">{t('disk.raid.devices')}</Label>
               {candidatesLoading ? (
                 <div className="flex items-center gap-2 text-sm text-muted-foreground py-2">
                   <Loader2 className="h-3.5 w-3.5 animate-spin" />
@@ -400,8 +423,8 @@ export default function DiskRAID() {
               ) : candidates.length === 0 ? (
                 <p className="text-sm text-muted-foreground">{t('disk.raid.noUnusedDisks')}</p>
               ) : (
-                <div className="space-y-1.5">
-                  {candidates.map((d) => (
+                <div className="space-y-1.5" role="group" aria-labelledby="raid-devices-label" aria-describedby="raid-devices-note">
+                  {candidates.map((d, i) => (
                     <label
                       key={d.name}
                       className={`flex items-center gap-3 rounded-lg px-3 py-2 cursor-pointer transition-colors ${
@@ -412,6 +435,7 @@ export default function DiskRAID() {
                     >
                       <input
                         type="checkbox"
+                        id={i === 0 ? 'raid-devices' : undefined}
                         checked={selectedDevices.includes(d.name)}
                         onChange={() => toggleDeviceSelection(d.name)}
                         className="rounded"
@@ -424,13 +448,14 @@ export default function DiskRAID() {
                   ))}
                 </div>
               )}
+              <FieldNote id="raid-devices-note" missing={devicesShort} message={t('disk.raid.pickTwo')} />
             </div>
           </div>
           <DialogFooter>
             <Button variant="outline" onClick={() => { setCreateOpen(false); resetCreateForm() }}>
               {t('common.cancel')}
             </Button>
-            <Button onClick={handleCreate} disabled={creating || !newName.trim() || selectedDevices.length === 0}>
+            <Button onClick={handleCreate} disabled={creating || (!candidatesLoading && candidates.length === 0)}>
               {creating ? t('common.creating') : t('common.create')}
             </Button>
           </DialogFooter>
@@ -471,13 +496,14 @@ export default function DiskRAID() {
           </DialogHeader>
           <div className="space-y-2">
             <Label htmlFor="add-disk-device">{t('disk.raid.devicePath')}</Label>
-            <FreeDeviceSelect id="add-disk-device" value={addDiskDevice} onChange={setAddDiskDevice} {...addDiskDevices} />
+            <FreeDeviceSelect id="add-disk-device" value={addDiskDevice} onChange={setAddDiskDevice} {...addDiskDevices} invalid={addDiskTried && !addDiskDevice} describedBy="add-disk-device-note" />
+            <FieldNote id="add-disk-device-note" missing={addDiskTried && !addDiskDevice} />
           </div>
           <DialogFooter>
             <Button variant="outline" onClick={() => { setAddDiskOpen(false); setAddDiskArray(null); setAddDiskDevice('') }}>
               {t('common.cancel')}
             </Button>
-            <Button onClick={handleAddDisk} disabled={addingDisk || !addDiskDevice.trim()}>
+            <Button onClick={handleAddDisk} disabled={addingDisk || (!addDiskDevices.loading && addDiskDevices.free.length === 0)}>
               {addingDisk ? t('disk.raid.adding') : t('disk.raid.addDisk')}
             </Button>
           </DialogFooter>

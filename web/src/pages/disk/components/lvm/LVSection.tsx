@@ -26,6 +26,8 @@ import {
 import { TabsContent } from '@/components/ui/tabs'
 import { TypeToConfirmDialog } from '@/components/TypeToConfirmDialog'
 import { NativeSelect } from '../NativeSelect'
+import { FieldNote } from '../FieldNote'
+import { focusFirst } from '../../focusFirst'
 import { fillPercent, isThinPool, lvRows } from './lvRows'
 
 import type { VolumeGroup, LogicalVolume } from '@/types/api'
@@ -63,6 +65,10 @@ export function LVSection({ lvs, vgs, onChanged }: {
   // The server answers a size smaller than the volume's with
   // LV_SHRINK_CONFIRM_REQUIRED; the shrink goes ahead only once confirmed.
   const [shrinkConfirm, setShrinkConfirm] = useState(false)
+  // Set by a press of Create or Resize with a field empty: from then on the
+  // field says so.
+  const [createTried, setCreateTried] = useState(false)
+  const [resizeTried, setResizeTried] = useState(false)
 
   // Single close-and-reset paths, used by onOpenChange and the cancel buttons.
   const closeCreate = () => {
@@ -70,6 +76,7 @@ export function LVSection({ lvs, vgs, onChanged }: {
     setLvName('')
     setLvVgName('')
     setLvSize('')
+    setCreateTried(false)
   }
 
   const closeResize = () => {
@@ -77,6 +84,7 @@ export function LVSection({ lvs, vgs, onChanged }: {
     setResizeTarget(null)
     setResizeNewSize('')
     setShrinkConfirm(false)
+    setResizeTried(false)
   }
 
   const { run: runCreate, loading: creating } = useApiAction(
@@ -91,8 +99,16 @@ export function LVSection({ lvs, vgs, onChanged }: {
     },
   )
 
+  const nameMissing = createTried && !lvName.trim()
+  const sizeMissing = createTried && !lvSize.trim()
+
   const handleCreate = () => {
-    if (!lvName.trim() || !lvVgName || !lvSize.trim()) return
+    if (!lvVgName) return
+    if (!lvName.trim() || !lvSize.trim()) {
+      setCreateTried(true)
+      focusFirst([['lv-name', !lvName.trim()], ['lv-size', !lvSize.trim()]])
+      return
+    }
     void runCreate(lvName.trim(), lvVgName, lvSize.trim())
   }
 
@@ -113,7 +129,12 @@ export function LVSection({ lvs, vgs, onChanged }: {
   }
 
   const handleResize = async (shrink = false) => {
-    if (!resizeTarget || !resizeNewSize.trim()) return
+    if (!resizeTarget) return
+    if (!resizeNewSize.trim()) {
+      setResizeTried(true)
+      focusFirst([['lv-resize', true]])
+      return
+    }
     setResizing(true)
     try {
       await api.resizeLV({ vg: resizeTarget.vg_name, name: resizeTarget.name, size: resizeNewSize.trim(), shrink })
@@ -256,7 +277,10 @@ export function LVSection({ lvs, vgs, onChanged }: {
                 placeholder="my-lv"
                 value={lvName}
                 onChange={(e) => setLvName(e.target.value)}
+                aria-invalid={nameMissing || undefined}
+                aria-describedby="lv-name-note"
               />
+              <FieldNote id="lv-name-note" missing={nameMissing} />
             </div>
             <div className="space-y-2">
               <Label htmlFor="lv-vg">{t('disk.lvm.lv.selectVG')}</Label>
@@ -280,15 +304,17 @@ export function LVSection({ lvs, vgs, onChanged }: {
                 placeholder="10G, 100%FREE"
                 value={lvSize}
                 onChange={(e) => setLvSize(e.target.value)}
+                aria-invalid={sizeMissing || undefined}
+                aria-describedby="lv-size-note"
               />
-              <p className="text-[12px] text-muted-foreground">{t('disk.lvm.lv.sizeHint')}</p>
+              <FieldNote id="lv-size-note" missing={sizeMissing} hint={t('disk.lvm.lv.sizeHint')} />
             </div>
           </div>
           <DialogFooter>
             <Button variant="outline" onClick={closeCreate}>
               {t('common.cancel')}
             </Button>
-            <Button onClick={handleCreate} disabled={creating || !lvName.trim() || !lvVgName || !lvSize.trim()}>
+            <Button onClick={handleCreate} disabled={creating || !lvVgName}>
               {creating ? t('common.creating') : t('common.create')}
             </Button>
           </DialogFooter>
@@ -335,15 +361,17 @@ export function LVSection({ lvs, vgs, onChanged }: {
                 placeholder="20G, +5G, +100%FREE"
                 value={resizeNewSize}
                 onChange={(e) => setResizeNewSize(e.target.value)}
+                aria-invalid={(resizeTried && !resizeNewSize.trim()) || undefined}
+                aria-describedby="lv-resize-note"
               />
-              <p className="text-[12px] text-muted-foreground">{t('disk.lvm.lv.resizeHint')}</p>
+              <FieldNote id="lv-resize-note" missing={resizeTried && !resizeNewSize.trim()} hint={t('disk.lvm.lv.resizeHint')} />
             </div>
           </div>
           <DialogFooter>
             <Button variant="outline" onClick={closeResize}>
               {t('common.cancel')}
             </Button>
-            <Button onClick={() => void handleResize()} disabled={resizing || !resizeNewSize.trim()}>
+            <Button onClick={() => void handleResize()} disabled={resizing}>
               {resizing ? t('disk.lvm.lv.resizing') : t('disk.lvm.lv.resize')}
             </Button>
           </DialogFooter>

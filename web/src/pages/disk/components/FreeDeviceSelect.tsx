@@ -9,10 +9,13 @@ import type { BlockDevice } from '@/types/api'
  * A device picked from the ones nothing holds (see freeDevices), named with
  * its size, what is on it and the disk's model, in place of a typed name.
  */
-export function FreeDeviceSelect({ id, value, onChange, disks, free, loading, failed }: {
+export function FreeDeviceSelect({ id, value, onChange, disks, free, loading, failed, invalid, describedBy }: {
   id: string
   value: string
   onChange: (name: string) => void
+  /** The dialog's action was pressed with nothing picked. */
+  invalid?: boolean
+  describedBy?: string
   disks: BlockDevice[]
   free: BlockDevice[]
   loading: boolean
@@ -30,7 +33,14 @@ export function FreeDeviceSelect({ id, value, onChange, disks, free, loading, fa
   if (failed) return <p role="alert" className="text-[13px] text-destructive">{t('disk.overview.fetchFailed')}</p>
   if (free.length === 0) return <p className="text-[13px] text-muted-foreground">{t('disk.noFreeDevices')}</p>
   return (
-    <NativeSelect id={id} value={value} onChange={(e) => onChange(e.target.value)} className="w-full">
+    <NativeSelect
+      id={id}
+      value={value}
+      onChange={(e) => onChange(e.target.value)}
+      aria-invalid={invalid || undefined}
+      aria-describedby={describedBy}
+      className="w-full"
+    >
       <option value="" disabled>{t('disk.pickDevice')}</option>
       {free.map((d) => {
         const model = diskOf(disks, d.name)?.model

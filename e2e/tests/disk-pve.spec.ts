@@ -127,7 +127,11 @@ test('format offers only free devices, shows what is on one, and a refusal is wo
   const form = page.getByRole('dialog')
   // No guest volume, no boot partition, no extended partition.
   await expect(form.getByLabel('Device').getByRole('option')).toHaveText(['Pick a device', /^nvme0n1p3 /, /^sdb1 /, /^sdb5 /])
-  await expect(form.getByRole('button', { name: 'Format' })).toBeDisabled()
+  // Nothing picked: Format says what is missing instead of greying out.
+  await form.getByRole('button', { name: 'Format' }).click()
+  await expect(form.getByText('Required', { exact: true })).toBeVisible()
+  await expect(form.getByLabel('Device')).toHaveAttribute('aria-invalid', 'true')
+  await expect(form.getByLabel('Device')).toBeFocused()
   await form.getByLabel('Device').selectOption('nvme0n1p3')
   await form.getByRole('button', { name: 'Format' }).click()
   const confirm = page.getByRole('dialog').filter({ hasText: 'To confirm, type:' })

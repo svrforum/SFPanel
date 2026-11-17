@@ -53,6 +53,8 @@ export default function NetworkWireGuard() {
   const [createName, setCreateName] = useState('')
   const [createContent, setCreateContent] = useState('')
   const [creating, setCreating] = useState(false)
+  // Set by a press of Create with a field empty: from then on the field says so.
+  const [createTried, setCreateTried] = useState(false)
 
   // Edit config dialog
   const [editTarget, setEditTarget] = useState<string | null>(null)
@@ -143,8 +145,15 @@ export default function NetworkWireGuard() {
     }
   }
 
+  const createNameMissing = createTried && !createName.trim()
+  const createContentMissing = createTried && !createContent.trim()
+
   const handleCreate = async () => {
-    if (!createName.trim() || !createContent.trim()) return
+    if (!createName.trim() || !createContent.trim()) {
+      setCreateTried(true)
+      document.getElementById(!createName.trim() ? 'wg-create-name' : 'wg-create-content')?.focus()
+      return
+    }
     setCreating(true)
     try {
       await api.createWireGuardConfig(createName.trim(), createContent)
@@ -312,7 +321,7 @@ export default function NetworkWireGuard() {
             <RefreshCw className={loading ? 'animate-spin' : ''} />
             {t('common.refresh')}
           </Button>
-          <Button size="sm" onClick={() => setCreateOpen(true)}>
+          <Button size="sm" onClick={() => { setCreateTried(false); setCreateOpen(true) }}>
             <Plus className="h-3.5 w-3.5" />
             {t('network.wireguard.addConfig')}
           </Button>
@@ -325,7 +334,7 @@ export default function NetworkWireGuard() {
           <Shield className="h-10 w-10 text-muted-foreground mx-auto mb-3" />
           <h3 className="text-[15px] font-semibold mb-1">{t('network.wireguard.noInterfaces')}</h3>
           <p className="text-[13px] text-muted-foreground mb-4">{t('network.wireguard.noInterfacesDesc')}</p>
-          <Button size="sm" onClick={() => setCreateOpen(true)}>
+          <Button size="sm" onClick={() => { setCreateTried(false); setCreateOpen(true) }}>
             <Plus className="h-3.5 w-3.5" />
             {t('network.wireguard.addConfig')}
           </Button>
@@ -580,8 +589,12 @@ export default function NetworkWireGuard() {
                 onChange={(e) => setCreateName(e.target.value)}
                 placeholder="wg0"
                 className="font-mono text-base md:text-[13px]"
+                aria-invalid={createNameMissing || undefined}
+                aria-describedby="wg-create-name-note"
               />
-              <p className="text-[12px] text-muted-foreground">{t('network.wireguard.configNameHint')}</p>
+              <p id="wg-create-name-note" className={`text-[12px] ${createNameMissing ? 'text-destructive' : 'text-muted-foreground'}`}>
+                {createNameMissing ? t('network.required') : t('network.wireguard.configNameHint')}
+              </p>
             </div>
 
             <div className="space-y-2">
@@ -604,12 +617,15 @@ export default function NetworkWireGuard() {
               </div>
               <textarea
                 id="wg-create-content"
+                aria-invalid={createContentMissing || undefined}
+                aria-describedby={createContentMissing ? 'wg-create-content-note' : undefined}
                 value={createContent}
                 onChange={(e) => setCreateContent(e.target.value)}
                 placeholder={`[Interface]\nPrivateKey = ...\nAddress = 10.0.0.2/24\nDNS = 1.1.1.1\n\n[Peer]\nPublicKey = ...\nEndpoint = vpn.example.com:51820\nAllowedIPs = 0.0.0.0/0`}
                 className="flex w-full rounded-xl border-0 bg-secondary/50 px-3 py-2 text-base md:text-[13px] font-mono transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring min-h-[200px] resize-none"
                 rows={10}
               />
+              {createContentMissing && <p id="wg-create-content-note" className="text-[12px] text-destructive">{t('network.required')}</p>}
             </div>
           </div>
 
@@ -617,7 +633,7 @@ export default function NetworkWireGuard() {
             <Button variant="outline" onClick={() => setCreateOpen(false)}>
               {t('common.cancel')}
             </Button>
-            <Button onClick={handleCreate} disabled={creating || !createName.trim() || !createContent.trim()}>
+            <Button onClick={handleCreate} disabled={creating}>
               {creating && <Loader2 className="h-3.5 w-3.5 animate-spin" />}
               {t('common.create')}
             </Button>

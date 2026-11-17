@@ -23,6 +23,8 @@ import {
   DialogTitle,
 } from '@/components/ui/dialog'
 import { TabsContent } from '@/components/ui/tabs'
+import { FieldNote } from '../FieldNote'
+import { focusFirst } from '../../focusFirst'
 
 import type { PhysicalVolume, VolumeGroup } from '@/types/api'
 
@@ -38,6 +40,8 @@ export function VGSection({ vgs, pvs, onChanged }: {
   const [deleteTarget, setDeleteTarget] = useState<VolumeGroup | null>(null)
   const [vgName, setVgName] = useState('')
   const [selectedPvs, setSelectedPvs] = useState<string[]>([])
+  // Set by a press of Create with something missing: from then on it says so.
+  const [createTried, setCreateTried] = useState(false)
 
   const { run: runDelete, loading: deleting } = useApiAction(
     api.removeVG.bind(api),
@@ -59,6 +63,7 @@ export function VGSection({ vgs, pvs, onChanged }: {
     setCreateOpen(false)
     setVgName('')
     setSelectedPvs([])
+    setCreateTried(false)
   }
 
   const { run: runCreate, loading: creating } = useApiAction(
@@ -73,8 +78,15 @@ export function VGSection({ vgs, pvs, onChanged }: {
     },
   )
 
+  const nameMissing = createTried && !vgName.trim()
+  const pvsMissing = createTried && selectedPvs.length === 0
+
   const handleCreate = () => {
-    if (!vgName.trim() || selectedPvs.length === 0) return
+    if (!vgName.trim() || selectedPvs.length === 0) {
+      setCreateTried(true)
+      focusFirst([['vg-name', !vgName.trim()], ['vg-pvs', selectedPvs.length === 0]])
+      return
+    }
     void runCreate(vgName.trim(), selectedPvs)
   }
 
@@ -187,15 +199,18 @@ export function VGSection({ vgs, pvs, onChanged }: {
                 placeholder="my-vg"
                 value={vgName}
                 onChange={(e) => setVgName(e.target.value)}
+                aria-invalid={nameMissing || undefined}
+                aria-describedby="vg-name-note"
               />
+              <FieldNote id="vg-name-note" missing={nameMissing} />
             </div>
             <div className="space-y-2">
-              <Label>{t('disk.lvm.vg.selectPVs')}</Label>
+              <Label id="vg-pvs-label">{t('disk.lvm.vg.selectPVs')}</Label>
               {freePvs.length === 0 ? (
                 <p className="text-sm text-muted-foreground">{t('disk.lvm.vg.noFreePVs')}</p>
               ) : (
-                <div className="space-y-1.5">
-                  {freePvs.map((pv) => (
+                <div className="space-y-1.5" role="group" aria-labelledby="vg-pvs-label" aria-describedby="vg-pvs-note">
+                  {freePvs.map((pv, i) => (
                     <label
                       key={pv.name}
                       className={`flex items-center gap-3 rounded-lg px-3 py-2 cursor-pointer transition-colors ${
@@ -206,6 +221,7 @@ export function VGSection({ vgs, pvs, onChanged }: {
                     >
                       <input
                         type="checkbox"
+                        id={i === 0 ? 'vg-pvs' : undefined}
                         checked={selectedPvs.includes(pv.name)}
                         onChange={() => togglePvSelection(pv.name)}
                         className="rounded"
@@ -216,13 +232,14 @@ export function VGSection({ vgs, pvs, onChanged }: {
                   ))}
                 </div>
               )}
+              <FieldNote id="vg-pvs-note" missing={pvsMissing} />
             </div>
           </div>
           <DialogFooter>
             <Button variant="outline" onClick={closeCreate}>
               {t('common.cancel')}
             </Button>
-            <Button onClick={handleCreate} disabled={creating || !vgName.trim() || selectedPvs.length === 0}>
+            <Button onClick={handleCreate} disabled={creating}>
               {creating ? t('common.creating') : t('common.create')}
             </Button>
           </DialogFooter>

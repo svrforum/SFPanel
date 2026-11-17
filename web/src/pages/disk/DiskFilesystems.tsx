@@ -31,6 +31,8 @@ import { NativeSelect } from './components/NativeSelect'
 import { DeviceFacts, FreeDeviceSelect } from './components/FreeDeviceSelect'
 import { TabLoading, CountPill, RefreshButton } from './components/TabToolbar'
 import { useFreeDevices } from './useFreeDevices'
+import { FieldNote } from './components/FieldNote'
+import { focusFirst } from './focusFirst'
 
 const FORMAT_FS_TYPES = ['ext4', 'xfs', 'btrfs']
 
@@ -64,6 +66,10 @@ export default function DiskFilesystems() {
   // The device is picked from those nothing holds, not typed: the typed-out
   // confirmation only asked for the same typo again.
   const formatDevices = useFreeDevices(formatOpen)
+  // Set by a press of Format or Mount with a field empty: from then on the
+  // field says so.
+  const [formatTried, setFormatTried] = useState(false)
+  const [mountTried, setMountTried] = useState(false)
 
   // Mount dialog
   const [mountOpen, setMountOpen] = useState(false)
@@ -101,12 +107,14 @@ export default function DiskFilesystems() {
   }, [fetchFilesystems])
 
   const resetFormatForm = () => {
+    setFormatTried(false)
     setFormatDevice('')
     setFormatFsType('ext4')
     setFormatLabel('')
   }
 
   const resetMountForm = () => {
+    setMountTried(false)
     setMountDevice('')
     setMountPoint('')
     setMountFsType('')
@@ -151,7 +159,11 @@ export default function DiskFilesystems() {
   )
 
   const handleMount = () => {
-    if (!mountDevice.trim() || !mountPoint.trim()) return
+    if (!mountDevice.trim() || !mountPoint.trim()) {
+      setMountTried(true)
+      focusFirst([['mount-device', !mountDevice.trim()], ['mount-point', !mountPoint.trim()]])
+      return
+    }
     void runMount({
       device: mountDevice.trim(),
       mount_point: mountPoint.trim(),
@@ -313,7 +325,15 @@ export default function DiskFilesystems() {
           <div className="space-y-4">
             <div className="space-y-2">
               <Label htmlFor="format-device">{t('disk.filesystems.device')}</Label>
-              <FreeDeviceSelect id="format-device" value={formatDevice} onChange={setFormatDevice} {...formatDevices} />
+              <FreeDeviceSelect
+                id="format-device"
+                value={formatDevice}
+                onChange={setFormatDevice}
+                {...formatDevices}
+                invalid={formatTried && !formatDevice}
+                describedBy="format-device-note"
+              />
+              <FieldNote id="format-device-note" missing={formatTried && !formatDevice} />
             </div>
             <div className="space-y-2">
               <Label htmlFor="format-fs">{t('disk.filesystems.fsType')}</Label>
@@ -342,7 +362,18 @@ export default function DiskFilesystems() {
             <Button variant="outline" onClick={() => { setFormatOpen(false); resetFormatForm() }}>
               {t('common.cancel')}
             </Button>
-            <Button variant="destructive" onClick={() => setFormatConfirmOpen(true)} disabled={formatting || !formatDevice.trim()}>
+            <Button
+              variant="destructive"
+              onClick={() => {
+                if (!formatDevice) {
+                  setFormatTried(true)
+                  focusFirst([['format-device', true]])
+                  return
+                }
+                setFormatConfirmOpen(true)
+              }}
+              disabled={formatting || (!formatDevices.loading && formatDevices.free.length === 0)}
+            >
               {formatting ? t('disk.filesystems.formatting') : t('disk.filesystems.format')}
             </Button>
           </DialogFooter>
@@ -378,7 +409,10 @@ export default function DiskFilesystems() {
                 placeholder="sdb1"
                 value={mountDevice}
                 onChange={(e) => setMountDevice(e.target.value)}
+                aria-invalid={(mountTried && !mountDevice.trim()) || undefined}
+                aria-describedby="mount-device-note"
               />
+              <FieldNote id="mount-device-note" missing={mountTried && !mountDevice.trim()} />
             </div>
             <div className="space-y-2">
               <Label htmlFor="mount-point">{t('disk.filesystems.mountPoint')}</Label>
@@ -387,7 +421,10 @@ export default function DiskFilesystems() {
                 placeholder="/mnt/data"
                 value={mountPoint}
                 onChange={(e) => setMountPoint(e.target.value)}
+                aria-invalid={(mountTried && !mountPoint.trim()) || undefined}
+                aria-describedby="mount-point-note"
               />
+              <FieldNote id="mount-point-note" missing={mountTried && !mountPoint.trim()} />
             </div>
             <div className="space-y-2">
               <Label htmlFor="mount-fstype">{t('disk.filesystems.fsType')}</Label>
@@ -424,7 +461,7 @@ export default function DiskFilesystems() {
             <Button variant="outline" onClick={() => { setMountOpen(false); resetMountForm() }}>
               {t('common.cancel')}
             </Button>
-            <Button onClick={handleMount} disabled={mounting || !mountDevice.trim() || !mountPoint.trim()}>
+            <Button onClick={handleMount} disabled={mounting}>
               {mounting ? t('disk.filesystems.mounting') : t('disk.filesystems.mount')}
             </Button>
           </DialogFooter>

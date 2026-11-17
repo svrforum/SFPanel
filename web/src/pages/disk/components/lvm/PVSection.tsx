@@ -23,6 +23,8 @@ import {
 } from '@/components/ui/dialog'
 import { TabsContent } from '@/components/ui/tabs'
 import { FreeDeviceSelect } from '../FreeDeviceSelect'
+import { FieldNote } from '../FieldNote'
+import { focusFirst } from '../../focusFirst'
 import { useFreeDevices } from '../../useFreeDevices'
 
 import type { PhysicalVolume } from '@/types/api'
@@ -39,11 +41,14 @@ export function PVSection({ pvs, onChanged }: {
   const [deleteTarget, setDeleteTarget] = useState<PhysicalVolume | null>(null)
   // Picked from the devices nothing holds, not typed.
   const devices = useFreeDevices(createOpen)
+  // Set by a press of Create with nothing picked: from then on it says so.
+  const [createTried, setCreateTried] = useState(false)
 
   // Single close-and-reset path, used by onOpenChange and the cancel button.
   const closeCreate = () => {
     setCreateOpen(false)
     setDevice('')
+    setCreateTried(false)
   }
 
   const { run: runCreate, loading: creating } = useApiAction(
@@ -59,7 +64,12 @@ export function PVSection({ pvs, onChanged }: {
   )
 
   const handleCreate = () => {
-    if (device.trim()) void runCreate(device.trim())
+    if (!device.trim()) {
+      setCreateTried(true)
+      focusFirst([['pv-device', true]])
+      return
+    }
+    void runCreate(device.trim())
   }
 
   const { run: runDelete, loading: deleting } = useApiAction(
@@ -149,13 +159,14 @@ export function PVSection({ pvs, onChanged }: {
           </DialogHeader>
           <div className="space-y-2">
             <Label htmlFor="pv-device">{t('disk.lvm.pv.device')}</Label>
-            <FreeDeviceSelect id="pv-device" value={device} onChange={setDevice} {...devices} />
+            <FreeDeviceSelect id="pv-device" value={device} onChange={setDevice} {...devices} invalid={createTried && !device} describedBy="pv-device-note" />
+            <FieldNote id="pv-device-note" missing={createTried && !device} />
           </div>
           <DialogFooter>
             <Button variant="outline" onClick={closeCreate}>
               {t('common.cancel')}
             </Button>
-            <Button onClick={handleCreate} disabled={creating || !device.trim()}>
+            <Button onClick={handleCreate} disabled={creating || (!devices.loading && devices.free.length === 0)}>
               {creating ? t('common.creating') : t('common.create')}
             </Button>
           </DialogFooter>

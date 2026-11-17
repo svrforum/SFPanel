@@ -52,6 +52,16 @@ export function BondCreateDialog({
   const [bondMode, setBondMode] = useState('active-backup')
   const [bondSlaves, setBondSlaves] = useState<string[]>([])
   const [bondCreating, setBondCreating] = useState(false)
+  // Set by a press of Create with something missing: from then on it says so.
+  // Each opening starts without it (adjust-state-during-render).
+  const [tried, setTried] = useState(false)
+  const [prevOpen, setPrevOpen] = useState(open)
+  if (prevOpen !== open) {
+    setPrevOpen(open)
+    if (open) setTried(false)
+  }
+  const nameMissing = tried && !bondName.trim()
+  const slavesMissing = tried && bondSlaves.length === 0
 
   const toggleBondSlave = (name: string) => {
     setBondSlaves((prev) =>
@@ -60,7 +70,11 @@ export function BondCreateDialog({
   }
 
   const handleCreateBond = async () => {
-    if (!bondName.trim() || bondSlaves.length === 0) return
+    if (!bondName.trim() || bondSlaves.length === 0) {
+      setTried(true)
+      document.getElementById(!bondName.trim() ? 'bond-name' : 'bond-slaves')?.focus()
+      return
+    }
     setBondCreating(true)
     try {
       await api.createBond({ name: bondName.trim(), mode: bondMode, slaves: bondSlaves })
@@ -100,7 +114,10 @@ export function BondCreateDialog({
               onChange={(e) => setBondName(e.target.value)}
               placeholder="bond0"
               className="pl-3 h-9 rounded-xl bg-secondary/50 border-0 text-base md:text-[13px] font-mono"
+              aria-invalid={nameMissing || undefined}
+              aria-describedby={nameMissing ? 'bond-name-note' : undefined}
             />
+            {nameMissing && <p id="bond-name-note" className="text-[12px] text-destructive">{t('network.required')}</p>}
           </div>
 
           <div className="space-y-2">
@@ -120,12 +137,12 @@ export function BondCreateDialog({
           </div>
 
           <div className="space-y-2">
-            <Label className="text-[13px]">{t('network.bondSlaves')}</Label>
+            <Label id="bond-slaves-label" className="text-[13px]">{t('network.bondSlaves')}</Label>
             {availableSlaves.length === 0 ? (
               <p className="text-[13px] text-muted-foreground">{t('network.noAvailableSlaves')}</p>
             ) : (
-              <div className="space-y-1">
-                {availableSlaves.map((iface) => (
+              <div className="space-y-1" role="group" aria-labelledby="bond-slaves-label" aria-describedby={slavesMissing ? 'bond-slaves-note' : undefined}>
+                {availableSlaves.map((iface, i) => (
                   <label
                     key={iface.name}
                     className={`flex items-center gap-3 px-3 py-2 rounded-xl cursor-pointer transition ${
@@ -136,6 +153,7 @@ export function BondCreateDialog({
                   >
                     <input
                       type="checkbox"
+                      id={i === 0 ? 'bond-slaves' : undefined}
                       checked={bondSlaves.includes(iface.name)}
                       onChange={() => toggleBondSlave(iface.name)}
                       className="rounded"
@@ -148,6 +166,7 @@ export function BondCreateDialog({
                 ))}
               </div>
             )}
+            {slavesMissing && <p id="bond-slaves-note" className="text-[12px] text-destructive">{t('network.required')}</p>}
           </div>
         </div>
 
@@ -158,7 +177,7 @@ export function BondCreateDialog({
           <Button
             className="rounded-xl"
             onClick={handleCreateBond}
-            disabled={bondCreating || !bondName.trim() || bondSlaves.length === 0}
+            disabled={bondCreating || availableSlaves.length === 0}
           >
             {bondCreating && <Loader2 className="h-3.5 w-3.5 animate-spin" />}
             {t('common.create')}

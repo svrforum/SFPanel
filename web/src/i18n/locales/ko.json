@@ -3245,6 +3245,7 @@
     "noAvailableSlaves": "본딩에 사용할 수 있는 인터페이스가 없습니다",
     "applyConfigCaution": "설정 적용 중 네트워크가 일시적으로 중단될 수 있습니다. 대체 접속 수단을 확보하세요.",
     "copyFailed": "클립보드에 복사하지 못했습니다",
+    "required": "필수 항목입니다",
     "wireguard": {
       "notInstalled": "WireGuard가 설치되지 않았습니다",
       "notInstalledDesc": "빠르고 현대적인 VPN 프로토콜입니다. 설치하여 VPN 연결을 관리하세요.",
@@ -3962,6 +3963,7 @@
       "fetchFailed": "RAID 정보를 불러올 수 없습니다",
       "toolMissing": "mdadm이 설치되어 있지 않습니다.",
       "noUnusedDisks": "사용 가능한 미사용 디스크/파티션이 없습니다 (마운트포인트가 없는 장치만 선택할 수 있습니다).",
+      "pickTwo": "장치를 두 개 이상 고르세요",
       "addDiskDescription": "어레이 {{array}}에 디스크를 추가합니다.",
       "arrayCount": "{{count}}개 어레이"
     },
@@ -4090,6 +4092,7 @@
     "toolMissingHint": "터미널에서 아래 명령으로 설치한 뒤 다시 시도하세요.",
     "noFreeDevices": "고를 수 있는 장치가 없습니다. 마운트되지 않았고 파티션·LVM·RAID·스왑에 쓰이지 않는 디스크와 파티션만 나옵니다.",
     "pickDevice": "장치를 고르세요",
+    "required": "필수 항목입니다",
     "facts": {
       "fstype": "지금 있는 파일시스템",
       "none": "찾지 못함",

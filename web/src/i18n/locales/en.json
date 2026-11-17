@@ -3257,6 +3257,7 @@
     "noAvailableSlaves": "No available interfaces for bonding",
     "applyConfigCaution": "Network may be temporarily unavailable while changes are applied. Make sure you have alternative access.",
     "copyFailed": "Could not copy to the clipboard",
+    "required": "Required",
     "wireguard": {
       "notInstalled": "WireGuard is not installed",
       "notInstalledDesc": "A fast and modern VPN protocol. Install to manage VPN connections.",
@@ -3978,6 +3979,7 @@
       "fetchFailed": "Failed to load RAID info",
       "toolMissing": "mdadm is not installed.",
       "noUnusedDisks": "No unused disks or partitions available (only devices without a mount point can be selected).",
+      "pickTwo": "Pick at least two devices",
       "addDiskDescription": "Add a disk to array {{array}}.",
       "arrayCount_one": "{{count}} array",
       "arrayCount_other": "{{count}} arrays"
@@ -4107,6 +4109,7 @@
     "toolMissingHint": "Install it from a terminal with the command below, then try again.",
     "noFreeDevices": "No device to pick. Only disks and partitions that are not mounted and not used by partitions, LVM, RAID or swap are listed.",
     "pickDevice": "Pick a device",
+    "required": "Required",
     "facts": {
       "fstype": "File system on it now",
       "none": "None found",

@@ -29,6 +29,8 @@ import {
 } from '@/components/ui/dialog'
 import { TypeToConfirmDialog } from '@/components/TypeToConfirmDialog'
 import { NativeSelect } from './components/NativeSelect'
+import { FieldNote } from './components/FieldNote'
+import { focusFirst } from './focusFirst'
 import { TabLoading, RefreshButton } from './components/TabToolbar'
 
 import type { BlockDevice } from '@/types/api'
@@ -52,6 +54,8 @@ export default function DiskPartitions() {
   const [newEnd, setNewEnd] = useState('')
   const [newFsType, setNewFsType] = useState('ext4')
   const [newFormat, setNewFormat] = useState(true)
+  // Set by a press of Create with a field empty: from then on the field says so.
+  const [createTried, setCreateTried] = useState(false)
 
   const fetchDisks = useCallback(async () => {
     try {
@@ -86,6 +90,7 @@ export default function DiskPartitions() {
     setNewEnd('')
     setNewFsType('ext4')
     setNewFormat(true)
+    setCreateTried(false)
   }
 
   const { run: runCreate, loading: creating } = useApiAction(
@@ -103,8 +108,16 @@ export default function DiskPartitions() {
     },
   )
 
+  const startMissing = createTried && !newStart.trim()
+  const endMissing = createTried && !newEnd.trim()
+
   const handleCreate = async () => {
-    if (!selectedDisk || !newStart.trim() || !newEnd.trim()) return
+    if (!selectedDisk) return
+    if (!newStart.trim() || !newEnd.trim()) {
+      setCreateTried(true)
+      focusFirst([['part-start', !newStart.trim()], ['part-end', !newEnd.trim()]])
+      return
+    }
     const result = await runCreate(selectedDisk, {
       start: newStart.trim(),
       end: newEnd.trim(),
@@ -182,7 +195,7 @@ export default function DiskPartitions() {
         </div>
         <div className="flex flex-wrap items-center gap-2">
           <RefreshButton onClick={fetchDisks} loading={loading} />
-          <Button size="sm" onClick={() => setCreateOpen(true)} disabled={!selectedDisk} className="rounded-xl">
+          <Button size="sm" onClick={() => { setCreateTried(false); setCreateOpen(true) }} disabled={!selectedDisk} className="rounded-xl">
             <Plus />
             {t('disk.partitions.createPartition')}
           </Button>
@@ -297,8 +310,10 @@ export default function DiskPartitions() {
                 placeholder="0%"
                 value={newStart}
                 onChange={(e) => setNewStart(e.target.value)}
+                aria-invalid={startMissing || undefined}
+                aria-describedby="part-start-note"
               />
-              <p className="text-[12px] text-muted-foreground">{t('disk.partitions.startHint')}</p>
+              <FieldNote id="part-start-note" missing={startMissing} hint={t('disk.partitions.startHint')} />
             </div>
             <div className="space-y-2">
               <Label htmlFor="part-end">{t('disk.partitions.end')}</Label>
@@ -307,8 +322,10 @@ export default function DiskPartitions() {
                 placeholder="100%"
                 value={newEnd}
                 onChange={(e) => setNewEnd(e.target.value)}
+                aria-invalid={endMissing || undefined}
+                aria-describedby="part-end-note"
               />
-              <p className="text-[12px] text-muted-foreground">{t('disk.partitions.endHint')}</p>
+              <FieldNote id="part-end-note" missing={endMissing} hint={t('disk.partitions.endHint')} />
             </div>
             <div className="space-y-2">
               <Label htmlFor="part-fs">{t('disk.partitions.fsType')}</Label>
@@ -337,7 +354,7 @@ export default function DiskPartitions() {
             <Button variant="outline" onClick={() => { setCreateOpen(false); resetCreateForm() }}>
               {t('common.cancel')}
             </Button>
-            <Button onClick={() => void handleCreate()} disabled={creating || !newStart.trim() || !newEnd.trim()}>
+            <Button onClick={() => void handleCreate()} disabled={creating}>
               {creating ? t('common.creating') : t('common.create')}
             </Button>
           </DialogFooter>
