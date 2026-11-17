@@ -225,7 +225,7 @@ export default function Security() {
     <div className="space-y-6 mt-6">
       {/* Change Password */}
       <div className="bg-card rounded-2xl p-6 card-shadow">
-        <h3 className="text-[15px] font-semibold">{t('settings.changePassword')}</h3>
+        <h2 className="text-[15px] font-semibold">{t('settings.changePassword')}</h2>
         <p className="text-[13px] text-muted-foreground mt-1 mb-4">{t('settings.changePasswordDescription')}</p>
         <form onSubmit={handleChangePassword} className="space-y-4 max-w-md">
           <div className="space-y-2">
@@ -285,7 +285,7 @@ export default function Security() {
       {/* 2FA Management */}
       <div className="bg-card rounded-2xl p-6 card-shadow">
         <div className="flex items-center gap-3">
-          <h3 className="text-[15px] font-semibold">{t('settings.twoFA')}</h3>
+          <h2 className="text-[15px] font-semibold">{t('settings.twoFA')}</h2>
           {twoFAEnabled === true ? (
             <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[12px] font-medium bg-success/10 text-success">{t('settings.twoFAEnabled')}</span>
           ) : twoFAEnabled === false ? (
@@ -425,7 +425,7 @@ export default function Security() {
       {/* Recovery Codes */}
       {twoFAEnabled && (
         <div className="bg-card rounded-2xl p-6 card-shadow">
-          <h3 className="text-[15px] font-semibold">{t('settings.recoveryCodes.title')}</h3>
+          <h2 className="text-[15px] font-semibold">{t('settings.recoveryCodes.title')}</h2>
           <p className="text-[13px] text-muted-foreground mt-1 mb-4">{t('settings.recoveryCodes.description')}</p>
 
           {recoveryGenerated ? (

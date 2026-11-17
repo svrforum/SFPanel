@@ -166,7 +166,7 @@ export default function Tuning() {
       <div className="bg-card rounded-2xl p-5 card-shadow">
         <div className="flex items-center gap-2 mb-4">
           <Cpu className="h-4 w-4 text-muted-foreground" />
-          <h3 className="text-[15px] font-semibold">{t('settings.tuning.systemSpecs')}</h3>
+          <h2 className="text-[15px] font-semibold">{t('settings.tuning.systemSpecs')}</h2>
         </div>
         <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
           <div className="space-y-1">
@@ -189,7 +189,7 @@ export default function Tuning() {
         <div className="flex items-center justify-between mb-3">
           <div className="flex items-center gap-2">
             <Zap className="h-4 w-4 text-primary" />
-            <h3 className="text-[15px] font-semibold">{t('settings.tuning.optimizationStatus')}</h3>
+            <h2 className="text-[15px] font-semibold">{t('settings.tuning.optimizationStatus')}</h2>
           </div>
           <span className="text-[13px] font-semibold text-primary">
             {status.applied} / {status.total_params}
@@ -263,7 +263,7 @@ export default function Tuning() {
             <AlertTriangle className="h-4 w-4 text-warning" />
           </div>
           <div className="min-w-0">
-            <h3 className="text-[15px] font-semibold">{t(`settings.tuning.advisory.${advisory.id}.title`)}</h3>
+            <h2 className="text-[15px] font-semibold">{t(`settings.tuning.advisory.${advisory.id}.title`)}</h2>
             <p className="text-[12px] text-muted-foreground mt-0.5">{t(`settings.tuning.advisory.${advisory.id}.body`, { device: advisory.detail })}</p>
           </div>
         </div>
@@ -277,7 +277,7 @@ export default function Tuning() {
               <Info className="h-4 w-4 text-muted-foreground" />
             </div>
             <div className="min-w-0">
-              <h3 className="text-[15px] font-semibold">{t('settings.tuning.managedTitle')}</h3>
+              <h2 className="text-[15px] font-semibold">{t('settings.tuning.managedTitle')}</h2>
               <p className="text-[12px] text-muted-foreground mt-0.5">{t('settings.tuning.managedDesc')}</p>
             </div>
           </div>
@@ -303,7 +303,7 @@ export default function Tuning() {
               <Info className="h-4 w-4 text-muted-foreground" />
             </div>
             <div className="min-w-0">
-              <h3 className="text-[15px] font-semibold">{t('settings.tuning.operatorTitle')}</h3>
+              <h2 className="text-[15px] font-semibold">{t('settings.tuning.operatorTitle')}</h2>
               <p className="text-[12px] text-muted-foreground mt-0.5">{t('settings.tuning.operatorDesc')}</p>
             </div>
           </div>
@@ -344,7 +344,7 @@ export default function Tuning() {
                   <Icon className="h-4 w-4" style={{ color: meta.color }} />
                 </div>
                 <div className="min-w-0">
-                  <h3 className="text-[15px] font-semibold">
+                  <h2 className="text-[15px] font-semibold">
                     <button
                       type="button"
                       aria-expanded={isExpanded}
@@ -354,7 +354,7 @@ export default function Tuning() {
                     >
                       {t(`settings.tuning.cat.${cat.name}`)}
                     </button>
-                  </h3>
+                  </h2>
                   <p className="text-[12px] text-muted-foreground">
                     {t(`settings.tuning.catDesc.${cat.name}`)}
                   </p>

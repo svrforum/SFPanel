@@ -64,7 +64,7 @@ export default function TLSCertificate() {
   if (loadError) {
     return (
       <div className="bg-card rounded-2xl p-6 card-shadow">
-        <h3 className="text-[15px] font-semibold mb-3">{t('settings.tls.title', { defaultValue: 'HTTPS certificate' })}</h3>
+        <h2 className="text-[15px] font-semibold mb-3">{t('settings.tls.title', { defaultValue: 'HTTPS certificate' })}</h2>
         <ListLoadState loading={false} error={loadError} errorTitle={t('settings.tls.loadFailed')} onRetry={retry} />
       </div>
     )
@@ -78,10 +78,10 @@ export default function TLSCertificate() {
 
   return (
     <div className="bg-card rounded-2xl p-6 card-shadow">
-      <h3 className="text-[15px] font-semibold flex items-center gap-2">
+      <h2 className="text-[15px] font-semibold flex items-center gap-2">
         <ShieldCheck className="h-4 w-4 text-success" aria-hidden="true" />
         {t('settings.tls.title', { defaultValue: 'HTTPS certificate' })}
-      </h3>
+      </h2>
       <p className="text-[13px] text-muted-foreground mt-1 mb-4">
         {t('settings.tls.description', {
           defaultValue:

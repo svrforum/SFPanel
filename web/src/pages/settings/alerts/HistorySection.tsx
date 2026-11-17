@@ -88,7 +88,7 @@ export function HistorySection() {
     <div className="bg-card rounded-2xl p-6 card-shadow">
       <div className="flex items-center justify-between mb-4">
         <div>
-          <h3 className="text-[15px] font-semibold">{t('settings.alerts.history.title')}</h3>
+          <h2 className="text-[15px] font-semibold">{t('settings.alerts.history.title')}</h2>
           <p className="text-[13px] text-muted-foreground mt-1">{t('settings.alerts.history.description')}</p>
         </div>
         {history.length > 0 && (

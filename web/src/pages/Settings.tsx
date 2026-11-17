@@ -138,7 +138,8 @@ export default function Settings() {
       )}
 
       <Tabs value={activeTab} onValueChange={handleTabChange} className="w-full">
-        <TabsList className="bg-secondary/50 rounded-xl p-1 h-auto">
+        {/* One tab (the cluster-wide half) is no choice: the strip is not drawn. */}
+        <TabsList className={cn('bg-secondary/50 rounded-xl p-1 h-auto', visibleTabs.length === 1 && 'hidden')}>
           {visibleTabs.includes('account') && <TabsTrigger value="account" className="rounded-lg text-[13px] px-4 py-2">{t('settings.tabAccount')}</TabsTrigger>}
           {visibleTabs.includes('system') && <TabsTrigger value="system" className="rounded-lg text-[13px] px-4 py-2">{t('settings.tabSystem')}</TabsTrigger>}
           {visibleTabs.includes('alerts') && <TabsTrigger value="alerts" className="rounded-lg text-[13px] px-4 py-2">{t('settings.tabAlerts')}</TabsTrigger>}

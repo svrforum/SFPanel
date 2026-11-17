@@ -85,7 +85,7 @@ export default function Performance() {
       )}
       {/* Terminal — per-node (settings table is local SQLite, not FSM) */}
       <div className="bg-card rounded-2xl p-6 card-shadow">
-        <h3 className="text-[15px] font-semibold">{t('settings.terminal')}</h3>
+        <h2 className="text-[15px] font-semibold">{t('settings.terminal')}</h2>
         <p className="text-[13px] text-muted-foreground mt-1 mb-4">{t('settings.terminalDescription')}</p>
         <form onSubmit={handleSaveTerminalTimeout} noValidate className="space-y-4 max-w-md">
           <div className="space-y-2">
@@ -115,7 +115,7 @@ export default function Performance() {
 
       {/* File Upload — per-node */}
       <div className="bg-card rounded-2xl p-6 card-shadow">
-        <h3 className="text-[15px] font-semibold">{t('settings.fileUpload')}</h3>
+        <h2 className="text-[15px] font-semibold">{t('settings.fileUpload')}</h2>
         <p className="text-[13px] text-muted-foreground mt-1 mb-4">{t('settings.fileUploadDescription')}</p>
         <form onSubmit={handleSaveMaxUploadSize} noValidate className="space-y-4 max-w-md">
           <div className="space-y-2">

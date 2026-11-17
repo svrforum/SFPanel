@@ -219,7 +219,7 @@ export function RulesSection({ channels, channelsFailed }: { channels: AlertChan
     <div className="bg-card rounded-2xl p-6 card-shadow">
       <div className="flex items-center justify-between mb-4">
         <div>
-          <h3 className="text-[15px] font-semibold">{t('settings.alerts.rules.title')}</h3>
+          <h2 className="text-[15px] font-semibold">{t('settings.alerts.rules.title')}</h2>
           <p className="text-[13px] text-muted-foreground mt-1">{t('settings.alerts.rules.description')}</p>
         </div>
         <Button

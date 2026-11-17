@@ -41,7 +41,7 @@ export default function General() {
 
       {/* Language */}
       <div className="bg-card rounded-2xl p-6 card-shadow">
-        <h3 className="text-[15px] font-semibold">{t('settings.language')}</h3>
+        <h2 className="text-[15px] font-semibold">{t('settings.language')}</h2>
         <p className="text-[13px] text-muted-foreground mt-1 mb-4">{t('settings.languageDescription')}</p>
         <div className="flex items-center gap-2">
           <Button
@@ -67,7 +67,7 @@ export default function General() {
 
       {/* Theme */}
       <div className="bg-card rounded-2xl p-6 card-shadow">
-        <h3 className="text-[15px] font-semibold">{t('settings.theme')}</h3>
+        <h2 className="text-[15px] font-semibold">{t('settings.theme')}</h2>
         <p className="text-[13px] text-muted-foreground mt-1 mb-4">{t('settings.themeDescription')}</p>
         <div className="flex items-center gap-2">
           {themeOptions.map((opt) => (

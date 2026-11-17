@@ -360,9 +360,9 @@ export default function Maintenance({ clusterEnabled }: MaintenanceProps) {
     <div className="space-y-6 mt-6">
       {/* Panel Update */}
       <div className="bg-card rounded-2xl p-6 card-shadow" data-testid="panel-update">
-        <h3 className="text-[15px] font-semibold">
+        <h2 className="text-[15px] font-semibold">
           {clusterEnabled && updateNode ? t('settings.updateNode', { node: updateNode }) : t('settings.update')}
-        </h3>
+        </h2>
         <p className="text-[13px] text-muted-foreground mt-1 mb-4">{t('settings.updateDescription')}</p>
 
         <div className="flex items-center gap-6 mb-4">
@@ -420,7 +420,7 @@ export default function Maintenance({ clusterEnabled }: MaintenanceProps) {
 
       {/* Settings Backup */}
       <div className="bg-card rounded-2xl p-6 card-shadow">
-        <h3 className="text-[15px] font-semibold">{t('settings.backup')}</h3>
+        <h2 className="text-[15px] font-semibold">{t('settings.backup')}</h2>
         <p className="text-[13px] text-muted-foreground mt-1 mb-4">{t('settings.backupDescription')}</p>
 
         <div className="bg-secondary/40 rounded-xl p-3 mb-4">
@@ -483,7 +483,7 @@ export default function Maintenance({ clusterEnabled }: MaintenanceProps) {
 
       {/* Scheduled Backups */}
       <div className="bg-card rounded-2xl p-6 card-shadow">
-        <h3 className="text-[15px] font-semibold">{t('settings.backupSchedule.title')}</h3>
+        <h2 className="text-[15px] font-semibold">{t('settings.backupSchedule.title')}</h2>
         <p className="text-[13px] text-muted-foreground mt-1 mb-4">{t('settings.backupSchedule.description')}</p>
 
         <label className="flex items-center gap-2 mb-4 cursor-pointer">
@@ -609,7 +609,7 @@ export default function Maintenance({ clusterEnabled }: MaintenanceProps) {
 
       {/* System Info */}
       <div className="bg-card rounded-2xl p-6 card-shadow">
-        <h3 className="text-[15px] font-semibold">{t('settings.systemInfo')}</h3>
+        <h2 className="text-[15px] font-semibold">{t('settings.systemInfo')}</h2>
         <p className="text-[13px] text-muted-foreground mt-1 mb-4">{t('settings.systemInfoDescription')}</p>
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
           <div className="space-y-1">
