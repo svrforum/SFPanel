@@ -438,6 +438,7 @@
       "newStack": "New Stack",
       "noStacks": "No stacks found",
       "selectStack": "Select a stack from the list",
+      "backToList": "Back to the stack list",
       "services": "Services",
       "editor": "Editor",
       "logs": "Logs",

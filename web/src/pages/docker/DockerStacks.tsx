@@ -847,14 +847,6 @@ export default function DockerStacks({ clusterMode = false }: { clusterMode?: bo
                 )}
                 <div className="flex-1" />
                 <Button
-                  size="sm" variant="ghost"
-                  className="rounded-xl h-7 px-2 text-[12px]"
-                  onClick={() => navigate(`${basePath}/${p.name}`)}
-                >
-                  <FileCode className="h-3 w-3" />
-                  {t('docker.stacks.editor')}
-                </Button>
-                <Button
                   variant="ghost" size="icon"
                   aria-label={t('common.delete')}
                   onClick={() => setDeleteTarget(p)}
@@ -905,6 +897,7 @@ export default function DockerStacks({ clusterMode = false }: { clusterMode?: bo
                     <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-[12px] font-medium shrink-0 ${
                       selectedProject.real_status === 'running' ? 'bg-success/10 text-success' :
                       selectedProject.real_status === 'partial' ? 'bg-warning/10 text-warning' :
+                  aria-label={t('docker.stacks.backToList')}
                       'bg-secondary text-muted-foreground'
                     }`}>
                       {t(`docker.stacks.${selectedProject.real_status}`)}
@@ -920,7 +913,7 @@ export default function DockerStacks({ clusterMode = false }: { clusterMode?: bo
                 {selectedProject?.real_status !== 'running' && (
                   <Button
                     size="sm"
-                    className="rounded-xl bg-success hover:bg-success/90 text-white"
+                    className="rounded-xl"
                     disabled={actionLoading === selectedName}
                     onClick={() => handleUp(selectedName)}
                   >
@@ -1089,15 +1082,15 @@ export default function DockerStacks({ clusterMode = false }: { clusterMode?: bo
             {/* Tabs */}
             <Tabs value={mainTab} onValueChange={(v) => setMainTab(v as 'services' | 'editor' | 'logs')}>
               <TabsList className="bg-secondary/50 rounded-xl p-1">
-                <TabsTrigger value="services" className="rounded-lg text-[13px] data-[state=active]:text-success">
+                <TabsTrigger value="services" className="rounded-lg text-[13px]">
                   <Play className="h-3.5 w-3.5 mr-1" />
                   {t('docker.stacks.services')}
                 </TabsTrigger>
-                <TabsTrigger value="editor" className="rounded-lg text-[13px] data-[state=active]:text-primary">
+                <TabsTrigger value="editor" className="rounded-lg text-[13px]">
                   <FileCode className="h-3.5 w-3.5 mr-1" />
                   {t('docker.stacks.editor')}
                 </TabsTrigger>
-                <TabsTrigger value="logs" className="rounded-lg text-[13px] data-[state=active]:text-warning">
+                <TabsTrigger value="logs" className="rounded-lg text-[13px]">
                   <ScrollText className="h-3.5 w-3.5 mr-1" />
                   {t('docker.stacks.logs')}
                 </TabsTrigger>
@@ -1106,7 +1099,7 @@ export default function DockerStacks({ clusterMode = false }: { clusterMode?: bo
               <TabsContent value="services">
                 {servicesError && <ListErrorBanner message={servicesError} onRetry={() => selectedName && void fetchServices(selectedName)} />}
                 {/* Desktop table */}
-                <div className="hidden md:block bg-card rounded-2xl card-shadow overflow-hidden border-t-2 border-t-success">
+                <div className="hidden md:block bg-card rounded-2xl card-shadow overflow-hidden">
                   <Table>
                     <TableHeader>
                       <TableRow className="border-border/50">
