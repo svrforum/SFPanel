@@ -105,3 +105,23 @@ test('an app that serves TLS itself is opened over https', async ({ page }) => {
   await dialog.getByRole('button', { name: /^Install/ }).first().click()
   await expect(dialog.getByText(/^https:\/\/localhost:81$/)).toBeVisible()
 })
+
+// A detail that failed to load read "No apps found" in the dialog, with
+// nothing to try next.
+test('a detail that fails to load says so and offers a retry', async ({ page }) => {
+  await mock(page, { app: app('example'), compose: 'services: {}\n', readme: '', installed: false })
+  let fail = true
+  await page.route('**/api/v1/appstore/apps/example', async (route) => {
+    if (fail) await route.fulfill({ status: 502, json: { success: false, error: { code: 'INTERNAL_ERROR', message: 'catalog fetch timed out' } } })
+    else await route.fallback()
+  })
+  await page.goto('/appstore/example')
+  const dialog = page.getByRole('dialog')
+  await expect(dialog.getByText('Could not load the app details')).toBeVisible()
+  await expect(dialog.getByText('catalog fetch timed out')).toBeVisible()
+  await expect(dialog.getByText('No apps found')).toHaveCount(0)
+  fail = false
+  await dialog.getByRole('button', { name: 'Retry' }).click()
+  await expect(dialog.getByRole('heading', { name: 'example', exact: true }).last()).toBeVisible()
+  await expect(dialog.getByText('Could not load the app details')).toHaveCount(0)
+})

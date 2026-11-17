@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback, useRef } from 'react'
 import { useTranslation } from 'react-i18next'
-import { useNavigate, useParams } from 'react-router-dom'
+import { Link, useNavigate, useParams } from 'react-router-dom'
 import { Search, RotateCcw, Loader2, Package, Info, ChevronDown, ChevronUp, X, AlertCircle, Star, ArrowDownUp, CheckCircle2 } from 'lucide-react'
 import { toast } from 'sonner'
 import { api } from '@/lib/api'
@@ -32,10 +32,6 @@ export default function AppStore() {
 
   // The URL (/appstore/:appId) is the source of truth for which detail is open.
   const selectedAppId = appId ?? null
-
-  const openApp = useCallback((id: string) => {
-    navigate(`/appstore/${id}`)
-  }, [navigate])
 
   const closeApp = useCallback(() => {
     navigate('/appstore')
@@ -140,7 +136,7 @@ export default function AppStore() {
   return (
     <div className="space-y-6">
       {stale && (
-        <div className="flex items-center gap-2 rounded-xl bg-amber-500/10 px-3 py-2 text-[13px] text-amber-600 ring-1 ring-amber-500/20">
+        <div className="flex items-center gap-2 rounded-xl bg-warning/10 px-3 py-2 text-[13px] text-warning ring-1 ring-warning/20">
           <AlertCircle className="h-4 w-4 shrink-0" />
           <span>{t('appStore.staleCatalog')}</span>
         </div>
@@ -170,6 +166,7 @@ export default function AppStore() {
       {/* How it works */}
       <div className="bg-card rounded-2xl card-shadow overflow-hidden">
         <button
+          aria-expanded={showGuide}
           onClick={() => setShowGuide(!showGuide)}
           className="w-full flex items-center gap-2.5 px-4 py-3 text-left hover:bg-secondary/30 transition-colors outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-0"
         >
@@ -203,7 +200,7 @@ export default function AppStore() {
             </div>
             <div className="flex flex-wrap gap-x-4 gap-y-1 pt-1">
               <span className="text-[12px] text-muted-foreground">
-                <span className="font-medium text-foreground">{t('appStore.guidePath')}</span> /opt/stacks/{'<app-id>'}/
+                <span className="font-medium text-foreground">{t('appStore.guidePath')}</span> {t('appStore.guidePathValue')}
               </span>
               <span className="text-[12px] text-muted-foreground">
                 <span className="font-medium text-foreground">{t('appStore.guideFiles')}</span> docker-compose.yml, .env
@@ -219,10 +216,11 @@ export default function AppStore() {
       {/* Shared search + sort/filter controls */}
       <div className="flex flex-wrap items-center justify-end gap-2">
         <button
+          aria-pressed={installedOnly}
           onClick={() => setInstalledOnly((v) => !v)}
           className={`inline-flex items-center gap-1.5 h-9 px-3 rounded-xl text-[13px] font-medium transition-colors outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-0 ${
             installedOnly
-              ? 'bg-success/10 text-success'
+              ? 'bg-success/10 text-success ring-1 ring-success'
               : 'bg-secondary/50 text-muted-foreground hover:bg-secondary'
           }`}
         >
@@ -232,7 +230,7 @@ export default function AppStore() {
         <div className="relative inline-flex items-center">
           <ArrowDownUp className="absolute left-3 h-3.5 w-3.5 text-muted-foreground pointer-events-none" />
           <select
-            className="appearance-none h-9 pl-8 pr-8 rounded-xl bg-secondary/50 border-0 text-[13px] text-foreground cursor-pointer focus:outline-none focus:ring-1 focus:ring-ring"
+            className="appearance-none h-9 pl-8 pr-8 rounded-xl bg-secondary/50 border-0 text-base md:text-[13px] text-foreground cursor-pointer focus:outline-none focus:ring-1 focus:ring-ring"
             value={sortBy}
             onChange={(e) => setSortBy(e.target.value as 'featured' | 'name' | 'category')}
             aria-label={t('appStore.sortBy')}
@@ -246,7 +244,8 @@ export default function AppStore() {
         <div className="relative flex items-center w-full sm:w-64">
           <Search className="absolute left-3 h-4 w-4 text-muted-foreground pointer-events-none" />
           <Input
-            className="pl-9 h-9 rounded-xl bg-secondary/50 border-0 text-[13px] w-full"
+            className="pl-9 h-9 rounded-xl bg-secondary/50 border-0 text-base md:text-[13px] w-full"
+            aria-label={t('appStore.search')}
             placeholder={t('appStore.searchPlaceholder')}
             value={search}
             onChange={(e) => setSearch(e.target.value)}
@@ -254,11 +253,13 @@ export default function AppStore() {
         </div>
       </div>
 
-      {/* Category filter */}
-      <div className="flex gap-2 flex-wrap">
+      {/* Category filter: one scrolling row on a phone, where wrapping took
+          five lines before the first app. */}
+      <div className="-mx-1 flex gap-2 overflow-x-auto px-1 pb-1 sm:flex-wrap sm:overflow-visible">
         <button
+          aria-pressed={selectedCategory === ''}
           onClick={() => handleCategoryClick('')}
-          className={`px-3 py-1.5 rounded-full text-[13px] font-medium transition-colors outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-0 ${
+          className={`shrink-0 px-3 py-1.5 rounded-full text-[13px] font-medium transition-colors outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-0 ${
             selectedCategory === ''
               ? 'bg-primary text-primary-foreground'
               : 'bg-secondary/50 text-muted-foreground hover:bg-secondary'
@@ -269,8 +270,9 @@ export default function AppStore() {
         {categories.map((cat) => (
           <button
             key={cat.id}
+            aria-pressed={selectedCategory === cat.id}
             onClick={() => handleCategoryClick(cat.id)}
-            className={`px-3 py-1.5 rounded-full text-[13px] font-medium transition-colors outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-0 ${
+            className={`shrink-0 px-3 py-1.5 rounded-full text-[13px] font-medium transition-colors outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-0 ${
               selectedCategory === cat.id
                 ? 'bg-primary text-primary-foreground'
                 : 'bg-secondary/50 text-muted-foreground hover:bg-secondary'
@@ -323,13 +325,12 @@ export default function AppStore() {
       ) : (
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
           {filteredApps.map((app) => (
+            // The name is a link stretched over the card, so the whole card
+            // opens the app; the update button sits above it as a sibling
+            // rather than a button inside a button.
             <div
               key={app.id}
-              role="button"
-              tabIndex={0}
-              onClick={() => openApp(app.id)}
-              onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); openApp(app.id) } }}
-              className="bg-card rounded-2xl p-5 card-shadow hover:card-shadow-hover cursor-pointer transition group outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-0"
+              className="relative bg-card rounded-2xl p-5 card-shadow hover:card-shadow-hover transition group has-[a:focus-visible]:ring-2 has-[a:focus-visible]:ring-ring"
             >
               <div className="flex items-start gap-4">
                 <div className="h-12 w-12 rounded-xl bg-secondary/30 p-1.5 flex items-center justify-center overflow-hidden shrink-0 group-hover:scale-105 transition-transform">
@@ -349,9 +350,11 @@ export default function AppStore() {
                 <div className="flex-1 min-w-0">
                   <div className="flex items-center justify-between gap-2">
                     <div className="flex items-center gap-1.5 min-w-0">
-                      <h3 className="text-[15px] font-semibold truncate">{app.name}</h3>
+                      <h3 className="text-[15px] font-semibold truncate">
+                        <Link to={`/appstore/${app.id}`} className="outline-none after:absolute after:inset-0 after:rounded-2xl">{app.name}</Link>
+                      </h3>
                       {app.featured && (
-                        <span className="inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded-full text-[12px] font-medium bg-amber-500/15 text-amber-600 dark:text-amber-400 shrink-0">
+                        <span className="inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded-full text-[12px] font-medium bg-warning/10 text-warning shrink-0">
                           <Star className="h-2.5 w-2.5 fill-current" />
                           {t('appStore.featured')}
                         </span>
@@ -360,8 +363,8 @@ export default function AppStore() {
                     {app.installed && updates[app.id] && (
                       <button
                         type="button"
-                        onClick={(e) => { e.stopPropagation(); navigate(`/docker/stacks/${app.id}`) }}
-                        className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[12px] font-medium bg-primary/10 text-primary outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-0"
+                        onClick={() => navigate(`/docker/stacks/${app.id}`)}
+                        className="relative z-10 inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[12px] font-medium bg-primary/10 text-primary outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-0"
                       >
                         {t('appStore.updateAvailable')}
                       </button>
