@@ -92,7 +92,13 @@
       "processes": "프로세스",
       "more": "더보기"
     },
-    "sponsor": "후원"
+    "sponsor": "후원",
+    "skipToContent": "본문으로 건너뛰기",
+    "notFound": {
+      "title": "페이지를 찾을 수 없습니다",
+      "body": "패널에 없는 주소입니다. 메뉴에서 다시 고르거나 대시보드로 가세요.",
+      "action": "대시보드로 가기"
+    }
   },
   "login": {
     "title": "SFPanel",

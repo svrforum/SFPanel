@@ -1,6 +1,6 @@
 import { lazy, Suspense, useEffect, useState } from 'react'
 import { useTranslation } from 'react-i18next'
-import { BrowserRouter, Routes, Route, Navigate, useNavigate, useLocation } from 'react-router-dom'
+import { BrowserRouter, Routes, Route, Navigate, Link, useNavigate, useLocation } from 'react-router-dom'
 import { Toaster } from '@/components/ui/sonner'
 import { api } from '@/lib/api'
 import Layout from '@/components/Layout'
@@ -68,6 +68,25 @@ function PageLoader() {
   return (
     <div role="status" aria-label={t('common.loading')} className="flex items-center justify-center min-h-[60vh] w-full">
       <div className="h-6 w-6 border-2 border-primary border-t-transparent rounded-full animate-spin motion-reduce:animate-none" />
+    </div>
+  )
+}
+
+// An address no route claims. Without it the shell drew nothing at all — no
+// sidebar, no message — so a stale bookmark or a typo was a blank page with
+// no way back. Inside the layout, so the menu stays where it always is.
+function NotFound() {
+  const { t } = useTranslation()
+  return (
+    <div className="mx-auto max-w-md py-16 text-center space-y-3">
+      <h1 className="text-[22px] font-bold tracking-tight">{t('layout.notFound.title')}</h1>
+      <p className="text-[13px] text-muted-foreground">{t('layout.notFound.body')}</p>
+      <Link
+        to="/dashboard"
+        className="inline-flex min-h-11 items-center rounded-xl px-4 text-[13px] font-medium text-primary hover:underline focus-visible:outline-2 focus-visible:outline-ring"
+      >
+        {t('layout.notFound.action')}
+      </Link>
     </div>
   )
 }
@@ -239,6 +258,7 @@ export default function App() {
                 <Route path="terminal" element={<Terminal />} />
                 <Route path="ai" element={<Navigate to="/terminal" replace />} />
                 <Route path="settings" element={<Settings />} />
+                <Route path="*" element={<NotFound />} />
               </Route>
             </Routes>
           </Suspense>

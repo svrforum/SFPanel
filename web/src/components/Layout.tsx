@@ -1,6 +1,6 @@
-import { useState, useEffect, useCallback, useMemo, useRef } from 'react'
+import { useState, useEffect, useCallback, useLayoutEffect, useMemo, useRef } from 'react'
 import { Link, NavLink, Outlet, useNavigate, useLocation } from 'react-router-dom'
-import { LogOut, PanelLeftClose, PanelLeftOpen, Coffee } from 'lucide-react'
+import { LogOut, PanelLeftClose, PanelLeftOpen, Coffee, ArrowUpCircle } from 'lucide-react'
 
 import GithubIcon from '@/components/GithubIcon'
 import { useTranslation } from 'react-i18next'
@@ -61,6 +61,39 @@ export default function Layout() {
   const terminalCompact = useTerminalCompact()
   const [terminalFocus] = useTerminalFocus()
   const sidebarHidden = isTerminal && (terminalCompact || terminalFocus)
+
+  // The page's own name in the tab and the history list: it said "SFPanel" on
+  // every route. A section's sub-pages carry the section's name.
+  const section = navItems.find((i) => location.pathname === i.to || location.pathname.startsWith(i.to + '/'))
+  const pageLabel = section ? t(section.labelKey) : location.pathname === '/' ? null : t('layout.notFound.title')
+  const pageTitle = pageLabel ? `${pageLabel} · SFPanel` : 'SFPanel'
+  // Twice, around the terminal page's own effect, which prefixes "(n) " to the
+  // title it finds and puts that title back on cleanup. The layout effect runs
+  // before any page's passive effect in the same commit, so the page finds
+  // this title; the passive one runs after the page's cleanup on the way out,
+  // which would otherwise leave the terminal's name on the next page.
+  useLayoutEffect(() => {
+    document.title = pageTitle
+  }, [pageTitle])
+  useEffect(() => {
+    if (!isTerminal) document.title = pageTitle
+  }, [pageTitle, isTerminal])
+
+  // Moving to another section takes focus to the new view, as a page load
+  // would: it was left on the link in the sidebar or on <body>, so a keyboard
+  // or screen-reader user started from the top of the menu again. Not on the
+  // first load, not for a sub-tab or a query string within one section (the
+  // tab just pressed keeps focus), and not when the page already put focus
+  // somewhere inside the view itself (the terminal, an autofocused field).
+  const mainRef = useRef<HTMLElement>(null)
+  const sectionKey = section?.to ?? location.pathname
+  const shownSection = useRef(sectionKey)
+  useEffect(() => {
+    if (shownSection.current === sectionKey) return
+    shownSection.current = sectionKey
+    const main = mainRef.current
+    if (main && !main.contains(document.activeElement)) main.focus({ preventScroll: true })
+  }, [sectionKey])
 
   const handleNodeChanged = useCallback((nodeId: string | null) => {
     setNodeKey((k) => k + 1)
@@ -163,6 +196,8 @@ export default function Layout() {
     }
   }, [])
 
+  const versionState = updateAvailable ? t('layout.updateAvailable') : panelVersion ? t('layout.upToDate') : ''
+
   const handleLogout = () => {
     // Fire-and-forget — even if the server is unreachable we still want to
     // navigate away. api.logout() clears local state on its own.
@@ -172,6 +207,14 @@ export default function Layout() {
 
   return (
     <div className="flex overflow-hidden bg-background" style={{ height: 'var(--app-h, 100dvh)' }}>
+      {/* First thing a keyboard reaches: past the whole menu to the view. */}
+      <a
+        href="#main-content"
+        onClick={(e) => { e.preventDefault(); mainRef.current?.focus() }}
+        className="sr-only focus:not-sr-only focus:fixed focus:left-3 focus:top-3 focus:z-[100] focus:rounded-xl focus:bg-card focus:px-4 focus:py-2.5 focus:text-[13px] focus:font-medium focus:text-foreground focus:shadow-lg focus:outline-2 focus:outline-ring"
+      >
+        {t('layout.skipToContent')}
+      </a>
       {/* First visit only: no remembered mode yet, so neither sidebar can be
           chosen without guessing. Hold the slot rather than collapsing it. */}
       {clusterEnabled === null && !sidebarHidden && <SidebarSkeleton />}
@@ -234,19 +277,22 @@ export default function Layout() {
         <div className={cn('border-t border-border', collapsed ? 'px-2 py-2' : 'px-4 py-3')}>
           {collapsed ? (
             <div className="flex flex-col items-center gap-1.5">
+              {/* The dot's colour was all that told an update from up to
+                  date, and the name said only "Settings": the state is in
+                  the name and the title, and an update is an arrow. */}
               <button
                 onClick={() => navigate('/settings?scope=node&tab=system')}
-                title={panelVersion ? `v${panelVersion}` : 'SFPanel'}
-                aria-label={t('layout.nav.settings')}
+                title={[panelVersion ? `v${panelVersion}` : 'SFPanel', versionState].filter(Boolean).join(' · ')}
+                aria-label={[t('layout.nav.settings'), panelVersion && `v${panelVersion}`, versionState].filter(Boolean).join(' · ')}
                 className="flex flex-col items-center gap-1 w-full rounded-lg outline-none focus-visible:ring-2 focus-visible:ring-ring"
               >
                 <span className="text-[12px] font-medium text-muted-foreground">
-                  {panelVersion ? `v${panelVersion.split('.').slice(0, 2).join('.')}` : '...'}
+                  {panelVersion ? `v${panelVersion.split('.').slice(0, 2).join('.')}` : '…'}
                 </span>
                 {updateAvailable ? (
-                  <span className="h-1.5 w-1.5 rounded-full bg-primary" />
+                  <ArrowUpCircle className="h-3 w-3 text-primary" aria-hidden="true" />
                 ) : panelVersion ? (
-                  <span className="h-1.5 w-1.5 rounded-full bg-success" />
+                  <span className="h-1.5 w-1.5 rounded-full bg-success" aria-hidden="true" />
                 ) : null}
               </button>
               <div className="flex items-center gap-1 pt-0.5">
@@ -282,7 +328,7 @@ export default function Layout() {
                 <div>
                   <p className="text-[12px] font-medium text-muted-foreground">SFPanel</p>
                   <p className="text-[12px] font-semibold text-foreground/80">
-                    {panelVersion ? `v${panelVersion}` : '...'}
+                    {panelVersion ? `v${panelVersion}` : '…'}
                   </p>
                 </div>
                 {updateAvailable ? (
@@ -350,13 +396,15 @@ export default function Layout() {
         </div>
       </aside>}
 
-      <main className={cn(
+      <main id="main-content" ref={mainRef} tabIndex={-1} className={cn(
         // min-w-0 lets this flex child shrink below its content width, and
         // overflow-x-hidden stops an over-wide child (e.g. a non-wrapping
         // toolbar) from making the WHOLE page slide left/right on mobile.
         // Vertical scroll stays; intended horizontal-scroll rows keep their own
         // overflow-x-auto so they still scroll internally.
-        "flex-1 min-h-0 min-w-0",
+        // tabIndex -1 takes programmatic focus (the skip link, a section
+        // change) without a ring: nothing to press is shown focused.
+        "flex-1 min-h-0 min-w-0 outline-none",
         isTerminal ? "p-0 overflow-hidden" : "overflow-y-auto overflow-x-hidden px-5 py-4 pb-bottom-nav md:p-8 md:pb-8"
       )}>
         {/* The nodeKey key moved from <Outlet> to the boundary: remounting the

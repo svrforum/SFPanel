@@ -92,7 +92,13 @@
       "processes": "Processes",
       "more": "More"
     },
-    "sponsor": "Sponsor"
+    "sponsor": "Sponsor",
+    "skipToContent": "Skip to content",
+    "notFound": {
+      "title": "Page not found",
+      "body": "This address is not a page of the panel. Pick one from the menu, or go to the dashboard.",
+      "action": "Go to the dashboard"
+    }
   },
   "login": {
     "title": "SFPanel",
