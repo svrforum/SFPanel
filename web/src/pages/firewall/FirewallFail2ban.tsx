@@ -5,6 +5,7 @@ import { toast } from 'sonner'
 import { api } from '@/lib/api'
 import { toastWarnings } from '@/lib/warnings'
 import { useConfirm } from '@/components/ConfirmDialog'
+import { ListLoadState } from '@/components/ListLoadState'
 import { Button } from '@/components/ui/button'
 import {
   Table,
@@ -53,11 +54,15 @@ export default function FirewallFail2ban() {
   // Status
   const [status, setStatus] = useState<Fail2banStatus | null>(null)
   const [statusLoading, setStatusLoading] = useState(true)
+  // A failed status read: drawing it as "not installed" offered to install
+  // Fail2ban on a node that has it (a remote node that did not answer, say).
+  const [statusError, setStatusError] = useState<string | null>(null)
   const [installLoading, setInstallLoading] = useState(false)
 
   // Jails
   const [jails, setJails] = useState<Fail2banJail[]>([])
   const [jailsLoading, setJailsLoading] = useState(false)
+  const [jailsError, setJailsError] = useState<string | null>(null)
 
   // Selected jail detail
   const [selectedJail, setSelectedJail] = useState<string | null>(null)
@@ -83,11 +88,11 @@ export default function FirewallFail2ban() {
   const fetchStatus = useCallback(async () => {
     try {
       setStatusLoading(true)
+      setStatusError(null)
       const data = await api.getFail2banStatus()
       setStatus(data as Fail2banStatus)
     } catch (err: unknown) {
-      const message = err instanceof Error ? err.message : 'Failed to get Fail2ban status'
-      toast.error(message)
+      setStatusError(err instanceof Error ? err.message : String(err))
     } finally {
       setStatusLoading(false)
     }
@@ -96,15 +101,16 @@ export default function FirewallFail2ban() {
   const fetchJails = useCallback(async () => {
     try {
       setJailsLoading(true)
+      setJailsError(null)
       const data = await api.getFail2banJails() as { jails: Fail2banJail[]; total: number }
       setJails(data.jails || [])
     } catch (err: unknown) {
-      const message = err instanceof Error ? err.message : 'Failed to get jails'
-      toast.error(message)
+      setJailsError(err instanceof Error ? err.message : String(err))
+      toast.error(t('firewall.fail2ban.jailsLoadError'))
     } finally {
       setJailsLoading(false)
     }
-  }, [])
+  }, [t])
 
   const fetchJailDetail = useCallback(async (name: string) => {
     try {
@@ -112,12 +118,12 @@ export default function FirewallFail2ban() {
       const data = await api.getFail2banJailDetail(name) as Fail2banJail
       setJailDetail(data)
     } catch (err: unknown) {
-      const message = err instanceof Error ? err.message : 'Failed to get jail detail'
+      const message = err instanceof Error ? err.message : t('firewall.fail2ban.detailLoadFailed')
       toast.error(message)
     } finally {
       setDetailLoading(false)
     }
-  }, [])
+  }, [t])
 
   // ---------------------------------------------------------------------------
   // Actions
@@ -127,12 +133,12 @@ export default function FirewallFail2ban() {
     try {
       setInstallLoading(true)
       const result = await api.installFail2ban()
-      toast.success('Fail2ban installed successfully')
+      toast.success(t('firewall.fail2ban.installed'))
       // A repository apt could not refresh, which the install went past.
       toastWarnings(result?.warnings, t)
       await fetchStatus()
     } catch (err: unknown) {
-      const message = err instanceof Error ? err.message : 'Failed to install Fail2ban'
+      const message = err instanceof Error ? err.message : t('firewall.fail2ban.installFailed')
       toast.error(message)
     } finally {
       setInstallLoading(false)
@@ -140,6 +146,14 @@ export default function FirewallFail2ban() {
   }, [fetchStatus, t])
 
   const handleToggleJail = useCallback(async (name: string, currentlyEnabled: boolean) => {
+    // Turning a jail off stops its bans, which is no lighter than turning ufw
+    // off, and that asks first.
+    if (currentlyEnabled && !(await confirm({
+      title: t('firewall.fail2ban.disableTitle', { name }),
+      description: t('firewall.fail2ban.disableConfirm', { name }),
+      confirmLabel: t('firewall.fail2ban.disableJail'),
+      danger: true,
+    }))) return
     try {
       setTogglingJail(name)
       if (currentlyEnabled) {
@@ -153,12 +167,12 @@ export default function FirewallFail2ban() {
         await fetchJailDetail(name)
       }
     } catch (err: unknown) {
-      const message = err instanceof Error ? err.message : 'Failed to toggle jail'
+      const message = err instanceof Error ? err.message : t('firewall.fail2ban.toggleFailed')
       toast.error(message)
     } finally {
       setTogglingJail(null)
     }
-  }, [fetchJails, fetchJailDetail, selectedJail])
+  }, [confirm, t, fetchJails, fetchJailDetail, selectedJail])
 
   const handleSelectJail = useCallback((name: string) => {
     if (selectedJail === name) {
@@ -179,14 +193,14 @@ export default function FirewallFail2ban() {
     }))) return
     try {
       await api.unbanFail2banIP(jail, ip)
-      toast.success(`${ip} unbanned`)
+      toast.success(t('firewall.fail2ban.unbanned', { ip }))
       // Refresh jail detail
       if (selectedJail) {
         await fetchJailDetail(selectedJail)
       }
       await fetchJails()
     } catch (err: unknown) {
-      const message = err instanceof Error ? err.message : 'Failed to unban IP'
+      const message = err instanceof Error ? err.message : t('firewall.fail2ban.unbanFailed')
       toast.error(message)
     }
   }, [confirm, t, selectedJail, fetchJailDetail, fetchJails])
@@ -254,6 +268,177 @@ export default function FirewallFail2ban() {
     }
   }, [status, fetchJails])
 
+  // Pieces shared by the jail table and its phone cards.
+  const expandButton = (jail: Fail2banJail) => (
+    <button
+      type="button"
+      aria-expanded={selectedJail === jail.name}
+      aria-label={t('firewall.fail2ban.detailsOf', { name: jail.name })}
+      onClick={(e) => {
+        e.stopPropagation()
+        handleSelectJail(jail.name)
+      }}
+      className="rounded-md p-0.5 text-muted-foreground outline-none hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring"
+    >
+      {selectedJail === jail.name ? (
+        <ChevronUp className="h-4 w-4" />
+      ) : (
+        <ChevronDown className="h-4 w-4" />
+      )}
+    </button>
+  )
+
+  const jailState = (jail: Fail2banJail) => jail.enabled ? (
+    <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[12px] font-medium bg-success/10 text-success">
+      {t('firewall.fail2ban.enabled')}
+    </span>
+  ) : (
+    <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[12px] font-medium bg-destructive/10 text-destructive">
+      {t('firewall.fail2ban.disabled')}
+    </span>
+  )
+
+  const jailActions = (jail: Fail2banJail, align = 'justify-end') => (
+    <div className={`flex items-center gap-1 ${align}`}>
+      <Button
+        variant="outline"
+        size="sm"
+        onClick={(e) => {
+          e.stopPropagation()
+          handleToggleJail(jail.name, jail.enabled)
+        }}
+        disabled={togglingJail === jail.name}
+        className="rounded-xl text-[12px]"
+      >
+        {togglingJail === jail.name ? (
+          <Loader2 className="h-3 w-3 animate-spin" />
+        ) : (
+          <Power className="h-3 w-3" />
+        )}
+        {jail.enabled
+          ? t('firewall.fail2ban.disable')
+          : t('firewall.fail2ban.enable')}
+      </Button>
+      <Button
+        variant="ghost"
+        size="sm"
+        onClick={(e) => {
+          e.stopPropagation()
+          handleDeleteJail(jail.name)
+        }}
+        aria-label={t('firewall.fail2ban.deleteJail')}
+        className="rounded-xl text-[12px] text-destructive hover:text-destructive hover:bg-destructive/10"
+      >
+        <Trash2 className="h-3 w-3" />
+      </Button>
+    </div>
+  )
+
+  // Expanded jail detail (config + banned IPs): under the table on a wide
+  // screen, under the jail's own card on a phone.
+  const detailPanel = selectedJail && (
+    <div className="border-t border-border/50 bg-muted/20 px-5 py-4 space-y-4">
+      {/* Jail Configuration */}
+      {detailLoading ? (
+        <div className="flex items-center gap-2 py-4 text-muted-foreground text-[13px]">
+          <Loader2 className="h-3.5 w-3.5 animate-spin" />
+          {t('common.loading')}
+        </div>
+      ) : jailDetail && (
+        <>
+          {/* Config Section */}
+          <div>
+            <div className="flex items-center justify-between mb-3">
+              <h4 className="text-[13px] font-semibold flex items-center gap-2">
+                <Settings className="h-3.5 w-3.5" />
+                {t('firewall.fail2ban.config')} — <span className="font-mono">{selectedJail}</span>
+              </h4>
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => setEditTarget(jailDetail)}
+                className="rounded-xl text-[12px]"
+              >
+                <Settings className="h-3 w-3" />
+                {t('common.edit')}
+              </Button>
+            </div>
+            <div className="grid grid-cols-2 md:grid-cols-3 gap-3">
+              <div className="bg-card rounded-xl px-4 py-3 card-shadow">
+                <div className="text-[12px] text-muted-foreground uppercase tracking-wider">
+                  {t('firewall.fail2ban.maxRetry')}
+                </div>
+                <div className="text-[15px] font-semibold font-mono mt-1">
+                  {jailDetail.max_retry}
+                </div>
+              </div>
+              <div className="bg-card rounded-xl px-4 py-3 card-shadow">
+                <div className="text-[12px] text-muted-foreground uppercase tracking-wider">
+                  {t('firewall.fail2ban.banTime')}
+                </div>
+                <div className="text-[15px] font-semibold font-mono mt-1">
+                  {formatBanTime(jailDetail.ban_time)}
+                </div>
+                <div className="text-[12px] text-muted-foreground mt-0.5">
+                  {jailDetail.ban_time}{t('firewall.fail2ban.seconds')}
+                </div>
+              </div>
+              <div className="bg-card rounded-xl px-4 py-3 card-shadow">
+                <div className="text-[12px] text-muted-foreground uppercase tracking-wider">
+                  {t('firewall.fail2ban.findTime')}
+                </div>
+                <div className="text-[15px] font-semibold font-mono mt-1">
+                  {formatBanTime(jailDetail.find_time)}
+                </div>
+                <div className="text-[12px] text-muted-foreground mt-0.5">
+                  {jailDetail.find_time}{t('firewall.fail2ban.seconds')}
+                </div>
+              </div>
+            </div>
+            {jailDetail.filter && (
+              <div className="mt-2 text-[12px] text-muted-foreground">
+                {t('firewall.fail2ban.logFile')}: <span className="font-mono">{jailDetail.filter}</span>
+              </div>
+            )}
+          </div>
+
+          {/* Banned IPs Section */}
+          <div>
+            <h4 className="text-[13px] font-semibold mb-3 flex items-center gap-2">
+              <ShieldAlert className="h-3.5 w-3.5" />
+              {t('firewall.fail2ban.bannedIPs')}
+            </h4>
+            {jailDetail.banned_ips.length === 0 ? (
+              <div className="py-4 text-center text-muted-foreground text-[13px]">
+                {t('firewall.fail2ban.noBannedIPs')}
+              </div>
+            ) : (
+              <div className="space-y-1.5">
+                {jailDetail.banned_ips.map((ip) => (
+                  <div
+                    key={ip}
+                    className="flex items-center justify-between bg-card rounded-xl px-4 py-2.5 card-shadow"
+                  >
+                    <span className="text-[13px] font-mono font-medium">{ip}</span>
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={() => handleUnban(selectedJail, ip)}
+                      className="rounded-xl text-[12px] text-destructive hover:text-destructive hover:bg-destructive/10"
+                    >
+                      <Unlock className="h-3 w-3" />
+                      {t('firewall.fail2ban.unban')}
+                    </Button>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        </>
+      )}
+    </div>
+  )
+
   // ---------------------------------------------------------------------------
   // Render: Loading
   // ---------------------------------------------------------------------------
@@ -263,6 +448,19 @@ export default function FirewallFail2ban() {
       <div className="flex items-center justify-center py-12 text-muted-foreground">
         <Loader2 className="h-4 w-4 animate-spin mr-2" />
         {t('common.loading')}
+      </div>
+    )
+  }
+
+  if (statusError) {
+    return (
+      <div className="mt-4">
+        <ListLoadState
+          loading={false}
+          error={statusError}
+          errorTitle={t('firewall.fail2ban.loadError')}
+          onRetry={fetchStatus}
+        />
       </div>
     )
   }
@@ -396,16 +594,27 @@ export default function FirewallFail2ban() {
               <Loader2 className="h-4 w-4 animate-spin mr-2" />
               {t('common.loading')}
             </div>
+          ) : jailsError && jails.length === 0 ? (
+            <ListLoadState
+              loading={false}
+              error={jailsError}
+              errorTitle={t('firewall.fail2ban.jailsLoadError')}
+              onRetry={fetchJails}
+            />
           ) : jails.length === 0 ? (
             <div className="bg-card rounded-2xl card-shadow p-8 text-center text-muted-foreground text-[13px]">
               {t('firewall.fail2ban.noJails')}
             </div>
           ) : (
             <div className="bg-card rounded-2xl card-shadow overflow-hidden">
-              <Table>
+              {/* A table from md, cards below it: on a phone the delete button
+                  was past the screen's edge. */}
+              <Table className="hidden md:table">
                 <TableHeader>
                   <TableRow className="border-border/50">
-                    <TableHead className="text-[12px] text-muted-foreground uppercase tracking-wider w-8" />
+                    <TableHead className="text-[12px] text-muted-foreground uppercase tracking-wider w-8">
+                      <span className="sr-only">{t('firewall.fail2ban.details')}</span>
+                    </TableHead>
                     <TableHead className="text-[12px] text-muted-foreground uppercase tracking-wider">
                       {t('firewall.fail2ban.name')}
                     </TableHead>
@@ -425,41 +634,25 @@ export default function FirewallFail2ban() {
                 </TableHeader>
                 <TableBody>
                   {jails.map((jail) => (
+                    // The row still opens on a click for the mouse; the
+                    // keyboard and a screen reader use the button in its
+                    // first cell. role="button" on the row put the row's own
+                    // buttons inside a button and hid whether it was open.
                     <TableRow
                       key={jail.name}
-                      role="button"
-                      tabIndex={0}
                       onClick={() => handleSelectJail(jail.name)}
-                      onKeyDown={(e) => {
-                        if (e.key === 'Enter' || e.key === ' ') {
-                          e.preventDefault()
-                          handleSelectJail(jail.name)
-                        }
-                      }}
-                      className={`cursor-pointer transition-colors outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring ${
+                      className={`cursor-pointer transition-colors ${
                         selectedJail === jail.name ? 'bg-primary/5' : 'hover:bg-muted/50'
                       }`}
                     >
                       <TableCell className="text-muted-foreground">
-                        {selectedJail === jail.name ? (
-                          <ChevronUp className="h-4 w-4" />
-                        ) : (
-                          <ChevronDown className="h-4 w-4" />
-                        )}
+                        {expandButton(jail)}
                       </TableCell>
                       <TableCell className="text-[13px] font-medium font-mono">
                         {jail.name}
                       </TableCell>
                       <TableCell>
-                        {jail.enabled ? (
-                          <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[12px] font-medium bg-success/10 text-success">
-                            {t('firewall.fail2ban.enabled')}
-                          </span>
-                        ) : (
-                          <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[12px] font-medium bg-destructive/10 text-destructive">
-                            {t('firewall.fail2ban.disabled')}
-                          </span>
-                        )}
+                        {jailState(jail)}
                       </TableCell>
                       <TableCell className="text-[13px] font-mono">
                         {jail.banned_count}
@@ -468,148 +661,36 @@ export default function FirewallFail2ban() {
                         {jail.total_banned}
                       </TableCell>
                       <TableCell className="text-right">
-                        <div className="flex items-center justify-end gap-1">
-                          <Button
-                            variant="outline"
-                            size="sm"
-                            onClick={(e) => {
-                              e.stopPropagation()
-                              handleToggleJail(jail.name, jail.enabled)
-                            }}
-                            disabled={togglingJail === jail.name}
-                            className="rounded-xl text-[12px]"
-                          >
-                            {togglingJail === jail.name ? (
-                              <Loader2 className="h-3 w-3 animate-spin" />
-                            ) : (
-                              <Power className="h-3 w-3" />
-                            )}
-                            {jail.enabled
-                              ? t('firewall.fail2ban.disable')
-                              : t('firewall.fail2ban.enable')}
-                          </Button>
-                          <Button
-                            variant="ghost"
-                            size="sm"
-                            onClick={(e) => {
-                              e.stopPropagation()
-                              handleDeleteJail(jail.name)
-                            }}
-                            aria-label={t('firewall.fail2ban.deleteJail')}
-                            className="rounded-xl text-[12px] text-destructive hover:text-destructive hover:bg-destructive/10"
-                          >
-                            <Trash2 className="h-3 w-3" />
-                          </Button>
-                        </div>
+                        {jailActions(jail)}
                       </TableCell>
                     </TableRow>
                   ))}
                 </TableBody>
               </Table>
+              <div className="hidden md:block">{detailPanel}</div>
 
-              {/* Expanded Jail Detail: Config + Banned IPs */}
-              {selectedJail && (
-                <div className="border-t border-border/50 bg-muted/20 px-5 py-4 space-y-4">
-                  {/* Jail Configuration */}
-                  {detailLoading ? (
-                    <div className="flex items-center gap-2 py-4 text-muted-foreground text-[13px]">
-                      <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                      {t('common.loading')}
+              <ul className="md:hidden divide-y divide-border">
+                {jails.map((jail) => (
+                  <li key={jail.name} className={selectedJail === jail.name ? 'bg-primary/5' : ''}>
+                    <div className="flex items-start gap-2 p-3">
+                      {expandButton(jail)}
+                      <div className="min-w-0 flex-1 space-y-1.5">
+                        <div className="flex flex-wrap items-center gap-2">
+                          <span className="text-[13px] font-medium font-mono break-all">{jail.name}</span>
+                          {jailState(jail)}
+                        </div>
+                        <p className="text-[12px] text-muted-foreground">
+                          {t('firewall.fail2ban.bannedCount')} <span className="font-mono text-foreground">{jail.banned_count}</span>
+                          {' · '}
+                          {t('firewall.fail2ban.totalBanned')} <span className="font-mono">{jail.total_banned}</span>
+                        </p>
+                        {jailActions(jail, 'justify-start')}
+                      </div>
                     </div>
-                  ) : jailDetail && (
-                    <>
-                      {/* Config Section */}
-                      <div>
-                        <div className="flex items-center justify-between mb-3">
-                          <h4 className="text-[13px] font-semibold flex items-center gap-2">
-                            <Settings className="h-3.5 w-3.5" />
-                            {t('firewall.fail2ban.config')} — <span className="font-mono">{selectedJail}</span>
-                          </h4>
-                          <Button
-                            variant="outline"
-                            size="sm"
-                            onClick={() => setEditTarget(jailDetail)}
-                            className="rounded-xl text-[12px]"
-                          >
-                            <Settings className="h-3 w-3" />
-                            {t('common.edit')}
-                          </Button>
-                        </div>
-                        <div className="grid grid-cols-2 md:grid-cols-3 gap-3">
-                          <div className="bg-card rounded-xl px-4 py-3 card-shadow">
-                            <div className="text-[12px] text-muted-foreground uppercase tracking-wider">
-                              {t('firewall.fail2ban.maxRetry')}
-                            </div>
-                            <div className="text-[15px] font-semibold font-mono mt-1">
-                              {jailDetail.max_retry}
-                            </div>
-                          </div>
-                          <div className="bg-card rounded-xl px-4 py-3 card-shadow">
-                            <div className="text-[12px] text-muted-foreground uppercase tracking-wider">
-                              {t('firewall.fail2ban.banTime')}
-                            </div>
-                            <div className="text-[15px] font-semibold font-mono mt-1">
-                              {formatBanTime(jailDetail.ban_time)}
-                            </div>
-                            <div className="text-[12px] text-muted-foreground mt-0.5">
-                              {jailDetail.ban_time}{t('firewall.fail2ban.seconds')}
-                            </div>
-                          </div>
-                          <div className="bg-card rounded-xl px-4 py-3 card-shadow">
-                            <div className="text-[12px] text-muted-foreground uppercase tracking-wider">
-                              {t('firewall.fail2ban.findTime')}
-                            </div>
-                            <div className="text-[15px] font-semibold font-mono mt-1">
-                              {formatBanTime(jailDetail.find_time)}
-                            </div>
-                            <div className="text-[12px] text-muted-foreground mt-0.5">
-                              {jailDetail.find_time}{t('firewall.fail2ban.seconds')}
-                            </div>
-                          </div>
-                        </div>
-                        {jailDetail.filter && (
-                          <div className="mt-2 text-[12px] text-muted-foreground">
-                            {t('firewall.fail2ban.logFile')}: <span className="font-mono">{jailDetail.filter}</span>
-                          </div>
-                        )}
-                      </div>
-
-                      {/* Banned IPs Section */}
-                      <div>
-                        <h4 className="text-[13px] font-semibold mb-3 flex items-center gap-2">
-                          <ShieldAlert className="h-3.5 w-3.5" />
-                          {t('firewall.fail2ban.bannedIPs')}
-                        </h4>
-                        {jailDetail.banned_ips.length === 0 ? (
-                          <div className="py-4 text-center text-muted-foreground text-[13px]">
-                            {t('firewall.fail2ban.noBannedIPs')}
-                          </div>
-                        ) : (
-                          <div className="space-y-1.5">
-                            {jailDetail.banned_ips.map((ip) => (
-                              <div
-                                key={ip}
-                                className="flex items-center justify-between bg-card rounded-xl px-4 py-2.5 card-shadow"
-                              >
-                                <span className="text-[13px] font-mono font-medium">{ip}</span>
-                                <Button
-                                  variant="outline"
-                                  size="sm"
-                                  onClick={() => handleUnban(selectedJail, ip)}
-                                  className="rounded-xl text-[12px] text-destructive hover:text-destructive hover:bg-destructive/10"
-                                >
-                                  <Unlock className="h-3 w-3" />
-                                  {t('firewall.fail2ban.unban')}
-                                </Button>
-                              </div>
-                            ))}
-                          </div>
-                        )}
-                      </div>
-                    </>
-                  )}
-                </div>
-              )}
+                    {selectedJail === jail.name && detailPanel}
+                  </li>
+                ))}
+              </ul>
             </div>
           )}
         </>
