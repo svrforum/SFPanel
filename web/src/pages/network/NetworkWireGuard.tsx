@@ -183,6 +183,7 @@ export default function NetworkWireGuard() {
     if (!(await confirm({
       title: t('network.wireguard.deleteTitle'),
       description: t('network.wireguard.deleteConfirm', { name }),
+      confirmLabel: t('network.wireguard.deleteTitle'),
       danger: true,
     }))) return
     try {
@@ -196,7 +197,12 @@ export default function NetworkWireGuard() {
   }
 
   const handleRemovePeer = async (name: string, publicKey: string) => {
-    if (!(await confirm({ title: t('network.wireguard.peers.removeConfirm', { name }), danger: true }))) return
+    if (!(await confirm({
+      title: t('network.wireguard.peers.removePeer'),
+      description: t('network.wireguard.peers.removeConfirm', { name, key: `${publicKey.substring(0, 16)}…` }),
+      confirmLabel: t('network.wireguard.peers.removePeer'),
+      danger: true,
+    }))) return
     setRemovingPeer(publicKey)
     try {
       await api.removeWireGuardPeer(name, publicKey)

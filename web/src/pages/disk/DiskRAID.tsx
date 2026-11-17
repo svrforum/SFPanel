@@ -69,6 +69,8 @@ export default function DiskRAID() {
   const [selectedDevices, setSelectedDevices] = useState<string[]>([])
   const [candidates, setCandidates] = useState<BlockDevice[]>([])
   const [candidatesLoading, setCandidatesLoading] = useState(false)
+  // mdadm --create writes over every member: typed confirmation first.
+  const [createConfirmOpen, setCreateConfirmOpen] = useState(false)
 
   // Delete dialog
   const [deleteTarget, setDeleteTarget] = useState<RAIDArray | null>(null)
@@ -158,6 +160,7 @@ export default function DiskRAID() {
       successMsg: t('disk.raid.createSuccess'),
       errorMsg: t('disk.raid.createFailed'),
       onSuccess: () => {
+        setCreateConfirmOpen(false)
         setCreateOpen(false)
         resetCreateForm()
         void fetchArrays()
@@ -167,6 +170,10 @@ export default function DiskRAID() {
 
   const handleCreate = () => {
     if (!newName.trim() || selectedDevices.length === 0) return
+    setCreateConfirmOpen(true)
+  }
+
+  const handleCreateConfirmed = () => {
     void runCreate({
       name: newName.trim(),
       level: newLevel,
@@ -446,14 +453,25 @@ export default function DiskRAID() {
         </DialogContent>
       </Dialog>
 
+      <TypeToConfirmDialog
+        open={createConfirmOpen}
+        onOpenChange={setCreateConfirmOpen}
+        title={t('disk.raid.createConfirmTitle', { name: newName.trim() })}
+        description={t('disk.raid.createConfirmDesc', { count: selectedDevices.length, devices: selectedDevices.join(', '), name: newName.trim() })}
+        confirmPhrase={newName.trim()}
+        confirmLabel={t('disk.raid.createArray')}
+        loading={creating}
+        onConfirm={handleCreateConfirmed}
+      />
+
       {/* Delete Array Dialog */}
       <TypeToConfirmDialog
         open={!!deleteTarget}
         onOpenChange={(open) => !open && setDeleteTarget(null)}
-        title={t('disk.raid.deleteTitle')}
+        title={t('disk.raid.deleteTitle', { name: deleteTarget?.name ?? '' })}
         description={t('disk.raid.deleteConfirmDesc', { name: deleteTarget?.name ?? '' })}
         confirmPhrase={deleteTarget?.name ?? ''}
-        confirmLabel={t('common.delete')}
+        confirmLabel={t('disk.raid.deleteArray')}
         loading={deleting}
         onConfirm={handleDelete}
       />
@@ -492,7 +510,7 @@ export default function DiskRAID() {
       <Dialog open={removeDiskOpen} onOpenChange={(open) => { setRemoveDiskOpen(open); if (!open) { setRemoveDiskArray(null); setRemoveDiskDevice('') } }}>
         <DialogContent>
           <DialogHeader>
-            <DialogTitle>{t('disk.raid.removeDiskTitle')}</DialogTitle>
+            <DialogTitle>{t('disk.raid.removeDiskTitle', { array: removeDiskArray?.name ?? '' })}</DialogTitle>
             <DialogDescription>
               <Trans
                 i18nKey="disk.raid.removeDiskConfirm"

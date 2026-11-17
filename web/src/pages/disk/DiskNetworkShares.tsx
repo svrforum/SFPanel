@@ -159,7 +159,7 @@ export default function DiskNetworkShares() {
     const ok = await confirm({
       title: t('disk.shares.removeTitle'),
       description: t('disk.shares.removeConfirm', { mount: s.mount_point }),
-      confirmLabel: t('common.delete'),
+      confirmLabel: t('disk.shares.removeTitle'),
       danger: true,
     })
     if (!ok) return

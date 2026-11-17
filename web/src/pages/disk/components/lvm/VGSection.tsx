@@ -148,7 +148,7 @@ export function VGSection({ vgs, pvs, onChanged }: {
       <Dialog open={!!deleteTarget} onOpenChange={(open) => { if (!open) setDeleteTarget(null) }}>
         <DialogContent>
           <DialogHeader>
-            <DialogTitle>{t('disk.lvm.vg.deleteTitle')}</DialogTitle>
+            <DialogTitle>{t('disk.lvm.vg.deleteTitle', { name: deleteTarget?.name ?? '' })}</DialogTitle>
             <DialogDescription>
               {t('disk.lvm.vg.deleteDesc', { name: deleteTarget?.name ?? '' })}
             </DialogDescription>
@@ -160,7 +160,7 @@ export function VGSection({ vgs, pvs, onChanged }: {
               disabled={deleting}
               onClick={() => { if (deleteTarget) void runDelete(deleteTarget.name) }}
             >
-              {t('common.delete')}
+              {t('disk.lvm.vg.remove')}
             </Button>
           </DialogFooter>
         </DialogContent>

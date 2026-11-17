@@ -240,6 +240,7 @@ export default function NetworkInterfaces() {
     if (!(await confirm({
       title: t('network.deleteBondTitle'),
       description: t('network.deleteBondConfirm', { name: bond.name }),
+      confirmLabel: t('network.deleteBondTitle'),
       danger: true,
     }))) return
     try {

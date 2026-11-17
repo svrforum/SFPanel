@@ -162,7 +162,7 @@ export function PVSection({ pvs, onChanged }: {
       <Dialog open={!!deleteTarget} onOpenChange={(open) => !open && setDeleteTarget(null)}>
         <DialogContent>
           <DialogHeader>
-            <DialogTitle>{t('disk.lvm.pv.deleteTitle')}</DialogTitle>
+            <DialogTitle>{t('disk.lvm.pv.deleteTitle', { name: deleteTarget?.name ?? '' })}</DialogTitle>
             <DialogDescription>
               <Trans
                 i18nKey="disk.lvm.pv.deleteConfirm"
@@ -176,7 +176,7 @@ export function PVSection({ pvs, onChanged }: {
               {t('common.cancel')}
             </Button>
             <Button variant="destructive" onClick={handleDelete} disabled={deleting}>
-              {t('common.delete')}
+              {t('disk.lvm.pv.remove')}
             </Button>
           </DialogFooter>
         </DialogContent>

@@ -348,10 +348,10 @@ export default function DiskPartitions() {
       <TypeToConfirmDialog
         open={!!deleteTarget}
         onOpenChange={(open) => !open && setDeleteTarget(null)}
-        title={t('disk.partitions.deleteTitle')}
+        title={t('disk.partitions.deleteTitle', { name: deleteTarget?.name ?? '' })}
         description={t('disk.partitions.deleteConfirmDesc', { name: deleteTarget?.name ?? '' })}
         confirmPhrase={deleteTarget?.name ?? ''}
-        confirmLabel={t('common.delete')}
+        confirmLabel={t('disk.partitions.deletePartition')}
         loading={deleting}
         onConfirm={handleDelete}
       />

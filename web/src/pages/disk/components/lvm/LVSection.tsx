@@ -300,10 +300,10 @@ export function LVSection({ lvs, vgs, onChanged }: {
       <TypeToConfirmDialog
         open={!!deleteTarget}
         onOpenChange={(open) => !open && setDeleteTarget(null)}
-        title={t('disk.lvm.lv.deleteTitle')}
+        title={t('disk.lvm.lv.deleteTitle', { name: deleteTarget?.name ?? '' })}
         description={t('disk.lvm.lv.deleteConfirmDesc', { name: deleteTarget?.name ?? '', vg: deleteTarget?.vg_name ?? '' })}
         confirmPhrase={deleteTarget?.name ?? ''}
-        confirmLabel={t('common.delete')}
+        confirmLabel={t('disk.lvm.lv.remove')}
         loading={deleting}
         onConfirm={handleDelete}
       />

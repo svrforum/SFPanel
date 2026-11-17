@@ -5,8 +5,10 @@ import { CODE_DEFAULTS, CODE_MESSAGES } from '@/lib/codeMessages'
 
 // A key the code asks for and the locale files do not have renders as the key
 // itself: the stack delete dialog showed "docker.compose.deleteDataNote".
-// This collects every literal t('a.b') in the sources and looks it up in both
-// languages. Keys built at runtime (t(`x.${y}`)) are out of its reach.
+// This collects every literal t('a.b') and <Trans i18nKey="a.b"> in the
+// sources and looks it up in both languages — the RAID member and PV removal
+// dialogs showed their Trans keys. Keys built at runtime (t(`x.${y}`)) are
+// out of its reach.
 const sources = import.meta.glob(['../**/*.{ts,tsx}', '!../**/*.test.ts', '!../**/*.test.tsx'], {
   query: '?raw',
   import: 'default',
@@ -34,6 +36,10 @@ for (const [file, text] of Object.entries(sources)) {
   for (const m of text.matchAll(/\bt\(\s*['"]([A-Za-z0-9_]+(?:\.[A-Za-z0-9_]+)+)['"](\s*\))?/g)) {
     used.set(m[1], file)
     if (m[2]) bare.set(m[1], file)
+  }
+  // Trans fills its values through its own props, so these are never bare.
+  for (const m of text.matchAll(/\bi18nKey=\{?\s*['"]([A-Za-z0-9_]+(?:\.[A-Za-z0-9_]+)+)['"]/g)) {
+    used.set(m[1], file)
   }
 }
 
