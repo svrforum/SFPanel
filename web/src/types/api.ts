@@ -517,8 +517,9 @@ export interface WireGuardInterface {
   active: boolean
   public_key: string
   listen_port: number
-  address: string
-  dns: string
+  /** Left out when the config has no Address / DNS line. */
+  address?: string
+  dns?: string
   peers: WireGuardPeer[]
   /** Whether wg-quick@<name> starts at boot; absent when the node could not tell. */
   autostart?: boolean
