@@ -260,7 +260,7 @@ export default function NetworkWireGuard() {
 
   const copyToClipboard = async (text: string, key: string) => {
     if (!(await copy(text, key))) {
-      toast.error('Failed to copy to clipboard')
+      toast.error(t('network.copyFailed'))
     }
   }
 

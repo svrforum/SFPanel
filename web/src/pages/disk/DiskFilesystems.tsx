@@ -375,7 +375,7 @@ export default function DiskFilesystems() {
               <Label htmlFor="mount-device">{t('disk.filesystems.device')}</Label>
               <Input
                 id="mount-device"
-                placeholder="e.g., sdb1"
+                placeholder="sdb1"
                 value={mountDevice}
                 onChange={(e) => setMountDevice(e.target.value)}
               />
@@ -384,7 +384,7 @@ export default function DiskFilesystems() {
               <Label htmlFor="mount-point">{t('disk.filesystems.mountPoint')}</Label>
               <Input
                 id="mount-point"
-                placeholder="e.g., /mnt/data"
+                placeholder="/mnt/data"
                 value={mountPoint}
                 onChange={(e) => setMountPoint(e.target.value)}
               />
@@ -402,7 +402,7 @@ export default function DiskFilesystems() {
               <Label htmlFor="mount-options">{t('disk.filesystems.options')}</Label>
               <Input
                 id="mount-options"
-                placeholder="e.g., defaults,noatime"
+                placeholder="defaults,noatime"
                 value={mountOptions}
                 onChange={(e) => setMountOptions(e.target.value)}
               />

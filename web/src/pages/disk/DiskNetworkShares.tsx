@@ -106,7 +106,7 @@ export default function DiskNetworkShares() {
     try {
       const res = await api.testNetworkShare(form)
       if (res.warning) toast.warning(res.warning)
-      else toast.success(res.message || t('disk.shares.testOk'))
+      else toast.success(t('disk.shares.testOk'))
     } catch (err) {
       toast.error(err instanceof Error ? err.message : t('disk.shares.testFailed'))
     } finally {
@@ -132,8 +132,8 @@ export default function DiskNetworkShares() {
   const handleInstallTool = async () => {
     setBusy(true)
     try {
-      const res = await api.installNetworkShareTools(form.type)
-      toast.success(res.message)
+      await api.installNetworkShareTools(form.type)
+      toast.success(t('disk.shares.installDone', { pkg: isSMB ? tools?.cifs.package : tools?.nfs.package }))
       setTools(await api.getNetworkShareTools())
     } catch (err) {
       toast.error(err instanceof Error ? err.message : t('disk.shares.installFailed'))
@@ -142,11 +142,12 @@ export default function DiskNetworkShares() {
     }
   }
 
-  const rowAction = async (mp: string, fn: () => Promise<{ message: string }>) => {
+  // The server's sentence is English; the toast says it in the panel's words.
+  const rowAction = async (mp: string, fn: () => Promise<unknown>, done: string) => {
     setRowBusy(mp)
     try {
-      const res = await fn()
-      toast.success(res.message)
+      await fn()
+      toast.success(done)
       await load()
     } catch (err) {
       toast.error(err instanceof Error ? err.message : t('common.error'))
@@ -163,7 +164,7 @@ export default function DiskNetworkShares() {
       danger: true,
     })
     if (!ok) return
-    await rowAction(s.mount_point, () => api.removeNetworkShare(s.mount_point))
+    await rowAction(s.mount_point, () => api.removeNetworkShare(s.mount_point), t('disk.shares.removed', { mount: s.mount_point }))
   }
 
   if (loading) return <TabLoading />
@@ -244,7 +245,7 @@ export default function DiskNetworkShares() {
                         <Button
                           variant="ghost" size="sm"
                           disabled={rowBusy === s.mount_point}
-                          onClick={() => void rowAction(s.mount_point, () => api.unmountNetworkShare(s.mount_point))}
+                          onClick={() => void rowAction(s.mount_point, () => api.unmountNetworkShare(s.mount_point), t('disk.shares.unmountDone', { mount: s.mount_point }))}
                           title={t('disk.shares.unmount')}
                         >
                           <Unplug className="h-4 w-4" />
@@ -253,7 +254,7 @@ export default function DiskNetworkShares() {
                         <Button
                           variant="ghost" size="sm"
                           disabled={rowBusy === s.mount_point}
-                          onClick={() => void rowAction(s.mount_point, () => api.mountNetworkShare(s.mount_point))}
+                          onClick={() => void rowAction(s.mount_point, () => api.mountNetworkShare(s.mount_point), t('disk.shares.mountDone', { mount: s.mount_point }))}
                           title={t('disk.shares.mount')}
                         >
                           <Plug className="h-4 w-4" />

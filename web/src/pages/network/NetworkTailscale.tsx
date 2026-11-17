@@ -432,7 +432,7 @@ export default function NetworkTailscale() {
 
   const copyToClipboard = async (text: string, field: string) => {
     if (!(await copy(text, field))) {
-      toast.error('Failed to copy to clipboard')
+      toast.error(t('network.copyFailed'))
     }
   }
 

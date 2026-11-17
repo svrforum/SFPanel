@@ -392,7 +392,7 @@ export default function DiskSwap() {
                   <Label htmlFor="swap-path">{t('disk.swap.filePath')}</Label>
                   <Input
                     id="swap-path"
-                    placeholder="e.g., /swapfile"
+                    placeholder="/swapfile"
                     value={createPath}
                     onChange={(e) => setCreatePath(e.target.value)}
                   />
@@ -402,7 +402,7 @@ export default function DiskSwap() {
                   <Input
                     id="swap-size"
                     type="number"
-                    placeholder="e.g., 2048"
+                    placeholder="2048"
                     value={createSizeMB}
                     onChange={(e) => setCreateSizeMB(e.target.value)}
                   />

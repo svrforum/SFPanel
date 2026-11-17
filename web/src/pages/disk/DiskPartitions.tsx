@@ -294,7 +294,7 @@ export default function DiskPartitions() {
               <Label htmlFor="part-start">{t('disk.partitions.start')}</Label>
               <Input
                 id="part-start"
-                placeholder="e.g., 0%"
+                placeholder="0%"
                 value={newStart}
                 onChange={(e) => setNewStart(e.target.value)}
               />
@@ -304,7 +304,7 @@ export default function DiskPartitions() {
               <Label htmlFor="part-end">{t('disk.partitions.end')}</Label>
               <Input
                 id="part-end"
-                placeholder="e.g., 100%"
+                placeholder="100%"
                 value={newEnd}
                 onChange={(e) => setNewEnd(e.target.value)}
               />

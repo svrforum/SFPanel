@@ -372,7 +372,7 @@ export default function DiskRAID() {
               <Label htmlFor="raid-name">{t('disk.raid.arrayName')}</Label>
               <Input
                 id="raid-name"
-                placeholder="e.g., md0"
+                placeholder="md0"
                 value={newName}
                 onChange={(e) => setNewName(e.target.value)}
               />

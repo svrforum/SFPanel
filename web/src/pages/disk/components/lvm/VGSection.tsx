@@ -184,7 +184,7 @@ export function VGSection({ vgs, pvs, onChanged }: {
               <Label htmlFor="vg-name">{t('disk.lvm.vg.vgName')}</Label>
               <Input
                 id="vg-name"
-                placeholder="e.g., my-vg"
+                placeholder="my-vg"
                 value={vgName}
                 onChange={(e) => setVgName(e.target.value)}
               />

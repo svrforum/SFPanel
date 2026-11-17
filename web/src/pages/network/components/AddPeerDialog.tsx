@@ -111,7 +111,7 @@ export function AddPeerDialog({
 
   const copyConfig = async () => {
     if (clientConfig && !(await copy(clientConfig, 'peer-config'))) {
-      toast.error('Failed to copy to clipboard')
+      toast.error(t('network.copyFailed'))
     }
   }
 

@@ -253,7 +253,7 @@ export function LVSection({ lvs, vgs, onChanged }: {
               <Label htmlFor="lv-name">{t('disk.lvm.lv.lvName')}</Label>
               <Input
                 id="lv-name"
-                placeholder="e.g., my-lv"
+                placeholder="my-lv"
                 value={lvName}
                 onChange={(e) => setLvName(e.target.value)}
               />
@@ -277,7 +277,7 @@ export function LVSection({ lvs, vgs, onChanged }: {
               <Label htmlFor="lv-size">{t('disk.lvm.lv.lvSize')}</Label>
               <Input
                 id="lv-size"
-                placeholder="e.g., 10G, 100%FREE"
+                placeholder="10G, 100%FREE"
                 value={lvSize}
                 onChange={(e) => setLvSize(e.target.value)}
               />
@@ -332,7 +332,7 @@ export function LVSection({ lvs, vgs, onChanged }: {
               <Label htmlFor="lv-resize">{t('disk.lvm.lv.newSize')}</Label>
               <Input
                 id="lv-resize"
-                placeholder="e.g., 20G, +5G, +100%FREE"
+                placeholder="20G, +5G, +100%FREE"
                 value={resizeNewSize}
                 onChange={(e) => setResizeNewSize(e.target.value)}
               />

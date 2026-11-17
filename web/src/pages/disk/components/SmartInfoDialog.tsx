@@ -38,11 +38,11 @@ function smartStatusStyle(status: string | undefined, value?: number, worst?: nu
   switch (computed) {
     case 'ok':
     case 'passed':
-      return { className: `${base} bg-success/10 text-success`, label: 'OK' }
+      return { className: `${base} bg-success/10 text-success`, level: 'ok' }
     case 'warn':
-      return { className: `${base} bg-warning/10 text-warning`, label: 'WARN' }
+      return { className: `${base} bg-warning/10 text-warning`, level: 'warn' }
     default:
-      return { className: `${base} bg-destructive/10 text-destructive`, label: 'FAIL' }
+      return { className: `${base} bg-destructive/10 text-destructive`, level: 'fail' }
   }
 }
 
@@ -282,7 +282,7 @@ export function SmartInfoDialog({ diskName, onOpenChange }: {
                             <TableCell className="font-mono text-xs">{attr.raw_value}</TableCell>
                             <TableCell>
                               <span className={statusInfo.className}>
-                                {statusInfo.label}
+                                {statusInfo.level === 'ok' ? t('disk.smart.attrOk') : statusInfo.level === 'warn' ? t('disk.smart.attrWarn') : t('disk.smart.attrFail')}
                               </span>
                             </TableCell>
                           </TableRow>
