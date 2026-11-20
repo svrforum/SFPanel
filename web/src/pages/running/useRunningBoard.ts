@@ -162,8 +162,8 @@ function latest(loads: (NodeLoad | undefined)[]): number | null {
 export type ClusterBoardState =
   | { phase: 'loading' }
   | { phase: 'standalone' }
-  | { phase: 'error'; error: string; retry: () => void }
-  | { phase: 'ready'; board: BoardModel; clusterName: string }
+  | { phase: 'error'; error: string }
+  | { phase: 'ready'; board: BoardModel }
 
 /** Every node of the cluster: the datacenter scope. */
 export function useClusterBoard(): { state: ClusterBoardState; refresh: () => void } {
@@ -221,8 +221,8 @@ export function useClusterBoard(): { state: ClusterBoardState; refresh: () => vo
 
   let state: ClusterBoardState
   if (status && !status.enabled) state = { phase: 'standalone' }
-  else if (board && overview.data) state = { phase: 'ready', board, clusterName: overview.data.name }
-  else if (overview.error) state = { phase: 'error', error: overview.error, retry: refresh }
+  else if (board) state = { phase: 'ready', board }
+  else if (overview.error) state = { phase: 'error', error: overview.error }
   else state = { phase: 'loading' }
   return { state, refresh }
 }

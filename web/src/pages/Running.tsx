@@ -32,14 +32,16 @@ function Stat({ label, value, testId, tone }: { label: string; value: string; te
   )
 }
 
-function TotalsRow({ totals, showNodes }: { totals: Totals; showNodes: boolean }) {
+function TotalsRow({ totals, showNodes, loaded }: { totals: Totals; showNodes: boolean; loaded: boolean }) {
   const { t } = useTranslation()
+  // Before any node has answered there is nothing to count yet, which is not zero.
+  const count = (n: number) => (loaded ? String(n) : '—')
   return (
     <div className="space-y-1.5">
       <dl className="flex flex-wrap gap-2">
         {showNodes && <Stat testId="total-nodes" label={t('running.totals.nodes')} value={`${totals.online} / ${totals.nodes}`} />}
-        <Stat testId="total-stacks" label={t('running.totals.stacks')} value={String(totals.stacks)} />
-        <Stat testId="total-running" label={t('running.totals.running')} value={String(totals.running)} />
+        <Stat testId="total-stacks" label={t('running.totals.stacks')} value={count(totals.stacks)} />
+        <Stat testId="total-running" label={t('running.totals.running')} value={count(totals.running)} />
         <Stat testId="total-attention" label={t('running.totals.attention')} value={String(totals.attention)} tone={totals.attention > 0 ? 'text-destructive' : undefined} />
       </dl>
       {totals.failed > 0 && <p className="text-xs text-muted-foreground">{t('running.totals.failed', { count: totals.failed })}</p>}
@@ -143,7 +145,7 @@ function ClusterRunning() {
   return (
     <Frame>
       <BoardHeader board={board} level={2} subtitle={t('running.subtitleCluster')} onRefresh={refresh} />
-      <TotalsRow totals={board.totals} showNodes />
+      <TotalsRow totals={board.totals} showNodes loaded={board.sections.some((s) => s.node.contents)} />
       <AttentionList items={board.items} scope="cluster" localId={board.localId} level={3} />
       <SearchField value={query} onChange={setQuery} />
       {noMatch && <NoMatch query={query} onClear={() => setQuery('')} />}
@@ -155,7 +157,7 @@ function ClusterRunning() {
           <NodeSection
             key={s.node.id}
             section={s}
-            folded={!searching && folded.has(s.node.id)}
+            folded={folded.has(s.node.id)}
             onToggle={() => toggleFold(s.node.id)}
             query={query}
             localId={board.localId}
@@ -176,7 +178,7 @@ function NodeRunning() {
     <Frame>
       <BoardHeader board={board} level={1} subtitle={host ? t('running.subtitleNode', { host }) : t('running.subtitleThisNode')} onRefresh={refresh} />
       {metrics && <Meters metrics={{ cpu: metrics.cpu, memory: metrics.mem_percent, disk: metrics.disk_percent }} />}
-      <TotalsRow totals={board.totals} showNodes={false} />
+      <TotalsRow totals={board.totals} showNodes={false} loaded={!!section.node.contents} />
       <AttentionList items={board.items} scope="node" localId="" level={2} />
       <SearchField value={query} onChange={setQuery} />
       {noMatch ? <NoMatch query={query} onClear={() => setQuery('')} /> : (
