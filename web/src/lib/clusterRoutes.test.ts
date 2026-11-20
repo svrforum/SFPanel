@@ -75,3 +75,36 @@ describe('cluster routes', () => {
     expect(urls.at(-1)).toContain('node=node-b')
   })
 })
+
+// The running board reads every node at once, so a call names its node
+// itself instead of moving the selection the rest of the page follows.
+describe('a node given per call', () => {
+  it('is asked instead of the selected node', async () => {
+    const { api, urls } = await freshApi({ sfpanel_current_node: 'node-b' })
+    await api.getContainers('node-c')
+    await api.getComposeProjects('node-c')
+    await api.getPortMap('node-c')
+    expect(urls).toHaveLength(3)
+    expect(urls.every((u) => u.endsWith('node=node-c') && !u.includes('node-b'))).toBe(true)
+  })
+
+  it('leaves the selected node in charge when none is given', async () => {
+    const { api, urls } = await freshApi({ sfpanel_current_node: 'node-b' })
+    await api.getContainers()
+    expect(urls.at(-1)).toContain('node=node-b')
+  })
+
+  it('reaches a node from the browser that has none selected', async () => {
+    const { api, urls } = await freshApi()
+    await api.getContainers('node-c')
+    expect(urls.at(-1)).toContain('/docker/containers?node=node-c')
+  })
+
+  it('does not reach cluster routes or a call pinned to this node', async () => {
+    const { api, urls } = await freshApi()
+    await api.request('/cluster/nodes', { node: 'node-c' })
+    await api.request('/docker/containers', { node: 'node-c', local: true })
+    expect(urls).toHaveLength(2)
+    expect(urls.every((u) => !u.includes('node='))).toBe(true)
+  })
+})

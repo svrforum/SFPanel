@@ -536,8 +536,12 @@ class ApiClient {
     return headers
   }
 
-  async request<T>(path: string, options: RequestInit & { local?: boolean; timeout?: number; _retried?: boolean } = {}): Promise<T> {
-    const { local, timeout = 30000, _retried, ...fetchOptions } = options
+  // node names the node one call is for, in place of the selected one: a page
+  // that reads several nodes at once (the running board) cannot move the
+  // selection the rest of the panel follows. A manager answers its own id
+  // itself, so the local node may be named too.
+  async request<T>(path: string, options: RequestInit & { local?: boolean; node?: string; timeout?: number; _retried?: boolean } = {}): Promise<T> {
+    const { local, node, timeout = 30000, _retried, ...fetchOptions } = options
     const headers: Record<string, string> = {
       'Content-Type': 'application/json',
       ...((fetchOptions.headers as Record<string, string>) || {}),
@@ -561,9 +565,10 @@ class ApiClient {
     // Cluster routes are answered by the manager this browser is attached to,
     // whatever node is selected: with ?node= an agent refused them (409) and
     // another manager ran them as itself — "leave" took that manager out.
-    if (this._currentNode && !local && !path.startsWith('/cluster/')) {
+    const target = node ?? this._currentNode
+    if (target && !local && !path.startsWith('/cluster/')) {
       const separator = url.includes('?') ? '&' : '?'
-      url += `${separator}node=${encodeURIComponent(this._currentNode)}`
+      url += `${separator}node=${encodeURIComponent(target)}`
     }
 
     const controller = new AbortController()
@@ -1086,13 +1091,13 @@ class ApiClient {
     })
   }
 
-  getPortMap() {
-    return this.request<PortMapRow[]>(`/system/portmap`)
+  getPortMap(node?: string) {
+    return this.request<PortMapRow[]>(`/system/portmap`, { node })
   }
 
   // Docker Containers
-  getContainers() {
-    return this.request<Container[]>('/docker/containers')
+  getContainers(node?: string) {
+    return this.request<Container[]>('/docker/containers', { node })
   }
 
   createContainer(spec: import('@/types/api').CreateContainerSpec) {
@@ -1249,8 +1254,8 @@ class ApiClient {
   }
 
   // Docker Compose
-  getComposeProjects() {
-    return this.request<import('@/types/api').ComposeProjectWithStatus[]>('/docker/compose')
+  getComposeProjects(node?: string) {
+    return this.request<import('@/types/api').ComposeProjectWithStatus[]>('/docker/compose', { node })
   }
 
   // acknowledgeRisks lifts the analyser's risky tier (docker.sock, privileged,
