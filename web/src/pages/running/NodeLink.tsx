@@ -4,9 +4,13 @@ import { openNode } from '@/lib/nodeSelection'
 import type { Target } from './targets'
 
 /**
- * A link to a page of one node. When that page reads the selected node, the
- * node is selected on the way, the way the cluster tree selects it; any other
- * link is a plain one.
+ * What leads to a page of one node. A page whose address says which node (a
+ * stack of the cluster) is a plain link. One that shows the selected node
+ * (the containers screen, the app store) has an address that does not say
+ * which: from another node's tile it is a button that selects the node on
+ * the way, the way the cluster tree does. As a link it could be opened in a
+ * new tab, where it showed whichever node was selected last — another
+ * server's containers, or its app store to install into.
  */
 export function NodeLink({ target, nodeId, localId, className, title, children }: {
   target: Target
@@ -20,16 +24,13 @@ export function NodeLink({ target, nodeId, localId, className, title, children }
   const navigate = useNavigate()
   if (!target.onNode) return <Link to={target.to} className={className} title={title}>{children}</Link>
   return (
-    <Link
-      to={target.to}
-      className={className}
+    <button
+      type="button"
+      className={`cursor-pointer text-left ${className ?? ''}`}
       title={title}
-      onClick={(e) => {
-        e.preventDefault()
-        openNode(nodeId, localId, navigate, target.to)
-      }}
+      onClick={() => openNode(nodeId, localId, navigate, target.to)}
     >
       {children}
-    </Link>
+    </button>
   )
 }
