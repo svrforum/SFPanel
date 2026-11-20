@@ -195,6 +195,10 @@ function useNodeLoads() {
   }, [run])
 
   const enqueue = useCallback((jobs: LoadJob[]) => {
+    // A node list that answers after the page was left asks no one: every
+    // node would be read once more (pvesh run on a Proxmox host) for
+    // answers nobody is there to draw.
+    if (!mounted.current) return
     for (const job of jobs) {
       if (pending.current.has(job.id)) continue
       pending.current.add(job.id)
@@ -295,7 +299,7 @@ export type ClusterBoardState =
 export function useClusterBoard(): { state: ClusterBoardState; refresh: () => void } {
   const { loads, guestLoads, enqueue } = useNodeLoads()
   const [status, setStatus] = useState<ClusterStatus | null>(null)
-  const [overview, setOverview] = useState<{ data: ClusterOverview | null; error: string | null; loading: boolean }>({ data: null, error: null, loading: true })
+  const [overview, setOverview] = useState<{ data: ClusterOverview | null; error: string | null; loading: boolean; at: number | null }>({ data: null, error: null, loading: true, at: null })
   const [round, setRound] = useState(0)
 
   useEffect(() => {
@@ -310,7 +314,7 @@ export function useClusterBoard(): { state: ClusterBoardState; refresh: () => vo
     setOverview((prev) => ({ ...prev, loading: true }))
     api.getClusterOverview()
       .then((data) => {
-        setOverview({ data, error: null, loading: false })
+        setOverview({ data, error: null, loading: false, at: Date.now() })
         setRound((r) => r + 1)
         enqueue(data.nodes.filter((n) => n.status === 'online').map((n) => ({ id: n.id, node: n.id })))
       })
@@ -347,11 +351,22 @@ export function useClusterBoard(): { state: ClusterBoardState; refresh: () => vo
     })
     const nodes = sections.map((s) => s.node)
     const items = attention(nodes)
+    // The page's own line: read when a node last answered, or when the node
+    // list did if none has yet; failed when the list could not be refreshed
+    // or every node asked failed. Never left saying it is loading above
+    // sections that say they could not be loaded.
+    const asked = sections.filter((s) => s.load)
+    const allFailed = asked.length > 0 && asked.every((s) => s.load!.phase === 'error')
     return {
       sections,
       items,
       totals: totals(nodes, items),
-      header: { loading: overview.loading, error: !!overview.error, updatedAt: latest(sections.map((s) => s.load)), retry: refresh },
+      header: {
+        loading: overview.loading,
+        error: !!overview.error || allFailed,
+        updatedAt: latest(sections.map((s) => s.load)) ?? (allFailed ? null : overview.at),
+        retry: refresh,
+      },
       localId,
     }
   }, [overview, loads, guestLoads, interfaces, localId, enqueue, refresh])
@@ -422,7 +437,7 @@ export function useNodeBoard(): { board: BoardModel; host: string; metrics: Metr
       sections: [{ node, load: load ?? { phase: 'loading' }, guests, retry: () => enqueue([{ id: 'self', retry: true }]) }],
       items,
       totals: totals([node], items),
-      header: { loading: load?.phase === 'loading', error: false, updatedAt: latest([load]), retry: refresh },
+      header: { loading: load?.phase === 'loading', error: load?.phase === 'error', updatedAt: latest([load]), retry: refresh },
       localId: cluster?.localId ?? '',
     }
   }, [loads, guestLoads, interfaces, cluster, linkTo, system.host, current, enqueue, refresh])

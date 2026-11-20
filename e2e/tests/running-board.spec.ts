@@ -255,6 +255,44 @@ test('a node whose containers fail shows why and a retry, and the others stay dr
   expect(await page.evaluate(() => localStorage.getItem('sfpanel_current_node'))).toBe('a-1')
 })
 
+// The page's own line said "Loading…" for as long as the page stayed open
+// when the first read failed, above a body saying it could not be loaded.
+test('a first load that fails is said to have failed, in the header too', async ({ page }) => {
+  const state = await mock(page, { bravo: true, current: 'a-1' })
+  await page.goto('/running')
+  const main = page.getByRole('main')
+  await expect(main.getByRole('alert')).toContainText('docker: daemon timed out')
+  const header = main.locator('div').filter({ has: page.getByRole('heading', { name: 'Running', level: 1 }) }).last()
+  await expect(header.getByRole('status')).toContainText('Unable to load data')
+  await expect(header).not.toContainText('Loading…')
+  // Its retry asks again, and then it says when it was read.
+  state.bravoFails = false
+  await header.getByRole('button', { name: 'Retry' }).click()
+  await expect(main.getByRole('link', { name: 'cloud', exact: true })).toBeVisible()
+  await expect(header).toContainText('Updated')
+})
+
+test('a node list that answers after the page was left asks no node', async ({ page }) => {
+  const state = await mock(page)
+  let release!: () => void
+  const held = new Promise<void>((resolve) => { release = resolve })
+  // Registered after the mock's, so tried first: the node list is held back.
+  await page.route('**/api/v1/cluster/overview', async (route) => {
+    await held
+    await route.fallback()
+  })
+  await page.goto('/cluster/running')
+  const title = page.getByRole('main').getByRole('heading', { name: 'Running', exact: true })
+  await expect(title).toBeVisible()
+  await page.getByRole('link', { name: 'Security', exact: true }).first().click()
+  // Left, and not only by the address: the page itself is gone.
+  await expect(page).toHaveURL(/\/cluster\/security/)
+  await expect(title).toHaveCount(0)
+  release()
+  await page.waitForTimeout(800)
+  expect(state.asked).toEqual([])
+})
+
 test('node scope on a single server: no node header, the same tiles', async ({ page }) => {
   await mock(page, { cluster: false })
   await page.goto('/running')
