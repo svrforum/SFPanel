@@ -6,6 +6,16 @@ The format is loosely based on [Keep a Changelog](https://keepachangelog.com/), 
 
 ---
 
+## [0.89.1] – 2026-11-21
+
+### Fixed
+
+- **The canvas of a real cluster was drawn at a third of its size.** A Proxmox host's guests that are nodes of the cluster were set one under the other, each level with its guest tile: with eighteen guests and four of them nodes, a column three screens high, fitted to the screen at 30 %. They now stand in a row beside their host, and the same cluster is drawn at about twice that. The lines go round the boxes instead of behind them — out of the guest's tile, up beside the host, along above the row and down into the server's box — each on a path of its own, none crossing another.
+
+### Upgrading
+
+- A box moved on the canvas stays where it was put. "Auto arrange" sets the boxes out the new way.
+
 ## [0.89.0] – 2026-11-21
 
 A screen for what is running: every stack and container of a node, or of every node of the cluster, with what needs a look on top — and, on a Proxmox VE node, its virtual machines and containers. It can be read as a board or as a map.
