@@ -197,6 +197,11 @@ test('datacenter scope: totals, what needs attention in order, and links that le
   await expect(tileOf('wiki')).toHaveClass(/border-destructive/)
   await expect(attention).not.toContainText('media')
 
+  // A port chip is a tint of its own, not one laid over the tile: over a
+  // warning tile's red tint the blue letters fell to 4.41:1.
+  const chipBackground = await tileOf('photos').getByRole('link', { name: '2283 (opens in a new tab)' }).evaluate((el) => getComputedStyle(el).backgroundColor)
+  expect(chipBackground, 'the chip paints an opaque colour').not.toMatch(/\/|rgba/)
+
   // The attached node's ports open on the browser's own host, in a new tab.
   const player = alphaRegion.getByRole('link', { name: '8096 (opens in a new tab)' })
   await expect(player).toHaveAttribute('href', 'http://localhost:8096/')

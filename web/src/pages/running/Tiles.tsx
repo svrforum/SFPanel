@@ -29,7 +29,7 @@ export function PortChips({ ports, className }: { ports: PortChip[]; className?:
                 href={p.href}
                 target="_blank"
                 rel="noopener noreferrer"
-                className={cn(chipBase, 'bg-primary/10 font-semibold text-primary hover:bg-primary/15 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring')}
+                className={cn(chipBase, 'bg-[color-mix(in_srgb,var(--primary)_10%,var(--card))] font-semibold text-primary hover:bg-[color-mix(in_srgb,var(--primary)_15%,var(--card))] hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring')}
               >
                 {label}
                 <ArrowUpRight className="size-3.5" aria-hidden="true" />
