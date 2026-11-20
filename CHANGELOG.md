@@ -6,6 +6,12 @@ The format is loosely based on [Keep a Changelog](https://keepachangelog.com/), 
 
 ---
 
+## [0.89.3] – 2026-11-21
+
+### Fixed
+
+- **The canvas opened fitted to boxes that were still empty.** It is up before the nodes have answered, so the view was fitted once to six small boxes, and the full ones that followed were cut off at the edges of the screen — at a different zoom on each visit, depending on what had arrived. This came with 0.89.2, which stopped the boxes from being measured anew at every answer; that had been delaying the fit by accident. The view now follows the layout as it fills in and settles, until you take hold of it: pan, zoom, move a box, or tab to a tile out of view, and it stays where you put it. "Auto arrange" and "Fit to screen" hand it back.
+
 ## [0.89.2] – 2026-11-21
 
 ### Fixed
