@@ -113,3 +113,29 @@ func TestRunCtx_DefaultsTimeoutWhenNoDeadline(t *testing.T) {
 		t.Errorf("unexpected output: %q", out)
 	}
 }
+
+// A caller's own deadline is what cut the command short, and the error has to
+// say so: a guest list given ten seconds was reported as having timed out
+// after the five-minute default, on a host an operator was trying to diagnose.
+func TestRunWithEnvCtx_TimeoutNamesTheCallersLimit(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), 200*time.Millisecond)
+	defer cancel()
+	_, err := NewCommander().RunWithEnvCtx(ctx, nil, "sleep", "10")
+	if err == nil {
+		t.Fatal("expected a timeout error")
+	}
+	if strings.Contains(err.Error(), DefaultTimeout.String()) {
+		t.Fatalf("a command cut short after 200ms is said to have had %s: %v", DefaultTimeout, err)
+	}
+	if !strings.Contains(err.Error(), "200ms") {
+		t.Fatalf("error = %q, want it to name the 200ms it was given", err)
+	}
+}
+
+// With no deadline of the caller's, the default is the limit and is named.
+func TestRunWithEnvCtx_NoDeadlineKeepsTheDefault(t *testing.T) {
+	out, err := NewCommander().RunWithEnvCtx(context.Background(), []string{"SFPANEL_TEST=1"}, "sh", "-c", "printf %s \"$SFPANEL_TEST\"")
+	if err != nil || out != "1" {
+		t.Fatalf("RunWithEnvCtx = %q, %v", out, err)
+	}
+}

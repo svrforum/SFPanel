@@ -85,7 +85,12 @@ func (c *SystemCommander) RunWithEnv(env []string, name string, args ...string) 
 }
 
 func (c *SystemCommander) RunWithEnvCtx(ctx context.Context, env []string, name string, args ...string) (string, error) {
-	if _, hasDeadline := ctx.Deadline(); !hasDeadline {
+	// The limit a timeout is reported with: what was left of the caller's own
+	// deadline when the command started, or the default where it set none.
+	limit := DefaultTimeout
+	if deadline, hasDeadline := ctx.Deadline(); hasDeadline {
+		limit = time.Until(deadline).Round(10 * time.Millisecond)
+	} else {
 		var cancel context.CancelFunc
 		ctx, cancel = context.WithTimeout(ctx, DefaultTimeout)
 		defer cancel()
@@ -97,7 +102,7 @@ func (c *SystemCommander) RunWithEnvCtx(ctx context.Context, env []string, name 
 	duration := time.Since(start)
 	if ctx.Err() == context.DeadlineExceeded {
 		slog.Warn("command timeout", "cmd", name, "duration_ms", duration.Milliseconds())
-		return string(out), fmt.Errorf("command timed out after %s", DefaultTimeout)
+		return string(out), fmt.Errorf("command timed out after %s", limit)
 	}
 	if err != nil {
 		slog.Debug("command failed", "cmd", name, "duration_ms", duration.Milliseconds(), "error", err)
