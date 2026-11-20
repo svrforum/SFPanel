@@ -40,11 +40,13 @@
 | `/setup` | Setup | X | 없음 (독립) | 초기 관리자 계정 생성 (첫 실행 시) |
 | `/` | - | O | Layout | `/dashboard`로 리다이렉트 |
 | `/dashboard` | Dashboard | O | Layout | 시스템 대시보드 (실시간 메트릭) |
+| `/running` | Running | O | Layout | 실행 현황 — 노드 범위: 노드 메뉴가 가리키는 노드(클러스터가 아니면 이 서버)에서 돌고 있는 스택·독립 컨테이너·게시 포트와 확인할 것. 아래 "Running (실행 현황)" |
 | `/appstore` | AppStore | O | Layout | 앱스토어 (원클릭 Docker 앱 설치) |
 | `/appstore/:appId` | AppStore | O | Layout | 앱 상세 딥링크 (URL로 상세 모달 직접 오픈, 뒤로가기 지원) (v0.42.0) |
 | `/appstore` (모달) | AppStoreDetailModal | O | AppStore 내장 | 앱 상세 + 설치 모달 (SSE 설치 진행률) |
 | `/cluster` | Cluster | O | Layout | 클러스터 관리 (사이드 탭 + Outlet 구조) |
 | `/cluster/overview` | ClusterOverview | O | Cluster | 클러스터 개요 + 초기화 + **disband(TypeToConfirm, v0.30.0)**. **(v0.31.0)** 마운트 시 1회 fetch 후 `/ws/cluster/overview` WebSocket으로 status+overview+recent events 통합 스냅샷 수신(기존 15s 3회 폴링 대체, follower는 `stale` 플래그+배너). **(v0.22.0)** 클러스터 업데이트 뷰는 **per-node 스테퍼 + 전체 진행률 바**(완료/전체, 실패 수; 구조화 SSE 기반 — `api.clusterUpdateStream`). 매니저·에이전트 온라인/전체 카드(에이전트 0이면 숨김), 오프라인 에이전트 띠(stale이 아닐 때, `/cluster/nodes?kind=agent&status=offline`), 기준 버전(리더가 캐시한 `latest_version`과 노드가 실제로 돌리는 가장 높은 버전 중 더 새로운 쪽 — 리더의 캐시는 한 시간마다, 리더일 때만 갱신된다)보다 낮은 온라인 노드 수, 롤링 업데이트의 물결 크기 입력. 노드 상태 목록은 lg(1024px) 미만에서 지표 막대를 이름 아래 줄로 내린다 — 한 줄이면 행이 700px 안팎이라 카드가 지표와 수정·탈퇴 버튼을 잘랐다. 진행은 `updateProgress.ts`의 `reduceUpdateEvents`로 대상 버전·현재 물결·멈춘 이유를 보이고, 리더가 재시작하면 리더에 붙은 화면이 돌아오기를 기다린다. 탈퇴의 강제 확인은 409 `CLUSTER_QUORUM`일 때만, 탈퇴·해체의 `warnings`는 읽고 닫을 때까지 남는 대화상자(노드가 단독으로 돌아와 화면이 초기화 폼으로 바뀌어도 남고, 닫은 뒤에야 재시작을 기다린다) |
+| `/cluster/running` | Running (`scope="cluster"`) | O | Cluster | 실행 현황 — 데이터센터 범위: 모든 노드를 노드마다 한 구역으로. 탭 제목은 클러스터가 아니라 "실행 현황"(`CLUSTER_TAB_ITEMS`의 `ownTitle`) |
 | `/cluster/nodes` | ClusterNodes | O | Cluster | 노드 목록 + 제거/리더 이전/그룹·라벨 편집. **(v0.19.0)** 노드 **advertised 주소 인라인 편집**(`api.updateClusterNodeAddress`) + 로컬 노드 행에서 **클러스터 떠나기**(quorum-loss force 오버라이드, `api.leaveCluster(force?)`). **에이전트 추가** 버튼(`components/AddAgentDialog.tsx`, `?add=agent`로도 열림): 열 때마다 에이전트 토큰(`api.createClusterToken(undefined, 'agent')`, 서버 기본 24시간)을 만들고 `sfpanel agent join` / `install.sh --agent` 두 줄(`agentJoinCommands`, sudo 없이·이름 선택, 이름은 `NODE_NAME_PATTERN`)과 남은 시간을 보인다. 토큰 직후의 노드 ID 집합과 3초마다 받는 목록을 비교(`detectJoined`)해 새 에이전트가 보이면 완료 화면 + 노드 열기. 소개 아래 "SSH로 설치" 링크가 에이전트 설치 창(`/cluster/tasks/builtin%2Fagent-install`)으로 간다. 응답에 `kind`가 없으면(예전 리더 = 매니저 토큰) 명령 대신 업데이트 안내, 그 토큰은 만드는 체인 안에서 한 번만 폐기(`id` = 토큰 앞쪽 절반의 첫 16진 12자리; 예전 리더는 모르는 id에 401로 답해 로그아웃시키므로 다시 부르지 않는다)하고 폐기했는지 알린다. 에이전트 토큰은 닫아도 폐기하지 않는다. "대신 매니저 추가" 접힘 절에 매니저 토큰 만들기(`ManagerTokenSection`, `joinCommands`)와 대기 토큰 목록·폐기(`PendingTokens`, 종류 열; 폐기 404 = 이미 쓰였거나 만료, 목록만 다시 받음). 행 메뉴의 **에이전트로 전환**(온라인 매니저, 리더는 비활성 + 안내; `ConvertNodeDialog` — 지워지는 것·남는 것, 이 브라우저가 붙은 매니저면 다른 매니저 주소, 노드 이름 입력)과 **매니저로 승격**(온라인 에이전트; `PromoteNodeDialog` — 받는 비밀, Raft 포트). 202 뒤 `RoleChangeProgress`가 3초마다 목록만 다시 받아(503 등 실패는 무시) `roleChangePhase`로 판정: 전환은 온라인 에이전트, 승격은 투표자면 끝. 승격된 매니저가 2분 넘게 비투표자면 Raft 포트 안내, 3분 안에 끝나지 않으면 시간 초과 안내. 전환 중 목록에서 잠시 빠진 노드는 자리 행으로 남는다. 전환이 끝나면 비밀 교체(`/cluster/security`)로 가는 카드. 거부(`CLUSTER_CONVERT_REFUSED`·`CLUSTER_PROMOTE_REFUSED`)는 대화상자 안에 제목 + 서버 이유, 502 `INTERNAL_ERROR`는 목록을 보라는 안내 |
 | `/cluster/stacks` | ClusterStacks | O | Cluster | (v0.47.0) 클러스터 전 노드 compose 스택 집계 뷰 (`api.getClusterStacks` — 노드별 그룹, 불달 노드는 에러 표시 + 빈 목록) |
 | `/cluster/stacks/:node/:name` | ClusterStacks | O | Cluster | (v0.48.0) 마스터-디테일 — 스택 선택 시 소유 노드 스코프로 단일노드 Docker 스택 상세를 재사용(`clusterMode` prop). 소유 노드가 URL에 포함되어 동명 스택 오타겟 방지 |
@@ -155,6 +157,23 @@ const DockerStacks = lazy(() => import('@/pages/docker/DockerStacks'))
 - **WebSocket**: `useWebSocket({ url: '/ws/metrics' })` — 실시간 메트릭(2초), 클러스터 래핑(노드 타겟 가능)
 - **사용 컴포넌트**: MetricsCard, MetricsChart, Table (shadcn/ui)
 - **변경 이력**: 기존 `getSystemInfo()`+`getMetricsHistory()` 2회 호출 → `getDashboardOverview()` 단일 호출로 통합(초기 로드 요청 수 감소). 호스트 정보에 IP, 로그 패널에 방화벽 탭, 상단 업데이트 배너 추가.
+
+### Running (실행 현황)
+- **파일**: `web/src/pages/Running.tsx` + `web/src/pages/running/**` (구역·타일·확인 필요·호스트 포트·데이터 훅), 판정은 `web/src/lib/running.ts`(순수 함수, `running.test.ts`)
+- **기능**: 지금 돌고 있는 것을 한 화면에 — 무엇이 문제인지가 맨 위. 보고 이동하는 곳이라 시작·중지 같은 동작은 없다.
+  - 합계: 노드 온라인 n/m(데이터센터 범위만), 스택, 실행 중인 컨테이너, 확인 필요. 불러오지 못한 노드는 합계에서 빼고 "노드 N개는 불러오지 못해 합계에서 뺐습니다"라고 말한다
+  - **확인 필요 N** (N > 0일 때만): 순서는 응답 지연·오프라인 노드 → 재시작 반복·비정상(상태 검사 실패)·dead 컨테이너 → 일부만 실행 중인 스택 → 하루 안에 0이 아닌 코드로 종료한 컨테이너. 같은 순위는 노드 순서, 이름 순. 스택은 컨테이너 문제를 모아 한 줄이고(가장 나쁜 순위), 컨테이너 하나가 전부인 줄은 그 로그(`/docker/containers?container=<id>&tab=logs`)로, 나머지는 스택으로 간다. 아무것도 돌지 않고 최근 실패도 없는 스택은 일부러 내린 것으로 보고 줄을 만들지 않는다. 사흘 전의 비정상 종료도 마찬가지(공용 `containerNeedsAttention`은 오래된 것도 세지만 이 화면은 하루로 좁힌다 — 나이는 Docker 상태 문장의 "N seconds/minutes/hours ago", 24시간까지)
+  - 노드 구역(데이터센터 범위): 이름(접기 버튼, 접힘은 `localStorage` `sfpanel-running-folded`), 종류·역할(`KindBadge`), 상태(`NodeStatus`)와 오프라인이면 마지막 확인, CPU·메모리·디스크(`/cluster/overview`의 metrics). 노드 범위는 구역 머리 없이 한 카드
+  - **스택 N**: 컨테이너를 `com.docker.compose.project` 라벨로 묶는다. 패널이 관리하는 스택은 컨테이너가 없어도 타일이 있고(이름은 대소문자 무시로 라벨과 맞춤), 라벨로만 보이는 프로젝트도 타일이 된다. 상태 말 실행 중(n=m) / 일부 실행(0<n<m) / 중지됨(n=0) + n/m, 서비스 이름(컨테이너 이름에서 프로젝트 접두사와 복제 번호를 뺀 것, 같은 이름은 한 번 — 가장 나쁜 컨테이너의 말로), 실행 중이 아닌 서비스는 말(재시작 중, "1시간 전 종료 (코드 1)" 등)과 함께
+  - **독립 컨테이너 N**: 라벨 없는 컨테이너. 실행 중이면 이미지, 종료했으면 언제·코드
+  - **포트 칩**: 게시된 포트(`PublicPort > 0`)만, 포트+프로토콜마다 하나(0.0.0.0과 ::는 하나). 127.0.0.1·::1에만 묶이면 "내부", 링크 아님. TCP만 링크 — 새 탭(`target="_blank" rel="noopener noreferrer"`, 이름에 "새 탭에서 열림"), 443·8443은 `https`. 호스트는 이 브라우저가 붙은 노드면 브라우저가 쓰는 호스트 이름(데스크톱 앱은 서버 주소의 호스트), 다른 노드면 `api_address`의 호스트(IPv6는 대괄호). 22·21·23·25·53·110·143·465·587·993·995·1433·1521·1883·3306·5432·5672·6379·8883·9092·11211·27017과 UDP는 말만
+  - 타일 → 기존 화면: 관리 스택은 데이터센터 범위 `/cluster/stacks/<nodeId>/<name>`, 노드 범위 `/docker/stacks/<name>`; 라벨로만 보이는 스택은 그 노드의 `/docker/containers?search=<name>`; 컨테이너는 그 노드의 `/docker/containers?container=<id>`. 노드의 화면으로 갈 때 데이터센터 범위는 노드를 먼저 고른다(`openNode(nodeId, localId, navigate, to)`, 트리와 같은 방식)
+  - **호스트에서 직접 듣는 서비스** (`<details>`): 열 때마다 `/system/portmap`을 묻고 컨테이너 포트가 아닌 행만 "sshd :22"처럼 보인다. 닫혀 있으면 묻지 않는다
+  - 찾기: 스택·컨테이너·서비스 이름으로 타일을 거른다(노드 전체). 불러온 것 중 맞는 것이 없으면 그렇다고 말하고 [검색어 지우기]. 불러오지 못한 노드는 찾는 동안에도 이유를 보인다
+  - 비어 있으면(Docker는 있고 아무것도 없음) "아직 돌고 있는 것이 없습니다"와 앱 스토어·Docker › 스택 링크
+- **불러오기**: 노드마다 `api.getComposeProjects(node)` + `api.getContainers(node)`를 한 번에 세 노드까지(`useRunningBoard.ts`), 노드마다 따로 그린다 — 느리거나 실패한 노드가 다른 노드를 붙잡지 않는다. 온라인이 아닌 노드는 묻지 않고 그렇다고 말한다. 404나 `DOCKER_UNAVAILABLE`은 오류가 아니라 "Docker가 설치되어 있지 않거나 실행 중이 아닙니다" 한 줄. 첫 불러오기 실패는 `ListLoadState` 오류(이유 + 다시 시도), 갱신 실패는 마지막으로 본 내용을 두고 그 시각과 다시 시도. 15초마다(`useVisibleInterval`, 보일 때만), 새로 고침 버튼, 마지막 갱신 시각(`ResourceStatus`). 데이터센터 범위는 `api.getClusterOverview()`(노드·지표)와 `api.getClusterStatus()`(이 브라우저가 붙은 노드), 노드 범위는 `/system/overview`(호스트 이름·지표)
+- **제목 수준**: `/running`은 `<h1>`, `/cluster/running`은 클러스터 페이지의 `<h1>` 아래 탭이라 `<h2>`이고 그 아래 제목도 한 단계씩 내려간다(`running/Heading.tsx`)
+- **2단계 자리**: 노드 본문(`NodeBody`)의 `leading`이 스택 위에 그릴 묶음 — Proxmox VE 노드의 가상 머신·LXC가 들어갈 자리
 
 ### Docker
 - **파일**: `web/src/pages/Docker.tsx`
@@ -596,7 +615,7 @@ interface UseWebSocketOptions {
 
 **파일**: `web/src/lib/api.ts`
 
-싱글턴 클래스 `ApiClient` (export: `api`). JWT 액세스 토큰은 **sessionStorage**에 저장한다(탭을 닫으면 사라지므로 XSS 노출 창이 열려 있는 탭으로 좁혀진다 — 세션을 이어주는 것은 httpOnly 리프레시 쿠키다). 모든 요청에 `Authorization: Bearer <token>` 헤더 자동 포함. 응답은 `{ success, data, error }` 형식으로 래핑되며, `success === false` 시 Error throw.
+싱글턴 클래스 `ApiClient` (export: `api`). `request(path, { node })`의 `node`는 그 한 번의 요청이 갈 노드로, 고른 노드(`currentNode`) 대신 `?node=`에 들어간다 — 여러 노드를 한꺼번에 읽는 화면(실행 현황)이 패널 전체가 따르는 선택을 옮기지 않으려고. `local: true`와 `/cluster/*` 규칙은 그대로(둘 다 `?node=`를 붙이지 않는다). 매니저는 자기 ID를 받으면 스스로 답하므로 로컬 노드도 ID로 부를 수 있다. JWT 액세스 토큰은 **sessionStorage**에 저장한다(탭을 닫으면 사라지므로 XSS 노출 창이 열려 있는 탭으로 좁혀진다 — 세션을 이어주는 것은 httpOnly 리프레시 쿠키다). 모든 요청에 `Authorization: Bearer <token>` 헤더 자동 포함. 응답은 `{ success, data, error }` 형식으로 래핑되며, `success === false` 시 Error throw.
 
 ### 토큰 관리
 | 메서드 | 설명 |
@@ -656,7 +675,7 @@ interface UseWebSocketOptions {
 ### Docker 컨테이너
 | 메서드 | HTTP | 경로 | 반환 타입 | 설명 |
 |--------|------|------|-----------|------|
-| `getContainers()` | GET | `/docker/containers` | `any[]` | 컨테이너 목록 |
+| `getContainers(node?)` | GET | `/docker/containers` | `Container[]` | 컨테이너 목록 (`node`를 주면 그 노드의 것) |
 | `createContainer(config)` | POST | `/docker/containers` | `{ id, message }` | 컨테이너 생성 |
 | `startContainer(id)` | POST | `/docker/containers/{id}/start` | - | 컨테이너 시작 |
 | `stopContainer(id)` | POST | `/docker/containers/{id}/stop` | - | 컨테이너 중지 |
@@ -700,7 +719,7 @@ interface UseWebSocketOptions {
 ### Docker Compose
 | 메서드 | HTTP | 경로 | 반환 타입 | 설명 |
 |--------|------|------|-----------|------|
-| `getComposeProjects()` | GET | `/docker/compose` | `ComposeProjectWithStatus[]` | 프로젝트 목록 (상태 포함) |
+| `getComposeProjects(node?)` | GET | `/docker/compose` | `ComposeProjectWithStatus[]` | 프로젝트 목록 (상태 포함, `node`를 주면 그 노드의 것) |
 | `createComposeProject(name, yaml)` | POST | `/docker/compose` | - | 프로젝트 생성 |
 | `getComposeProject(project)` | GET | `/docker/compose/{project}` | `{ project: ComposeProject; yaml: string }` | 프로젝트 상세 |
 | `updateComposeProject(project, yaml)` | PUT | `/docker/compose/{project}` | - | 프로젝트 수정 |
@@ -855,7 +874,7 @@ interface UseWebSocketOptions {
 | `addFirewallRule(data)` | POST | `/firewall/rules` | `{ message, output }` | UFW 규칙 추가 |
 | `deleteFirewallRule(number)` | DELETE | `/firewall/rules/{number}` | `{ message }` | UFW 규칙 삭제 |
 | `getListeningPorts()` | GET | `/firewall/ports` | `{ ports: ListeningPort[], total }` | 리스닝 포트 목록 |
-| `getPortMap()` | GET | `/system/portmap` | (호스트 포트별 통합 뷰) | 포트 맵 — UFW 규칙 + Docker DNAT + 호스트 프로세스 통합 조회 |
+| `getPortMap(node?)` | GET | `/system/portmap` | (호스트 포트별 통합 뷰) | 포트 맵 — UFW 규칙 + Docker DNAT + 호스트 프로세스 통합 조회 |
 
 ### Fail2ban
 | 메서드 | HTTP | 경로 | 반환 타입 | 설명 |
@@ -1147,7 +1166,7 @@ interface InstalledApp {
 | 네임스페이스 | 설명 | 주요 키 |
 |-------------|------|---------|
 | `common` | 공통 UI 텍스트 | refresh, cancel, delete, create, save, loading, name, status, actions, created, edit, saving, creating |
-| `layout` | 레이아웃/네비게이션 | brand, tagline, nav.dashboard/docker/appstore/files/cron/logs/processes/network/disk/firewall/packages/terminal/settings, logout, collapse, expand |
+| `layout` | 레이아웃/네비게이션 | brand, tagline, nav.dashboard/running/docker/appstore/files/cron/logs/processes/network/disk/firewall/packages/terminal/settings, logout, collapse, expand |
 | `login` | 로그인 페이지 | title, subtitle, username, password, totpCode, signIn, signingIn, totpRequired |
 | `setup` | 초기 셋업 | subtitle, username, password, confirmPassword, createAdmin, passwordMinLength, passwordMismatch |
 | `dashboard` | 대시보드 | title, subtitle, live, disconnected, hostInfo, hostname, os, platform, kernel, uptime, cpuCores, cpuUsage, memory, disk, network, chartTitle, topProcesses, dockerSummary, recentLogs, quickActions, sent, received |
@@ -1171,6 +1190,7 @@ interface InstalledApp {
 | `packages` | 패키지 관리 | title, subtitle, dockerStatus, dockerDescription, installDocker, systemUpdates, checkForUpdates, upgradeAll, searchAndInstall, search, install, remove, operationComplete, operationRunning |
 | `firewall` | 방화벽 관리 | title, tabs.rules/ports/fail2ban, status, enable, disable, rules, addRule, deleteRule, ports, action, port, protocol, from, to, comment, listeningPorts |
 | `firewall.fail2ban` | Fail2ban | status, install, jails, enable, disable, unban, bannedIPs, maxRetry, banTime, findTime |
+| `running` | 실행 현황 | title, subtitle*, search.*, totals.*, attention.*(줄 문장·링크), node.*, groups.stacks/standalone, stack.*, state.*, exited*, port.*, host.*, empty.*, notCluster.* (메뉴 이름은 `layout.nav.running`·`cluster.nav.running`) |
 | `appStore` | 앱스토어 | title, subtitle, searchPlaceholder, allCategories, install, installed, installing, installTitle, installDescription, envVars, refresh, refreshing, noApps, port, website, viewStack, generated |
 
 **오류 코드 문구**: 서버 오류 봉투의 `code`는 `web/src/lib/codeMessages.ts`의 `CODE_MESSAGES`(코드 → i18n 키)로 번역되고, 서버의 영어 `message`는 대체값으로 남는다. `details`가 문구의 `{{…}}` 자리를 채운다. 목록에 없는 코드는 서버 메시지를 그대로 보인다 — 이유를 메시지에 싣는 거부(`CLUSTER_CONVERT_REFUSED`·`CLUSTER_PROMOTE_REFUSED`·`CLUSTER_ROTATION_REFUSED`)는 일부러 넣지 않는다. 탈퇴·해체·전환이 성공 응답의 `data.warnings`에 싣는 경고 코드의 문구도 이 표에 둔다. 번역은 `api.ts`의 `apiErrorFrom(status, body)` 한 곳에서 하며, `request()`와 `request()`를 거치지 않는 스트림(`errorFromResponse(res)`, 예: `clusterUpdateStream`)이 같은 `ApiError`(`status`·`code`·`details`, 그리고 번역 전 서버 문장 `serverMessage`)를 던진다. 봉투가 아닌 본문(프록시의 502 등)은 `HTTP <status>`다.
@@ -1239,6 +1259,7 @@ interface InstalledApp {
 | `sfpanel_terminal_active:<node>` | (v0.53.0) 터미널 활성 항목 `tmux:<id>` / `pty:<id>` — 노드별 네임스페이스(`<node>` = nodeId 또는 `local`). 옛 `sfpanel_terminal_tabs:<node>`(임시 탭 목록)는 더 이상 쓰지 않고 페이지를 열 때 지운다 | `Terminal.tsx` |
 | `sfpanel_terminal_fontsize` | 터미널 글꼴 크기 (전역, 노드 무관) | `Terminal.tsx` |
 | `sfpanel-cluster-tree-collapsed` / `sfpanel-cluster-menu-collapsed` / `sfpanel-cluster-selection` | 클러스터 사이드바 트리/메뉴 접힘 + 선택 상태 (트리 기본값은 접힘) | `ClusterSidebar.tsx` |
+| `sfpanel-running-folded` | 실행 현황(데이터센터 범위)에서 접은 노드 구역의 노드 ID JSON 배열 | `pages/running/useRunningBoard.ts` |
 | `sfpanel-tree-collapsed` | 펼친 트리에서 접은 구역의 key JSON 배열(`managers`, `group:<이름>`, `ungrouped`) | `TreePanel.tsx` |
 | `sfpanel_file_path` | 파일 관리자 마지막 경로 | `Files.tsx` |
 
