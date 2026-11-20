@@ -11,7 +11,7 @@ import { filterContents, type NodeContents, type Totals } from '@/lib/running'
 import { cn } from '@/lib/utils'
 import { AttentionList } from './running/AttentionList'
 import { Heading } from './running/Heading'
-import { NodeBody, NodeSection } from './running/NodeSection'
+import { Meters, NodeBody, NodeSection } from './running/NodeSection'
 import { useClusterBoard, useFolded, useNodeBoard, type BoardModel } from './running/useRunningBoard'
 
 const REFRESH_MS = 15_000
@@ -175,16 +175,7 @@ function NodeRunning() {
   return (
     <Frame>
       <BoardHeader board={board} level={1} subtitle={host ? t('running.subtitleNode', { host }) : t('running.subtitleThisNode')} onRefresh={refresh} />
-      {metrics && (
-        <dl className="flex flex-wrap gap-x-3 text-xs text-muted-foreground">
-          {([['cpu', metrics.cpu], ['memory', metrics.mem_percent], ['disk', metrics.disk_percent]] as const).map(([key, value]) => (
-            <div key={key} className="flex gap-1">
-              <dt>{t(`running.node.${key}`)}</dt>
-              <dd className="font-semibold text-foreground">{Math.round(value)}%</dd>
-            </div>
-          ))}
-        </dl>
-      )}
+      {metrics && <Meters metrics={{ cpu: metrics.cpu, memory: metrics.mem_percent, disk: metrics.disk_percent }} />}
       <TotalsRow totals={board.totals} showNodes={false} />
       <AttentionList items={board.items} scope="node" localId="" level={2} />
       <SearchField value={query} onChange={setQuery} />

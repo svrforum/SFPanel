@@ -13,7 +13,7 @@ import { HostListeners } from './HostListeners'
 import { NodeLink } from './NodeLink'
 import { ContainerTile, StackTile } from './Tiles'
 import type { Scope } from './targets'
-import type { BoardSection } from './useRunningBoard'
+import type { BoardSection, SectionMetrics } from './useRunningBoard'
 
 // Columns as wide as a tile needs, one on a phone; min() keeps a single
 // column from pushing past a screen narrower than the tile.
@@ -110,6 +110,26 @@ export function NodeBody({ section, scope, query, localId, groupLevel, leading }
   )
 }
 
+/** A node's CPU, memory and disk use, in words and numbers. */
+export function Meters({ metrics, className }: { metrics: SectionMetrics; className?: string }) {
+  const { t } = useTranslation()
+  const rows = [
+    { key: 'cpu', label: t('running.node.cpu'), value: metrics.cpu },
+    { key: 'memory', label: t('running.node.memory'), value: metrics.memory },
+    { key: 'disk', label: t('running.node.disk'), value: metrics.disk },
+  ]
+  return (
+    <dl className={cn('flex flex-wrap gap-x-3 text-xs text-muted-foreground', className)}>
+      {rows.map((r) => (
+        <div key={r.key} className="flex gap-1">
+          <dt>{r.label}</dt>
+          <dd className="font-semibold text-foreground">{Math.round(r.value)}%</dd>
+        </div>
+      ))}
+    </dl>
+  )
+}
+
 /** One node of the cluster: its header, and what runs on it unless folded. */
 export function NodeSection({ section, folded, onToggle, query, localId }: {
   section: BoardSection
@@ -141,16 +161,7 @@ export function NodeSection({ section, folded, onToggle, query, localId }: {
         {kind && <KindBadge kind={kind} />}
         <NodeStatus status={node.status} />
         {ago && <span className="text-xs text-muted-foreground">{t('running.node.lastSeen', { ago })}</span>}
-        {metrics && (
-          <dl className="flex basis-full flex-wrap gap-x-3 text-xs text-muted-foreground sm:ml-auto sm:basis-auto">
-            {([['cpu', metrics.cpu], ['memory', metrics.memory], ['disk', metrics.disk]] as const).map(([key, value]) => (
-              <div key={key} className="flex gap-1">
-                <dt>{t(`running.node.${key}`)}</dt>
-                <dd className="font-semibold text-foreground">{Math.round(value)}%</dd>
-              </div>
-            ))}
-          </dl>
-        )}
+        {metrics && <Meters metrics={metrics} className="basis-full sm:ml-auto sm:basis-auto" />}
       </header>
       {!folded && (
         <div id={bodyId} className="pb-1">

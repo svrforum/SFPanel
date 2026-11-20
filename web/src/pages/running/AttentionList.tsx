@@ -36,7 +36,12 @@ export function AttentionList({ items, scope, localId, level }: { items: Attenti
   const why = (item: AttentionItem): string[] => {
     const s = item.subject
     if (s.kind === 'node') {
-      const status = t(`cluster.status.${s.status}`)
+      const status = {
+        online: t('cluster.status.online'),
+        suspect: t('cluster.status.suspect'),
+        offline: t('cluster.status.offline'),
+        joining: t('cluster.status.joining'),
+      }[s.status]
       const ago = s.lastSeen ? lastSeenAgo(s.lastSeen, i18n.language) : ''
       return [ago ? t('running.attention.nodeDown', { status, ago }) : t('running.attention.nodeDownNever', { status })]
     }

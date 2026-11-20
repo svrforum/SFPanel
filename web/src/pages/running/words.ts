@@ -32,15 +32,21 @@ export function containerWord(c: RunningContainer, t: TFunction): { text: string
     case 'crashed':
       return { text: t('running.state.exited'), tone: problem ? 'destructive' : 'muted' }
     default: {
-      const known = ['exited', 'created', 'paused', 'removing'].includes(c.state.toLowerCase())
-      return { text: known ? t(`running.state.${c.state.toLowerCase()}`) : c.state, tone: 'muted' }
+      const words: Record<string, string> = {
+        exited: t('running.state.exited'),
+        created: t('running.state.created'),
+        paused: t('running.state.paused'),
+        removing: t('running.state.removing'),
+      }
+      const state = c.state.toLowerCase()
+      return { text: Object.hasOwn(words, state) ? words[state] : c.state, tone: 'muted' }
     }
   }
 }
 
 /** The stack's word with its count: "일부 실행 3/4". A stack with no containers has no count. */
 export function stackWord(s: RunningStack, attention: boolean, t: TFunction): { text: string; tone: StatusPillTone } {
-  const word = t(`running.stack.${s.state}`)
+  const word = { running: t('running.stack.running'), partial: t('running.stack.partial'), stopped: t('running.stack.stopped') }[s.state]
   const text = s.total > 0 ? `${word} ${s.running}/${s.total}` : word
   if (s.state === 'running') return { text, tone: 'success' }
   if (s.state === 'partial') return { text, tone: 'warning' }
