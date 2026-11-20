@@ -79,7 +79,8 @@ test('a Proxmox host shows pve-firewall and no ufw controls', async ({ page }) =
   await expect(page.getByRole('heading', { name: 'Firewall is managed by Proxmox' })).toBeVisible()
   await expect(page.getByText('Datacenter firewall')).toBeVisible()
   await expect(page.getByText('Disabled', { exact: true })).toBeVisible()
-  await expect(page.getByText('Running', { exact: true })).toBeVisible()
+  // In the page: the menu has an entry of the same name.
+  await expect(page.getByRole('main').getByText('Running', { exact: true })).toBeVisible()
   await expect(page.getByRole('link', { name: 'Open the Proxmox web UI' })).toHaveAttribute('href', /^https:\/\/[^/]+:8006$/)
   await expect(page.getByRole('button', { name: 'Enable' })).toHaveCount(0)
   await expect(page.getByRole('button', { name: 'Add Rule' })).toHaveCount(0)

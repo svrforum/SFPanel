@@ -249,13 +249,13 @@ const items = (page: Page, name: string) => section(page, name).getByRole('link'
 
 // ------------------------------------------------------------------ tests --
 
-test('the Tasks tab comes fifth and opens /cluster/tasks', async ({ page }) => {
+test('the Tasks tab comes last and opens /cluster/tasks', async ({ page }) => {
   await mock(page)
   await page.goto('/cluster/overview')
   const tasks = tab(page, 'Tasks')
   await expect(tasks).toBeVisible()
   const row = await tasks.locator('..').getByRole('link').allInnerTexts()
-  expect(row.map((s) => s.trim())).toEqual(['Overview', 'Nodes', 'Docker', 'Security', 'Tasks'])
+  expect(row.map((s) => s.trim())).toEqual(['Overview', 'Running', 'Nodes', 'Docker', 'Security', 'Tasks'])
   await tasks.click()
   await expect(page).toHaveURL(/\/cluster\/tasks$/)
   await expect(tasks).toHaveAttribute('aria-current', 'page')
