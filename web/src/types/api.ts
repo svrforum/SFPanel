@@ -104,6 +104,8 @@ export interface Container {
 }
 
 export interface ContainerPort {
+  /** The host address the port is bound to: 0.0.0.0, ::, 127.0.0.1 … */
+  IP?: string
   PrivatePort: number
   PublicPort: number
   Type: string
