@@ -21,6 +21,7 @@
 - **코드 에디터**: Monaco Editor (@monaco-editor/react)
 - **터미널**: xterm.js (@xterm/xterm + fit/web-links/search 애드온)
 - **차트**: uPlot v1.6 (시계열 차트)
+- **캔버스**: React Flow (`@xyflow/react` 12, MIT) — 실행 현황의 캔버스 보기에만. 자체 지연 청크라 캔버스를 고르기 전에는 받지 않는다
 - **아이콘**: Lucide React
 - **QR 코드**: qrcode.react (`QRCodeSVG`) — Settings 보안 탭 2FA QR + WireGuard 피어 클라이언트 config QR
 - **엔트리포인트**: `web/src/main.tsx` -> `<App />`
@@ -159,7 +160,7 @@ const DockerStacks = lazy(() => import('@/pages/docker/DockerStacks'))
 - **변경 이력**: 기존 `getSystemInfo()`+`getMetricsHistory()` 2회 호출 → `getDashboardOverview()` 단일 호출로 통합(초기 로드 요청 수 감소). 호스트 정보에 IP, 로그 패널에 방화벽 탭, 상단 업데이트 배너 추가.
 
 ### Running (실행 현황)
-- **파일**: `web/src/pages/Running.tsx` + `web/src/pages/running/**` (구역·타일·확인 필요·호스트 포트·데이터 훅), 판정은 `web/src/lib/running.ts`(순수 함수, `running.test.ts`)
+- **파일**: `web/src/pages/Running.tsx` + `web/src/pages/running/**` (구역·타일·확인 필요·호스트 포트·데이터 훅, 캔버스는 `running/canvas/**`), 판정은 `web/src/lib/running.ts`, 캔버스 배치는 `web/src/lib/runningLayout.ts`(둘 다 순수 함수, `*.test.ts`)
 - **기능**: 지금 돌고 있는 것을 한 화면에 — 무엇이 문제인지가 맨 위. 보고 이동하는 곳이라 시작·중지 같은 동작은 없다.
   - 합계: 노드 온라인 n/m(데이터센터 범위만), 스택, 실행 중인 컨테이너, 확인 필요. 불러오지 못한 노드는 합계에서 빼고 "노드 N개는 불러오지 못해 합계에서 뺐습니다"라고 말한다
   - **확인 필요 N** (N > 0일 때만): 순서는 응답 지연·오프라인 노드 → 재시작 반복·비정상(상태 검사 실패)·dead 컨테이너 → 일부만 실행 중인 스택 → 하루 안에 0이 아닌 코드로 종료한 컨테이너. 같은 순위는 노드 순서, 이름 순. 스택은 컨테이너 문제를 모아 한 줄이고(가장 나쁜 순위), 컨테이너 하나가 전부인 줄은 그 로그(`/docker/containers?container=<id>&tab=logs`)로, 나머지는 스택으로 간다. 아무것도 돌지 않고 최근 실패도 없는 스택은 일부러 내린 것으로 보고 줄을 만들지 않는다. 사흘 전의 비정상 종료도 마찬가지(공용 `containerNeedsAttention`은 오래된 것도 세지만 이 화면은 하루로 좁힌다 — 나이는 Docker 상태 문장의 "N seconds/minutes/hours ago", 24시간까지)
@@ -173,6 +174,13 @@ const DockerStacks = lazy(() => import('@/pages/docker/DockerStacks'))
   - **어느 게스트가 어느 서버인가**: 게스트의 MAC 하나가 노드 X의 인터페이스(`GET /network/interfaces`의 `mac_address`) MAC과 같으면(대소문자 무시) 그 게스트는 X다(`guestServers`, `running.ts`). 빈 주소·전부 0인 주소는 맞추지 않고, 두 노드에 같이 있는 주소는 어느 쪽도 가리키지 않으며, 게스트는 자기 호스트를 가리키지 않고, 두 노드를 가리키는 게스트는 아무것도 가리키지 않는다. 한 노드를 여러 게스트가 가리키면 그중 실행 중인 하나만(정확히 하나가 아니면 아무도 아님 — 주소를 유지한 채 복원한 백업은 멈춘 사본이다). 호스트가 자기 게스트의 게스트가 되는 고리는 주어진 순서에서 뒤의 것을 버린다. 맞은 타일은 "클러스터 노드 <이름>" 링크 — 데이터센터 범위는 같은 페이지의 그 노드 구역(`#running-node-<id>`)으로 스크롤하고 구역 머리에 초점(찾기가 그 구역을 숨겼으면 검색어를 먼저 지운다), 노드 범위는 그 노드를 골라 그 노드의 `/running`
   - 찾기: 스택·컨테이너·서비스 이름과 게스트 이름·vmid로 타일을 거른다(노드 전체). 불러온 것 중 맞는 것이 없으면 그렇다고 말하고 [검색어 지우기]. 불러오지 못한 노드는 찾는 동안에도 이유를 보인다
   - 비어 있으면(Docker는 있고 아무것도 없음) "아직 돌고 있는 것이 없습니다"와 앱 스토어·Docker › 스택 링크
+- **보기 전환**: 제목 줄의 새로 고침 옆 "보드 | 캔버스" 두 버튼(`aria-pressed`). 고른 것은 `localStorage` `sfpanel-running-view`에 남고, 기본은 어느 기기에서나 보드(휴대폰과 화면 낭독기를 위한 형태). 찾기 칸은 두 보기를 모두 거른다. 캔버스 보기에는 합계와 확인 필요가 없다 — 타일이 같은 상태 말과 같은 확인 필요 표시(빨간 테두리)를 지닌다
+- **캔버스** (`running/canvas/RunningCanvas.tsx`, `React.lazy` + "캔버스를 불러오는 중…" `Suspense`): 보드와 같은 데이터를 지도로. 서버마다 상자 하나(사용자 정의 노드 `ServerBox`) — 보드의 노드 머리(이름, 종류, 상태 말, CPU·메모리·디스크)와 그 아래 게스트·스택·독립 컨테이너의 작은 타일(이름, 상태 말, n/m — 포트 칩 없음, `words.ts`의 같은 함수). 스택·컨테이너 타일은 보드와 같은 곳으로 가는 링크이고(`nodrag nopan` — 누르면 상자를 끌거나 화면을 옮기지 않는다), 게스트 타일은 링크가 아니다. 이름은 한두 줄, 그보다 길면 잘리고 `title`과 접근 가능한 이름에 전체가 남는다. 할 말이 있으면(응답 없음·불러오는 중·실패·Docker 없음·비어 있음·게스트 실패) 보드와 같은 말이 한 줄
+  - **선**: 클러스터 노드인 게스트의 타일에서 그 서버 상자의 왼쪽 위(이름 높이)로, smoothstep, 움직이지 않음, `--muted-foreground` 색, 접근 가능한 이름 "pve-host의 VM delta-vm → delta-node"(`role=img`). 그 밖에는 선이 없고 루트 노드도 없다
+  - **배치** (`runningLayout.ts`): 깊이별 열 — 누구의 게스트도 아닌 서버가 0열(보드 순서), 그 게스트인 서버가 1열…; 게스트의 서버는 그 게스트 타일과 같은 높이에, 위 상자가 자리를 막으면 그 아래 간격 뒤에. 상자 크기는 줄 수와 같은 상수(`CANVAS`)로 계산하고 상자도 그 상수대로 그려서 처음 배치에 잴 것이 없고 배치와 그림이 어긋나지 않는다. 찾기는 상자를 줄일 뿐 옮기지 않는다(배치는 거르기 전 내용으로)
+  - **조작**: 배경을 끌어 이동(터치는 한 손가락), 휠·핀치·조작 버튼(확대, 축소, 화면에 맞추기)으로 확대, 상자를 끌어 옮기면 그 자리가 `localStorage`(`sfpanel-running-canvas:cluster`, 노드 범위는 `sfpanel-running-canvas:node:<id>`)에 노드 ID별로 남는다 — 없어진 노드의 자리는 버리고 새 노드는 계산된 자리, 읽을 수 없는 값은 무시. "자동 정렬"이 그 자리를 지우고 계산된 배치로 화면에 맞춘다. 그 밖엔 읽기 전용: 잇기·선택·삭제·키보드 이동 없음(`nodesConnectable`·`elementsSelectable`·`nodesFocusable`·`edgesFocusable` false, `deleteKeyCode` null, `disableKeyboardA11y`). Tab으로 닿은 타일이 화면 밖이면 화면이 그리로 옮겨 간다
+  - **모양**: 라이브러리 CSS 변수를 패널 토큰으로 덮는다(`canvas.css`: 배경 `--background`, 점 `--border`, 선 `--muted-foreground`, 조작 버튼 `--card`/`--foreground`/`--border`, 버튼 36px, `:focus-visible` 링). `colorMode`는 `<html>`의 `.dark`를 따르며 열린 채로 테마가 바뀌어도(`sfpanel:themechange`) 따라간다. 움직임 줄이기를 고르면 화면 맞추기·자동 정렬·Tab 이동도 애니메이션 없이. 라이브러리 기본 출처 표시 대신 패널이 "React Flow" 링크(12px, 새 탭 안내 포함)를 그린다(`proOptions.hideAttribution`). 이름: 캔버스 `aria-label` "실행 현황 캔버스", 상자 `role=group` + 노드 이름, 조작 버튼은 `ariaLabelConfig`로 한국어·영어
+  - **휴대폰**: 캔버스는 제목·찾기 아래 `h-[70dvh]`(최소 20rem), 핀치와 한 손가락 이동, 페이지는 옆으로 스크롤되지 않는다
 - **불러오기**: 노드마다 `api.getComposeProjects(node)` + `api.getContainers(node)`를 한 번에 세 노드까지(`useRunningBoard.ts`), 노드마다 따로 그린다 — 느리거나 실패한 노드가 다른 노드를 붙잡지 않는다. 온라인이 아닌 노드는 묻지 않고 그렇다고 말한다. 404나 `DOCKER_UNAVAILABLE`은 오류가 아니라 "Docker가 설치되어 있지 않거나 실행 중이 아닙니다" 한 줄. 첫 불러오기 실패는 `ListLoadState` 오류(이유 + 다시 시도), 갱신 실패는 마지막으로 본 내용을 두고 그 시각과 다시 시도. 15초마다(`useVisibleInterval`, 보일 때만), 새로 고침 버튼, 마지막 갱신 시각(`ResourceStatus`). 데이터센터 범위는 `api.getClusterOverview()`(노드·지표)와 `api.getClusterStatus()`(이 브라우저가 붙은 노드), 노드 범위는 `/system/overview`(호스트 이름·지표) 게스트(`api.getGuests(node)`)는 같은 차례에 따로 묻고 따로 그린다 — 게스트를 못 받은 노드도 스택은 그대로. 인터페이스(`api.getNetworkInterfaces(node)`)는 어느 노드든 게스트가 있을 때만, 온라인 노드에만, 방문 동안 노드마다 한 번(실패한 노드는 다음 갱신에 다시) 묻고, 못 받은 노드는 맞는 게스트가 없을 뿐 오류를 보이지 않는다. 노드 범위는 이 노드에 게스트가 있을 때 `/cluster/nodes`로 다른 노드를 안다
 - **제목 수준**: `/running`은 `<h1>`, `/cluster/running`은 클러스터 페이지의 `<h1>` 아래 탭이라 `<h2>`이고 그 아래 제목도 한 단계씩 내려간다(`running/Heading.tsx`)
 
@@ -1262,6 +1270,8 @@ interface InstalledApp {
 | `sfpanel_terminal_fontsize` | 터미널 글꼴 크기 (전역, 노드 무관) | `Terminal.tsx` |
 | `sfpanel-cluster-tree-collapsed` / `sfpanel-cluster-menu-collapsed` / `sfpanel-cluster-selection` | 클러스터 사이드바 트리/메뉴 접힘 + 선택 상태 (트리 기본값은 접힘) | `ClusterSidebar.tsx` |
 | `sfpanel-running-folded` | 실행 현황(데이터센터 범위)에서 접은 노드 구역의 노드 ID JSON 배열 | `pages/running/useRunningBoard.ts` |
+| `sfpanel-running-view` | 실행 현황의 보기(`board` \| `canvas`, 없으면 보드) | `pages/running/useRunningBoard.ts` `useRunningView` |
+| `sfpanel-running-canvas:cluster` / `sfpanel-running-canvas:node:<id>` | 캔버스에서 옮긴 상자의 자리 `{노드 ID: {x, y}}` (범위마다 키 하나, "자동 정렬"이 지운다) | `pages/running/canvas/RunningCanvas.tsx` |
 | `sfpanel-tree-collapsed` | 펼친 트리에서 접은 구역의 key JSON 배열(`managers`, `group:<이름>`, `ungrouped`) | `TreePanel.tsx` |
 | `sfpanel_file_path` | 파일 관리자 마지막 경로 | `Files.tsx` |
 
@@ -1294,7 +1304,7 @@ interface InstalledApp {
   - **monaco는 의도적으로 수동 청크에서 제외** (v0.55.0): 명명 청크로 강제하면 rolldown이 공유 심볼을 eager entry로 끌어와 3.6MB 에디터가 첫 페인트에 포함됨. 기본 청킹에 맡겨 lazy Files/DockerStacks 청크에 편승
 - 경고 한계: 1000KB
 - **Monaco 슬림 임포트** (v0.49.0): `web/src/lib/monaco.ts`가 `monaco-editor` 배럴 대신 편집기 API + 언어 allowlist만 로드 (TS 언어 서비스의 ~6.9MB ts.worker 제거). monaco-editor 0.56부터 `exports` 맵이 예전 `esm/vs/...` 경로를 막아, 0.56이 공식으로 낸 진입점을 쓴다 — `monaco-editor/editor`, 편집기 기능 전부 `monaco-editor/features/register.all`(JSON 서비스가 더는 함께 싣지 않아, 없으면 YAML·셸 편집기에 찾기·접기·주석·문맥 메뉴가 없다), JSON·CSS·HTML 서비스 `languages/features/<언어>/register`, 구문 강조 `languages/definitions/<언어>/register`, 작업자는 `languages/features/<언어>/<언어>.worker.js`와 `editor/editor.worker.js`. **(v0.54.0)** 로그인 페이지 entry에서도 Monaco 제외.
-- **PWA**: 서비스워커 자동 생성(autoUpdate, skipWaiting/clientsClaim). **(v0.54.0)** `manifest: false` — 수기 `public/manifest.json` 단일 매니페스트만 배포(자동 생성 `manifest.webmanifest` 비활성). 캐시 포함 — `*.css/html/ico/png/svg/woff2`, `assets/*.js`. 캐시 제외(globIgnores) — Monaco/xterm/언어 워커류는 네트워크 전용이며, **(v0.55.0)** rolldown ≥1.1의 청크 개명(`monaco-*` → `editor.api2-*`)도 ignore 패턴에 반영, monaco-editor 0.57의 `editor.api-*`도 같은 패턴(`editor.api*-*`)으로. 청크 이름이 또 바뀌어 편집기가 캐시에 들어가면 빌드 뒤 `web/scripts/check-precache.mjs`(CI)가 미리 캐시 3.5 MiB 예산으로 실패한다
+- **PWA**: 서비스워커 자동 생성(autoUpdate, skipWaiting/clientsClaim). **(v0.54.0)** `manifest: false` — 수기 `public/manifest.json` 단일 매니페스트만 배포(자동 생성 `manifest.webmanifest` 비활성). 캐시 포함 — `*.css/html/ico/png/svg/woff2`, `assets/*.js`. 캐시 제외(globIgnores) — Monaco/xterm/언어 워커류는 네트워크 전용이며, **(v0.55.0)** rolldown ≥1.1의 청크 개명(`monaco-*` → `editor.api2-*`)도 ignore 패턴에 반영, monaco-editor 0.57의 `editor.api-*`도 같은 패턴(`editor.api*-*`)으로. 실행 현황의 캔버스 청크(`RunningCanvas-*.js/.css`, `@xyflow/react` 포함)도 제외 — 캔버스를 고를 때만 받는다. 청크 이름이 또 바뀌어 편집기가 캐시에 들어가면 빌드 뒤 `web/scripts/check-precache.mjs`(CI)가 미리 캐시 3.5 MiB 예산으로 실패한다
 
 ### 빌드 출력
 
