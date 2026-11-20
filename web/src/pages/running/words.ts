@@ -1,6 +1,6 @@
 import type { TFunction } from 'i18next'
 import type { StatusPillTone } from '@/components/StatusPill'
-import { containerProblem, type Age, type RunningContainer, type RunningStack } from '@/lib/running'
+import { containerProblem, guestResources, type Age, type RunningContainer, type RunningGuest, type RunningStack } from '@/lib/running'
 
 /** "2시간 전" / "2 hours ago" for an age Docker gave in its own words. */
 export function ageText(age: Age, lang: string): string {
@@ -61,4 +61,32 @@ export function serviceNote(c: RunningContainer, t: TFunction, lang: string): st
   if (c.health === 'running') return null
   if (c.state.toLowerCase() === 'exited') return exitText(c, t, lang)
   return containerWord(c, t).text
+}
+
+/**
+ * A guest's state in words. Running is the only state drawn in a colour of
+ * its own: a guest that is not running was stopped by someone, and is no
+ * finding of the board's.
+ */
+export function guestWord(g: RunningGuest, t: TFunction): { text: string; tone: StatusPillTone } {
+  if (!g.state) return { text: g.status || t('running.guest.state.unknown'), tone: 'muted' }
+  const words = {
+    running: t('running.guest.state.running'),
+    stopped: t('running.guest.state.stopped'),
+    paused: t('running.guest.state.paused'),
+    suspended: t('running.guest.state.suspended'),
+    unknown: t('running.guest.state.unknown'),
+  }
+  return { text: words[g.state], tone: g.state === 'running' ? 'success' : 'muted' }
+}
+
+/** "VM 101 · CPU 4 · 메모리 1.0 GB / 4.0 GB"; the kind is left out where it already is the title. */
+export function guestMeta(g: RunningGuest, t: TFunction): string {
+  const { cpus, memory } = guestResources(g)
+  const kind = g.kind === 'lxc' ? t('running.guest.lxc', { vmid: g.vmid }) : t('running.guest.vm', { vmid: g.vmid })
+  return [
+    g.name ? kind : null,
+    cpus ? t('running.guest.cpus', { cpus }) : null,
+    memory ? t('running.guest.memory', { memory }) : null,
+  ].filter(Boolean).join(' · ')
 }

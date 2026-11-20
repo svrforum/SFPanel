@@ -169,11 +169,12 @@ const DockerStacks = lazy(() => import('@/pages/docker/DockerStacks'))
   - **포트 칩**: 게시된 포트(`PublicPort > 0`)만, 포트+프로토콜마다 하나(0.0.0.0과 ::는 하나). 127.0.0.1·::1에만 묶이면 "내부", 링크 아님. TCP만 링크 — 새 탭(`target="_blank" rel="noopener noreferrer"`, 이름에 "새 탭에서 열림"), 443·8443은 `https`. 호스트는 이 브라우저가 붙은 노드면 브라우저가 쓰는 호스트 이름(데스크톱 앱은 서버 주소의 호스트), 다른 노드면 `api_address`의 호스트(IPv6는 대괄호). 22·21·23·25·53·110·143·465·587·993·995·1433·1521·1883·3306·5432·5672·6379·8883·9092·11211·27017과 UDP는 말만
   - 타일 → 기존 화면: 관리 스택은 데이터센터 범위 `/cluster/stacks/<nodeId>/<name>`, 노드 범위 `/docker/stacks/<name>`; 라벨로만 보이는 스택은 그 노드의 `/docker/containers?search=<name>`; 컨테이너는 그 노드의 `/docker/containers?container=<id>`. 노드의 화면으로 갈 때 데이터센터 범위는 노드를 먼저 고른다(`openNode(nodeId, localId, navigate, to)`, 트리와 같은 방식)
   - **호스트에서 직접 듣는 서비스** (`<details>`): 열 때마다 `/system/portmap`을 묻고 컨테이너 포트가 아닌 행만 "sshd :22"처럼 보인다. 닫혀 있으면 묻지 않는다
-  - 찾기: 스택·컨테이너·서비스 이름으로 타일을 거른다(노드 전체). 불러온 것 중 맞는 것이 없으면 그렇다고 말하고 [검색어 지우기]. 불러오지 못한 노드는 찾는 동안에도 이유를 보인다
+  - **가상 머신·LXC N** (Proxmox VE 노드, 스택 위): `GET /system/guests`의 게스트를 vmid 순으로. 타일은 이름(없으면 "VM 130"), 상태 말(실행 중 / 중지됨 / 일시 중지됨 / 일시 중단됨 / 알 수 없음, 그 밖의 말은 Proxmox가 보낸 그대로 — 실행 중만 색), "VM 101 · CPU 4 · 메모리 1.0 GB / 4.0 GB"(멈춘 게스트는 할당량만, CPU는 소수 둘째 자리까지), 태그. 링크가 아니다(게스트 화면이 없다). 시작·중지 없음, 확인 필요에 들지 않고 합계에도 더하지 않는다. 목록을 받지 못하면(`PVE_GUESTS_ERROR` 등) 묶음 제목 아래 "목록을 불러오지 못했습니다."와 이유 — "게스트 없음"으로 그리지 않는다. 404(이 경로가 없는 이전 버전 노드)나 빈 목록이면 묶음이 없다
+  - **어느 게스트가 어느 서버인가**: 게스트의 MAC 하나가 노드 X의 인터페이스(`GET /network/interfaces`의 `mac_address`) MAC과 같으면(대소문자 무시) 그 게스트는 X다(`guestServers`, `running.ts`). 빈 주소·전부 0인 주소는 맞추지 않고, 두 노드에 같이 있는 주소는 어느 쪽도 가리키지 않으며, 게스트는 자기 호스트를 가리키지 않고, 두 노드를 가리키는 게스트는 아무것도 가리키지 않는다. 한 노드를 여러 게스트가 가리키면 그중 실행 중인 하나만(정확히 하나가 아니면 아무도 아님 — 주소를 유지한 채 복원한 백업은 멈춘 사본이다). 호스트가 자기 게스트의 게스트가 되는 고리는 주어진 순서에서 뒤의 것을 버린다. 맞은 타일은 "클러스터 노드 <이름>" 링크 — 데이터센터 범위는 같은 페이지의 그 노드 구역(`#running-node-<id>`)으로 스크롤하고 구역 머리에 초점(찾기가 그 구역을 숨겼으면 검색어를 먼저 지운다), 노드 범위는 그 노드를 골라 그 노드의 `/running`
+  - 찾기: 스택·컨테이너·서비스 이름과 게스트 이름·vmid로 타일을 거른다(노드 전체). 불러온 것 중 맞는 것이 없으면 그렇다고 말하고 [검색어 지우기]. 불러오지 못한 노드는 찾는 동안에도 이유를 보인다
   - 비어 있으면(Docker는 있고 아무것도 없음) "아직 돌고 있는 것이 없습니다"와 앱 스토어·Docker › 스택 링크
-- **불러오기**: 노드마다 `api.getComposeProjects(node)` + `api.getContainers(node)`를 한 번에 세 노드까지(`useRunningBoard.ts`), 노드마다 따로 그린다 — 느리거나 실패한 노드가 다른 노드를 붙잡지 않는다. 온라인이 아닌 노드는 묻지 않고 그렇다고 말한다. 404나 `DOCKER_UNAVAILABLE`은 오류가 아니라 "Docker가 설치되어 있지 않거나 실행 중이 아닙니다" 한 줄. 첫 불러오기 실패는 `ListLoadState` 오류(이유 + 다시 시도), 갱신 실패는 마지막으로 본 내용을 두고 그 시각과 다시 시도. 15초마다(`useVisibleInterval`, 보일 때만), 새로 고침 버튼, 마지막 갱신 시각(`ResourceStatus`). 데이터센터 범위는 `api.getClusterOverview()`(노드·지표)와 `api.getClusterStatus()`(이 브라우저가 붙은 노드), 노드 범위는 `/system/overview`(호스트 이름·지표)
+- **불러오기**: 노드마다 `api.getComposeProjects(node)` + `api.getContainers(node)`를 한 번에 세 노드까지(`useRunningBoard.ts`), 노드마다 따로 그린다 — 느리거나 실패한 노드가 다른 노드를 붙잡지 않는다. 온라인이 아닌 노드는 묻지 않고 그렇다고 말한다. 404나 `DOCKER_UNAVAILABLE`은 오류가 아니라 "Docker가 설치되어 있지 않거나 실행 중이 아닙니다" 한 줄. 첫 불러오기 실패는 `ListLoadState` 오류(이유 + 다시 시도), 갱신 실패는 마지막으로 본 내용을 두고 그 시각과 다시 시도. 15초마다(`useVisibleInterval`, 보일 때만), 새로 고침 버튼, 마지막 갱신 시각(`ResourceStatus`). 데이터센터 범위는 `api.getClusterOverview()`(노드·지표)와 `api.getClusterStatus()`(이 브라우저가 붙은 노드), 노드 범위는 `/system/overview`(호스트 이름·지표) 게스트(`api.getGuests(node)`)는 같은 차례에 따로 묻고 따로 그린다 — 게스트를 못 받은 노드도 스택은 그대로. 인터페이스(`api.getNetworkInterfaces(node)`)는 어느 노드든 게스트가 있을 때만, 온라인 노드에만, 방문 동안 노드마다 한 번(실패한 노드는 다음 갱신에 다시) 묻고, 못 받은 노드는 맞는 게스트가 없을 뿐 오류를 보이지 않는다. 노드 범위는 이 노드에 게스트가 있을 때 `/cluster/nodes`로 다른 노드를 안다
 - **제목 수준**: `/running`은 `<h1>`, `/cluster/running`은 클러스터 페이지의 `<h1>` 아래 탭이라 `<h2>`이고 그 아래 제목도 한 단계씩 내려간다(`running/Heading.tsx`)
-- **2단계 자리**: 노드 본문(`NodeBody`)의 `leading`이 스택 위에 그릴 묶음 — Proxmox VE 노드의 가상 머신·LXC가 들어갈 자리
 
 ### Docker
 - **파일**: `web/src/pages/Docker.tsx`
@@ -779,7 +780,7 @@ interface UseWebSocketOptions {
 ### 네트워크 관리
 | 메서드 | HTTP | 경로 | 반환 타입 | 설명 |
 |--------|------|------|-----------|------|
-| `getNetworkInterfaces()` | GET | `/network/interfaces` | `any[]` | 네트워크 인터페이스 목록 |
+| `getNetworkInterfaces(node?)` | GET | `/network/interfaces` | `NetworkInterfaceInfo[]` | 네트워크 인터페이스 목록 |
 | `getNetworkInterface(name)` | GET | `/network/interfaces/{name}` | `any` | 인터페이스 상세 |
 | `configureInterface(name, config)` | PUT | `/network/interfaces/{name}` | - | 인터페이스 설정 |
 | `applyNetworkConfig()` | POST | `/network/apply` | `{ message }` | 네트워크 설정 적용 |
@@ -875,6 +876,7 @@ interface UseWebSocketOptions {
 | `deleteFirewallRule(number)` | DELETE | `/firewall/rules/{number}` | `{ message }` | UFW 규칙 삭제 |
 | `getListeningPorts()` | GET | `/firewall/ports` | `{ ports: ListeningPort[], total }` | 리스닝 포트 목록 |
 | `getPortMap(node?)` | GET | `/system/portmap` | (호스트 포트별 통합 뷰) | 포트 맵 — UFW 규칙 + Docker DNAT + 호스트 프로세스 통합 조회 |
+| `getGuests(node?)` | GET | `/system/guests` | `PveGuest[]` | Proxmox VE 노드의 가상 머신·LXC (Proxmox가 아니면 `[]`, 목록을 못 받으면 500 `PVE_GUESTS_ERROR`, 이전 버전 노드는 404) |
 
 ### Fail2ban
 | 메서드 | HTTP | 경로 | 반환 타입 | 설명 |

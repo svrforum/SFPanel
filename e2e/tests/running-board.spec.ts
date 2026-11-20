@@ -2,8 +2,10 @@ import { test, expect, type Page } from '@playwright/test'
 
 // The running board: what runs on every node, with what needs looking at on
 // top. Mocked API only: a cluster of an attached manager with stacks, an
-// offline agent and a manager without Docker (and, for the failure case, an
-// agent whose first container read fails), or one server with no cluster.
+// offline agent and a manager without Docker that is older than the guest
+// list (and, for the failure case, an agent whose first container read fails;
+// for the guests, a Proxmox host one of whose VMs is that manager), or one
+// server with no cluster.
 test.use({ viewport: { width: 1280, height: 900 }, locale: 'en-US' })
 
 const PROJECT = 'com.docker.compose.project'
@@ -46,6 +48,26 @@ const alpha = { ...base, id: 'm-1', name: 'alpha-node', kind: 'manager', status:
 const charlie = { ...base, id: 'a-2', name: 'charlie-agent', kind: 'agent', role: '', status: 'offline', api_address: '198.51.100.9:3628', last_seen: LAST_SEEN }
 const delta = { ...base, id: 'm-2', name: 'delta-node', kind: 'manager', status: 'online', api_address: '192.0.2.2:3628', last_seen: LAST_SEEN }
 const bravo = { ...base, id: 'a-1', name: 'bravo-agent', kind: 'agent', role: '', status: 'online', api_address: '198.51.100.7:3628', last_seen: LAST_SEEN }
+const pve = { ...base, id: 'p-1', name: 'pve-host', kind: 'agent', role: '', status: 'online', api_address: '198.51.100.20:3628', last_seen: LAST_SEEN }
+
+// The Proxmox host's guests: a VM that is delta-node (by its NIC address,
+// which delta-node reports in lower case), an LXC container that is none of
+// the nodes, and a VM that is stopped. Docker's example address range only.
+const GiB = 1024 ** 3
+const guest = (vmid: number, name: string, kind: string, status: string, macs: string[], extra = {}) => ({
+  vmid, name, kind, status, cpus: 2, mem: status === 'running' ? GiB : 0, maxmem: 4 * GiB, uptime: 0, tags: [], macs, ...extra,
+})
+const GUESTS = [
+  guest(101, 'delta-vm', 'qemu', 'running', ['02:42:AC:11:00:02'], { tags: ['prod'] }),
+  guest(102, 'dns', 'lxc', 'running', ['02:42:AC:11:00:30'], { cpus: 0.5, mem: 256 * 1024 ** 2, maxmem: GiB }),
+  guest(103, 'old-win', 'qemu', 'stopped', []),
+]
+const iface = (name: string, mac_address: string) => ({ name, type: 'ethernet', state: 'up', mac_address, mtu: 1500, speed: 0, addresses: [], is_default: false, driver: '' })
+const INTERFACES: Record<string, unknown[]> = {
+  'm-1': [iface('lo', ''), iface('eth0', '02:42:ac:11:00:10')],
+  'm-2': [iface('lo', ''), iface('eth0', '02:42:ac:11:00:02')],
+  'p-1': [iface('lo', ''), iface('vmbr0', '02:42:ac:11:00:20')],
+}
 
 const metrics = (id: string, cpu: number) => ({ node_id: id, cpu_percent: cpu, memory_percent: 61, disk_percent: 72, container_count: 0, uptime_seconds: 1, version: '0.88.0', timestamp: 0 })
 
@@ -53,17 +75,24 @@ interface Opts {
   cluster?: boolean
   /** Adds bravo-agent, whose container read fails until `state.bravoFails` is cleared. */
   bravo?: boolean
+  /** Adds pve-host, a Proxmox host without Docker, with three guests. */
+  pve?: boolean
+  /** A node whose guest list Proxmox fails to give. */
+  guestsFail?: string
+  /** The node the node menu is on (node scope). */
+  current?: string
   language?: 'en' | 'ko'
 }
 
 async function mock(page: Page, opts: Opts = {}) {
   const cluster = opts.cluster ?? true
-  const nodes = [alpha, charlie, delta, ...(opts.bravo ? [bravo] : [])]
-  const state = { bravoFails: true, portmap: [] as string[], asked: [] as string[] }
-  await page.addInitScript((language) => {
+  const nodes = [alpha, charlie, delta, ...(opts.bravo ? [bravo] : []), ...(opts.pve ? [pve] : [])]
+  const state = { bravoFails: true, portmap: [] as string[], asked: [] as string[], interfaces: [] as string[] }
+  await page.addInitScript(({ language, current }) => {
     sessionStorage.setItem('token', 'fixture-token')
     localStorage.setItem('sfpanel_language', language)
-  }, opts.language ?? 'en')
+    if (current) localStorage.setItem('sfpanel_current_node', current)
+  }, { language: opts.language ?? 'en', current: opts.current ?? '' })
   await page.route('**/api/v1/**', async (route) => {
     const url = new URL(route.request().url())
     const path = url.pathname.replace('/api/v1', '')
@@ -79,7 +108,7 @@ async function mock(page: Page, opts: Opts = {}) {
     else if (path === '/cluster/nodes') data = { nodes, local_id: 'm-1', is_leader: true }
     else if (path === '/cluster/overview') data = {
       name: 'lab', node_count: nodes.length, leader_id: 'm-1', nodes,
-      metrics: [metrics('m-1', 23), metrics('m-2', 6), ...(opts.bravo ? [metrics('a-1', 41)] : [])],
+      metrics: [metrics('m-1', 23), metrics('m-2', 6), ...(opts.bravo ? [metrics('a-1', 41)] : []), ...(opts.pve ? [metrics('p-1', 17)] : [])],
     }
     else if (path === '/cluster/events') data = { events: [] }
     else if (path === '/system/overview') data = {
@@ -94,9 +123,19 @@ async function mock(page: Page, opts: Opts = {}) {
         { port: 41641, proto: 'udp', state: 'bound', firewall: null, containers: [], process: { pid: 2, name: 'tailscaled' } },
       ]
     }
+    else if (path === '/system/guests') {
+      if (node === opts.guestsFail) return fail(500, 'PVE_GUESTS_ERROR', 'pvesh failed: ipcc_send_rec[1] failed: Connection refused')
+      // delta-node is older than the route.
+      if (node === 'm-2') return fail(404, 'NOT_FOUND', 'Not Found')
+      data = node === 'p-1' ? GUESTS : []
+    }
+    else if (path === '/network/interfaces') {
+      state.interfaces.push(node)
+      data = INTERFACES[node] ?? []
+    }
     else if (path === '/docker/compose' || path === '/docker/containers') {
       state.asked.push(`${path}?${node}`)
-      if (node === 'm-2') return fail(503, 'DOCKER_UNAVAILABLE', 'Docker is not available on this node')
+      if (node === 'm-2' || node === 'p-1') return fail(503, 'DOCKER_UNAVAILABLE', 'Docker is not available on this node')
       if (node === 'a-1' && path === '/docker/containers' && state.bravoFails) return fail(500, 'INTERNAL_ERROR', 'docker: daemon timed out')
       const fixture = node === 'a-1' ? BRAVO : ALPHA
       data = path === '/docker/compose' ? fixture.projects : fixture.containers
@@ -215,6 +254,85 @@ test('node scope on a single server: no node header, the same tiles', async ({ p
   await region(page, 'Needs attention 3').getByRole('link', { name: 'View logs (backup-agent)' }).click()
   await expect(page).toHaveURL(/\/docker\/containers\?container=backup-agent-id&tab=logs$/)
   await expect(page.getByRole('dialog').getByRole('tab', { name: 'Logs' })).toHaveAttribute('aria-selected', 'true')
+})
+
+test('a Proxmox host lists its guests, and a VM that is one of the nodes leads to it', async ({ page }) => {
+  const state = await mock(page, { pve: true })
+  await page.goto('/cluster/running')
+  const pveRegion = region(page, 'pve-host')
+  await expect(pveRegion.getByRole('heading', { name: 'VMs and LXC containers 3', level: 4 })).toBeVisible()
+  // The guests come above what Docker would have to say, which here is that it is not there.
+  await expect(pveRegion).toContainText('Docker is not installed here, or not running.')
+
+  const tiles = pveRegion.getByRole('list').filter({ hasText: 'delta-vm' }).locator(':scope > li')
+  await expect(tiles).toHaveCount(3)
+  await expect(tiles.nth(0)).toContainText('delta-vm')
+  await expect(tiles.nth(0)).toContainText('Running')
+  await expect(tiles.nth(0)).toContainText('VM 101 · CPU 2 · Memory 1.0 GB / 4.0 GB')
+  await expect(tiles.nth(0).getByRole('list', { name: 'Tags' })).toHaveText('prod')
+  await expect(tiles.nth(0)).toContainText('Cluster node delta-node')
+  await expect(tiles.nth(1)).toContainText('LXC 102 · CPU 0.5 · Memory 256.0 MB / 1.0 GB')
+  await expect(tiles.nth(1)).not.toContainText('Cluster node')
+  await expect(tiles.nth(2)).toContainText('old-win')
+  await expect(tiles.nth(2)).toContainText('Stopped')
+  await expect(tiles.nth(2)).toContainText('VM 103 · CPU 2 · Memory 4.0 GB')
+
+  // A stopped guest is not news, and guests add nothing to the totals.
+  await expect(page.getByTestId('total-attention')).toContainText('4')
+  await expect(region(page, 'Needs attention 4')).not.toContainText('old-win')
+  await expect(page.getByTestId('total-stacks')).toContainText('4')
+  // Interfaces are asked of the online nodes only: not of charlie-agent.
+  expect([...new Set(state.interfaces)].sort()).toEqual(['m-1', 'm-2', 'p-1'])
+
+  // The VM's node link brings delta-node's section into view, its header in focus.
+  const toNode = tiles.nth(0).getByRole('link', { name: 'delta-node' })
+  await expect(toNode).toHaveAttribute('href', '#running-node-m-2')
+  await toNode.click()
+  const deltaToggle = region(page, 'delta-node').getByRole('button', { name: 'delta-node' })
+  await expect(deltaToggle).toBeFocused()
+  await expect(deltaToggle).toBeInViewport()
+
+  // The search finds a guest by its name and by its vmid.
+  const search = page.getByRole('searchbox', { name: 'Find by stack, container or service name' })
+  await search.fill('dns')
+  await expect(pveRegion.getByRole('heading', { name: 'VMs and LXC containers 1' })).toBeVisible()
+  await expect(region(page, 'alpha-node')).toHaveCount(0)
+  await search.fill('103')
+  await expect(pveRegion.getByText('old-win')).toBeVisible()
+  await expect(pveRegion.getByText('delta-vm')).toHaveCount(0)
+})
+
+test('guests that could not be listed say so beside the stacks, and an older node shows no guests', async ({ page }) => {
+  const state = await mock(page, { guestsFail: 'm-1' })
+  await page.goto('/cluster/running')
+  const alphaRegion = region(page, 'alpha-node')
+  await expect(alphaRegion.getByRole('heading', { name: 'VMs and LXC containers', exact: true, level: 4 })).toBeVisible()
+  const line = alphaRegion.getByRole('alert')
+  await expect(line).toContainText('Could not load the list.')
+  await expect(line).toContainText('pvesh failed: ipcc_send_rec[1] failed: Connection refused')
+  await expect(alphaRegion.getByRole('link', { name: 'photos', exact: true })).toBeVisible()
+  await expect(page.getByTestId('total-stacks')).toContainText('4')
+
+  // delta-node answers 404: no group, and no error.
+  const deltaRegion = region(page, 'delta-node')
+  await expect(deltaRegion).toContainText('Docker is not installed here, or not running.')
+  await expect(deltaRegion.getByRole('heading', { name: /VMs and LXC/ })).toHaveCount(0)
+  await expect(deltaRegion.getByRole('alert')).toHaveCount(0)
+  // No node has guests, so no node is asked for its interfaces.
+  expect(state.interfaces).toEqual([])
+})
+
+test("node scope: a Proxmox host's VM that is another node leads to that node's board", async ({ page }) => {
+  await mock(page, { pve: true, current: 'p-1' })
+  await page.goto('/running')
+  await expect(page.getByRole('heading', { name: 'VMs and LXC containers 3', level: 2 })).toBeVisible()
+  // In the page, not the node tree beside it.
+  const toNode = page.getByRole('main').getByRole('link', { name: 'delta-node' })
+  await expect(toNode).toHaveAttribute('href', '/running')
+  await toNode.click()
+  await expect.poll(() => page.evaluate(() => localStorage.getItem('sfpanel_current_node'))).toBe('m-2')
+  await expect(page.getByText('Docker is not installed here, or not running.')).toBeVisible()
+  await expect(page.getByRole('heading', { name: /VMs and LXC/ })).toHaveCount(0)
 })
 
 test('the search narrows the tiles, and a search with no match offers to clear it', async ({ page }) => {

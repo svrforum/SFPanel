@@ -4,16 +4,16 @@ import { ChevronDown, RefreshCw } from 'lucide-react'
 import { ListLoadState } from '@/components/ListLoadState'
 import { Skeleton } from '@/components/ui/skeleton'
 import { lastSeenAgo } from '@/lib/clusterNodes'
-import { filterContents } from '@/lib/running'
+import { filterContents, filterGuests } from '@/lib/running'
 import { cn } from '@/lib/utils'
 import { KindBadge } from '@/pages/cluster/components/KindBadge'
 import { NodeStatus } from '@/pages/cluster/components/NodeCard'
 import { Heading, type HeadingLevel } from './Heading'
 import { HostListeners } from './HostListeners'
 import { NodeLink } from './NodeLink'
-import { ContainerTile, StackTile } from './Tiles'
-import type { Scope } from './targets'
-import type { BoardSection, SectionMetrics } from './useRunningBoard'
+import { ContainerTile, GuestTile, StackTile } from './Tiles'
+import { nodeSectionId, type Scope } from './targets'
+import type { BoardSection, GuestGroup, SectionMetrics } from './useRunningBoard'
 
 // Columns as wide as a tile needs, one on a phone; min() keeps a single
 // column from pushing past a screen narrower than the tile.
@@ -26,15 +26,52 @@ interface BodyProps {
   localId: string
   /** The level of the group headings ("스택 6"). */
   groupLevel: HeadingLevel
-  /**
-   * A group drawn above the stacks. Stage 2 puts a Proxmox node's virtual
-   * machines and LXC containers here.
-   */
-  leading?: ReactNode
+  /** Brings a node's section on this page into view: where a guest that is that node links. */
+  onReveal?: (nodeId: string) => void
+}
+
+/**
+ * A Proxmox node's virtual machines and LXC containers, above its stacks; or,
+ * when they could not be listed, a line that says so and why — never as if
+ * there were none.
+ */
+function GuestsGroup({ group, scope, query, localId, level, onReveal }: {
+  group: GuestGroup
+  scope: Scope
+  query: string
+  localId: string
+  level: HeadingLevel
+  onReveal?: (nodeId: string) => void
+}) {
+  const { t, i18n } = useTranslation()
+  const { load } = group
+  if (load.phase === 'error') {
+    return (
+      <div className="px-4 pt-3 pb-1">
+        <Heading level={level} className="text-xs font-semibold text-muted-foreground">{t('running.groups.guestsTitle')}</Heading>
+        <p role="alert" className="mt-1 break-words text-xs text-destructive">{t('running.guest.loadError')} {load.error}</p>
+      </div>
+    )
+  }
+  const shown = filterGuests(group.guests, query)
+  if (shown.length === 0) return null
+  return (
+    <div className="px-4 pt-3 pb-1">
+      <Heading level={level} className="text-xs font-semibold text-muted-foreground">{t('running.groups.guests', { count: shown.length })}</Heading>
+      {load.refreshError && (
+        <p className="mt-1 text-xs text-destructive">{t('running.node.refreshError', { time: new Date(load.at).toLocaleTimeString(i18n.language) })}</p>
+      )}
+      <ul className={cn(grid, 'mt-2')}>
+        {shown.map((g) => (
+          <GuestTile key={g.vmid} guest={g} server={group.servers.get(g.vmid)} scope={scope} localId={localId} onReveal={onReveal} />
+        ))}
+      </ul>
+    </div>
+  )
 }
 
 /** What runs on one node, or why it cannot be shown. */
-export function NodeBody({ section, scope, query, localId, groupLevel, leading }: BodyProps) {
+export function NodeBody({ section, scope, query, localId, groupLevel, onReveal }: BodyProps) {
   const { t, i18n } = useTranslation()
   const { node, load } = section
 
@@ -69,7 +106,6 @@ export function NodeBody({ section, scope, query, localId, groupLevel, leading }
             </button>
           </p>
         )}
-        {leading}
         {shown.stacks.length > 0 && (
           <div className="px-4 pt-3 pb-1">
             <Heading level={groupLevel} className="text-xs font-semibold text-muted-foreground">{t('running.groups.stacks', { count: shown.stacks.length })}</Heading>
@@ -86,7 +122,7 @@ export function NodeBody({ section, scope, query, localId, groupLevel, leading }
             </ul>
           </div>
         )}
-        {empty && (
+        {empty && !section.guests && (
           <div className="px-4 py-6 text-center">
             <p className="text-[13px] font-medium">{t('running.empty.title')}</p>
             <p className="mt-1 text-xs text-muted-foreground">
@@ -103,6 +139,7 @@ export function NodeBody({ section, scope, query, localId, groupLevel, leading }
 
   return (
     <>
+      {section.guests && <GuestsGroup group={section.guests} scope={scope} query={query} localId={localId} level={groupLevel} onReveal={onReveal} />}
       {content}
       {/* Ports the host serves itself are a question for any node that answers, with Docker or without. */}
       {load && <div className="pt-2"><HostListeners node={section.nodeParam} /></div>}
@@ -131,12 +168,13 @@ export function Meters({ metrics, className }: { metrics: SectionMetrics; classN
 }
 
 /** One node of the cluster: its header, and what runs on it unless folded. */
-export function NodeSection({ section, folded, onToggle, query, localId }: {
+export function NodeSection({ section, folded, onToggle, query, localId, onReveal }: {
   section: BoardSection
   folded: boolean
   onToggle: () => void
   query: string
   localId: string
+  onReveal?: (nodeId: string) => void
 }) {
   const { t, i18n } = useTranslation()
   const headingId = useId()
@@ -144,11 +182,12 @@ export function NodeSection({ section, folded, onToggle, query, localId }: {
   const { node, kind, metrics } = section
   const ago = node.status !== 'online' && node.lastSeen ? lastSeenAgo(node.lastSeen, i18n.language) : ''
   return (
-    <section aria-labelledby={headingId} className="rounded-2xl bg-card card-shadow">
+    <section id={nodeSectionId(node.id)} aria-labelledby={headingId} className="scroll-mt-4 rounded-2xl bg-card card-shadow">
       <header className={cn('flex flex-wrap items-center gap-x-3 gap-y-1 px-4 py-2', !folded && 'border-b border-border')}>
         <Heading level={3} id={headingId} className="min-w-0 text-[15px] font-semibold">
           <button
             type="button"
+            data-node-toggle
             aria-expanded={!folded}
             aria-controls={folded ? undefined : bodyId}
             onClick={onToggle}
@@ -165,7 +204,7 @@ export function NodeSection({ section, folded, onToggle, query, localId }: {
       </header>
       {!folded && (
         <div id={bodyId} className="pb-1">
-          <NodeBody section={section} scope="cluster" query={query} localId={localId} groupLevel={4} />
+          <NodeBody section={section} scope="cluster" query={query} localId={localId} groupLevel={4} onReveal={onReveal} />
         </div>
       )}
     </section>

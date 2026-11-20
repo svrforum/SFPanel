@@ -1,4 +1,5 @@
 import { useState, type ReactNode } from 'react'
+import { flushSync } from 'react-dom'
 import { useTranslation } from 'react-i18next'
 import { Link } from 'react-router-dom'
 import { RefreshCw, Search } from 'lucide-react'
@@ -7,12 +8,13 @@ import { ListLoadState } from '@/components/ListLoadState'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { useVisibleInterval } from '@/hooks/useVisibleInterval'
-import { filterContents, type NodeContents, type Totals } from '@/lib/running'
+import { filterContents, filterGuests, type Totals } from '@/lib/running'
 import { cn } from '@/lib/utils'
 import { AttentionList } from './running/AttentionList'
 import { Heading } from './running/Heading'
 import { Meters, NodeBody, NodeSection } from './running/NodeSection'
-import { useClusterBoard, useFolded, useNodeBoard, type BoardModel } from './running/useRunningBoard'
+import { nodeSectionId } from './running/targets'
+import { useClusterBoard, useFolded, useNodeBoard, type BoardModel, type BoardSection } from './running/useRunningBoard'
 
 const REFRESH_MS = 15_000
 
@@ -76,15 +78,19 @@ function NoMatch({ query, onClear }: { query: string; onClear: () => void }) {
   )
 }
 
-/** The tiles a query leaves of what one node runs. */
-function tileCount(contents: NodeContents, query: string): number {
-  const shown = filterContents(contents, query)
-  return shown.stacks.length + shown.standalone.length
+/** Whether a node has anything a search can look through: stacks or guests it has listed. */
+const searchable = (s: BoardSection) => !!s.node.contents || s.guests?.load.phase === 'ready'
+
+/** The tiles a query leaves of what one node runs, its guests included. */
+function tileCount(s: BoardSection, query: string): number {
+  const shown = s.node.contents ? filterContents(s.node.contents, query) : { stacks: [], standalone: [] }
+  const guests = s.guests?.load.phase === 'ready' ? filterGuests(s.guests.guests, query).length : 0
+  return shown.stacks.length + shown.standalone.length + guests
 }
 
 /** The tiles a query leaves on every loaded node together. */
 function matches(board: BoardModel, query: string): number {
-  return board.sections.reduce((sum, s) => sum + (s.node.contents ? tileCount(s.node.contents, query) : 0), 0)
+  return board.sections.reduce((sum, s) => sum + tileCount(s, query), 0)
 }
 
 /** Title, what the page covers, when it was last heard from, and a refresh. */
@@ -141,7 +147,16 @@ function ClusterRunning() {
   const searching = query.trim() !== ''
   // "Nothing matches" only when there was something to search: nodes that
   // failed or were not asked say so in their own sections.
-  const noMatch = searching && board.sections.some((s) => s.node.contents) && matches(board, query) === 0
+  const noMatch = searching && board.sections.some(searchable) && matches(board, query) === 0
+  // A guest that is one of the nodes leads to that node's section; a search
+  // that hides the section is cleared first, so the link always arrives.
+  const reveal = (nodeId: string) => {
+    if (!document.getElementById(nodeSectionId(nodeId))) flushSync(() => setQuery(''))
+    const section = document.getElementById(nodeSectionId(nodeId))
+    if (!section) return
+    section.scrollIntoView({ block: 'start' })
+    section.querySelector<HTMLElement>('[data-node-toggle]')?.focus({ preventScroll: true })
+  }
   return (
     <Frame>
       <BoardHeader board={board} level={2} subtitle={t('running.subtitleCluster')} onRefresh={refresh} />
@@ -151,8 +166,8 @@ function ClusterRunning() {
       {noMatch && <NoMatch query={query} onClear={() => setQuery('')} />}
       {board.sections
         // A search keeps only the loaded nodes it found something on; one that
-        // could not be searched still shows why.
-        .filter((s) => !searching || !s.node.contents || tileCount(s.node.contents, query) > 0)
+        // could not be searched, or whose guests could not be, still shows why.
+        .filter((s) => !searching || !s.node.contents || s.guests?.load.phase === 'error' || tileCount(s, query) > 0)
         .map((s) => (
           <NodeSection
             key={s.node.id}
@@ -161,6 +176,7 @@ function ClusterRunning() {
             onToggle={() => toggleFold(s.node.id)}
             query={query}
             localId={board.localId}
+            onReveal={reveal}
           />
         ))}
     </Frame>
@@ -173,7 +189,7 @@ function NodeRunning() {
   const [query, setQuery] = useState('')
   useVisibleInterval(refresh, REFRESH_MS)
   const section = board.sections[0]
-  const noMatch = query.trim() !== '' && !!section.node.contents && matches(board, query) === 0
+  const noMatch = query.trim() !== '' && searchable(section) && matches(board, query) === 0
   return (
     <Frame>
       <BoardHeader board={board} level={1} subtitle={host ? t('running.subtitleNode', { host }) : t('running.subtitleThisNode')} onRefresh={refresh} />
@@ -183,7 +199,7 @@ function NodeRunning() {
       <SearchField value={query} onChange={setQuery} />
       {noMatch ? <NoMatch query={query} onClear={() => setQuery('')} /> : (
         <div className="rounded-2xl bg-card pb-1 card-shadow">
-          <NodeBody section={section} scope="node" query={query} localId="" groupLevel={2} />
+          <NodeBody section={section} scope="node" query={query} localId={board.localId} groupLevel={2} />
         </div>
       )}
     </Frame>

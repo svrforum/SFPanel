@@ -31,3 +31,6 @@ export function containerTarget(scope: Scope, id: string, logs = false): Target 
 
 /** The nodes that are not answering. The list's "offline" filter takes suspect ones too. */
 export const DOWN_NODES: Target = { to: '/cluster/nodes?status=offline', onNode: false }
+
+/** The element id of a node's section on the datacenter board, which a guest that is that node links to. */
+export const nodeSectionId = (nodeId: string) => `running-node-${nodeId}`

@@ -4569,7 +4569,25 @@
     },
     "groups": {
       "stacks": "스택 {{count}}",
-      "standalone": "독립 컨테이너 {{count}}"
+      "standalone": "독립 컨테이너 {{count}}",
+      "guests": "가상 머신·LXC {{count}}",
+      "guestsTitle": "가상 머신·LXC"
+    },
+    "guest": {
+      "vm": "VM {{vmid}}",
+      "lxc": "LXC {{vmid}}",
+      "cpus": "CPU {{cpus}}",
+      "memory": "메모리 {{memory}}",
+      "tags": "태그",
+      "isNode": "클러스터 노드",
+      "loadError": "목록을 불러오지 못했습니다.",
+      "state": {
+        "running": "실행 중",
+        "stopped": "중지됨",
+        "paused": "일시 중지됨",
+        "suspended": "일시 중단됨",
+        "unknown": "알 수 없음"
+      }
     },
     "stack": {
       "running": "실행 중",

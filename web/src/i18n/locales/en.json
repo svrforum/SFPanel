@@ -4589,7 +4589,25 @@
     },
     "groups": {
       "stacks": "Stacks {{count}}",
-      "standalone": "Standalone containers {{count}}"
+      "standalone": "Standalone containers {{count}}",
+      "guests": "VMs and LXC containers {{count}}",
+      "guestsTitle": "VMs and LXC containers"
+    },
+    "guest": {
+      "vm": "VM {{vmid}}",
+      "lxc": "LXC {{vmid}}",
+      "cpus": "CPU {{cpus}}",
+      "memory": "Memory {{memory}}",
+      "tags": "Tags",
+      "isNode": "Cluster node",
+      "loadError": "Could not load the list.",
+      "state": {
+        "running": "Running",
+        "stopped": "Stopped",
+        "paused": "Paused",
+        "suspended": "Suspended",
+        "unknown": "Unknown"
+      }
     },
     "stack": {
       "running": "Running",

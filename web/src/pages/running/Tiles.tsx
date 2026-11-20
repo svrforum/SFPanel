@@ -3,10 +3,11 @@ import { useTranslation } from 'react-i18next'
 import { ArrowUpRight } from 'lucide-react'
 import { StatusPill } from '@/components/StatusPill'
 import { cn } from '@/lib/utils'
-import { containerProblem, type PortChip, type RunningContainer, type RunningStack } from '@/lib/running'
+import { containerProblem, type PortChip, type RunningContainer, type RunningGuest, type RunningStack } from '@/lib/running'
 import { NodeLink } from './NodeLink'
-import { containerTarget, stackTarget, type Scope } from './targets'
-import { containerWord, exitText, serviceNote, stackWord } from './words'
+import { containerTarget, nodeSectionId, stackTarget, type Scope } from './targets'
+import type { GuestServer } from './useRunningBoard'
+import { containerWord, exitText, guestMeta, guestWord, serviceNote, stackWord } from './words'
 
 const chipBase = 'inline-flex min-h-8 items-center gap-1 rounded-lg px-2 text-xs'
 
@@ -97,6 +98,60 @@ export function ContainerTile({ container, scope, nodeId, localId }: { container
         {exited ? exitText(container, t, i18n.language) : t('running.image', { image: container.image })}
       </p>
       <PortChips ports={container.ports} className="relative z-10" />
+    </li>
+  )
+}
+
+const serverLink = 'inline-flex min-h-8 items-center break-words rounded-sm font-semibold text-primary hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring'
+
+/**
+ * A virtual machine or LXC container of a Proxmox node. The panel has no
+ * screen of its own for a guest, so the tile is no link; a guest that is one
+ * of the cluster's nodes links to that node — its section on the datacenter
+ * board, its own board otherwise.
+ */
+export function GuestTile({ guest, server, scope, localId, onReveal }: {
+  guest: RunningGuest
+  server?: GuestServer
+  scope: Scope
+  localId: string
+  /** Brings a node's section on this page into view and focus. */
+  onReveal?: (nodeId: string) => void
+}) {
+  const { t } = useTranslation()
+  const word = guestWord(guest, t)
+  return (
+    <li className={tileClass}>
+      <div className="flex items-start justify-between gap-2">
+        <p className="min-w-0 break-words text-[14px] font-semibold">{guest.title}</p>
+        <StatusPill tone={word.tone} className="shrink-0">{word.text}</StatusPill>
+      </div>
+      <p className="break-words text-xs text-muted-foreground">{guestMeta(guest, t)}</p>
+      {guest.tags.length > 0 && (
+        <ul aria-label={t('running.guest.tags')} className="flex flex-wrap gap-1.5">
+          {guest.tags.map((tag) => <li key={tag} className="break-all rounded-lg bg-secondary px-2 py-0.5 text-xs text-muted-foreground">{tag}</li>)}
+        </ul>
+      )}
+      {server && (
+        <p className="flex flex-wrap items-center gap-x-1.5 text-xs">
+          <span className="text-muted-foreground">{t('running.guest.isNode')}</span>{' '}
+          {scope === 'cluster' ? (
+            <a
+              href={`#${nodeSectionId(server.id)}`}
+              className={serverLink}
+              onClick={(e) => {
+                if (!onReveal) return
+                e.preventDefault()
+                onReveal(server.id)
+              }}
+            >
+              {server.name}
+            </a>
+          ) : (
+            <NodeLink target={{ to: '/running', onNode: true }} nodeId={server.id} localId={localId} className={serverLink}>{server.name}</NodeLink>
+          )}
+        </p>
+      )}
     </li>
   )
 }
