@@ -6,14 +6,14 @@ The format is loosely based on [Keep a Changelog](https://keepachangelog.com/), 
 
 ---
 
-## [0.89.0] – 2026-11-20
+## [0.89.0] – 2026-11-21
 
 A screen for what is running: every stack and container of a node, or of every node of the cluster, with what needs a look on top — and, on a Proxmox VE node, its virtual machines and containers. It can be read as a board or as a map.
 
 ### Added
 
 - **Running.** `/running` shows the node the menu is on, `/cluster/running` every node of the cluster, a section per node. The panel already knew all of it; no screen put it together, and seeing what a homelab runs meant opening each node's Docker pages in turn.
-  - A tile per compose stack — how many of its containers run, its services, and what ended and when — and one per container that belongs to no stack. Published ports are links that open on that node (in a new tab); a port bound to loopback, UDP, or a port that does not speak HTTP is shown and is not a link.
+  - A tile per compose stack — how many of its containers run, its services, and what ended and when — and one per container that belongs to no stack. Published ports are links that open on that node (in a new tab); a port bound to loopback, UDP, or a port that does not speak HTTP — a database published as 5433 included — is shown and is not a link, and a port bound to one address opens on that address.
   - **Needs attention**, on top, in this order: a node that is suspect or offline; a container that keeps restarting, fails its health check or is dead; a stack that runs in part; a container that exited with a non-zero code within the last day. Each line leads to the node list, the stack, or that container's logs. A stack whose only idle container ended with code 0 — a migration, an init step — still reads "partly running 2/3", and is no warning: as a line it could never be cleared.
   - What listens on the host itself (sshd, a VPN daemon), asked for only when opened.
   - A node that could not be read says why and offers to try again, and is left out of the totals rather than counted as empty. A node with no Docker says so. Nothing here starts or stops anything.
@@ -23,6 +23,11 @@ A screen for what is running: every stack and container of a node, or of every n
 ### Changed
 
 - A link to a container can open it on its logs (`/docker/containers?container=<id>&tab=logs`), which is where the board's "View logs" leads.
+- The containers search also finds a compose project's containers by the project's name, however the containers themselves are named.
+
+### Fixed
+
+- A command cut short by the limit its caller gave it was reported as having timed out "after 5m0s", the default, whatever the limit was. It names the limit it had.
 
 ### Upgrading
 
