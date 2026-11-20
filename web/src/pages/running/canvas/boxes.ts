@@ -53,7 +53,7 @@ export function boxRows(section: BoardSection, query: string): CanvasRow[] {
       rows.push({ kind: 'title', key: 'title:stacks', group: 'stacks', count: shown.stacks.length })
       for (const s of shown.stacks) {
         const attention = stackInPart(s) || s.containers.some((c) => containerProblem(c) !== null)
-        rows.push({ kind: 'tile', key: `stack:${s.name}`, name: s.name, item: { type: 'stack', stack: s, attention } })
+        rows.push({ kind: 'tile', key: `stack:${s.managed ? 'managed' : 'label'}:${s.name}`, name: s.name, item: { type: 'stack', stack: s, attention } })
       }
     }
     if (shown.standalone.length > 0) {

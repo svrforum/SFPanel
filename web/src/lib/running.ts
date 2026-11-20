@@ -247,39 +247,62 @@ function stackOf(name: string, managed: boolean, containers: Container[], host: 
   }
 }
 
+/** The directory compose ran in, which is the stack's own however compose named the project. */
+export const PROJECT_DIR_LABEL = 'com.docker.compose.project.working_dir'
+
+const inDirectory = (dir: string | undefined, root: string) =>
+  !!dir && !!root && (dir === root || dir.startsWith(root.endsWith('/') ? root : `${root}/`))
+
 /**
- * What runs on one node. Containers are grouped by their compose project
- * label; every stack the panel manages gets a tile even with no containers,
- * and so does every project seen only in labels (one started by hand with
- * `docker compose` somewhere else). Compose lowercases a project's name, so
- * a managed directory is matched to its label without case.
+ * What runs on one node. Every stack the panel manages gets a tile, with the
+ * containers compose started from its directory (or one below it): the
+ * panel runs compose there without naming the project, so the project label
+ * is the file's own `name:`, or COMPOSE_PROJECT_NAME, or the directory name
+ * with its dots taken out, and matching on it showed a running stack as
+ * stopped beside a nameless twin. This is how the stacks page counts them.
+ * A managed stack no container names the directory of takes the containers
+ * labelled with its name, without case (compose lowercases it). Every other
+ * project seen in labels (one started by hand somewhere else) gets a tile of
+ * its own.
  */
 export function nodeContents(projects: ComposeProjectWithStatus[], containers: Container[], host: string | null): NodeContents {
-  const byProject = new Map<string, Container[]>()
+  const members = new Map<ComposeProjectWithStatus, Container[]>(projects.map((p) => [p, []]))
+  const byLabel = new Map<string, Container[]>()
   const standalone: Container[] = []
   for (const c of containers) {
-    const project = c.Labels?.[PROJECT_LABEL]
-    if (!project) {
+    const label = c.Labels?.[PROJECT_LABEL]
+    if (!label) {
       standalone.push(c)
       continue
     }
-    const list = byProject.get(project)
+    const dir = c.Labels?.[PROJECT_DIR_LABEL]
+    const owner = projects.find((p) => inDirectory(dir, p.path))
+    if (owner) {
+      members.get(owner)!.push(c)
+      continue
+    }
+    const list = byLabel.get(label)
     if (list) list.push(c)
-    else byProject.set(project, [c])
+    else byLabel.set(label, [c])
   }
   const stacks: RunningStack[] = []
   for (const p of projects) {
-    const members: Container[] = []
-    for (const [label, list] of byProject) {
-      if (label.toLowerCase() !== p.name.toLowerCase()) continue
-      members.push(...list)
-      byProject.delete(label)
+    const mine = members.get(p)!
+    // By name only for a stack nothing was found in the directory of: once
+    // it has its own, a project of the same name is one run from elsewhere.
+    if (mine.length === 0) {
+      for (const [label, list] of byLabel) {
+        if (label.toLowerCase() !== p.name.toLowerCase()) continue
+        mine.push(...list)
+        byLabel.delete(label)
+      }
     }
-    stacks.push(stackOf(p.name, true, members, host))
+    stacks.push(stackOf(p.name, true, mine, host))
   }
-  for (const [label, list] of byProject) stacks.push(stackOf(label, false, list, host))
+  for (const [label, list] of byLabel) stacks.push(stackOf(label, false, list, host))
   return {
-    stacks: stacks.sort((a, b) => byName(a.name, b.name)),
+    // A managed stack before a stranger of the same name.
+    stacks: stacks.sort((a, b) => byName(a.name, b.name) || Number(b.managed) - Number(a.managed)),
     standalone: standalone.map((c) => runningContainer(c, null, host)).sort((a, b) => byName(a.name, b.name)),
   }
 }

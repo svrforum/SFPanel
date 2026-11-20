@@ -110,7 +110,7 @@ export function NodeBody({ section, scope, query, localId, groupLevel, onReveal 
           <div className="px-4 pt-3 pb-1">
             <Heading level={groupLevel} className="text-xs font-semibold text-muted-foreground">{t('running.groups.stacks', { count: shown.stacks.length })}</Heading>
             <ul className={cn(grid, 'mt-2')}>
-              {shown.stacks.map((s) => <StackTile key={s.name} stack={s} scope={scope} nodeId={node.id} localId={localId} />)}
+              {shown.stacks.map((s) => <StackTile key={`${s.managed ? 'managed' : 'label'}:${s.name}`} stack={s} scope={scope} nodeId={node.id} localId={localId} />)}
             </ul>
           </div>
         )}

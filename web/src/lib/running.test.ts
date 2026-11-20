@@ -54,6 +54,50 @@ describe('nodeContents grouping', () => {
     expect(stacks.map((s) => [s.name, s.managed, s.total])).toEqual([['Wiki', true, 1]])
   })
 
+  // The panel runs compose in the stack's directory without naming the
+  // project, so the label is whatever compose made of it: the file's own
+  // `name:`, COMPOSE_PROJECT_NAME from .env, or the directory name with the
+  // dots taken out. The directory is what does not change.
+  describe('a managed stack whose project label is not its directory name', () => {
+    const DIR = 'com.docker.compose.project.working_dir'
+    const inDir = (name: string, project: string, dir: string, state = 'running') =>
+      ctr(name, state, state === 'running' ? 'Up 2 hours' : 'Exited (0) 2 hours ago', { Labels: { [PROJECT]: project, [DIR]: dir } })
+
+    it('takes its containers by the directory compose ran in', () => {
+      const { stacks } = nodeContents([managed('my.app')], [inDir('myapp-web-1', 'myapp', '/opt/stacks/my.app'), inDir('myapp-db-1', 'myapp', '/opt/stacks/my.app')], null)
+      expect(stacks.map((s) => [s.name, s.managed, s.running, s.total])).toEqual([['my.app', true, 2, 2]])
+      // The services are still named without the label compose gave the project.
+      expect(stacks[0].services.map((s) => s.name)).toEqual(['db', 'web'])
+    })
+
+    it('takes a compose file in a directory below the stack as that stack', () => {
+      const { stacks } = nodeContents([managed('scraper')], [inDir('app-worker-1', 'app', '/opt/stacks/scraper/app')], null)
+      expect(stacks.map((s) => [s.name, s.managed, s.total])).toEqual([['scraper', true, 1]])
+    })
+
+    it('does not take a neighbour whose directory only starts the same', () => {
+      const { stacks } = nodeContents([managed('app')], [inDir('app-two-web-1', 'app-two', '/opt/stacks/app-two')], null)
+      expect(stacks.map((s) => [s.name, s.managed, s.total])).toEqual([['app', true, 0], ['app-two', false, 1]])
+    })
+
+    it('keeps a project of the same name run from somewhere else apart', () => {
+      const { stacks } = nodeContents([managed('media')], [inDir('media-player-1', 'media', '/opt/stacks/media'), inDir('media-old-1', 'media', '/srv/elsewhere/media')], null)
+      expect(stacks.map((s) => [s.name, s.managed, s.total])).toEqual([['media', true, 1], ['media', false, 1]])
+    })
+
+    it('falls back to the name for a stack no container names the directory of', () => {
+      const { stacks } = nodeContents([managed('Wiki')], [up('wiki-app-1', 'wiki')], null)
+      expect(stacks.map((s) => [s.name, s.managed, s.total])).toEqual([['Wiki', true, 1]])
+    })
+
+    // The stacks path reached through a link: compose records the directory
+    // it resolved, which is not the path the panel lists the stack under.
+    it('falls back to the name when the directory is the same place by another path', () => {
+      const { stacks } = nodeContents([managed('wiki')], [inDir('wiki-app-1', 'wiki', '/data/stacks/wiki')], null)
+      expect(stacks.map((s) => [s.name, s.managed, s.total])).toEqual([['wiki', true, 1]])
+    })
+  })
+
   it('puts a container with no compose label among the standalone ones', () => {
     const { stacks, standalone } = nodeContents([], [up('speedtest'), up('photos-server-1', 'photos')], null)
     expect(stacks.map((s) => s.name)).toEqual(['photos'])
