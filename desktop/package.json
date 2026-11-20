@@ -8,7 +8,7 @@
     "tauri:build": "tauri build"
   },
   "dependencies": {
-    "@tauri-apps/api": "~2.12.4",
+    "@tauri-apps/api": "~2.12.5",
     "@tauri-apps/plugin-updater": "~2.14.1"
   },
   "devDependencies": {
