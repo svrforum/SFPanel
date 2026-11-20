@@ -138,7 +138,8 @@ function Canvas({ sections, scope, localId, query, storageKey, level }: {
       </div>
     )}
     >
-      <RunningCanvas sections={sections} scope={scope} localId={localId} query={query} storageKey={storageKey} level={level} />
+      {/* A new key is a new place to read the moved boxes from. */}
+      <RunningCanvas key={storageKey} sections={sections} scope={scope} localId={localId} query={query} storageKey={storageKey} level={level} />
     </Suspense>
   )
 }

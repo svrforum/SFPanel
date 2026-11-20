@@ -17,7 +17,7 @@ const CLAMP: Record<number, string> = { 1: 'line-clamp-1', 2: 'line-clamp-2' }
 
 // A tile is a link or plain text, never a place to drag the box from or pan
 // the canvas from: nodrag and nopan are the library's names for that.
-const tileClass = 'nodrag nopan relative flex items-start justify-between gap-2 rounded-lg border border-border bg-background'
+const tileClass = 'nodrag nopan relative flex items-start justify-between gap-2 rounded-lg border-solid border-border bg-background'
 const tileAttention = 'border-destructive/40 bg-destructive/5'
 const nameClass = 'min-w-0 break-words text-[13px] font-semibold leading-[18px]'
 const linkClass = 'outline-none hover:underline after:absolute after:inset-0 after:rounded-lg focus-visible:after:ring-2 focus-visible:after:ring-ring'
@@ -32,7 +32,7 @@ function Tile({ row, nodeId, scope, localId, linked }: {
   const { t } = useTranslation()
   const { item } = row
   const lines = nameLines(row.name, CANVAS.tileNameChars)
-  const style = { height: rowHeight(row), padding: CANVAS.tilePadding }
+  const style = { height: rowHeight(row), padding: CANVAS.tilePadding, borderWidth: CANVAS.tileBorder }
   const name = cn(nameClass, CLAMP[lines])
 
   if (item.type === 'guest') {
@@ -107,8 +107,8 @@ function ServerBoxView({ data }: NodeProps<ServerNode>) {
   const pad = CANVAS.boxPadding
   return (
     <div
-      className="flex flex-col rounded-2xl border border-border bg-card text-card-foreground card-shadow"
-      style={{ width: CANVAS.boxWidth, height: boxHeight({ id: node.id, name: node.name, rows }), padding: pad }}
+      className="flex flex-col rounded-2xl border-solid border-border bg-card text-card-foreground card-shadow"
+      style={{ width: CANVAS.boxWidth, height: boxHeight({ id: node.id, name: node.name, rows }), padding: pad, borderWidth: CANVAS.boxBorder }}
     >
       {/* Spans the box's padding, so the incoming edge meets the box's own edge. */}
       <div className="relative" style={{ height: lines * CANVAS.nameLineHeight, marginInline: -pad, paddingInline: pad }}>

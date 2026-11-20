@@ -486,6 +486,17 @@ test.describe('canvas', () => {
     await expect(page).toHaveURL(/\/cluster\/stacks\/m-1\/photos$/)
   })
 
+  test("node scope: the server's one box, its tiles leading to this server's screens", async ({ page }) => {
+    await mock(page, { cluster: false })
+    await page.goto('/running')
+    await chooseCanvas(page)
+    const solo = box(page, 'solo-server')
+    await expect(solo.getByRole('heading', { name: 'solo-server', level: 2 })).toBeVisible()
+    await expect(solo).toContainText('CPU 12%')
+    await expect(solo.getByRole('link', { name: 'photos', exact: true })).toHaveAttribute('href', '/docker/stacks/photos')
+    await expect(canvas(page).locator('.react-flow__node')).toHaveCount(1)
+  })
+
   test('a moved box stays where it was put, and auto arrange puts it back', async ({ page }) => {
     await mock(page, { pve: true })
     await page.goto('/cluster/running')

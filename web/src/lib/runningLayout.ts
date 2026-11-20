@@ -6,6 +6,8 @@
 /** Sizes in CSS pixels at zoom 1. The canvas draws every row at exactly these heights. */
 export const CANVAS = {
   boxWidth: 288,
+  /** Borders are drawn inside the sizes here (border-box), so they are counted in them. */
+  boxBorder: 1,
   boxPadding: 12,
   /** The header: the name (one or two lines), then a row for kind and state, and one for the meters. */
   nameLineHeight: 20,
@@ -16,6 +18,7 @@ export const CANVAS = {
   titleHeight: 22,
   /** A tile: its name (one or two lines) beside its state word. */
   tileLineHeight: 18,
+  tileBorder: 1,
   tilePadding: 8,
   pillHeight: 22,
   /** A line that says why a box has no tiles: two lines of text. */
@@ -74,18 +77,18 @@ export function headerHeight(name: string): number {
 export function rowHeight(row: BoxRow): number {
   if (row.kind === 'title') return CANVAS.titleHeight
   if (row.kind === 'note') return CANVAS.noteHeight
-  return 2 * CANVAS.tilePadding + Math.max(CANVAS.pillHeight, nameLines(row.name, CANVAS.tileNameChars) * CANVAS.tileLineHeight)
+  return 2 * (CANVAS.tileBorder + CANVAS.tilePadding) + Math.max(CANVAS.pillHeight, nameLines(row.name, CANVAS.tileNameChars) * CANVAS.tileLineHeight)
 }
 
 export function boxHeight(box: LayoutBox): number {
   const rows = box.rows.reduce((sum, r) => sum + rowHeight(r), 0)
   const body = box.rows.length > 0 ? CANVAS.headerGap + rows + (box.rows.length - 1) * CANVAS.rowGap : 0
-  return 2 * CANVAS.boxPadding + headerHeight(box.name) + body
+  return 2 * (CANVAS.boxBorder + CANVAS.boxPadding) + headerHeight(box.name) + body
 }
 
 /** Where the row keyed `key` starts, from the top of its box; null for a row the box does not have. */
 export function rowTop(box: LayoutBox, key: string): number | null {
-  let y = CANVAS.boxPadding + headerHeight(box.name) + CANVAS.headerGap
+  let y = CANVAS.boxBorder + CANVAS.boxPadding + headerHeight(box.name) + CANVAS.headerGap
   for (const row of box.rows) {
     if (row.key === key) return y
     y += rowHeight(row) + CANVAS.rowGap
@@ -95,7 +98,7 @@ export function rowTop(box: LayoutBox, key: string): number | null {
 
 /** Where an edge comes into a box: level with the middle of its name, on the left. */
 export function anchorY(box: LayoutBox): number {
-  return CANVAS.boxPadding + (nameLines(box.name, CANVAS.headerNameChars) * CANVAS.nameLineHeight) / 2
+  return CANVAS.boxBorder + CANVAS.boxPadding + (nameLines(box.name, CANVAS.headerNameChars) * CANVAS.nameLineHeight) / 2
 }
 
 /**

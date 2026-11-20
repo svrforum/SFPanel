@@ -50,7 +50,7 @@ describe('nameLines', () => {
 
 describe('box sizes', () => {
   it('sizes a box with nothing in it as its header', () => {
-    expect(boxHeight(box('a'))).toBe(2 * CANVAS.boxPadding + headerHeight('a'))
+    expect(boxHeight(box('a'))).toBe(2 * (CANVAS.boxBorder + CANVAS.boxPadding) + headerHeight('a'))
     expect(headerHeight('a')).toBe(CANVAS.nameLineHeight + 2 * CANVAS.headerRowHeight)
     expect(headerHeight('n'.repeat(CANVAS.headerNameChars + 1))).toBe(2 * CANVAS.nameLineHeight + 2 * CANVAS.headerRowHeight)
   })
@@ -58,7 +58,7 @@ describe('box sizes', () => {
   it('adds each row and the gaps between them', () => {
     const rows = [title('stacks'), tile('s1'), tile('s2', 'x'.repeat(CANVAS.tileNameChars + 1)), note('n')]
     const sum = rowHeight(rows[0]) + rowHeight(rows[1]) + rowHeight(rows[2]) + rowHeight(rows[3])
-    expect(boxHeight(box('a', rows))).toBe(2 * CANVAS.boxPadding + headerHeight('a') + CANVAS.headerGap + sum + 3 * CANVAS.rowGap)
+    expect(boxHeight(box('a', rows))).toBe(2 * (CANVAS.boxBorder + CANVAS.boxPadding) + headerHeight('a') + CANVAS.headerGap + sum + 3 * CANVAS.rowGap)
   })
 
   it('gives each kind of row its own height, a two-line tile taller than a one-line one', () => {
@@ -66,21 +66,21 @@ describe('box sizes', () => {
     expect(rowHeight(note('n'))).toBe(CANVAS.noteHeight)
     const one = rowHeight(tile('a'))
     const two = rowHeight(tile('b', 'x'.repeat(CANVAS.tileNameChars + 1)))
-    expect(one).toBe(2 * CANVAS.tilePadding + Math.max(CANVAS.pillHeight, CANVAS.tileLineHeight))
-    expect(two).toBe(2 * CANVAS.tilePadding + Math.max(CANVAS.pillHeight, 2 * CANVAS.tileLineHeight))
+    expect(one).toBe(2 * (CANVAS.tileBorder + CANVAS.tilePadding) + Math.max(CANVAS.pillHeight, CANVAS.tileLineHeight))
+    expect(two).toBe(2 * (CANVAS.tileBorder + CANVAS.tilePadding) + Math.max(CANVAS.pillHeight, 2 * CANVAS.tileLineHeight))
     expect(two).toBeGreaterThan(one)
   })
 
   // The numbers the drawing is built on today, so a change to them is a
   // change someone meant.
   it('pins the sizes as they are drawn', () => {
-    expect(boxHeight(box('alpha'))).toBe(92)
-    expect(boxHeight(box('alpha', [title('stacks'), tile('media'), tile('photos')]))).toBe(210)
+    expect(boxHeight(box('alpha'))).toBe(94)
+    expect(boxHeight(box('alpha', [title('stacks'), tile('media'), tile('photos')]))).toBe(216)
   })
 
   it('tells where a row starts in its box', () => {
     const b = box('a', [title('g'), tile('vm-1'), tile('vm-2')])
-    const first = CANVAS.boxPadding + headerHeight('a') + CANVAS.headerGap
+    const first = CANVAS.boxBorder + CANVAS.boxPadding + headerHeight('a') + CANVAS.headerGap
     expect(rowTop(b, 'g')).toBe(first)
     expect(rowTop(b, 'vm-1')).toBe(first + CANVAS.titleHeight + CANVAS.rowGap)
     expect(rowTop(b, 'vm-2')).toBe(first + CANVAS.titleHeight + rowHeight(tile('vm-1')) + 2 * CANVAS.rowGap)
