@@ -73,7 +73,9 @@ test('the arrows move the focus between rows, and Enter elsewhere presses what h
   await f.nameOf(0).focus()
   await page.keyboard.press('Enter')
   await expect.poll(() => new URL(page.url()).searchParams.get('path')).toBe('/srv/data')
-  // Backspace from the listing goes back up.
+  // Backspace from the listing goes back up. From the new listing: a name
+  // focused in the one being replaced goes with it, and the key with it.
+  await expect(f.nameOf(0)).toHaveText('inside.txt')
   await f.nameOf(0).focus()
   await page.keyboard.press('Backspace')
   await expect.poll(() => new URL(page.url()).searchParams.get('path')).toBe('/srv')
