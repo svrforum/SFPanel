@@ -10,13 +10,13 @@ export type TileItem =
   | { type: 'stack'; stack: RunningStack; attention: boolean }
   | { type: 'container'; container: RunningContainer; attention: boolean }
 
-export type NoteKind = 'notAsked' | 'loading' | 'loadError' | 'noDocker' | 'empty' | 'guestsError'
+export type NoteKind = 'notAsked' | 'loading' | 'loadError' | 'noDocker' | 'empty' | 'guestsError' | 'stale'
 
 /** A row of a server box, as the layout sizes it and the box draws it. */
 export type CanvasRow =
   | { kind: 'title'; key: string; group: 'guests' | 'stacks' | 'standalone'; count: number }
   | { kind: 'tile'; key: string; name: string; item: TileItem }
-  | { kind: 'note'; key: string; note: NoteKind }
+  | { kind: 'note'; key: string; note: NoteKind; /** For `stale`: when what is drawn was seen. */ at?: number }
 
 export const guestTileKey = (vmid: number) => `guest:${vmid}`
 
@@ -24,18 +24,24 @@ export const guestTileKey = (vmid: number) => `guest:${vmid}`
  * What a server box holds, in the board's order: the guests, the stacks, the
  * standalone containers, each under its title. Where there is nothing to
  * draw, a note says why, as the board does; a search draws only what it
- * found, so a box it found nothing in is its header alone.
+ * found, so a box it found nothing in is its header alone. What could not
+ * be refreshed is drawn as it was last seen under a line that says when,
+ * search or no search: a container that died since would otherwise go on
+ * reading as running.
  */
 export function boxRows(section: BoardSection, query: string): CanvasRow[] {
   const searching = query.trim() !== ''
   const rows: CanvasRow[] = []
   const note = (n: NoteKind) => { if (!searching) rows.push({ kind: 'note', key: `note:${n}`, note: n }) }
 
+  const stale = (key: string, at: number) => rows.push({ kind: 'note', key: `note:${key}`, note: 'stale', at })
+
   const guests = section.guests
   if (guests?.load.phase === 'error') note('guestsError')
   else if (guests) {
     const shown = filterGuests(guests.guests, query)
     if (shown.length > 0) {
+      if (guests.load.phase === 'ready' && guests.load.refreshError) stale('guestsStale', guests.load.at)
       rows.push({ kind: 'title', key: 'title:guests', group: 'guests', count: shown.length })
       for (const g of shown) rows.push({ kind: 'tile', key: guestTileKey(g.vmid), name: g.title, item: { type: 'guest', guest: g, server: guests.servers.get(g.vmid) } })
     }
@@ -49,6 +55,7 @@ export function boxRows(section: BoardSection, query: string): CanvasRow[] {
   else if (section.node.contents) {
     const { contents } = section.node
     const shown = filterContents(contents, query)
+    if (load.phase === 'ready' && load.refreshError && shown.stacks.length + shown.standalone.length > 0) stale('stale', load.at)
     if (shown.stacks.length > 0) {
       rows.push({ kind: 'title', key: 'title:stacks', group: 'stacks', count: shown.stacks.length })
       for (const s of shown.stacks) {

@@ -520,6 +520,39 @@ test.describe('canvas', () => {
     await expect(box(page, 'alpha-node').getByRole('heading')).toHaveCount(1)
   })
 
+  // The canvas has no list of what needs attention above it: a tile says so
+  // itself, in words and a mark, not by its red edge alone. Both of these
+  // read "Exited"; one failed two hours ago, the other three days ago.
+  test('a tile that needs attention says so, not only by its colour', async ({ page }) => {
+    await mock(page)
+    await page.goto('/cluster/running')
+    await chooseCanvas(page)
+    const tile = (name: string) => box(page, 'alpha-node').getByRole('listitem').filter({ hasText: name })
+    await expect(tile('backup-agent')).toContainText('Exited')
+    await expect(tile('backup-agent')).toContainText('Needs attention')
+    await expect(tile('photos')).toContainText('Needs attention')
+    await expect(tile('old-test')).toContainText('Exited')
+    await expect(tile('old-test')).not.toContainText('Needs attention')
+    await expect(tile('media')).not.toContainText('Needs attention')
+  })
+
+  // A node that answered once and then stops answering keeps its box as it
+  // was last seen. It has to say so: a container that died since would
+  // otherwise go on reading "Running".
+  test('a box whose node could not be refreshed says how old it is', async ({ page }) => {
+    const state = await mock(page, { bravo: true })
+    state.bravoFails = false
+    await page.goto('/cluster/running')
+    await chooseCanvas(page)
+    const bravoBox = box(page, 'bravo-agent')
+    await expect(bravoBox.getByRole('link', { name: 'cloud', exact: true })).toBeVisible()
+    await expect(bravoBox).not.toContainText('Could not refresh')
+    state.bravoFails = true
+    await page.getByRole('button', { name: 'Refresh' }).click()
+    await expect(bravoBox).toContainText(/Could not refresh; showing what was seen at /)
+    await expect(bravoBox.getByRole('link', { name: 'cloud', exact: true })).toBeVisible()
+  })
+
   test('a tile leads where it does on the board', async ({ page }) => {
     await mock(page)
     await page.goto('/cluster/running')

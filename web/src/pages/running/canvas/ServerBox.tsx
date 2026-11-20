@@ -1,6 +1,7 @@
 import { memo } from 'react'
 import { useTranslation } from 'react-i18next'
 import { Handle, Position, type NodeProps } from '@xyflow/react'
+import { AlertTriangle } from 'lucide-react'
 import { StatusPill } from '@/components/StatusPill'
 import { CANVAS, boxHeight, nameLines, rowHeight } from '@/lib/runningLayout'
 import { cn } from '@/lib/utils'
@@ -52,12 +53,21 @@ function Tile({ row, nodeId, scope, localId, linked }: {
     <li className={cn(tileClass, attention && tileAttention)} style={style}>
       <NodeLink target={target} nodeId={nodeId} localId={localId} className={cn(name, linkClass)} title={row.name}>{row.name}</NodeLink>
       <StatusPill tone={word.tone} className="shrink-0">{word.text}</StatusPill>
+      {/* The board says what is wrong in a list above it; here the tile has
+          to, and not by its red edge alone: a mark on its corner, and the
+          words for whoever does not see it. It takes no room from the name. */}
+      {attention && (
+        <span className="pointer-events-none absolute -left-1.5 -top-1.5 flex size-4 items-center justify-center rounded-full bg-card text-destructive">
+          <AlertTriangle className="size-3.5" aria-hidden="true" />
+          <span className="sr-only">{t('running.totals.attention')}</span>
+        </span>
+      )}
     </li>
   )
 }
 
-function Note({ note }: { note: NoteKind }) {
-  const { t } = useTranslation()
+function Note({ note, at }: { note: NoteKind; at?: number }) {
+  const { t, i18n } = useTranslation()
   const text = {
     notAsked: t('running.node.notAsked'),
     loading: t('common.loading'),
@@ -65,8 +75,9 @@ function Note({ note }: { note: NoteKind }) {
     noDocker: t('running.node.noDocker'),
     empty: t('running.empty.title'),
     guestsError: t('running.canvas.guestsError'),
+    stale: t('running.node.refreshError', { time: at === undefined ? '' : new Date(at).toLocaleTimeString(i18n.language) }),
   }[note]
-  const failed = note === 'loadError' || note === 'guestsError'
+  const failed = note === 'loadError' || note === 'guestsError' || note === 'stale'
   return (
     <li
       className={cn('line-clamp-2 break-words text-xs leading-[18px]', failed ? 'text-destructive' : 'text-muted-foreground')}
@@ -132,7 +143,7 @@ function ServerBoxView({ data }: NodeProps<ServerNode>) {
         <ul className="flex flex-col" style={{ marginTop: CANVAS.headerGap, gap: CANVAS.rowGap }}>
           {rows.map((row) => {
             if (row.kind === 'title') return <GroupTitle key={row.key} row={row} level={groupLevel} />
-            if (row.kind === 'note') return <Note key={row.key} note={row.note} />
+            if (row.kind === 'note') return <Note key={row.key} note={row.note} at={row.at} />
             return <Tile key={row.key} row={row} nodeId={node.id} scope={scope} localId={localId} linked={linked.has(row.key)} />
           })}
         </ul>
