@@ -15,12 +15,13 @@ export interface NodeChangedDetail {
 }
 
 /**
- * Opens a node's dashboard from anywhere outside the tree. The local node is
- * the unscoped client (null), and the event still names it, so the tree can
- * highlight it — a bare null cannot tell the local node from the datacenter.
+ * Opens a node's dashboard, or another of its pages, from anywhere outside the
+ * tree. The local node is the unscoped client (null), and the event still
+ * names it, so the tree can highlight it — a bare null cannot tell the local
+ * node from the datacenter.
  */
-export function openNode(nodeId: string, localId: string, navigate: (to: string) => void): void {
+export function openNode(nodeId: string, localId: string, navigate: (to: string) => void, to = '/dashboard'): void {
   api.setCurrentNode(nodeId === localId ? null : nodeId)
   window.dispatchEvent(new CustomEvent<NodeChangedDetail>(NODE_CHANGED, { detail: { nodeId } }))
-  navigate('/dashboard')
+  navigate(to)
 }
