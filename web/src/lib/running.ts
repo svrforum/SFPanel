@@ -1,5 +1,6 @@
-import type { ClusterNode, ComposeProjectWithStatus, Container, ContainerPort, PortMapRow } from '@/types/api'
+import type { ClusterNode, ComposeProjectWithStatus, Container, ContainerPort, PortMapRow, PveGuest } from '@/types/api'
 import { containerHealth, containerNeedsAttention, exitCode, type ContainerHealth } from './containerState'
+import { formatBytes } from './utils'
 
 // The running board's model: what runs on a node, grouped the way an operator
 // thinks of it (stacks, then the containers that belong to none), and what of
@@ -430,4 +431,159 @@ export function hostListeners(rows: PortMapRow[]): HostListener[] {
     .filter((r) => (r.containers ?? []).length === 0)
     .map((r) => ({ port: r.port, proto: r.proto, process: r.process?.name ?? null }))
     .sort((a, b) => a.port - b.port || a.proto.localeCompare(b.proto))
+}
+
+/** The states of a Proxmox guest the board has words for. */
+export type GuestState = 'running' | 'stopped' | 'paused' | 'suspended' | 'unknown'
+
+const GUEST_STATES = new Set<GuestState>(['running', 'stopped', 'paused', 'suspended', 'unknown'])
+
+/** Proxmox's word for a guest's state, or null for one the board has no word for (shown as sent). */
+export function guestState(status: string): GuestState | null {
+  const word = (status || '').trim().toLowerCase() as GuestState
+  return GUEST_STATES.has(word) ? word : null
+}
+
+/** A virtual machine or LXC container of a Proxmox VE node, as the board shows it. */
+export interface RunningGuest {
+  vmid: number
+  name: string
+  kind: 'vm' | 'lxc'
+  /** The name, or "VM 130" for a guest Proxmox has no name for yet. */
+  title: string
+  state: GuestState | null
+  /** Proxmox's own word, for a state the board has none for. */
+  status: string
+  running: boolean
+  cpus: number
+  mem: number
+  maxmem: number
+  tags: string[]
+  macs: string[]
+}
+
+/** A node's guests, by vmid. */
+export function runningGuests(list: PveGuest[]): RunningGuest[] {
+  return list
+    .map((g) => {
+      const kind = g.kind === 'lxc' ? 'lxc' : 'vm'
+      const name = (g.name || '').trim()
+      const state = guestState(g.status)
+      return {
+        vmid: g.vmid,
+        name,
+        kind,
+        title: name || `${kind === 'lxc' ? 'LXC' : 'VM'} ${g.vmid}`,
+        state,
+        status: g.status || '',
+        running: state === 'running',
+        cpus: g.cpus || 0,
+        mem: g.mem || 0,
+        maxmem: g.maxmem || 0,
+        tags: g.tags ?? [],
+        macs: g.macs ?? [],
+      } satisfies RunningGuest
+    })
+    .sort((a, b) => a.vmid - b.vmid)
+}
+
+/**
+ * A guest's CPUs and memory as they are shown: a fraction of a CPU (a
+ * container's cpulimit) to two places, the memory in use of what is allotted
+ * while it runs and only what is allotted otherwise. Null where Proxmox gave
+ * no figure.
+ */
+export function guestResources(g: RunningGuest): { cpus: string | null; memory: string | null } {
+  const cpus = g.cpus > 0 ? String(Math.round(g.cpus * 100) / 100) : null
+  let memory: string | null = null
+  if (g.maxmem > 0) memory = g.running && g.mem > 0 ? `${formatBytes(g.mem)} / ${formatBytes(g.maxmem)}` : formatBytes(g.maxmem)
+  return { cpus, memory }
+}
+
+/** Guests whose name or vmid holds the query. */
+export function filterGuests(guests: RunningGuest[], query: string): RunningGuest[] {
+  const q = query.trim().toLowerCase()
+  if (!q) return guests
+  return guests.filter((g) => g.title.toLowerCase().includes(q) || String(g.vmid).includes(q))
+}
+
+/** One node's guests, for telling which guest is which node. */
+export interface GuestHost {
+  nodeId: string
+  guests: RunningGuest[]
+}
+
+/** A guest across the cluster: its host and its vmid. */
+export const guestKey = (hostId: string, vmid: number) => `${hostId}/${vmid}`
+
+/** An address as compared: lower case, colons; null for one that names no NIC (empty, all zero). */
+function macKey(mac: string): string | null {
+  const key = (mac || '').trim().toLowerCase().replace(/-/g, ':')
+  return /[1-9a-f]/.test(key) ? key : null
+}
+
+/**
+ * Which guests are this cluster's own nodes: a guest is node X when one of its
+ * NIC addresses is an address of one of X's interfaces. Keyed by guestKey, the
+ * node's id as value. Only a match that can mean one thing is kept:
+ * - an address two nodes both have (a cloned MAC, a shared virtual one) names
+ *   neither;
+ * - a guest never names the host it runs on;
+ * - a guest whose addresses point at more than one node names none;
+ * - a node several guests point at is named by the one of them that runs, and
+ *   by none when not exactly one does (a backup restored with its addresses
+ *   kept is the stopped copy of the running original);
+ * - a match that would make a host the guest of its own guest is dropped,
+ *   hosts and guests taken in the order given, so the hosts and guests drawn
+ *   from it form no loop.
+ * `interfaces` holds the addresses of the nodes whose interfaces were read; a
+ * node it does not hold is no guest.
+ */
+export function guestServers(hosts: GuestHost[], interfaces: ReadonlyMap<string, readonly string[]>): Map<string, string> {
+  const owners = new Map<string, Set<string>>()
+  for (const [nodeId, macs] of interfaces) {
+    for (const mac of macs) {
+      const key = macKey(mac)
+      if (!key) continue
+      const set = owners.get(key)
+      if (set) set.add(nodeId)
+      else owners.set(key, new Set([nodeId]))
+    }
+  }
+
+  const claims: { key: string; hostId: string; nodeId: string; running: boolean }[] = []
+  for (const host of hosts) {
+    for (const g of host.guests) {
+      const named = new Set<string>()
+      for (const mac of g.macs) {
+        const key = macKey(mac)
+        const nodes = key ? owners.get(key) : undefined
+        if (nodes?.size === 1) named.add([...nodes][0])
+      }
+      named.delete(host.nodeId)
+      if (named.size === 1) claims.push({ key: guestKey(host.nodeId, g.vmid), hostId: host.nodeId, nodeId: [...named][0], running: g.running })
+    }
+  }
+
+  const byNode = new Map<string, typeof claims>()
+  for (const c of claims) {
+    const list = byNode.get(c.nodeId)
+    if (list) list.push(c)
+    else byNode.set(c.nodeId, [c])
+  }
+  const result = new Map<string, string>()
+  // Each node's host, as the kept claims make it: walked to refuse a loop.
+  const hostOf = new Map<string, string>()
+  for (const c of claims) {
+    const rivals = byNode.get(c.nodeId)!
+    const running = rivals.filter((r) => r.running)
+    const winner = rivals.length === 1 ? rivals[0] : running.length === 1 ? running[0] : null
+    if (winner !== c) continue
+    let up: string | undefined = c.hostId
+    while (up !== undefined && up !== c.nodeId) up = hostOf.get(up)
+    if (up === c.nodeId) continue
+    hostOf.set(c.nodeId, c.hostId)
+    result.set(c.key, c.nodeId)
+  }
+  return result
 }

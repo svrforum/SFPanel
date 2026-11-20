@@ -1824,6 +1824,26 @@ export interface PortMapRow {
   process:    PortMapProcessInfo   | null
 }
 
+/** A virtual machine or LXC container of a Proxmox VE node (GET /system/guests). */
+export interface PveGuest {
+  vmid: number
+  /** May be empty for a guest Proxmox knows nothing about yet. */
+  name: string
+  kind: 'qemu' | 'lxc'
+  /** Proxmox's own word: running, stopped, paused, unknown … */
+  status: string
+  /** Proxmox's maxcpu: a container's cpulimit may be a fraction. */
+  cpus: number
+  /** Bytes in use and allotted. */
+  mem: number
+  maxmem: number
+  /** Seconds; 0 for a guest that is not running. */
+  uptime: number
+  tags: string[]
+  /** NIC addresses, upper-case, in NIC order. */
+  macs: string[]
+}
+
 export type HealthcheckTestType = 'CMD-SHELL' | 'CMD' | 'NONE'
 
 export interface HealthcheckSpec {
