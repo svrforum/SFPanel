@@ -32,6 +32,9 @@ export default defineConfig({
           '**/monaco-*.js', '**/editor.api*-*.js', '**/ts.worker-*.js', '**/css.worker-*.js',
           '**/html.worker-*.js', '**/json.worker-*.js', '**/editor.worker-*.js',
           '**/xterm-*.js', '**/lspLanguageFeatures-*.js', '**/tsMode-*.js',
+          // The running board's canvas and its library (@xyflow/react): fetched
+          // when the canvas is chosen, not by every visit's service worker.
+          '**/RunningCanvas-*.js', '**/RunningCanvas-*.css',
           '**/cssMode-*.js', '**/htmlMode-*.js', '**/jsonMode-*.js',
           '**/abap-*.js', '**/apex-*.js', '**/azcli-*.js', '**/bat-*.js',
           '**/bicep-*.js', '**/cameligo-*.js', '**/clojure-*.js', '**/coffee-*.js',

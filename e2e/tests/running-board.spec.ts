@@ -410,3 +410,176 @@ for (const width of [360, 320]) {
     })).toBe(true)
   })
 }
+
+// The canvas: the same data as a map. Its chunk (with the library) is asked
+// for only once the canvas is chosen: by its module path on the dev server,
+// by its chunk name in a build.
+const canvasChunk = /RunningCanvas|@xyflow|xyflow_react/
+const canvas = (page: Page) => page.getByRole('application', { name: 'Running canvas' })
+const box = (page: Page, name: string) => canvas(page).getByRole('group', { name, exact: true })
+
+async function chooseCanvas(page: Page) {
+  await page.getByRole('group', { name: 'View' }).getByRole('button', { name: 'Canvas' }).click()
+  await expect(canvas(page)).toBeVisible({ timeout: 20_000 })
+}
+
+test.describe('canvas', () => {
+  test('is fetched only when chosen, and the choice is kept', async ({ page }) => {
+    const asked: string[] = []
+    page.on('request', (r) => { if (canvasChunk.test(r.url())) asked.push(r.url()) })
+    await mock(page)
+    await page.goto('/cluster/running')
+    const views = page.getByRole('group', { name: 'View' })
+    await expect(views.getByRole('button', { name: 'Board' })).toHaveAttribute('aria-pressed', 'true')
+    await expect(region(page, 'alpha-node').getByRole('link', { name: 'photos', exact: true })).toBeVisible()
+    expect(asked).toEqual([])
+
+    await chooseCanvas(page)
+    expect(asked.length).toBeGreaterThan(0)
+    await expect(views.getByRole('button', { name: 'Canvas' })).toHaveAttribute('aria-pressed', 'true')
+    await expect(views.getByRole('button', { name: 'Board' })).toHaveAttribute('aria-pressed', 'false')
+    await expect(page.getByTestId('total-stacks')).toHaveCount(0)
+
+    await page.reload()
+    await expect(canvas(page)).toBeVisible({ timeout: 20_000 })
+    await views.getByRole('button', { name: 'Board' }).click()
+    await expect(canvas(page)).toHaveCount(0)
+    await expect(page.getByTestId('total-stacks')).toContainText('4')
+  })
+
+  test('draws a box per server and an edge from a VM to the server it is', async ({ page }) => {
+    await mock(page, { pve: true })
+    await page.goto('/cluster/running')
+    await chooseCanvas(page)
+    for (const name of ['alpha-node', 'charlie-agent', 'delta-node', 'pve-host']) await expect(box(page, name)).toBeVisible()
+    const pveBox = box(page, 'pve-host')
+    await expect(pveBox.getByRole('heading', { name: 'VMs and LXC containers 3' })).toBeVisible()
+    await expect(pveBox.getByText('delta-vm')).toBeVisible()
+    await expect(pveBox).toContainText('Running')
+    await expect(pveBox).toContainText('Stopped')
+    await expect(box(page, 'alpha-node').getByText('Partly running 3/4')).toBeVisible()
+    await expect(box(page, 'delta-node')).toContainText('Docker is not installed here, or not running.')
+
+    // The one guest that is a server is the one edge, named for what it joins.
+    const edge = canvas(page).getByRole('img', { name: 'VM delta-vm on pve-host → delta-node' })
+    await expect(edge).toHaveCount(1)
+    await expect(canvas(page).locator('.react-flow__edge')).toHaveCount(1)
+    await expect(canvas(page).locator('.react-flow__edge.animated')).toHaveCount(0)
+
+    // A search draws only what it finds; a box with nothing left is its header.
+    await page.getByRole('searchbox', { name: 'Find by stack, container or service name' }).fill('dns')
+    await expect(pveBox.getByText('dns')).toBeVisible()
+    await expect(pveBox.getByText('delta-vm')).toHaveCount(0)
+    await expect(canvas(page).locator('.react-flow__edge')).toHaveCount(0)
+    await expect(box(page, 'alpha-node')).toBeVisible()
+    await expect(box(page, 'alpha-node').getByRole('link')).toHaveCount(0)
+    await expect(box(page, 'alpha-node').getByRole('heading')).toHaveCount(1)
+  })
+
+  test('a tile leads where it does on the board', async ({ page }) => {
+    await mock(page)
+    await page.goto('/cluster/running')
+    await chooseCanvas(page)
+    const photos = box(page, 'alpha-node').getByRole('link', { name: 'photos', exact: true })
+    await expect(photos).toHaveAttribute('href', '/cluster/stacks/m-1/photos')
+    await photos.click()
+    await expect(page).toHaveURL(/\/cluster\/stacks\/m-1\/photos$/)
+  })
+
+  test('a moved box stays where it was put, and auto arrange puts it back', async ({ page }) => {
+    await mock(page, { pve: true })
+    await page.goto('/cluster/running')
+    await chooseCanvas(page)
+    const node = canvas(page).locator('.react-flow__node[data-id="m-2"]')
+    const where = () => node.evaluate((el) => (el as HTMLElement).style.transform)
+    await expect(node).toBeVisible()
+    const before = await where()
+
+    // Dragged by its header: the name is no link, so pressing it starts a drag.
+    const handle = box(page, 'delta-node').getByRole('heading', { name: 'delta-node' })
+    const at = (await handle.boundingBox())!
+    await page.mouse.move(at.x + 10, at.y + at.height / 2)
+    await page.mouse.down()
+    await page.mouse.move(at.x + 90, at.y + 120, { steps: 12 })
+    await page.mouse.up()
+    await expect.poll(where).not.toBe(before)
+    const moved = await where()
+    const stored = await page.evaluate(() => JSON.parse(localStorage.getItem('sfpanel-running-canvas:cluster') ?? '{}'))
+    expect(Object.keys(stored)).toEqual(['m-2'])
+
+    await page.reload()
+    await expect(node).toBeVisible({ timeout: 20_000 })
+    await expect.poll(where).toBe(moved)
+
+    await canvas(page).getByRole('button', { name: 'Auto arrange' }).click()
+    await expect.poll(where).toBe(before)
+    expect(await page.evaluate(() => localStorage.getItem('sfpanel-running-canvas:cluster'))).toBeNull()
+  })
+
+  test('pressing a tile neither drags its box nor pans the canvas', async ({ page }) => {
+    await mock(page)
+    await page.goto('/cluster/running')
+    await chooseCanvas(page)
+    const node = canvas(page).locator('.react-flow__node[data-id="m-1"]')
+    const viewport = canvas(page).locator('.react-flow__viewport')
+    await expect(node).toBeVisible()
+    const [boxBefore, viewBefore] = [await node.getAttribute('style'), await viewport.getAttribute('style')]
+    const tile = (await box(page, 'alpha-node').getByRole('link', { name: 'media', exact: true }).boundingBox())!
+    await page.mouse.move(tile.x + 4, tile.y + 4)
+    await page.mouse.down()
+    await page.mouse.move(tile.x + 80, tile.y + 60, { steps: 8 })
+    await page.mouse.up()
+    expect(await node.getAttribute('style')).toBe(boxBefore)
+    expect(await viewport.getAttribute('style')).toBe(viewBefore)
+  })
+
+  test('a tile reached with Tab is brought into view', async ({ page }) => {
+    await mock(page)
+    await page.goto('/cluster/running')
+    await chooseCanvas(page)
+    const last = box(page, 'alpha-node').getByRole('link', { name: 'speedtest', exact: true })
+    await expect(last).toBeVisible()
+    // The background dragged up and to the side: the box goes out of view.
+    const frame = (await canvas(page).boundingBox())!
+    await page.mouse.move(frame.x + frame.width - 40, frame.y + frame.height - 40)
+    await page.mouse.down()
+    await page.mouse.move(frame.x + 40, frame.y + 40, { steps: 12 })
+    await page.mouse.up()
+    await expect(last).not.toBeInViewport()
+    await last.focus()
+    await expect(last).toBeInViewport()
+  })
+
+  test("follows the app's theme while open, and names its controls", async ({ page }) => {
+    await mock(page)
+    await page.goto('/cluster/running')
+    await chooseCanvas(page)
+    const flow = page.locator('.react-flow')
+    await expect(flow).toHaveClass(/\blight\b/)
+    await page.evaluate(() => {
+      document.documentElement.classList.add('dark')
+      window.dispatchEvent(new CustomEvent('sfpanel:themechange'))
+    })
+    await expect(flow).toHaveClass(/\bdark\b/)
+    for (const name of ['Zoom in', 'Zoom out', 'Fit to screen', 'Auto arrange']) {
+      await expect(canvas(page).getByRole('button', { name })).toBeVisible()
+    }
+    await expect(canvas(page).getByRole('button', { name: 'Toggle Interactivity' })).toHaveCount(0)
+  })
+
+  test('phone 360px: the canvas fills the screen below the header, and the page does not scroll sideways', async ({ page }) => {
+    await page.setViewportSize({ width: 360, height: 740 })
+    await mock(page, { pve: true })
+    await page.goto('/cluster/running')
+    await chooseCanvas(page)
+    await expect(box(page, 'pve-host')).toBeVisible()
+    const size = (await canvas(page).boundingBox())!
+    expect(size.width).toBeLessThanOrEqual(360)
+    expect(size.height).toBeGreaterThanOrEqual(740 * 0.7 - 1)
+    expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true)
+    expect(await page.evaluate(() => {
+      const main = document.querySelector('main')!
+      return main.scrollWidth <= main.clientWidth
+    })).toBe(true)
+  })
+})

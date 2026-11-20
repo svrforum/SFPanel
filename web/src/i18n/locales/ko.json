@@ -4527,6 +4527,24 @@
     "subtitleThisNode": "이 서버에서 지금 돌고 있는 것",
     "refresh": "새로 고침",
     "overviewError": "클러스터의 노드 목록을 불러오지 못했습니다",
+    "view": {
+      "label": "보기",
+      "board": "보드",
+      "canvas": "캔버스"
+    },
+    "canvas": {
+      "loading": "캔버스를 불러오는 중…",
+      "label": "실행 현황 캔버스",
+      "controls": "캔버스 조작",
+      "zoomIn": "확대",
+      "zoomOut": "축소",
+      "fitView": "화면에 맞추기",
+      "arrange": "자동 정렬",
+      "box": "서버",
+      "edge": "{{host}}의 {{kind}} {{guest}} → {{node}}",
+      "edgeRole": "연결",
+      "guestsError": "가상 머신·LXC 목록을 불러오지 못했습니다."
+    },
     "search": {
       "label": "스택·컨테이너·서비스 이름으로 찾기",
       "placeholder": "스택·컨테이너·서비스 이름",

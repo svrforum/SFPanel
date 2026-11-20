@@ -4546,6 +4546,24 @@
     "subtitleThisNode": "What runs on this server right now",
     "refresh": "Refresh",
     "overviewError": "Could not load the cluster's nodes",
+    "view": {
+      "label": "View",
+      "board": "Board",
+      "canvas": "Canvas"
+    },
+    "canvas": {
+      "loading": "Loading the canvas…",
+      "label": "Running canvas",
+      "controls": "Canvas controls",
+      "zoomIn": "Zoom in",
+      "zoomOut": "Zoom out",
+      "fitView": "Fit to screen",
+      "arrange": "Auto arrange",
+      "box": "server",
+      "edge": "{{kind}} {{guest}} on {{host}} → {{node}}",
+      "edgeRole": "link",
+      "guestsError": "Could not load the VMs and LXC containers."
+    },
     "search": {
       "label": "Find by stack, container or service name",
       "placeholder": "Stack, container or service name",

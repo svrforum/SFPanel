@@ -1,0 +1,40 @@
+/* The library's own greys give way to the panel's tokens, which carry both
+   themes and pass contrast. Its *-default variables (and their .dark set)
+   are only fallbacks for these. */
+.running-canvas .react-flow {
+  --xy-background-color: var(--background);
+  --xy-background-pattern-color: var(--border);
+  --xy-edge-stroke: var(--muted-foreground);
+  --xy-edge-stroke-selected: var(--muted-foreground);
+  --xy-edge-stroke-width: 1.5;
+  --xy-node-background-color: transparent;
+  --xy-node-color: var(--card-foreground);
+  --xy-controls-button-background-color: var(--card);
+  --xy-controls-button-background-color-hover: var(--secondary);
+  --xy-controls-button-color: var(--foreground);
+  --xy-controls-button-color-hover: var(--foreground);
+  --xy-controls-button-border-color: var(--border);
+  --xy-controls-box-shadow: 0 1px 3px rgb(0 0 0 / 0.15);
+  color: var(--foreground);
+}
+
+/* A touch target, not 26 pixels. */
+.running-canvas .react-flow__controls-button {
+  width: 2.25rem;
+  height: 2.25rem;
+}
+
+.running-canvas .react-flow__controls-button:focus-visible {
+  outline: 2px solid var(--ring);
+  outline-offset: -2px;
+}
+
+/* Handles only anchor the edges: nothing connects here, so nothing shows. */
+.running-canvas .react-flow__handle {
+  width: 1px;
+  height: 1px;
+  min-width: 0;
+  min-height: 0;
+  border: 0;
+  background: transparent;
+}

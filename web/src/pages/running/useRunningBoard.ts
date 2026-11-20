@@ -11,6 +11,7 @@ import type { ClusterNode, ClusterOverview, ClusterStatus, ComposeProjectWithSta
 const CONCURRENCY = 3
 
 const FOLDED_KEY = 'sfpanel-running-folded'
+const VIEW_KEY = 'sfpanel-running-view'
 
 export type NodeLoad =
   | { phase: 'loading' }
@@ -455,4 +456,26 @@ export function useFolded(): [ReadonlySet<string>, (id: string) => void] {
     })
   }, [])
   return [folded, toggle]
+}
+
+export type RunningView = 'board' | 'canvas'
+
+/** Board or canvas, kept across visits. The board unless the canvas was chosen: it is the form for a phone and a screen reader. */
+export function useRunningView(): [RunningView, (view: RunningView) => void] {
+  const [view, setView] = useState<RunningView>(() => {
+    try {
+      return localStorage.getItem(VIEW_KEY) === 'canvas' ? 'canvas' : 'board'
+    } catch {
+      return 'board'
+    }
+  })
+  const choose = useCallback((next: RunningView) => {
+    setView(next)
+    try {
+      localStorage.setItem(VIEW_KEY, next)
+    } catch {
+      // Storage refused: the choice holds for this visit.
+    }
+  }, [])
+  return [view, choose]
 }

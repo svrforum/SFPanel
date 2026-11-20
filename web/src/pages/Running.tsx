@@ -1,4 +1,4 @@
-import { useState, type ReactNode } from 'react'
+import { lazy, Suspense, useMemo, useState, type ReactNode } from 'react'
 import { flushSync } from 'react-dom'
 import { useTranslation } from 'react-i18next'
 import { Link } from 'react-router-dom'
@@ -13,8 +13,12 @@ import { cn } from '@/lib/utils'
 import { AttentionList } from './running/AttentionList'
 import { Heading } from './running/Heading'
 import { Meters, NodeBody, NodeSection } from './running/NodeSection'
-import { nodeSectionId } from './running/targets'
-import { useClusterBoard, useFolded, useNodeBoard, type BoardModel, type BoardSection } from './running/useRunningBoard'
+import type { HeadingLevel } from './running/Heading'
+import { nodeSectionId, type Scope } from './running/targets'
+import { useClusterBoard, useFolded, useNodeBoard, useRunningView, type BoardModel, type BoardSection, type RunningView } from './running/useRunningBoard'
+
+// The canvas and its library are fetched only once the canvas is chosen.
+const RunningCanvas = lazy(() => import('./running/canvas/RunningCanvas'))
 
 const REFRESH_MS = 15_000
 
@@ -93,8 +97,61 @@ function matches(board: BoardModel, query: string): number {
   return board.sections.reduce((sum, s) => sum + tileCount(s, query), 0)
 }
 
-/** Title, what the page covers, when it was last heard from, and a refresh. */
-function BoardHeader({ board, level, subtitle, onRefresh }: { board: BoardModel; level: 1 | 2; subtitle: string; onRefresh: () => void }) {
+/** Board or canvas: two buttons, the one in use pressed. */
+function ViewSwitch({ view, onView }: { view: RunningView; onView: (view: RunningView) => void }) {
+  const { t } = useTranslation()
+  const option = (value: RunningView, label: string) => (
+    <button
+      type="button"
+      aria-pressed={view === value}
+      onClick={() => onView(value)}
+      className={cn(
+        'inline-flex min-h-8 items-center rounded-lg px-3 text-[13px] font-medium focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring',
+        view === value ? 'bg-card text-foreground card-shadow' : 'text-muted-foreground hover:text-foreground',
+      )}
+    >
+      {label}
+    </button>
+  )
+  return (
+    <div role="group" aria-label={t('running.view.label')} className="inline-flex rounded-xl bg-secondary p-0.5">
+      {option('board', t('running.view.board'))}
+      {option('canvas', t('running.view.canvas'))}
+    </div>
+  )
+}
+
+/** The canvas, once its chunk has arrived; until then, a line that says it is coming. */
+function Canvas({ sections, scope, localId, query, storageKey, level }: {
+  sections: BoardSection[]
+  scope: Scope
+  localId: string
+  query: string
+  storageKey: string
+  level: HeadingLevel
+}) {
+  const { t } = useTranslation()
+  return (
+    <Suspense fallback={(
+      <div className="flex h-[70dvh] min-h-80 items-center justify-center rounded-2xl bg-card card-shadow">
+        <p role="status" className="text-[13px] text-muted-foreground">{t('running.canvas.loading')}</p>
+      </div>
+    )}
+    >
+      <RunningCanvas sections={sections} scope={scope} localId={localId} query={query} storageKey={storageKey} level={level} />
+    </Suspense>
+  )
+}
+
+/** Title, what the page covers, when it was last heard from, the view and a refresh. */
+function BoardHeader({ board, level, subtitle, onRefresh, view, onView }: {
+  board: BoardModel
+  level: 1 | 2
+  subtitle: string
+  onRefresh: () => void
+  view: RunningView
+  onView: (view: RunningView) => void
+}) {
   const { t } = useTranslation()
   return (
     <header className="flex flex-wrap items-start justify-between gap-3">
@@ -105,10 +162,13 @@ function BoardHeader({ board, level, subtitle, onRefresh }: { board: BoardModel;
           <ResourceStatus resource={board.header} />
         </div>
       </div>
-      <Button variant="outline" size="sm" className="rounded-xl" onClick={onRefresh} disabled={board.header.loading}>
-        <RefreshCw className={cn(board.header.loading && 'animate-spin motion-reduce:animate-none')} aria-hidden="true" />
-        {t('running.refresh')}
-      </Button>
+      <div className="flex flex-wrap items-center gap-2">
+        <ViewSwitch view={view} onView={onView} />
+        <Button variant="outline" size="sm" className="rounded-xl" onClick={onRefresh} disabled={board.header.loading}>
+          <RefreshCw className={cn(board.header.loading && 'animate-spin motion-reduce:animate-none')} aria-hidden="true" />
+          {t('running.refresh')}
+        </Button>
+      </div>
     </header>
   )
 }
@@ -122,6 +182,7 @@ function ClusterRunning() {
   const { state, refresh } = useClusterBoard()
   const [query, setQuery] = useState('')
   const [folded, toggleFold] = useFolded()
+  const [view, setView] = useRunningView()
   useVisibleInterval(refresh, REFRESH_MS)
 
   if (state.phase === 'standalone') {
@@ -157,9 +218,19 @@ function ClusterRunning() {
     section.scrollIntoView({ block: 'start' })
     section.querySelector<HTMLElement>('[data-node-toggle]')?.focus({ preventScroll: true })
   }
+  if (view === 'canvas') {
+    return (
+      <Frame>
+        <BoardHeader board={board} level={2} subtitle={t('running.subtitleCluster')} onRefresh={refresh} view={view} onView={setView} />
+        <SearchField value={query} onChange={setQuery} />
+        {noMatch && <NoMatch query={query} onClear={() => setQuery('')} />}
+        <Canvas sections={board.sections} scope="cluster" localId={board.localId} query={query} storageKey="sfpanel-running-canvas:cluster" level={3} />
+      </Frame>
+    )
+  }
   return (
     <Frame>
-      <BoardHeader board={board} level={2} subtitle={t('running.subtitleCluster')} onRefresh={refresh} />
+      <BoardHeader board={board} level={2} subtitle={t('running.subtitleCluster')} onRefresh={refresh} view={view} onView={setView} />
       <TotalsRow totals={board.totals} showNodes loaded={board.sections.some((s) => s.node.contents)} />
       <AttentionList items={board.items} scope="cluster" localId={board.localId} level={3} />
       <SearchField value={query} onChange={setQuery} />
@@ -187,12 +258,29 @@ function NodeRunning() {
   const { t } = useTranslation()
   const { board, host, metrics, refresh } = useNodeBoard()
   const [query, setQuery] = useState('')
+  const [view, setView] = useRunningView()
   useVisibleInterval(refresh, REFRESH_MS)
   const section = board.sections[0]
   const noMatch = query.trim() !== '' && searchable(section) && matches(board, query) === 0
+  const subtitle = host ? t('running.subtitleNode', { host }) : t('running.subtitleThisNode')
+  // The one box carries the node's numbers, which this scope has from the node itself.
+  const boxed = useMemo(
+    () => [metrics ? { ...section, metrics: { cpu: metrics.cpu, memory: metrics.mem_percent, disk: metrics.disk_percent } } : section],
+    [section, metrics],
+  )
+  if (view === 'canvas') {
+    return (
+      <Frame>
+        <BoardHeader board={board} level={1} subtitle={subtitle} onRefresh={refresh} view={view} onView={setView} />
+        <SearchField value={query} onChange={setQuery} />
+        {noMatch && <NoMatch query={query} onClear={() => setQuery('')} />}
+        <Canvas sections={boxed} scope="node" localId={board.localId} query={query} storageKey={`sfpanel-running-canvas:node:${section.node.id}`} level={2} />
+      </Frame>
+    )
+  }
   return (
     <Frame>
-      <BoardHeader board={board} level={1} subtitle={host ? t('running.subtitleNode', { host }) : t('running.subtitleThisNode')} onRefresh={refresh} />
+      <BoardHeader board={board} level={1} subtitle={subtitle} onRefresh={refresh} view={view} onView={setView} />
       {metrics && <Meters metrics={{ cpu: metrics.cpu, memory: metrics.mem_percent, disk: metrics.disk_percent }} />}
       <TotalsRow totals={board.totals} showNodes={false} loaded={!!section.node.contents} />
       <AttentionList items={board.items} scope="node" localId="" level={2} />
