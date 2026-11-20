@@ -65,6 +65,8 @@ export interface RunningStack {
   managed: boolean
   running: number
   total: number
+  /** Containers that neither run nor ended with code 0. */
+  unsettled: number
   state: StackState
   containers: RunningContainer[]
   services: ServiceEntry[]
@@ -211,6 +213,19 @@ function runningContainer(c: Container, project: string | null, host: string | n
 const SEVERITY: Record<ContainerHealth, number> = { restarting: 0, crashed: 1, unhealthy: 2, stopped: 3, running: 4 }
 const severity = (c: RunningContainer) => (c.state === 'dead' ? -1 : SEVERITY[c.health])
 
+/** Exited with code 0: a job that did what it was for, or a service someone stopped. */
+const endedCleanly = (c: RunningContainer) => c.state.toLowerCase() === 'exited' && c.exitCode === 0
+
+/**
+ * Runs in part for a reason worth a look: some container of it neither runs
+ * nor ended with code 0. A stack whose only idle containers ended cleanly
+ * still counts and reads as running in part (the stacks page says the same),
+ * but it is how a stack with a one-off job always looks, so it is no warning.
+ */
+export function stackInPart(stack: RunningStack): boolean {
+  return stack.state === 'partial' && stack.unsettled > 0
+}
+
 function stackOf(name: string, managed: boolean, containers: Container[], host: string | null): RunningStack {
   const members = containers.map((c) => runningContainer(c, c.Labels?.[PROJECT_LABEL] ?? name, host)).sort((a, b) => byName(a.name, b.name))
   const services = new Map<string, RunningContainer>()
@@ -224,6 +239,7 @@ function stackOf(name: string, managed: boolean, containers: Container[], host: 
     managed,
     running,
     total: members.length,
+    unsettled: members.filter((c) => !c.running && !endedCleanly(c)).length,
     state: stackState(running, members.length),
     containers: members,
     services: [...services].sort(([a], [b]) => byName(a, b)).map(([service, container]) => ({ name: service, container })),
@@ -337,7 +353,8 @@ export interface AttentionItem {
  * What needs looking at, in this order: a node that is suspect or offline; a
  * container restarting, unhealthy or dead; a stack that runs in part; a
  * container that exited non-zero within the last day. Within a rank, by the
- * order the nodes are given, then by name.
+ * order the nodes are given, then by name. A stack runs in part, for this
+ * list, when stackInPart says so.
  *
  * A stack is one line however many of its containers are in trouble: it
  * takes the rank of its worst finding and carries them all. It opens on the
@@ -360,7 +377,7 @@ export function attention(nodes: BoardNode[]): AttentionItem[] {
       const problems = stack.containers.map(containerProblem).filter((p): p is Problem => p !== null)
       // Restarting before exited: the order the ranks give them.
       problems.sort((a, b) => problemRank(a) - problemRank(b))
-      const partial = stack.state === 'partial'
+      const partial = stackInPart(stack)
       if (!partial && problems.length === 0) continue
       const rank = Math.min(partial ? 3 : 4, ...problems.map(problemRank)) as 2 | 3 | 4
       const opens: AttentionItem['opens'] = !partial && problems.length === 1

@@ -1,5 +1,5 @@
 import type { Node } from '@xyflow/react'
-import { containerProblem, filterContents, filterGuests, type RunningContainer, type RunningGuest, type RunningStack } from '@/lib/running'
+import { containerProblem, filterContents, filterGuests, stackInPart, type RunningContainer, type RunningGuest, type RunningStack } from '@/lib/running'
 import type { LayoutBox, LayoutLink } from '@/lib/runningLayout'
 import type { HeadingLevel } from '../Heading'
 import type { Scope } from '../targets'
@@ -52,7 +52,7 @@ export function boxRows(section: BoardSection, query: string): CanvasRow[] {
     if (shown.stacks.length > 0) {
       rows.push({ kind: 'title', key: 'title:stacks', group: 'stacks', count: shown.stacks.length })
       for (const s of shown.stacks) {
-        const attention = s.state === 'partial' || s.containers.some((c) => containerProblem(c) !== null)
+        const attention = stackInPart(s) || s.containers.some((c) => containerProblem(c) !== null)
         rows.push({ kind: 'tile', key: `stack:${s.name}`, name: s.name, item: { type: 'stack', stack: s, attention } })
       }
     }

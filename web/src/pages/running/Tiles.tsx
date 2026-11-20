@@ -3,7 +3,7 @@ import { useTranslation } from 'react-i18next'
 import { ArrowUpRight } from 'lucide-react'
 import { StatusPill } from '@/components/StatusPill'
 import { cn } from '@/lib/utils'
-import { containerProblem, type PortChip, type RunningContainer, type RunningGuest, type RunningStack } from '@/lib/running'
+import { containerProblem, stackInPart, type PortChip, type RunningContainer, type RunningGuest, type RunningStack } from '@/lib/running'
 import { NodeLink } from './NodeLink'
 import { containerTarget, nodeSectionId, stackTarget, type Scope } from './targets'
 import type { GuestServer } from './useRunningBoard'
@@ -56,7 +56,7 @@ const nameLink = 'min-w-0 break-words text-[14px] font-semibold outline-none aft
 export function StackTile({ stack, scope, nodeId, localId }: { stack: RunningStack; scope: Scope; nodeId: string; localId: string }) {
   const { t, i18n } = useTranslation()
   const problems = stack.containers.filter((c) => containerProblem(c) !== null)
-  const attention = stack.state === 'partial' || problems.length > 0
+  const attention = stackInPart(stack) || problems.length > 0
   const word = stackWord(stack, attention, t)
   return (
     <li className={cn(tileClass, attention && tileAttention)}>

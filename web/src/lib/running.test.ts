@@ -15,6 +15,7 @@ import {
   portChips,
   runningGuests,
   serviceName,
+  stackInPart,
   stackState,
   totals,
   withinDay,
@@ -223,9 +224,40 @@ describe('attention', () => {
   })
 
   it('flags a stack that runs in part with nothing else wrong at the third rank', () => {
-    const items = attention([node('a', [up('wiki-app-1', 'wiki'), exited('wiki-db-1', 'Exited (0) 2 hours ago', 'wiki')])])
+    // Killed two days ago: too old to be news of its own, and not a clean end.
+    const items = attention([node('a', [up('wiki-app-1', 'wiki'), exited('wiki-db-1', 'Exited (137) 2 days ago', 'wiki')])])
     expect(items.map((i) => [i.rank, i.subject.kind, i.opens.kind])).toEqual([[3, 'stack', 'stack']])
     expect(items[0].problems).toEqual([])
+  })
+
+  it('flags a stack with a container that was created and never started', () => {
+    const items = attention([node('a', [up('wiki-app-1', 'wiki'), ctr('wiki-db-1', 'created', 'Created', { Labels: { [PROJECT]: 'wiki' } })])])
+    expect(items.map((i) => [i.rank, i.subject.kind])).toEqual([[3, 'stack']])
+  })
+
+  // A job that ran once and ended with code 0 (a migration, an init step) is
+  // how that stack is meant to look. As a line here it would never go away,
+  // and a list with a line nobody can clear is a list nobody reads.
+  it('does not flag a stack whose other containers ended with code 0', () => {
+    const n = node('a', [up('app-web-1', 'app'), up('app-db-1', 'app'), exited('app-init-1', 'Exited (0) 3 weeks ago', 'app')])
+    expect(attention([n])).toEqual([])
+    const stack = n.contents!.stacks[0]
+    // The count is still the count, and the word is the stacks page's own.
+    expect([stack.running, stack.total, stack.state, stack.unsettled]).toEqual([2, 3, 'partial', 0])
+    expect(stackInPart(stack)).toBe(false)
+  })
+
+  it('still flags it when another of its containers did not end cleanly', () => {
+    const n = node('a', [up('app-web-1', 'app'), exited('app-init-1', 'Exited (0) 3 weeks ago', 'app'), exited('app-db-1', 'Exited (137) 2 days ago', 'app')])
+    expect(attention([n]).map((i) => [i.rank, i.partial])).toEqual([[3, { running: 1, total: 3 }]])
+    expect(n.contents!.stacks[0].unsettled).toBe(1)
+    expect(stackInPart(n.contents!.stacks[0])).toBe(true)
+  })
+
+  it('takes an exit it cannot read the code of as not clean', () => {
+    const n = node('a', [up('app-web-1', 'app'), exited('app-db-1', 'Exited', 'app')])
+    expect(n.contents!.stacks[0].unsettled).toBe(1)
+    expect(attention([n]).map((i) => i.rank)).toEqual([3])
   })
 
   it('flags an unhealthy or dead container and opens its logs', () => {
@@ -279,7 +311,7 @@ describe('attention', () => {
     const items = attention([
       node('a', [
         exited('zeta', 'Exited (1) 10 minutes ago'),
-        up('wiki-app-1', 'wiki'), exited('wiki-db-1', 'Exited (0) 1 hour ago', 'wiki'),
+        up('wiki-app-1', 'wiki'), exited('wiki-db-1', 'Exited (137) 2 days ago', 'wiki'),
         ctr('alpha', 'restarting', 'Restarting (1) 2 seconds ago'),
       ]),
       node('b', [ctr('beta', 'running', 'Up 3 hours (unhealthy)')]),

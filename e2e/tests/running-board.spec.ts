@@ -24,12 +24,15 @@ const ALPHA = {
   containers: [
     ctr('media-player-1', 'running', 'Up 3 hours', 'media', [port(8096), port(8096, '::')]),
     ctr('media-indexer-1', 'running', 'Up 3 hours', 'media', [port(9117, '127.0.0.1')]),
+    // A job that ran once and ended with code 0: how this stack is meant to look.
+    ctr('media-init-1', 'exited', 'Exited (0) 3 days ago', 'media'),
     ctr('photos-server-1', 'running', 'Up 2 hours', 'photos', [port(2283)]),
     ctr('photos-web-1', 'running', 'Up 2 hours', 'photos'),
     ctr('photos-redis-1', 'running', 'Up 2 hours', 'photos'),
     ctr('photos-ml-1', 'restarting', 'Restarting (1) 4 seconds ago', 'photos'),
     ctr('wiki-app-1', 'running', 'Up 5 hours', 'wiki', [port(3000), port(53, '0.0.0.0', 'udp')]),
-    ctr('wiki-db-1', 'exited', 'Exited (0) About an hour ago', 'wiki'),
+    // Killed, and too long ago to be news of its own: the stack runs in part.
+    ctr('wiki-db-1', 'exited', 'Exited (137) 2 days ago', 'wiki'),
     ctr('monitoring-prom-1', 'exited', 'Exited (0) 5 days ago', 'monitoring'),
     ctr('monitoring-grafana-1', 'exited', 'Exited (0) 5 days ago', 'monitoring'),
     ctr('speedtest', 'running', 'Up 2 days', undefined, [port(8765)]),
@@ -182,6 +185,17 @@ test('datacenter scope: totals, what needs attention in order, and links that le
   await expect(alphaRegion.getByText('Partly running 3/4')).toBeVisible()
   await expect(alphaRegion.getByText('ml Restarting')).toBeVisible()
   await expect(alphaRegion.getByText('Stopped 0/2')).toBeVisible()
+
+  // A stack whose only idle container ended with code 0 says its count and
+  // how that container ended, and is no warning: not in the list above, and
+  // not drawn as one. The stack with a killed container is both.
+  const tileOf = (name: string) => alphaRegion.getByRole('listitem').filter({ has: page.getByRole('link', { name, exact: true }) })
+  await expect(tileOf('media')).toContainText('Partly running 2/3')
+  await expect(tileOf('media')).toContainText('init Exited 3 days ago')
+  await expect(tileOf('media')).not.toHaveClass(/border-destructive/)
+  await expect(tileOf('wiki')).toContainText('Partly running 1/2')
+  await expect(tileOf('wiki')).toHaveClass(/border-destructive/)
+  await expect(attention).not.toContainText('media')
 
   // The attached node's ports open on the browser's own host, in a new tab.
   const player = alphaRegion.getByRole('link', { name: '8096 (opens in a new tab)' })

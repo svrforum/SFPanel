@@ -1,6 +1,6 @@
 import type { TFunction } from 'i18next'
 import type { StatusPillTone } from '@/components/StatusPill'
-import { containerProblem, guestResources, type Age, type RunningContainer, type RunningGuest, type RunningStack } from '@/lib/running'
+import { containerProblem, guestResources, stackInPart, type Age, type RunningContainer, type RunningGuest, type RunningStack } from '@/lib/running'
 
 /** "2시간 전" / "2 hours ago" for an age Docker gave in its own words. */
 export function ageText(age: Age, lang: string): string {
@@ -49,7 +49,8 @@ export function stackWord(s: RunningStack, attention: boolean, t: TFunction): { 
   const word = { running: t('running.stack.running'), partial: t('running.stack.partial'), stopped: t('running.stack.stopped') }[s.state]
   const text = s.total > 0 ? `${word} ${s.running}/${s.total}` : word
   if (s.state === 'running') return { text, tone: 'success' }
-  if (s.state === 'partial') return { text, tone: 'warning' }
+  // In part only because a job ended with code 0: said, not warned of.
+  if (s.state === 'partial') return { text, tone: stackInPart(s) ? 'warning' : 'muted' }
   return { text, tone: attention ? 'destructive' : 'muted' }
 }
 
