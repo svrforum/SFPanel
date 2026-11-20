@@ -472,7 +472,9 @@ export default function DockerContainers() {
   const [createOpen, setCreateOpen] = useState(false)
 
   // Dashboard links resolve after the list loads, without opening an unrelated container.
+  // The running board's "view logs" adds tab=logs to open the logs tab.
   const linkedId = searchParams.get('container')
+  const linkedTab = searchParams.get('tab') === 'logs' ? 'logs' : 'inspect'
   const linkedContainer = linkedId ? containers.find((container) => container.Id.startsWith(linkedId)) : undefined
   const detailContainer = linkedContainer ?? containers.find(c => c.Id === selectedContainer?.Id) ?? selectedContainer
   const closeDetail = (open: boolean) => {
@@ -480,6 +482,7 @@ export default function DockerContainers() {
     if (!open && linkedId) {
       const next = new URLSearchParams(searchParams)
       next.delete('container')
+      next.delete('tab')
       setSearchParams(next, { replace: true })
     }
   }
@@ -1131,7 +1134,7 @@ export default function DockerContainers() {
             </DialogDescription>
           </DialogHeader>
           {detailContainer && (
-            <Tabs defaultValue={linkedContainer ? 'inspect' : detailTab} key={linkedContainer?.Id ?? detailTab}>
+            <Tabs defaultValue={linkedContainer ? linkedTab : detailTab} key={linkedContainer?.Id ?? detailTab}>
               <TabsList>
                 <TabsTrigger value="inspect">
                   <Info className="h-3.5 w-3.5 mr-1" />
