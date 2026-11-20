@@ -85,6 +85,8 @@ interface Opts {
   /** The node the node menu is on (node scope). */
   current?: string
   language?: 'en' | 'ko'
+  /** Containers the attached node runs besides its own. */
+  extra?: ReturnType<typeof ctr>[]
 }
 
 async function mock(page: Page, opts: Opts = {}) {
@@ -141,7 +143,7 @@ async function mock(page: Page, opts: Opts = {}) {
       if (node === 'm-2' || node === 'p-1') return fail(503, 'DOCKER_UNAVAILABLE', 'Docker is not available on this node')
       if (node === 'a-1' && path === '/docker/containers' && state.bravoFails) return fail(500, 'INTERNAL_ERROR', 'docker: daemon timed out')
       const fixture = node === 'a-1' ? BRAVO : ALPHA
-      data = path === '/docker/compose' ? fixture.projects : fixture.containers
+      data = path === '/docker/compose' ? fixture.projects : node === 'a-1' ? fixture.containers : [...fixture.containers, ...(opts.extra ?? [])]
     }
     else if (path.endsWith('/inspect')) data = { state: 'running', hostname: 'h', image: 'i', ports: [], mounts: [], networks: [], env: [] }
     else if (/batch|history|events|metrics/.test(path)) data = []
@@ -278,6 +280,25 @@ test('node scope on a single server: no node header, the same tiles', async ({ p
   await region(page, 'Needs attention 3').getByRole('link', { name: 'View logs (backup-agent)' }).click()
   await expect(page).toHaveURL(/\/docker\/containers\?container=backup-agent-id&tab=logs$/)
   await expect(page.getByRole('dialog').getByRole('tab', { name: 'Logs' })).toHaveAttribute('aria-selected', 'true')
+})
+
+// A project started by hand has no stack screen: its tile opens the node's
+// containers, searched by the project. Its containers are often named
+// without it (container_name: grafana), and a search over names and images
+// alone opened an empty list.
+test('a project the panel does not manage opens its containers, whatever they are named', async ({ page }) => {
+  await mock(page, { cluster: false, extra: [ctr('grafana', 'running', 'Up 1 hour', 'observ'), ctr('prom', 'running', 'Up 1 hour', 'observ')] })
+  await page.goto('/running')
+  const tile = page.getByRole('main').getByRole('link', { name: 'observ', exact: true })
+  await expect(tile).toHaveAttribute('href', '/docker/containers?search=observ')
+  await tile.click()
+  await expect(page).toHaveURL(/\/docker\/containers\?search=observ$/)
+  // The containers screen, with the project in its search field.
+  await expect(page.getByRole('textbox', { name: 'Search containers' })).toHaveValue('observ')
+  const main = page.getByRole('main')
+  await expect(main.getByTitle('grafana', { exact: true })).toBeVisible()
+  await expect(main.getByTitle('prom', { exact: true })).toBeVisible()
+  await expect(main.getByTitle('media-player-1', { exact: true })).toHaveCount(0)
 })
 
 test('a Proxmox host lists its guests, and a VM that is one of the nodes leads to it', async ({ page }) => {

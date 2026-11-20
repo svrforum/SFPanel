@@ -726,9 +726,13 @@ export default function DockerContainers() {
 
   // Filtered containers
   const filteredContainers = containers.filter((c) => {
+    // By the compose project too: its containers are often named without it
+    // (container_name: grafana), and the running board opens a project the
+    // panel does not manage by searching here for its name.
     const matchesSearch = searchQuery === '' ||
       formatContainerName(c.Names).toLowerCase().includes(searchQuery.toLowerCase()) ||
-      c.Image.toLowerCase().includes(searchQuery.toLowerCase())
+      c.Image.toLowerCase().includes(searchQuery.toLowerCase()) ||
+      (c.Labels?.['com.docker.compose.project'] ?? '').toLowerCase().includes(searchQuery.toLowerCase())
     const matchesState = filterState === 'all' ||
       (filterState === 'running' && c.State === 'running') ||
       (filterState === 'stopped' && ['exited', 'created'].includes(c.State)) ||
