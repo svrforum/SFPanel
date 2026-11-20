@@ -55,6 +55,7 @@
     "tagline": "Server Management",
     "nav": {
       "dashboard": "Dashboard",
+      "running": "Running",
       "docker": "Docker",
       "files": "Files",
       "cron": "Cron Jobs",
@@ -1000,6 +1001,7 @@
     "title": "Cluster",
     "nav": {
       "overview": "Overview",
+      "running": "Running",
       "nodes": "Nodes",
       "stacks": "Docker",
       "security": "Security",
@@ -4535,5 +4537,100 @@
     "stackAlreadyExists": "A stack with that name already exists.",
     "emptyContent": "The config content cannot be empty.",
     "aiSessionNotFound": "The session was not found."
+  },
+  "running": {
+    "title": "Running",
+    "subtitleCluster": "What runs across this cluster right now",
+    "subtitleNode": "What runs on {{host}} right now",
+    "subtitleThisNode": "What runs on this server right now",
+    "refresh": "Refresh",
+    "overviewError": "Could not load the cluster's nodes",
+    "search": {
+      "label": "Find by stack, container or service name",
+      "placeholder": "Stack, container or service name",
+      "noMatch": "Nothing matches “{{query}}”.",
+      "clear": "Clear search"
+    },
+    "totals": {
+      "nodes": "Nodes online",
+      "stacks": "Stacks",
+      "running": "Running containers",
+      "attention": "Needs attention",
+      "failed_one": "{{count}} node could not be loaded and is left out of the totals.",
+      "failed_other": "{{count}} nodes could not be loaded and are left out of the totals."
+    },
+    "attention": {
+      "title": "Needs attention {{count}}",
+      "partial": "{{running}} of {{total}} services running.",
+      "restarting": "{{name}} keeps restarting.",
+      "restartingSelf": "Keeps restarting.",
+      "unhealthy": "{{name}} is failing its health check.",
+      "unhealthySelf": "Failing its health check.",
+      "dead": "{{name}} is stuck in the dead state.",
+      "deadSelf": "Stuck in the dead state.",
+      "exited": "{{name}} exited {{ago}} with code {{code}}.",
+      "exitedSelf": "Exited {{ago}} with code {{code}}.",
+      "nodeDown": "{{status}}, last seen {{ago}}.",
+      "nodeDownNever": "{{status}}.",
+      "openStack": "Open stack",
+      "openLogs": "View logs",
+      "openNodes": "View nodes"
+    },
+    "node": {
+      "lastSeen": "Last seen {{ago}}",
+      "notAsked": "A node that is not answering is not asked. It shows again once it answers.",
+      "noDocker": "Docker is not installed here, or not running.",
+      "loadError": "Could not load what runs here",
+      "refreshError": "Could not refresh; showing what was seen at {{time}}.",
+      "cpu": "CPU",
+      "memory": "Memory",
+      "disk": "Disk"
+    },
+    "groups": {
+      "stacks": "Stacks {{count}}",
+      "standalone": "Standalone containers {{count}}"
+    },
+    "stack": {
+      "running": "Running",
+      "partial": "Partly running",
+      "stopped": "Stopped",
+      "noContainers": "No containers."
+    },
+    "state": {
+      "running": "Running",
+      "unhealthy": "Unhealthy",
+      "restarting": "Restarting",
+      "exited": "Exited",
+      "created": "Created",
+      "paused": "Paused",
+      "removing": "Removing",
+      "dead": "Dead"
+    },
+    "exited": "Exited {{ago}}",
+    "exitedCode": "Exited {{ago}} (code {{code}})",
+    "exitedCodeOnly": "Exited (code {{code}})",
+    "image": "Image {{image}}",
+    "port": {
+      "list": "Published ports",
+      "internal": "{{port}} internal",
+      "newTab": "opens in a new tab"
+    },
+    "host": {
+      "title": "Services listening on the host",
+      "titleCount": "Services listening on the host {{count}}",
+      "error": "Could not load the port list.",
+      "empty": "Nothing listens on the host itself.",
+      "unknownProcess": "Unknown process"
+    },
+    "empty": {
+      "title": "Nothing is running yet.",
+      "hint": "Start here:",
+      "appStore": "App Store",
+      "stacks": "Docker › Stacks"
+    },
+    "notCluster": {
+      "body": "This server is not part of a cluster.",
+      "link": "See what runs on this server"
+    }
   }
 }

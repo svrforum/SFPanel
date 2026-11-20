@@ -1,5 +1,6 @@
 import {
   Activity,
+  Boxes,
   Clock,
   Cog,
   Container,
@@ -35,6 +36,7 @@ export interface NavEntry {
  */
 export const NAV_ITEMS: NavEntry[] = [
   { to: '/dashboard', labelKey: 'layout.nav.dashboard', icon: LayoutDashboard, bottomNav: true, mobileLabelKey: 'layout.mobileNav.dashboard' },
+  { to: '/running', labelKey: 'layout.nav.running', icon: Boxes },
   { to: '/docker', labelKey: 'layout.nav.docker', icon: Container, bottomNav: true, mobileLabelKey: 'layout.mobileNav.docker' },
   { to: '/appstore', labelKey: 'layout.nav.appstore', icon: Store },
   { to: '/files', labelKey: 'layout.nav.files', icon: FolderOpen },

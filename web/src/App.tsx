@@ -12,6 +12,7 @@ import { PromptProvider } from '@/components/PromptDialog'
 const Login = lazy(() => import('@/pages/Login'))
 const Setup = lazy(() => import('@/pages/Setup'))
 const Dashboard = lazy(() => import('@/pages/Dashboard'))
+const Running = lazy(() => import('@/pages/Running'))
 const Docker = lazy(() => import('@/pages/Docker'))
 const DockerStacks = lazy(() => import('@/pages/docker/DockerStacks'))
 const DockerContainers = lazy(() => import('@/pages/docker/DockerContainers'))
@@ -196,6 +197,7 @@ export default function App() {
               }>
                 <Route index element={<Navigate to="/dashboard" replace />} />
                 <Route path="dashboard" element={<Dashboard />} />
+                <Route path="running" element={<Running />} />
                 <Route path="docker" element={<Docker />}>
                   <Route index element={<Navigate to="stacks" replace />} />
                   <Route path="stacks" element={<DockerStacks />} />
@@ -208,6 +210,7 @@ export default function App() {
                 <Route path="cluster" element={<Cluster />}>
                   <Route index element={<Navigate to="overview" replace />} />
                   <Route path="overview" element={<ClusterOverview />} />
+                  <Route path="running" element={<Running scope="cluster" />} />
                   <Route path="nodes" element={<ClusterNodes />} />
                   <Route path="stacks" element={<ClusterStacks />} />
                   <Route path="stacks/:node/:name" element={<ClusterStacks />} />

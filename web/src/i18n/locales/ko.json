@@ -55,6 +55,7 @@
     "tagline": "서버 관리",
     "nav": {
       "dashboard": "대시보드",
+      "running": "실행 현황",
       "docker": "Docker",
       "files": "파일 관리",
       "cron": "크론 작업",
@@ -998,6 +999,7 @@
     "title": "클러스터",
     "nav": {
       "overview": "개요",
+      "running": "실행 현황",
       "nodes": "노드",
       "stacks": "Docker",
       "security": "보안",
@@ -4516,5 +4518,99 @@
     "stackAlreadyExists": "같은 이름의 스택이 이미 있습니다.",
     "emptyContent": "설정 내용을 비워 둘 수 없습니다.",
     "aiSessionNotFound": "세션을 찾을 수 없습니다."
+  },
+  "running": {
+    "title": "실행 현황",
+    "subtitleCluster": "이 클러스터에서 지금 돌고 있는 것",
+    "subtitleNode": "{{host}}에서 지금 돌고 있는 것",
+    "subtitleThisNode": "이 서버에서 지금 돌고 있는 것",
+    "refresh": "새로 고침",
+    "overviewError": "클러스터의 노드 목록을 불러오지 못했습니다",
+    "search": {
+      "label": "스택·컨테이너·서비스 이름으로 찾기",
+      "placeholder": "스택·컨테이너·서비스 이름",
+      "noMatch": "‘{{query}}’에 맞는 것이 없습니다.",
+      "clear": "검색어 지우기"
+    },
+    "totals": {
+      "nodes": "노드 온라인",
+      "stacks": "스택",
+      "running": "실행 중인 컨테이너",
+      "attention": "확인 필요",
+      "failed": "노드 {{count}}개는 불러오지 못해 합계에서 뺐습니다."
+    },
+    "attention": {
+      "title": "확인 필요 {{count}}",
+      "partial": "서비스 {{total}}개 중 {{running}}개만 실행 중입니다.",
+      "restarting": "{{name}} 컨테이너가 다시 시작을 반복합니다.",
+      "restartingSelf": "다시 시작을 반복합니다.",
+      "unhealthy": "{{name}} 컨테이너의 상태 검사가 실패하고 있습니다.",
+      "unhealthySelf": "상태 검사가 실패하고 있습니다.",
+      "dead": "{{name}} 컨테이너가 dead 상태로 남아 있습니다.",
+      "deadSelf": "dead 상태로 남아 있습니다.",
+      "exited": "{{name}} 컨테이너가 {{ago}} 코드 {{code}}(으)로 종료했습니다.",
+      "exitedSelf": "{{ago}} 코드 {{code}}(으)로 종료했습니다.",
+      "nodeDown": "{{status}} 상태입니다. 마지막 확인 {{ago}}.",
+      "nodeDownNever": "{{status}} 상태입니다.",
+      "openStack": "스택 열기",
+      "openLogs": "로그 보기",
+      "openNodes": "노드 보기"
+    },
+    "node": {
+      "lastSeen": "마지막 확인 {{ago}}",
+      "notAsked": "응답하지 않는 노드에는 묻지 않습니다. 다시 응답하면 보입니다.",
+      "noDocker": "Docker가 설치되어 있지 않거나 실행 중이 아닙니다.",
+      "loadError": "실행 중인 것을 불러오지 못했습니다",
+      "refreshError": "갱신하지 못해 {{time}}에 본 내용을 보여 줍니다.",
+      "cpu": "CPU",
+      "memory": "메모리",
+      "disk": "디스크"
+    },
+    "groups": {
+      "stacks": "스택 {{count}}",
+      "standalone": "독립 컨테이너 {{count}}"
+    },
+    "stack": {
+      "running": "실행 중",
+      "partial": "일부 실행",
+      "stopped": "중지됨",
+      "noContainers": "컨테이너가 없습니다."
+    },
+    "state": {
+      "running": "실행 중",
+      "unhealthy": "비정상",
+      "restarting": "재시작 중",
+      "exited": "종료됨",
+      "created": "생성됨",
+      "paused": "일시 중지됨",
+      "removing": "삭제 중",
+      "dead": "dead"
+    },
+    "exited": "{{ago}} 종료",
+    "exitedCode": "{{ago}} 종료 (코드 {{code}})",
+    "exitedCodeOnly": "종료됨 (코드 {{code}})",
+    "image": "이미지 {{image}}",
+    "port": {
+      "list": "게시된 포트",
+      "internal": "{{port}} 내부",
+      "newTab": "새 탭에서 열림"
+    },
+    "host": {
+      "title": "호스트에서 직접 듣는 서비스",
+      "titleCount": "호스트에서 직접 듣는 서비스 {{count}}",
+      "error": "포트 목록을 불러오지 못했습니다.",
+      "empty": "호스트에서 직접 듣는 서비스가 없습니다.",
+      "unknownProcess": "알 수 없는 프로세스"
+    },
+    "empty": {
+      "title": "아직 돌고 있는 것이 없습니다.",
+      "hint": "여기서 시작하세요:",
+      "appStore": "앱 스토어",
+      "stacks": "Docker › 스택"
+    },
+    "notCluster": {
+      "body": "이 서버는 클러스터에 속해 있지 않습니다.",
+      "link": "이 서버의 실행 현황 보기"
+    }
   }
 }

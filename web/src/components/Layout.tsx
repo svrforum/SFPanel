@@ -7,6 +7,7 @@ import { useTranslation } from 'react-i18next'
 import { api } from '@/lib/api'
 import { cn } from '@/lib/utils'
 import { NAV_ITEMS, isTerminalRoute } from '@/lib/navigation'
+import { CLUSTER_TAB_ITEMS } from '@/components/cluster/datacenterMenu'
 import { useTerminalCompact, useTerminalFocus } from '@/lib/terminalLayout'
 import { NODE_CHANGED, type NodeChangedDetail } from '@/lib/nodeSelection'
 import { useVisibleInterval } from '@/hooks/useVisibleInterval'
@@ -63,9 +64,12 @@ export default function Layout() {
   const sidebarHidden = isTerminal && (terminalCompact || terminalFocus)
 
   // The page's own name in the tab and the history list: it said "SFPanel" on
-  // every route. A section's sub-pages carry the section's name.
-  const section = navItems.find((i) => location.pathname === i.to || location.pathname.startsWith(i.to + '/'))
-  const pageLabel = section ? t(section.labelKey) : location.pathname === '/' ? null : t('layout.notFound.title')
+  // every route. A section's sub-pages carry the section's name, except a
+  // cluster tab that is a screen of its own.
+  const within = (to: string) => location.pathname === to || location.pathname.startsWith(to + '/')
+  const section = navItems.find((i) => within(i.to))
+  const ownTab = CLUSTER_TAB_ITEMS.find((i) => i.ownTitle && within(i.to))
+  const pageLabel = ownTab ? t(ownTab.labelKey) : section ? t(section.labelKey) : location.pathname === '/' ? null : t('layout.notFound.title')
   const pageTitle = pageLabel ? `${pageLabel} · SFPanel` : 'SFPanel'
   // Twice, around the terminal page's own effect, which prefixes "(n) " to the
   // title it finds and puts that title back on cleanup. The layout effect runs

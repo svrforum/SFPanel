@@ -1,10 +1,15 @@
-import { Layers, LayoutDashboard, ListChecks, Server, Settings, ShieldCheck, type LucideIcon } from 'lucide-react'
+import { Boxes, Layers, LayoutDashboard, ListChecks, Server, Settings, ShieldCheck, type LucideIcon } from 'lucide-react'
 
 export interface DatacenterMenuItem {
   to: string
   labelKey: string
   icon: LucideIcon
   matchEnd?: boolean
+  /**
+   * A screen of its own rather than a part of the cluster page: the browser
+   * tab carries its name, as the same screen does at its node-scope route.
+   */
+  ownTitle?: boolean
 }
 
 /**
@@ -15,6 +20,7 @@ export interface DatacenterMenuItem {
  */
 export const CLUSTER_TAB_ITEMS: DatacenterMenuItem[] = [
   { to: '/cluster/overview', labelKey: 'cluster.nav.overview', icon: LayoutDashboard },
+  { to: '/cluster/running', labelKey: 'cluster.nav.running', icon: Boxes, ownTitle: true },
   { to: '/cluster/nodes', labelKey: 'cluster.nav.nodes', icon: Server },
   { to: '/cluster/stacks', labelKey: 'cluster.nav.stacks', icon: Layers },
   { to: '/cluster/security', labelKey: 'cluster.nav.security', icon: ShieldCheck },
