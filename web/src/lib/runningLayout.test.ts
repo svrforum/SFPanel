@@ -1,16 +1,19 @@
 import { describe, expect, it } from 'vitest'
 import {
   CANVAS,
-  anchorY,
   boxHeight,
+  edgePath,
+  edgePoints,
   headerHeight,
   keepPositions,
   layoutBoxes,
+  linkKey,
   nameLines,
   readPositions,
   rowHeight,
   rowTop,
   type BoxRow,
+  type Layout,
   type LayoutBox,
   type LayoutLink,
   type Placed,
@@ -24,7 +27,6 @@ const tiles = (prefix: string, n: number) => Array.from({ length: n }, (_, i) =>
 
 const overlaps = (a: Placed, b: Placed) =>
   a.x < b.x + b.width && b.x < a.x + a.width && a.y < b.y + b.height && b.y < a.y + a.height
-const columnX = (column: number) => column * (CANVAS.boxWidth + CANVAS.columnGap)
 
 describe('nameLines', () => {
   it('gives a name that fits one line, and a longer one two', () => {
@@ -88,167 +90,189 @@ describe('box sizes', () => {
   })
 })
 
+// How an edge runs, as the canvas draws it: out of the guest tile's right
+// side, up (or down) a channel beside the host, along a lane above the row
+// of servers, and down into the top of the server's box.
+type Point = [number, number]
+function edgeOf(boxes: LayoutBox[], layout: Layout, link: LayoutLink): Point[] {
+  const hostBox = boxes.find((b) => b.id === link.host)!
+  const host = layout.placed.get(link.host)!
+  const node = layout.placed.get(link.node)!
+  const row = hostBox.rows.find((r) => r.key === link.tile)!
+  const sx = host.x + host.width - CANVAS.boxBorder - CANVAS.boxPadding
+  const sy = host.y + rowTop(hostBox, link.tile)! + rowHeight(row) / 2
+  return edgePoints(sx, sy, node.x + CANVAS.anchorX, node.y, layout.routes.get(linkKey(link.host, link.tile))!)
+}
+const segments = (points: Point[]) => points.slice(1).map((p, i) => [points[i], p] as [Point, Point])
+const between = (v: number, a: number, b: number) => v > Math.min(a, b) && v < Math.max(a, b)
+/** Two axis-parallel segments that cross, or lie along each other. */
+function meet([a1, a2]: [Point, Point], [b1, b2]: [Point, Point]): boolean {
+  const aH = a1[1] === a2[1], bH = b1[1] === b2[1]
+  if (aH !== bH) {
+    const [h1, h2] = aH ? [a1, a2] : [b1, b2]
+    const [v1, v2] = aH ? [b1, b2] : [a1, a2]
+    return between(v1[0], h1[0], h2[0]) && between(h1[1], v1[1], v2[1])
+  }
+  const k = aH ? 1 : 0
+  if (a1[k] !== b1[k]) return false
+  const o = aH ? 0 : 1
+  return Math.max(Math.min(a1[o], a2[o]), Math.min(b1[o], b2[o])) < Math.min(Math.max(a1[o], a2[o]), Math.max(b1[o], b2[o]))
+}
+/** A segment that runs through the inside of a box. */
+function through([p, q]: [Point, Point], box: Placed): boolean {
+  if (p[1] === q[1]) return p[1] > box.y && p[1] < box.y + box.height && Math.max(Math.min(p[0], q[0]), box.x) < Math.min(Math.max(p[0], q[0]), box.x + box.width)
+  return p[0] > box.x && p[0] < box.x + box.width && Math.max(Math.min(p[1], q[1]), box.y) < Math.min(Math.max(p[1], q[1]), box.y + box.height)
+}
+const noOverlap = (layout: Layout) => {
+  const all = [...layout.placed.values()]
+  for (let i = 0; i < all.length; i++) {
+    for (let j = i + 1; j < all.length; j++) expect(overlaps(all[i], all[j])).toBe(false)
+  }
+}
+
+// A real cluster: one Proxmox host whose list of eighteen guests is taller
+// than the screen, four of them nodes of the cluster, and one machine on its
+// own. With each guest's server level with its tile they made one column
+// 2,500 pixels high, shown at a third of its size on a wide screen.
 describe('layoutBoxes', () => {
-  // pve hosts vm-a (node a) and vm-b (node b); a hosts inner (node c).
-  // d and e are no one's guests.
-  const pve = box('pve', [title('guests'), tile('vm-a'), tile('vm-b'), tile('vm-x')])
+  // pve hosts vm-a (node a), vm-b (node b) and vm-d (node d); a hosts inner (node c).
+  // e and f are no one's guests.
+  const pve = box('pve', [title('guests'), tile('vm-a'), tile('vm-x'), tile('vm-b'), tile('vm-y'), tile('vm-d')])
   const a = box('a', [title('guests'), tile('c-vm'), title('stacks'), ...tiles('s', 4)])
   const b = box('b', [title('stacks'), ...tiles('s', 2)])
   const c = box('c', [note('nodocker')])
   const d = box('d', [title('stacks'), ...tiles('s', 6)])
-  const e = box('e')
-  const boxes = [d, pve, a, b, c, e]
+  const e = box('e', [title('stacks'), ...tiles('s', 3)])
+  const f = box('f')
+  const boxes = [e, pve, a, b, c, d, f]
   const links: LayoutLink[] = [
     { host: 'pve', tile: 'vm-a', node: 'a' },
     { host: 'pve', tile: 'vm-b', node: 'b' },
+    { host: 'pve', tile: 'vm-d', node: 'd' },
     { host: 'a', tile: 'c-vm', node: 'c' },
   ]
-  // Tall and narrow: every family gets a row of its own.
-  const TALL = 0.1
-  const placed = layoutBoxes(boxes, links, TALL)
-  const bottom = (...ids: string[]) => Math.max(...ids.map((id) => placed.get(id)!.y + placed.get(id)!.height))
+  // Wide: every block in one row.
+  const WIDE = 100
+  // Tall and narrow: every block gets a row of its own.
+  const TALL = 0.01
+  const layout = layoutBoxes(boxes, links, WIDE)
+  const at = (id: string) => layout.placed.get(id)!
 
-  it('places every box, in the column of its depth: hosts first, then their guests', () => {
-    expect([...placed.keys()].sort()).toEqual(['a', 'b', 'c', 'd', 'e', 'pve'])
-    const columns = Object.fromEntries([...placed].map(([id, p]) => [id, p.column]))
-    expect(columns).toEqual({ d: 0, pve: 0, e: 0, a: 1, b: 1, c: 2 })
-    for (const p of placed.values()) expect(p.x).toBe(columnX(p.column))
+  it('places every box, sized as boxHeight does, with its depth below its host', () => {
+    expect([...layout.placed.keys()].sort()).toEqual(['a', 'b', 'c', 'd', 'e', 'f', 'pve'])
+    for (const bx of boxes) expect(at(bx.id)).toMatchObject({ width: CANVAS.boxWidth, height: boxHeight(bx) })
+    expect(Object.fromEntries([...layout.placed].map(([id, p]) => [id, p.column]))).toEqual({ e: 0, pve: 0, f: 0, a: 1, b: 1, d: 1, c: 2 })
   })
 
-  it('stacks the families in the order given where the area is narrow, each below all of the one before', () => {
-    const [pd, pp, pe] = [placed.get('d')!, placed.get('pve')!, placed.get('e')!]
-    expect(pd.y).toBe(0)
-    expect(pp.y).toBe(pd.y + pd.height + CANVAS.blockGap)
-    // Below pve's guests' servers too, which reach lower than pve itself.
-    expect(bottom('pve', 'a', 'b', 'c')).toBeGreaterThan(pp.y + pp.height)
-    expect(pe.y).toBe(bottom('pve', 'a', 'b', 'c') + CANVAS.blockGap)
-  })
-
-  it('sizes each box as boxHeight does', () => {
-    for (const bx of boxes) expect(placed.get(bx.id)).toMatchObject({ width: CANVAS.boxWidth, height: boxHeight(bx) })
-  })
-
-  it('lets no two boxes overlap', () => {
-    const all = [...placed.values()]
-    for (let i = 0; i < all.length; i++) {
-      for (let j = i + 1; j < all.length; j++) expect(overlaps(all[i], all[j])).toBe(false)
+  it("sets a host's guests' servers in a row beside it, their tops level with its own", () => {
+    for (const id of ['a', 'b', 'd']) {
+      expect(at(id).x).toBeGreaterThanOrEqual(at('pve').x + CANVAS.boxWidth + CANVAS.columnGap)
+      // b and d have no guests of their own, so nothing stands above them.
+      if (id !== 'a') expect(at(id).y).toBe(at('pve').y)
     }
+    // Not one under the other: no two of them share a column.
+    expect(new Set(['a', 'b', 'd'].map((id) => at(id).x)).size).toBe(3)
   })
 
-  it("puts a guest's server to the right of its host", () => {
-    for (const l of links) expect(placed.get(l.node)!.x).toBeGreaterThanOrEqual(placed.get(l.host)!.x + CANVAS.boxWidth + CANVAS.columnGap)
+  it("takes the lowest guest tile's server first, which is the order no two edges cross in", () => {
+    // vm-d is the lowest tile, vm-a the highest.
+    expect(at('d').x).toBeLessThan(at('b').x)
+    expect(at('b').x).toBeLessThan(at('a').x)
   })
 
-  it("puts a guest's server level with its guest tile where there is room", () => {
-    // a's header is level with the vm-a tile of pve: its edge runs straight.
-    const pp = placed.get('pve')!
-    const tileMiddle = pp.y + rowTop(pve, 'vm-a')! + rowHeight(tile('vm-a')) / 2
-    expect(placed.get('a')!.y + anchorY(a)).toBe(tileMiddle)
+  it('leaves room above the row for the edges, as much as there are edges', () => {
+    // Three edges: three lanes above pve's row.
+    expect(at('pve').y - at('e').y).toBe(CANVAS.laneBase + 2 * CANVAS.laneStep + CANVAS.laneMargin)
+    // A host with no guests that are nodes needs none.
+    expect(at('e').y).toBe(0)
+    expect(at('f').y).toBe(0)
   })
 
-  it('pushes a server down when the one above it leaves no room, a gap below', () => {
-    // b wants to be level with vm-b, which is just under vm-a, but a is tall.
-    const pa = placed.get('a')!
-    expect(placed.get('b')!.y).toBe(pa.y + pa.height + CANVAS.boxGap)
+  it("puts a guest's own guests' servers beside it in turn, below the lanes of its own row", () => {
+    expect(at('c').x).toBe(at('a').x + CANVAS.boxWidth + CANVAS.columnGap)
+    expect(at('c').y).toBe(at('a').y)
+    // a's one edge has a lane of its own above a, under pve's lanes.
+    expect(at('a').y).toBe(at('pve').y + CANVAS.laneBase + CANVAS.laneMargin)
   })
 
-  it('orders a column by where its servers want to be, not by the order given', () => {
-    const h = box('h', [tile('t1'), tile('t2')])
-    const p1 = box('p1')
-    const q1 = box('q1')
-    const result = layoutBoxes([h, q1, p1], [{ host: 'h', tile: 't1', node: 'p1' }, { host: 'h', tile: 't2', node: 'q1' }], TALL)
-    const [pp, pq] = [result.get('p1')!, result.get('q1')!]
-    expect(pp.y + anchorY(p1)).toBe(rowTop(h, 't1')! + rowHeight(tile('t1')) / 2)
-    expect(pq.y).toBe(pp.y + pp.height + CANVAS.boxGap)
+  it('gives every edge a channel and a lane of its own', () => {
+    expect([...layout.routes.keys()].sort()).toEqual(links.map((l) => linkKey(l.host, l.tile)).sort())
+    const ofPve = ['vm-a', 'vm-b', 'vm-d'].map((tileKey) => layout.routes.get(linkKey('pve', tileKey))!)
+    expect(new Set(ofPve.map((r) => r.channel)).size).toBe(3)
+    // All channels fit in the gap beside the host.
+    for (const r of ofPve) expect(r.channel - CANVAS.boxBorder - CANVAS.boxPadding).toBeLessThan(CANVAS.columnGap)
   })
 
-  it('gives the same answer for the same input', () => {
-    expect(layoutBoxes(boxes, links, TALL)).toEqual(placed)
-    expect(layoutBoxes(boxes, links, 2)).toEqual(layoutBoxes(boxes, links, 2))
-  })
-
-  it('ignores a link to or from a box that is not drawn, to its own host, or from a tile that is not there', () => {
-    const result = layoutBoxes([d, e], [
-      { host: 'd', tile: 's0', node: 'gone' },
-      { host: 'gone', tile: 'x', node: 'e' },
-      { host: 'd', tile: 's0', node: 'd' },
-      { host: 'd', tile: 'nope', node: 'e' },
-    ], TALL)
-    expect([...result.values()].map((p) => p.column)).toEqual([0, 0])
-  })
-
-  it('draws a loop of links as hosts and guests without one, and ends', () => {
-    const x = box('x', [tile('y-vm')])
-    const y = box('y', [tile('x-vm')])
-    const result = layoutBoxes([x, y], [{ host: 'x', tile: 'y-vm', node: 'y' }, { host: 'y', tile: 'x-vm', node: 'x' }], TALL)
-    expect(result.get('x')!.column).toBe(0)
-    expect(result.get('y')!.column).toBe(1)
-  })
-
-  it('takes the first host given for a server two hosts claim', () => {
-    const h1 = box('h1', [tile('g')])
-    const h2 = box('h2', [tile('g')])
-    const g = box('g')
-    const result = layoutBoxes([h1, h2, g], [{ host: 'h2', tile: 'g', node: 'g' }, { host: 'h1', tile: 'g', node: 'g' }], TALL)
-    const tileMiddle = result.get('h2')!.y + rowTop(h2, 'g')! + rowHeight(tile('g')) / 2
-    expect(result.get('g')!.y + anchorY(g)).toBe(tileMiddle)
-  })
-})
-
-// The canvas is as wide as the page and most of the screen high. Stacked in
-// one column, six servers were drawn at half size in a strip down the middle
-// of a wide screen; side by side they are read without zooming.
-describe('layoutBoxes in a wide area', () => {
-  const pve = box('pve', [title('guests'), tile('vm-a'), tile('vm-b')])
-  const a = box('a', [title('stacks'), ...tiles('s', 3)])
-  const b = box('b')
-  const d = box('d', [title('stacks'), ...tiles('s', 8)])
-  const e = box('e', [title('stacks'), ...tiles('s', 8)])
-  const f = box('f', [title('stacks'), ...tiles('s', 8)])
-  const boxes = [d, pve, a, b, e, f]
-  const links: LayoutLink[] = [{ host: 'pve', tile: 'vm-a', node: 'a' }, { host: 'pve', tile: 'vm-b', node: 'b' }]
-  const extent = (placed: Map<string, Placed>) => {
-    const all = [...placed.values()]
-    return { width: Math.max(...all.map((p) => p.x + p.width)), height: Math.max(...all.map((p) => p.y + p.height)) }
-  }
-  // How large the whole drawing is shown in an area of this shape.
-  const scale = (placed: Map<string, Placed>, aspect: number) => Math.min(aspect / extent(placed).width, 1 / extent(placed).height)
-
-  it('puts the families side by side in the order given, tops level', () => {
-    const placed = layoutBoxes(boxes, links, 4)
-    const [pd, pp, pe, pf] = ['d', 'pve', 'e', 'f'].map((id) => placed.get(id)!)
-    expect([pd.y, pp.y, pe.y, pf.y]).toEqual([0, 0, 0, 0])
-    expect(pd.x).toBe(0)
-    expect(pp.x).toBe(pd.x + CANVAS.boxWidth + CANVAS.blockGap)
-    // pve's family is two columns wide: itself and its guests' servers.
-    expect(pe.x).toBe(pp.x + 2 * CANVAS.boxWidth + CANVAS.columnGap + CANVAS.blockGap)
-    expect(pf.x).toBe(pe.x + CANVAS.boxWidth + CANVAS.blockGap)
-  })
-
-  it("keeps a guest's server beside its host, level with its tile, wherever the family lands", () => {
-    for (const aspect of [0.1, 1, 1.6, 4]) {
-      const placed = layoutBoxes(boxes, links, aspect)
-      const pp = placed.get('pve')!
-      expect(placed.get('a')!.x).toBe(pp.x + CANVAS.boxWidth + CANVAS.columnGap)
-      expect(placed.get('a')!.y + anchorY(a)).toBe(pp.y + rowTop(pve, 'vm-a')! + rowHeight(tile('vm-a')) / 2)
-      expect(placed.get('b')!.x).toBe(placed.get('a')!.x)
-    }
-  })
-
-  it('lets no two boxes overlap, whatever the shape', () => {
-    for (const aspect of [0.1, 0.5, 1, 1.6, 2.5, 4, 10]) {
-      const all = [...layoutBoxes(boxes, links, aspect).values()]
-      for (let i = 0; i < all.length; i++) {
-        for (let j = i + 1; j < all.length; j++) expect(overlaps(all[i], all[j])).toBe(false)
+  it('lets no two edges cross or run along each other', () => {
+    const edges = links.map((l) => segments(edgeOf(boxes, layout, l)))
+    for (let i = 0; i < edges.length; i++) {
+      for (let j = i + 1; j < edges.length; j++) {
+        for (const s1 of edges[i]) for (const s2 of edges[j]) expect(meet(s1, s2)).toBe(false)
       }
     }
   })
 
+  it('runs no edge through a box', () => {
+    for (const l of links) {
+      segments(edgeOf(boxes, layout, l)).forEach((segment, index) => {
+        for (const [id, placedBox] of layout.placed) {
+          // It leaves from inside its host's box, where its tile is.
+          if (index === 0 && id === l.host) continue
+          expect(through(segment, placedBox), `${l.tile} → ${l.node}, segment ${index}, box ${id}`).toBe(false)
+        }
+      })
+    }
+  })
+
+  it('keeps edges apart and out of boxes with many guests that are nodes', () => {
+    const n = 9
+    const host = box('h', [title('guests'), ...Array.from({ length: n }, (_, i) => tile(`vm${i}`))])
+    const servers = Array.from({ length: n }, (_, i) => box(`n${i}`, tiles('s', i % 4)))
+    const many: LayoutLink[] = servers.map((srv, i) => ({ host: 'h', tile: `vm${i}`, node: srv.id }))
+    const all = [host, ...servers]
+    const result = layoutBoxes(all, many, WIDE)
+    noOverlap(result)
+    const edges = many.map((l) => segments(edgeOf(all, result, l)))
+    for (let i = 0; i < edges.length; i++) {
+      for (let j = i + 1; j < edges.length; j++) {
+        for (const s1 of edges[i]) for (const s2 of edges[j]) expect(meet(s1, s2)).toBe(false)
+      }
+      edges[i].forEach((segment, index) => {
+        for (const [id, placedBox] of result.placed) {
+          if (index === 0 && id === 'h') continue
+          expect(through(segment, placedBox)).toBe(false)
+        }
+      })
+    }
+  })
+
+  it('lets no two boxes overlap, whatever the shape', () => {
+    for (const aspect of [TALL, 0.5, 1, 1.6, 2.5, 4, WIDE]) noOverlap(layoutBoxes(boxes, links, aspect))
+  })
+
+  it('sets the blocks side by side in the order given where the area is wide, tops level', () => {
+    expect(at('e').x).toBe(0)
+    expect(at('pve').x).toBe(CANVAS.boxWidth + CANVAS.blockGap)
+    // After pve's whole block: itself, its three servers, and a's own.
+    const right = Math.max(...['pve', 'a', 'b', 'c', 'd'].map((id) => at(id).x + CANVAS.boxWidth))
+    expect(at('f').x).toBe(right + CANVAS.blockGap)
+  })
+
+  it('stacks the blocks where the area is narrow, each below all of the one before', () => {
+    const tall = layoutBoxes(boxes, links, TALL)
+    const y = (id: string) => tall.placed.get(id)!.y
+    const bottom = (...ids: string[]) => Math.max(...ids.map((id) => y(id) + tall.placed.get(id)!.height))
+    expect(y('e')).toBe(0)
+    expect(tall.placed.get('pve')!.x).toBe(0)
+    expect(y('pve')).toBeGreaterThanOrEqual(bottom('e') + CANVAS.blockGap)
+    expect(y('f')).toBe(bottom('pve', 'a', 'b', 'c', 'd') + CANVAS.blockGap)
+  })
+
   it('breaks into rows where one row would be shown smaller', () => {
     // Four tall boxes in a square area: two rows of two.
-    const four = [d, e, f, box('g', [title('stacks'), ...tiles('s', 8)])]
-    const placed = layoutBoxes(four, [], 1)
-    const [p1, p2, p3, p4] = four.map((bx) => placed.get(bx.id)!)
+    const four = ['p', 'q', 'r', 's'].map((id) => box(id, [title('stacks'), ...tiles('s', 8)]))
+    const result = layoutBoxes(four, [], 1).placed
+    const [p1, p2, p3, p4] = four.map((bx) => result.get(bx.id)!)
     expect([p1.y, p2.y]).toEqual([0, 0])
     expect(p3.y).toBe(p1.height + CANVAS.blockGap)
     expect(p4.y).toBe(p3.y)
@@ -257,17 +281,77 @@ describe('layoutBoxes in a wide area', () => {
   })
 
   it('is never shown smaller than one row or one column would be', () => {
+    const extent = (l: Layout) => {
+      const all = [...l.placed.values()]
+      return { width: Math.max(...all.map((p) => p.x + p.width)), height: Math.max(...all.map((p) => p.y + p.height)) }
+    }
+    const scale = (l: Layout, aspect: number) => Math.min(aspect / extent(l).width, 1 / extent(l).height)
     for (const aspect of [0.4, 1, 1.6, 2.5, 4]) {
       const chosen = scale(layoutBoxes(boxes, links, aspect), aspect)
-      // 100: wider than any area, so everything in one row.
-      expect(chosen).toBeGreaterThanOrEqual(scale(layoutBoxes(boxes, links, 100), aspect))
-      expect(chosen).toBeGreaterThanOrEqual(scale(layoutBoxes(boxes, links, 0.01), aspect))
+      expect(chosen).toBeGreaterThanOrEqual(scale(layoutBoxes(boxes, links, WIDE), aspect))
+      expect(chosen).toBeGreaterThanOrEqual(scale(layoutBoxes(boxes, links, TALL), aspect))
     }
   })
 
   it('takes a shape that is no shape as a narrow one', () => {
-    const narrow = layoutBoxes(boxes, links, 0.01)
+    const narrow = layoutBoxes(boxes, links, TALL)
     for (const aspect of [0, -1, Number.NaN, Number.POSITIVE_INFINITY]) expect(layoutBoxes(boxes, links, aspect)).toEqual(narrow)
+  })
+
+  it('gives the same answer for the same input', () => {
+    expect(layoutBoxes(boxes, links, WIDE)).toEqual(layout)
+    expect(layoutBoxes(boxes, links, 1.6)).toEqual(layoutBoxes(boxes, links, 1.6))
+  })
+
+  it('ignores a link to or from a box that is not drawn, to its own host, or from a tile that is not there', () => {
+    const result = layoutBoxes([d, f], [
+      { host: 'd', tile: 's0', node: 'gone' },
+      { host: 'gone', tile: 'x', node: 'f' },
+      { host: 'd', tile: 's0', node: 'd' },
+      { host: 'd', tile: 'nope', node: 'f' },
+    ], TALL)
+    expect([...result.placed.values()].map((p) => p.column)).toEqual([0, 0])
+    expect(result.routes.size).toBe(0)
+  })
+
+  it('draws a loop of links as hosts and guests without one, and ends', () => {
+    const x = box('x', [tile('y-vm')])
+    const y = box('y', [tile('x-vm')])
+    const result = layoutBoxes([x, y], [{ host: 'x', tile: 'y-vm', node: 'y' }, { host: 'y', tile: 'x-vm', node: 'x' }], TALL)
+    expect(result.placed.get('x')!.column).toBe(0)
+    expect(result.placed.get('y')!.column).toBe(1)
+    expect([...result.routes.keys()]).toEqual([linkKey('x', 'y-vm')])
+  })
+
+  it('takes the first host given for a server two hosts claim', () => {
+    const h1 = box('h1', [tile('g')])
+    const h2 = box('h2', [tile('g')])
+    const g = box('g')
+    const result = layoutBoxes([h1, h2, g], [{ host: 'h2', tile: 'g', node: 'g' }, { host: 'h1', tile: 'g', node: 'g' }], WIDE)
+    expect(result.placed.get('g')!.x).toBe(result.placed.get('h2')!.x + CANVAS.boxWidth + CANVAS.columnGap)
+    expect([...result.routes.keys()]).toEqual([linkKey('h2', 'g')])
+  })
+
+  it('lays out nothing as nothing', () => {
+    expect(layoutBoxes([], [], 1.6)).toEqual({ placed: new Map(), routes: new Map() })
+  })
+})
+
+describe('edgePath', () => {
+  const route = { channel: 30, lane: 20 }
+
+  it('turns at the channel and the lane, and ends on the target', () => {
+    expect(edgePoints(100, 200, 400, 50, route)).toEqual([[100, 200], [130, 200], [130, 30], [400, 30], [400, 50]])
+    const d = edgePath(100, 200, 400, 50, route)
+    expect(d.startsWith('M 100 200')).toBe(true)
+    expect(d.endsWith('L 400 50')).toBe(true)
+  })
+
+  it('writes no number that is not one, where two corners fall on the same point', () => {
+    // The tile level with the lane, and the target right above the channel.
+    for (const d of [edgePath(100, 30, 400, 50, route), edgePath(100, 200, 130, 50, route), edgePath(0, 0, 0, 0, { channel: 0, lane: 0 })]) {
+      expect(d).not.toMatch(/NaN|Infinity/)
+    }
   })
 })
 

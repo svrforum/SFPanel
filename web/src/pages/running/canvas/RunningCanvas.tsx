@@ -11,19 +11,20 @@ import {
   ReactFlowProvider,
   applyNodeChanges,
   useReactFlow,
-  type Edge,
   type NodeChange,
   type OnNodeDrag,
 } from '@xyflow/react'
 import { Button } from '@/components/ui/button'
-import { CANVAS, boxHeight, keepPositions, layoutBoxes, readPositions, type Positions } from '@/lib/runningLayout'
+import { CANVAS, boxHeight, keepPositions, layoutBoxes, linkKey, readPositions, type Positions } from '@/lib/runningLayout'
 import type { HeadingLevel } from '../Heading'
 import type { Scope } from '../targets'
 import type { BoardSection } from '../useRunningBoard'
 import { boxRows, guestLinks, layoutBox, type CanvasRow, type ServerBoxData, type ServerNode } from './boxes'
+import { GuestEdgeView, type GuestEdge } from './GuestEdge'
 import { ServerBox } from './ServerBox'
 
 const nodeTypes = { server: ServerBox }
+const edgeTypes = { guest: GuestEdgeView }
 
 const FIT = { padding: 0.12, maxZoom: 1 }
 
@@ -160,7 +161,7 @@ function Flow({ sections, scope, localId, query, storageKey, level }: CanvasProp
 
   const base = useMemo<ServerNode[]>(() => sections.map((s) => {
     const d = data.get(s.node.id)!
-    const at = saved[s.node.id] ?? computed.get(s.node.id)!
+    const at = saved[s.node.id] ?? computed.placed.get(s.node.id)!
     return {
       id: s.node.id,
       type: 'server',
@@ -206,13 +207,15 @@ function Flow({ sections, scope, localId, query, storageKey, level }: CanvasProp
   }, [storageKey])
 
   const names = useMemo(() => new Map(sections.map((s) => [s.node.id, s.node.name])), [sections])
-  const edges = useMemo<Edge[]>(() => links.map((l) => ({
+  const edges = useMemo<GuestEdge[]>(() => links.map((l) => ({
     id: `${l.host}/${l.tile}`,
     source: l.host,
     sourceHandle: l.tile,
     target: l.node,
     targetHandle: 'in',
-    type: 'smoothstep',
+    type: 'guest',
+    // How it goes round the boxes, as the layout worked it out.
+    data: computed.routes.get(linkKey(l.host, l.tile)),
     animated: false,
     selectable: false,
     focusable: false,
@@ -225,7 +228,7 @@ function Flow({ sections, scope, localId, query, storageKey, level }: CanvasProp
       node: names.get(l.node) ?? l.node,
     }),
     domAttributes: { 'aria-roledescription': t('running.canvas.edgeRole') },
-  })), [links, names, t])
+  })), [links, names, computed, t])
 
   const ariaLabelConfig = useMemo(() => ({
     'controls.ariaLabel': t('running.canvas.controls'),
@@ -253,11 +256,12 @@ function Flow({ sections, scope, localId, query, storageKey, level }: CanvasProp
   return (
     <div ref={frame} className="running-canvas h-[70dvh] min-h-80 w-full overflow-hidden rounded-2xl card-shadow" onFocus={onFocus}>
       {/* Not before the area's shape is known: the first view is fitted to the layout made for it. */}
-      {shape !== null && <ReactFlow<ServerNode>
+      {shape !== null && <ReactFlow<ServerNode, GuestEdge>
         aria-label={t('running.canvas.label')}
         nodes={nodes}
         edges={edges}
         nodeTypes={nodeTypes}
+        edgeTypes={edgeTypes}
         onNodesChange={onNodesChange}
         onNodeDragStop={onNodeDragStop}
         colorMode={dark ? 'dark' : 'light'}

@@ -26,8 +26,19 @@ export const CANVAS = {
   rowGap: 6,
   columnGap: 120,
   boxGap: 32,
-  /** Between one host's family (the host and its guests' servers) and the next. */
+  /** Between one host's block (the host and its guests' servers) and the next. */
   blockGap: 48,
+  /** Where an edge comes into a server's box: on its top edge, this far from its left. */
+  anchorX: 28,
+  /** An edge leaves its tile, turns into a channel this far past the host's box (each edge a step further), */
+  channelBase: 14,
+  channelStep: 8,
+  /** and runs along a lane this far above the row of servers (each edge a step higher), under a margin. */
+  laneBase: 14,
+  laneStep: 8,
+  laneMargin: 10,
+  /** How round an edge's corners are. */
+  edgeCorner: 6,
   /** How much of a name one line holds, in narrow letters: an estimate on the safe side. */
   headerNameChars: 24,
   tileNameChars: 18,
@@ -98,16 +109,32 @@ export function rowTop(box: LayoutBox, key: string): number | null {
   return null
 }
 
-/** Where an edge comes into a box: level with the middle of its name, on the left. */
-export function anchorY(box: LayoutBox): number {
-  return CANVAS.boxBorder + CANVAS.boxPadding + (nameLines(box.name, CANVAS.headerNameChars) * CANVAS.nameLineHeight) / 2
+/**
+ * How an edge runs from a guest tile to the box of the server that guest is.
+ * (A type, not an interface: the canvas carries it as an edge's data, which
+ * the library wants to be a plain record.)
+ */
+export type Route = {
+  /** How far to the right of the tile's edge it turns up or down. */
+  channel: number
+  /** How far above the top of the server's box it runs before coming down into it. */
+  lane: number
 }
 
-/** A host and the servers that are its guests, and theirs: laid out as one block. */
-interface Block {
+/** Where the boxes go, and how each edge runs: keyed by linkKey. */
+export interface Layout {
   placed: Map<string, Placed>
+  routes: Map<string, Route>
+}
+
+export const linkKey = (host: string, tile: string) => `${host}/${tile}`
+
+/** A host and the servers that are its guests, and theirs: laid out as one block. */
+interface Block extends Layout {
   width: number
   height: number
+  /** Where the top of the host's own box is, below the lanes of its row. */
+  top: number
 }
 
 /**
@@ -165,20 +192,29 @@ function arrange(blocks: Block[], aspect: number): Block[][] {
 }
 
 /**
- * Where each box goes. A server that is no known guest heads a block: itself
- * in the block's first column, the servers that are its guests in the next,
- * theirs in the one after. A guest's server goes level with its guest tile,
- * so the edge between them runs straight, unless the box above it leaves no
- * room; then it goes a gap below that box. The blocks are then set out in
- * rows, in the order given, the way that shows them largest in an area
- * `aspect` times as wide as it is high: side by side on a wide screen, one
- * under the other on a phone.
+ * Where each box goes, and how each edge runs. A server that is no known
+ * guest heads a block: its box, and beside it, in a row with their tops
+ * level with its own, the servers that are its guests, each heading a block
+ * of its own in turn. One under the other, level with their guest tiles,
+ * they made a column no screen could show: a Proxmox host's guest list is
+ * long, and four of its guests being nodes meant four boxes stacked.
+ *
+ * In a row an edge cannot run straight, so it goes round: out of the tile,
+ * up a channel in the gap beside the host, along a lane above the row, and
+ * down into the top of the server's box. Every edge has a channel and a lane
+ * of its own, and the servers are set out so that none crosses another: the
+ * lowest tile's server first, with the channel furthest out and the lowest
+ * lane; the highest tile's last, with the nearest channel and the top lane.
+ *
+ * The blocks are then set out in rows, in the order given, the way that
+ * shows them largest in an area `aspect` times as wide as it is high: side
+ * by side on a wide screen, one under the other on a phone.
  *
  * A link whose ends are not both drawn, or that would make a server a guest
  * of its own guest, is left out, as is a second host for a server that
- * already has one. `column` is a box's depth in its block.
+ * already has one. `column` is a box's depth below the head of its block.
  */
-export function layoutBoxes(boxes: LayoutBox[], links: LayoutLink[], aspect: number): Map<string, Placed> {
+export function layoutBoxes(boxes: LayoutBox[], links: LayoutLink[], aspect: number): Layout {
   const byId = new Map(boxes.map((b) => [b.id, b]))
   const hostOf = new Map<string, LayoutLink>()
   for (const l of links) {
@@ -190,67 +226,91 @@ export function layoutBoxes(boxes: LayoutBox[], links: LayoutLink[], aspect: num
     hostOf.set(l.node, l)
   }
 
-  // Every box's head of block and depth in it, and the blocks' columns in
-  // the order the boxes were given.
-  const where = new Map<string, { root: string; depth: number }>()
-  const whereOf = (id: string): { root: string; depth: number } => {
-    const known = where.get(id)
-    if (known) return known
-    const link = hostOf.get(id)
-    const up = link ? whereOf(link.host) : null
-    const found = up ? { root: up.root, depth: up.depth + 1 } : { root: id, depth: 0 }
-    where.set(id, found)
-    return found
+  // Each host's links, from its highest guest tile down.
+  const guestsOf = new Map<string, LayoutLink[]>()
+  for (const link of hostOf.values()) {
+    const list = guestsOf.get(link.host)
+    if (list) list.push(link)
+    else guestsOf.set(link.host, [link])
   }
-  const columnsOf = new Map<string, LayoutBox[][]>()
-  for (const b of boxes) {
-    const { root, depth } = whereOf(b.id)
-    let columns = columnsOf.get(root)
-    if (!columns) columnsOf.set(root, (columns = []))
-    ;(columns[depth] ??= []).push(b)
+  for (const [host, list] of guestsOf) {
+    const hostBox = byId.get(host)!
+    list.sort((p, q) => rowTop(hostBox, p.tile)! - rowTop(hostBox, q.tile)!)
   }
 
-  const blocks: Block[] = []
-  for (const b of boxes) {
-    const columns = columnsOf.get(b.id)
-    if (!columns) continue
-    const placed = new Map<string, Placed>()
-    let height = 0
-    columns.forEach((column, index) => {
-      const wanted = column.map((box, order) => {
-        const link = hostOf.get(box.id)
-        if (!link) return { box, order, y: 0 }
-        const host = placed.get(link.host)!
-        const hostBox = byId.get(link.host)!
-        const tileRow = hostBox.rows.find((r) => r.key === link.tile)!
-        const middle = host.y + rowTop(hostBox, link.tile)! + rowHeight(tileRow) / 2
-        return { box, order, y: middle - anchorY(box) }
+  const blockOf = (box: LayoutBox, depth: number): Block => {
+    const guests = guestsOf.get(box.id) ?? []
+    const n = guests.length
+    const top = n > 0 ? CANVAS.laneBase + (n - 1) * CANVAS.laneStep + CANVAS.laneMargin : 0
+    const own = boxHeight(box)
+    const placed = new Map<string, Placed>([[box.id, { x: 0, y: top, width: CANVAS.boxWidth, height: own, column: depth }]])
+    const routes = new Map<string, Route>()
+    // Every channel in the gap beside the host, however many there are.
+    const step = n > 1 ? Math.min(CANVAS.channelStep, (CANVAS.columnGap - 2 * CANVAS.channelBase) / (n - 1)) : 0
+    let x = CANVAS.boxWidth + CANVAS.columnGap
+    let height = top + own
+    for (let i = n - 1; i >= 0; i--) {
+      const link = guests[i]
+      const guest = blockOf(byId.get(link.node)!, depth + 1)
+      for (const [id, p] of guest.placed) placed.set(id, { ...p, x: p.x + x, y: p.y + top })
+      for (const [key, route] of guest.routes) routes.set(key, route)
+      routes.set(linkKey(link.host, link.tile), {
+        // From the tile's edge, which is inside the box by its padding.
+        channel: CANVAS.boxBorder + CANVAS.boxPadding + CANVAS.channelBase + i * step,
+        // From the top of the server's box, which is below its own row's lanes.
+        lane: guest.top + CANVAS.laneBase + (n - 1 - i) * CANVAS.laneStep,
       })
-      if (index > 0) wanted.sort((p, q) => p.y - q.y || p.order - q.order)
-      let next = 0
-      for (const { box, y: want } of wanted) {
-        const y = Math.max(want, next)
-        const h = boxHeight(box)
-        placed.set(box.id, { x: index * (CANVAS.boxWidth + CANVAS.columnGap), y, width: CANVAS.boxWidth, height: h, column: index })
-        next = y + h + CANVAS.boxGap
-        height = Math.max(height, y + h)
-      }
-    })
-    blocks.push({ placed, width: columns.length * CANVAS.boxWidth + (columns.length - 1) * CANVAS.columnGap, height })
+      x += guest.width + CANVAS.boxGap
+      height = Math.max(height, top + guest.height)
+    }
+    return { placed, routes, width: n > 0 ? x - CANVAS.boxGap : CANVAS.boxWidth, height, top }
   }
 
-  const out = new Map<string, Placed>()
+  const blocks = boxes.filter((b) => !hostOf.has(b.id)).map((b) => blockOf(b, 0))
+  const out: Layout = { placed: new Map(), routes: new Map() }
   if (blocks.length === 0) return out
   let y = 0
   for (const row of arrange(blocks, aspect)) {
     let x = 0
     for (const block of row) {
-      for (const [id, p] of block.placed) out.set(id, { ...p, x: p.x + x, y: p.y + y })
+      for (const [id, p] of block.placed) out.placed.set(id, { ...p, x: p.x + x, y: p.y + y })
+      for (const [key, route] of block.routes) out.routes.set(key, route)
       x += block.width + CANVAS.blockGap
     }
     y += rowHeightOf(row) + CANVAS.blockGap
   }
   return out
+}
+
+/**
+ * The corners of an edge from a guest tile's side (sx, sy) to the top of a
+ * server's box (tx, ty): the turn into its channel, the turn into its lane,
+ * the turn down.
+ */
+export function edgePoints(sx: number, sy: number, tx: number, ty: number, route: Route): [number, number][] {
+  const channel = sx + route.channel
+  const lane = ty - route.lane
+  return [[sx, sy], [channel, sy], [channel, lane], [tx, lane], [tx, ty]]
+}
+
+/** The same as an SVG path, its corners rounded as far as the segments on either side allow. */
+export function edgePath(sx: number, sy: number, tx: number, ty: number, route: Route): string {
+  const points = edgePoints(sx, sy, tx, ty, route)
+  let d = `M ${sx} ${sy}`
+  for (let i = 1; i < points.length - 1; i++) {
+    const [px, py] = points[i - 1]
+    const [x, y] = points[i]
+    const [nx, ny] = points[i + 1]
+    const before = Math.hypot(x - px, y - py)
+    const after = Math.hypot(nx - x, ny - y)
+    const r = Math.min(CANVAS.edgeCorner, before / 2, after / 2)
+    if (r <= 0) {
+      d += ` L ${x} ${y}`
+      continue
+    }
+    d += ` L ${x - ((x - px) / before) * r} ${y - ((y - py) / before) * r} Q ${x} ${y} ${x + ((nx - x) / after) * r} ${y + ((ny - y) / after) * r}`
+  }
+  return `${d} L ${tx} ${ty}`
 }
 
 /** Where boxes were moved to, by node id. */

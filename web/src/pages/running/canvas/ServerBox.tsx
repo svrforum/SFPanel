@@ -118,15 +118,15 @@ function ServerBoxView({ data }: NodeProps<ServerNode>) {
   const pad = CANVAS.boxPadding
   return (
     <div
-      className="flex flex-col rounded-2xl border-solid border-border bg-card text-card-foreground card-shadow"
+      className="relative flex flex-col rounded-2xl border-solid border-border bg-card text-card-foreground card-shadow"
       style={{ width: CANVAS.boxWidth, height: boxHeight({ id: node.id, name: node.name, rows }), padding: pad, borderWidth: CANVAS.boxBorder }}
     >
-      {/* Spans the box's padding, so the incoming edge meets the box's own edge. */}
-      <div className="relative" style={{ height: lines * CANVAS.nameLineHeight, marginInline: -pad, paddingInline: pad }}>
+      {/* The edge of the host this server is a guest of comes down into the top of the box. */}
+      <Handle type="target" position={Position.Top} id="in" isConnectable={false} style={{ left: CANVAS.anchorX }} />
+      <div style={{ height: lines * CANVAS.nameLineHeight }}>
         <Heading level={level} className={cn('break-words text-[15px] font-semibold leading-5', CLAMP[lines])}>
           <span title={node.name}>{node.name}</span>
         </Heading>
-        <Handle type="target" position={Position.Left} id="in" isConnectable={false} />
       </div>
       <div className="flex items-center gap-1.5 overflow-hidden" style={{ height: CANVAS.headerRowHeight }}>
         {kind && <KindBadge kind={kind} />}
