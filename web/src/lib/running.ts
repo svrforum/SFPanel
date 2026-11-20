@@ -159,35 +159,47 @@ export function linkHost(attached: boolean, apiAddress: string | undefined, brow
 }
 
 const isLoopback = (ip: string | undefined) => !!ip && (ip === '::1' || ip.startsWith('127.'))
+/** Bound to every address of the node: Docker says 0.0.0.0, ::, or nothing. */
+const isEveryAddress = (ip: string | undefined) => !ip || ip === '0.0.0.0' || ip === '::'
 
 /**
  * The published ports as chips: one per port and protocol, however many
  * addresses (0.0.0.0 and ::) Docker bound it to. Unpublished ports are not
  * reachable from outside the node and are left out.
+ *
+ * A chip is a link when a browser tab could do something with it, and what
+ * answers is what the container listens on, so both ports are looked at:
+ * Postgres published as 5433 is no link, and 443 published as 4443 opens
+ * over https. A port bound to every address opens on the node's host; one
+ * bound to particular addresses opens on the first of those that is not
+ * loopback, since that is the only place it is; one bound to loopback alone
+ * is reachable from the node itself and is no link.
  */
 export function portChips(ports: ContainerPort[], host: string | null): PortChip[] {
-  const byKey = new Map<string, { port: number; proto: string; loopbackOnly: boolean }>()
+  const byKey = new Map<string, { port: number; proto: string; inside: number[]; everywhere: boolean; addresses: string[] }>()
   for (const p of ports) {
     if (!p.PublicPort || p.PublicPort <= 0) continue
     const proto = (p.Type || 'tcp').toLowerCase()
     const key = `${p.PublicPort}/${proto}`
-    const seen = byKey.get(key)
-    const loopback = isLoopback(p.IP)
-    if (seen) seen.loopbackOnly = seen.loopbackOnly && loopback
-    else byKey.set(key, { port: p.PublicPort, proto, loopbackOnly: loopback })
+    let seen = byKey.get(key)
+    if (!seen) byKey.set(key, (seen = { port: p.PublicPort, proto, inside: [], everywhere: false, addresses: [] }))
+    if (p.PrivatePort) seen.inside.push(p.PrivatePort)
+    if (isEveryAddress(p.IP)) seen.everywhere = true
+    else if (!isLoopback(p.IP)) seen.addresses.push(p.IP!)
   }
   return [...byKey.values()]
     .sort((a, b) => a.port - b.port || a.proto.localeCompare(b.proto))
-    .map(({ port, proto, loopbackOnly }) => ({
-      port,
-      proto,
-      internal: loopbackOnly,
-      href: !loopbackOnly && proto === 'tcp' && !NON_HTTP_PORTS.has(port) && host ? portURL(host, port) : null,
-    }))
+    .map(({ port, proto, inside, everywhere, addresses }) => {
+      const internal = !everywhere && addresses.length === 0
+      const speaksHttp = proto === 'tcp' && ![port, ...inside].some((n) => NON_HTTP_PORTS.has(n))
+      const at = everywhere ? host : addresses.length > 0 ? urlHost(addresses[0]) : null
+      const tls = [port, ...inside].some((n) => HTTPS_PORTS.has(n))
+      return { port, proto, internal, href: speaksHttp && at ? portURL(at, port, tls) : null }
+    })
 }
 
-function portURL(host: string, port: number): string {
-  const scheme = HTTPS_PORTS.has(port) ? 'https' : 'http'
+function portURL(host: string, port: number, tls: boolean): string {
+  const scheme = tls ? 'https' : 'http'
   const isDefault = (scheme === 'http' && port === 80) || (scheme === 'https' && port === 443)
   return `${scheme}://${host}${isDefault ? '' : `:${port}`}/`
 }

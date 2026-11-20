@@ -186,6 +186,30 @@ describe('portChips', () => {
     ])
   })
 
+  // The published port is only half of it: what answers is what the
+  // container listens on.
+  it('does not link a database published on another port', () => {
+    expect(portChips([tcp(5433, '0.0.0.0', 5432), tcp(3307, '0.0.0.0', 3306), tcp(6380, '0.0.0.0', 6379)], 'h').map((c) => c.href)).toEqual([null, null, null])
+  })
+
+  it('opens a TLS port published on another port over https', () => {
+    expect(portChips([tcp(4443, '0.0.0.0', 443), tcp(9443, '0.0.0.0', 8443)], 'h').map((c) => c.href)).toEqual(['https://h:4443/', 'https://h:9443/'])
+  })
+
+  // A port published on one address only is not on the name the browser
+  // reached the node by, unless that happens to be the address.
+  it('links a port bound to one address to that address', () => {
+    expect(portChips([tcp(8080, '192.0.2.10', 80)], 'h')[0]).toMatchObject({ internal: false, href: 'http://192.0.2.10:8080/' })
+    expect(portChips([tcp(8080, '2001:db8::5', 80)], 'h')[0].href).toBe('http://[2001:db8::5]:8080/')
+    // The address is where it is, whether or not the node's own host is known.
+    expect(portChips([tcp(8080, '192.0.2.10', 80)], null)[0].href).toBe('http://192.0.2.10:8080/')
+  })
+
+  it('links a port bound to every address as well as one to the node itself', () => {
+    expect(portChips([tcp(8080, '192.0.2.10', 80), tcp(8080, '0.0.0.0', 80)], 'h')[0].href).toBe('http://h:8080/')
+    expect(portChips([tcp(8080, '127.0.0.1', 80), tcp(8080, '192.0.2.10', 80)], 'h')[0]).toMatchObject({ internal: false, href: 'http://192.0.2.10:8080/' })
+  })
+
   it('links nothing when the node has no known host', () => {
     expect(portChips([tcp(8080)], null)[0].href).toBeNull()
   })
