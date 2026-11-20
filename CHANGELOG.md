@@ -6,6 +6,30 @@ The format is loosely based on [Keep a Changelog](https://keepachangelog.com/), 
 
 ---
 
+## [0.89.0] – 2026-11-20
+
+A screen for what is running: every stack and container of a node, or of every node of the cluster, with what needs a look on top — and, on a Proxmox VE node, its virtual machines and containers. It can be read as a board or as a map.
+
+### Added
+
+- **Running.** `/running` shows the node the menu is on, `/cluster/running` every node of the cluster, a section per node. The panel already knew all of it; no screen put it together, and seeing what a homelab runs meant opening each node's Docker pages in turn.
+  - A tile per compose stack — how many of its containers run, its services, and what ended and when — and one per container that belongs to no stack. Published ports are links that open on that node (in a new tab); a port bound to loopback, UDP, or a port that does not speak HTTP is shown and is not a link.
+  - **Needs attention**, on top, in this order: a node that is suspect or offline; a container that keeps restarting, fails its health check or is dead; a stack that runs in part; a container that exited with a non-zero code within the last day. Each line leads to the node list, the stack, or that container's logs. A stack whose only idle container ended with code 0 — a migration, an init step — still reads "partly running 2/3", and is no warning: as a line it could never be cleared.
+  - What listens on the host itself (sshd, a VPN daemon), asked for only when opened.
+  - A node that could not be read says why and offers to try again, and is left out of the totals rather than counted as empty. A node with no Docker says so. Nothing here starts or stops anything.
+- **Proxmox VE guests.** On a Proxmox VE node the board lists its virtual machines and LXC containers above its stacks: name, VM or LXC and its id, state, CPUs, memory, tags. A guest that is itself a node of the cluster — told by its network card's address — names that node and leads to it. The list comes from `pvesh` through the new `GET /api/v1/system/guests`, which reads and never changes anything; a host that is not Proxmox VE answers an empty list without running it, and a list that could not be read is said to be unread, not shown as "no guests".
+- **Canvas view.** "Board | Canvas" beside refresh. The canvas draws a box per server with its guests, stacks and containers in it, and a line from a virtual machine to the server it is, so host → VM → what runs in it reads at a glance. It pans, zooms and fits to the screen; a box can be moved, and stays where it was put in that browser until "Auto arrange". It is a view, not an editor. The boxes are set out to the shape of the screen: side by side on a wide one, one under the other on a phone. The board stays the default everywhere. The canvas is drawn with React Flow (MIT), fetched only when the canvas is chosen (about 64 kB compressed) and kept out of the offline cache, so no other screen loads it.
+
+### Changed
+
+- A link to a container can open it on its logs (`/docker/containers?container=<id>&tab=logs`), which is where the board's "View logs" leads.
+
+### Upgrading
+
+- No configuration or schema change.
+- A node still on an earlier version answers 404 for the guest list, and the board then shows no guests for it; update every node of a cluster to see a Proxmox node's guests from any of them.
+- The guest list needs `pvesh`, which Proxmox VE ships. Nothing is installed.
+
 ## [0.88.0] – 2026-11-17
 
 A review of every screen — 42 routes measured on a phone and at a desk, and the source behind them read — and its findings fixed.
