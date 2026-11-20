@@ -1,6 +1,6 @@
 import '@xyflow/react/dist/style.css'
 import './canvas.css'
-import { useCallback, useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore, type FocusEvent } from 'react'
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore, type FocusEvent } from 'react'
 import { useTranslation } from 'react-i18next'
 import {
   Background,
@@ -11,6 +11,7 @@ import {
   ReactFlowProvider,
   applyNodeChanges,
   useReactFlow,
+  useUpdateNodeInternals,
   type NodeChange,
   type OnNodeDrag,
 } from '@xyflow/react'
@@ -182,16 +183,29 @@ function Flow({ sections, scope, localId, query, storageKey, level }: CanvasProp
 
   // The library moves a box through these nodes while it is dragged. When the
   // boxes themselves change they are taken anew, keeping what the library
-  // measured of a box whose contents did not change.
+  // measured of each: a box handed over unmeasured is hidden until it is
+  // measured again, which every refresh would do to every box.
   const [nodes, setNodes] = useState<ServerNode[]>(base)
   const [from, setFrom] = useState(base)
   if (from !== base) {
     setFrom(base)
     setNodes((prev) => base.map((n) => {
       const old = prev.find((p) => p.id === n.id)
-      return old && old.data === n.data && old.measured ? { ...n, measured: old.measured } : n
+      return old?.measured ? { ...n, measured: old.measured } : n
     }))
   }
+  // An edge ends on a handle inside a box: on a guest's tile, which gets one
+  // only once that guest is known to be a node, and moves with the rows
+  // above it. The library reads a box's handles when it measures the box,
+  // and measures it again only when its size changes. A tile that gained
+  // its handle in a box of the same size was never read, and its edge was
+  // never drawn: four visits in nine on a real cluster of six, where the
+  // answer that names the node comes after the boxes are up. So the
+  // handles are read again whenever the boxes change.
+  const updateNodeInternals = useUpdateNodeInternals()
+  useEffect(() => {
+    updateNodeInternals(base.map((n) => n.id))
+  }, [base, updateNodeInternals])
   const onNodesChange = useCallback((changes: NodeChange<ServerNode>[]) => setNodes((prev) => applyNodeChanges(changes, prev)), [])
 
   const onNodeDragStop = useCallback<OnNodeDrag<ServerNode>>((_event, node) => {

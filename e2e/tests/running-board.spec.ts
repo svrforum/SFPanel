@@ -558,6 +558,30 @@ test.describe('canvas', () => {
     await expect(box(page, 'alpha-node').getByRole('heading')).toHaveCount(1)
   })
 
+  // Which guest is which server is learnt from a second round of reads (every
+  // node's interfaces), which on a real cluster comes back after the boxes
+  // are drawn and measured. The edge has to appear then too: its end is a
+  // handle the box did not have when the library first measured it.
+  test('an edge appears when the answer that makes it comes after the boxes were drawn', async ({ page }) => {
+    await mock(page, { pve: true })
+    let release!: () => void
+    const held = new Promise<void>((resolve) => { release = resolve })
+    await page.route('**/api/v1/network/interfaces*', async (route) => {
+      await held
+      await route.fallback()
+    })
+    await page.goto('/cluster/running')
+    await chooseCanvas(page)
+    await expect(box(page, 'pve-host').getByRole('heading', { name: 'VMs and LXC containers 3' })).toBeVisible()
+    await expect(box(page, 'delta-node')).toBeVisible()
+    await expect(canvas(page).getByRole('img', { name: /delta-vm/ })).toHaveCount(0)
+    // Drawn and settled before the answer comes.
+    await page.waitForTimeout(1500)
+    release()
+    await expect(canvas(page).getByRole('img', { name: 'VM delta-vm on pve-host → delta-node' })).toHaveCount(1)
+    await expect(canvas(page).locator('.react-flow__edge-path')).toHaveCount(1)
+  })
+
   // The canvas has no list of what needs attention above it: a tile says so
   // itself, in words and a mark, not by its red edge alone. Both of these
   // read "Exited"; one failed two hours ago, the other three days ago.
