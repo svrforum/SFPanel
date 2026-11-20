@@ -9,6 +9,8 @@ import (
 
 	"github.com/labstack/echo/v4"
 	"github.com/svrforum/SFPanel/internal/api/response"
+	"github.com/svrforum/SFPanel/internal/common/exec"
+	"github.com/svrforum/SFPanel/internal/common/platform"
 	"github.com/svrforum/SFPanel/internal/monitor"
 )
 
@@ -17,6 +19,14 @@ type Handler struct {
 	// StacksPath is server.stacks_path, the folder compose stacks and App
 	// Store installs go in, named on the pages that create them.
 	StacksPath string
+
+	Cmd exec.Commander
+	// Platform says what kind of host this is: only a Proxmox VE host has
+	// guests to list.
+	Platform func() platform.Info
+	// PVEDir is where the Proxmox cluster file system is mounted, /etc/pve
+	// when empty.
+	PVEDir string
 }
 
 func (h *Handler) GetSystemInfo(c echo.Context) error {

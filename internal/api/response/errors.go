@@ -126,6 +126,12 @@ const (
 	// ErrProcessIsGuest is returned (HTTP 409) for a signal to a virtual
 	// machine's process: killing it pulls the VM's power. Details: vmid.
 	ErrProcessIsGuest = "PROCESS_IS_GUEST"
+
+	// ErrPVEGuestsError is returned (HTTP 500) by the guest list on a
+	// Proxmox VE host when pvesh is missing, fails, times out or answers
+	// something that is not the list. It is not an empty list, so the page
+	// can say the guests could not be read rather than that there are none.
+	ErrPVEGuestsError = "PVE_GUESTS_ERROR"
 )
 
 // AI workspace error codes (internal/feature/ai)

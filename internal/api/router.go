@@ -181,7 +181,7 @@ func NewRouter(database *sql.DB, auditWriter *sfdb.AsyncWriter, alertManager *fe
 	cmd := commonExec.NewCommander()
 
 	authHandler := &featureAuth.Handler{DB: database, Config: cfg, ClusterMgr: clusterMgr, AuditWriter: auditWriter}
-	dashboardHandler := &featureMonitor.Handler{Version: version, StacksPath: cfg.Server.StacksPath}
+	dashboardHandler := &featureMonitor.Handler{Version: version, StacksPath: cfg.Server.StacksPath, Cmd: cmd, Platform: platform.Get}
 
 	systemHandler := &featureSystem.Handler{
 		Version:     version,
@@ -368,6 +368,7 @@ func NewRouter(database *sql.DB, auditWriter *sfdb.AsyncWriter, alertManager *fe
 	authorized.GET("/system/info", dashboardHandler.GetSystemInfo)
 	authorized.GET("/system/metrics-history", dashboardHandler.GetMetricsHistory)
 	authorized.GET("/system/overview", dashboardHandler.GetOverview)
+	authorized.GET("/system/guests", dashboardHandler.ListGuests)
 
 	// System management (update, backup, restore)
 	// System tuning

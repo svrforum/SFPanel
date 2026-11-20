@@ -585,6 +585,54 @@ AuditMiddleware는 **비-GET/HEAD/OPTIONS** 요청만 기록합니다. `/api/v1/
 
 ---
 
+### GET /api/v1/system/guests
+이 노드의 Proxmox VE 가상 머신과 LXC 컨테이너 목록. 노드별 상태이므로 `?node=`로 대상 노드의 목록을 조회한다. 실행 현황 화면이 게스트를 보여 주고, `macs`를 각 노드의 `GET /network/interfaces` `mac_address`와 맞춰 어느 게스트가 클러스터의 어느 서버인지 가린다. 읽기만 하며 아무것도 쓰거나 시작·중지하지 않는다.
+
+- **인증 필요**: 예
+- **출처**: `pvesh get /cluster/resources --type vm --output-format json`(10초 제한) 중 `node`가 이 호스트의 Proxmox 노드 이름(`/etc/pve/local` 링크가 가리키는 `nodes/<이름>`, 읽을 수 없으면 짧은 호스트 이름)인 항목. 템플릿(`template: 1`)은 뺀다. MAC은 게스트 설정 파일 `/etc/pve/nodes/<노드>/qemu-server/<vmid>.conf`(VM), `/etc/pve/nodes/<노드>/lxc/<vmid>.conf`(LXC)의 `netN:` 줄에서 읽으며, 첫 `[섹션]`(스냅샷·보류 중 변경) 앞의 줄만 센다.
+
+**Response (200):** `data`는 `vmid` 순으로 정렬된 배열. null이 아님.
+```json
+{
+  "success": true,
+  "data": [
+    {
+      "vmid": 100,
+      "name": "app-one",
+      "kind": "qemu",
+      "status": "running",
+      "cpus": 4,
+      "mem": 1073741824,
+      "maxmem": 4294967296,
+      "uptime": 86400,
+      "tags": ["web", "prod"],
+      "macs": ["02:42:AC:11:00:02"]
+    }
+  ]
+}
+```
+
+| 필드 | 타입 | 설명 |
+|------|------|------|
+| `vmid` | number | Proxmox VMID |
+| `name` | string | 게스트 이름. Proxmox가 아직 수치를 모르는 게스트는 빈 문자열일 수 있음 |
+| `kind` | string | `qemu`(가상 머신) \| `lxc`(컨테이너) |
+| `status` | string | Proxmox가 말하는 그대로: `running`, `stopped`, `paused`, `unknown` … |
+| `cpus` | number | Proxmox의 `maxcpu`. 개수가 아니라 수: 컨테이너의 `cpulimit`은 소수일 수 있음 |
+| `mem` / `maxmem` | number | 사용 중 / 할당 메모리 (바이트) |
+| `uptime` | number | 가동 시간 (초). 멈춘 게스트는 0 |
+| `tags` | string[] | Proxmox 태그. `;`(이전 버전은 `,`나 공백)로 나눈 값, 빈 값 제외 |
+| `macs` | string[] | NIC MAC 주소. 대문자, `net0`부터 NIC 번호 순, 중복 없음. 설정을 읽을 수 없거나 NIC가 없으면 `[]` |
+
+**세 가지 응답:**
+- **Proxmox VE 호스트가 아님**(대부분의 노드): `200`, `data: []`. `pvesh`는 실행하지 않는다.
+- **Proxmox VE 호스트**: `200`, 위 배열. 게스트가 없으면 `[]`.
+- **Proxmox VE 호스트에서 `pvesh`가 없거나 실패·시간 초과, 또는 출력이 목록이 아님**: `500` `PVE_GUESTS_ERROR`. `message`는 `pvesh failed: …` 또는 `cannot read pvesh output: …`(도구 출력은 `SanitizeOutput`을 거침). 빈 목록이 아니므로 화면은 "게스트 없음"과 "불러오지 못함"을 구별할 수 있다.
+
+이 경로가 없는 이전 버전 노드는 `404`로 답한다.
+
+---
+
 ### GET /api/v1/system/portmap
 호스트 포트별로 UFW 규칙 + Docker DNAT 컨테이너 + 호스트 프로세스를 통합한 포트 맵 (`ufw status numbered` + Docker DNAT + `ss -tlnp/-ulnp` 집계).
 
@@ -7027,6 +7075,7 @@ WireGuard 키페어 생성 (`wg genkey` + `wg pubkey`).
 | GET | `/api/v1/system/info` | O | 시스템 정보 + 메트릭 + 버전 |
 | GET | `/api/v1/system/metrics-history` | O | 24시간 메트릭 히스토리 |
 | GET | `/api/v1/system/overview` | O | 대시보드 통합 엔드포인트 |
+| GET | `/api/v1/system/guests` | O | Proxmox VE 가상 머신·LXC 목록 (Proxmox가 아니면 `[]`, `pvesh` 실패는 500 `PVE_GUESTS_ERROR`) |
 | GET | `/api/v1/system/portmap` | O | 포트 맵 (UFW+Docker DNAT+프로세스 통합) |
 | GET | `/api/v1/system/update-check` | O | 업데이트 확인 |
 | POST | `/api/v1/system/update` | O | 업데이트 실행 (SSE) |
