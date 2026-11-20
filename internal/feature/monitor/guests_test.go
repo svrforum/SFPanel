@@ -9,6 +9,7 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -289,16 +290,19 @@ func TestListGuestsPveshFails(t *testing.T) {
 	}
 }
 
-// deadlineCommander records whether pvesh was given a deadline.
+// deadlineCommander records whether pvesh was given a deadline, and the
+// environment it was run in.
 type deadlineCommander struct {
 	*exec.MockCommander
 	deadline time.Time
 	bounded  bool
+	env      []string
 }
 
-func (d *deadlineCommander) RunCtx(ctx context.Context, name string, args ...string) (string, error) {
+func (d *deadlineCommander) RunWithEnvCtx(ctx context.Context, env []string, name string, args ...string) (string, error) {
 	d.deadline, d.bounded = ctx.Deadline()
-	return d.MockCommander.RunCtx(ctx, name, args...)
+	d.env = env
+	return d.MockCommander.RunWithEnvCtx(ctx, env, name, args...)
 }
 
 // pvesh can hang on a node whose cluster file system has lost quorum; the
@@ -317,5 +321,33 @@ func TestListGuestsBoundsPvesh(t *testing.T) {
 	}
 	if d := cmd.deadline.Sub(start); d > 15*time.Second {
 		t.Errorf("pvesh may run for %s", d)
+	}
+	// In the C locale Perl has no locale to fail to set, and so no warning
+	// to print into the list.
+	if !slices.Contains(cmd.env, "LC_ALL=C") {
+		t.Errorf("pvesh ran with env %v, want LC_ALL=C in it", cmd.env)
+	}
+}
+
+// pvesh is Perl, and Perl warns on a host whose LANG names a locale that was
+// never generated (a Proxmox host set to a language without its locale built
+// is not rare). The warning goes to stderr, which the commander returns with
+// the output: the list is still there, and is read.
+func TestGuestListIsReadPastAWarning(t *testing.T) {
+	warned := "perl: warning: Setting locale failed.\nperl: warning: Falling back to the standard locale (\"C\").\n" + resourcesFixture + "\n"
+	guests, err := parseGuestResources([]byte(warned), "node-a")
+	if err != nil {
+		t.Fatalf("parseGuestResources(with a warning before the list) = %v, want the list", err)
+	}
+	plain, _ := parseGuestResources([]byte(resourcesFixture), "node-a")
+	if len(guests) == 0 || len(guests) != len(plain) {
+		t.Fatalf("read %d guests past the warning, want %d", len(guests), len(plain))
+	}
+}
+
+// Output with no list in it is still refused, and says so.
+func TestGuestListWithNoListIsRefused(t *testing.T) {
+	if _, err := parseGuestResources([]byte("perl: warning: Setting locale failed.\n"), "node-a"); err == nil {
+		t.Fatal("parseGuestResources(only a warning) = nil error, want one")
 	}
 }

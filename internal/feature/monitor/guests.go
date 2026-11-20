@@ -1,8 +1,10 @@
 package featuremonitor
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"log/slog"
 	"net"
 	"net/http"
@@ -61,7 +63,9 @@ func (h *Handler) ListGuests(c echo.Context) error {
 
 	ctx, cancel := context.WithTimeout(c.Request().Context(), guestsTimeout)
 	defer cancel()
-	out, err := h.Cmd.RunCtx(ctx, "pvesh", "get", "/cluster/resources", "--type", "vm", "--output-format", "json")
+	// pvesh is Perl, which warns on every run when the host's LANG names a
+	// locale that was never generated; in the C locale it has nothing to say.
+	out, err := h.Cmd.RunWithEnvCtx(ctx, []string{"LC_ALL=C"}, "pvesh", "get", "/cluster/resources", "--type", "vm", "--output-format", "json")
 	if err != nil {
 		detail := out
 		if strings.TrimSpace(detail) == "" {
@@ -134,8 +138,21 @@ type pveResource struct {
 // answers, which is every guest of the Proxmox cluster, and keeps those of
 // node that are not templates, by vmid.
 func parseGuestResources(data []byte, node string) ([]Guest, error) {
+	// The commander returns stderr with the output, so a warning may stand
+	// before the list (or after it): the list is the first line that opens
+	// one, and it is read as one value, whatever follows.
+	start := -1
+	for i, c := range data {
+		if c == '[' && (i == 0 || data[i-1] == '\n') {
+			start = i
+			break
+		}
+	}
+	if start < 0 {
+		return nil, errors.New("no list in the output")
+	}
 	var resources []pveResource
-	if err := json.Unmarshal(data, &resources); err != nil {
+	if err := json.NewDecoder(bytes.NewReader(data[start:])).Decode(&resources); err != nil {
 		return nil, err
 	}
 	guests := []Guest{}
