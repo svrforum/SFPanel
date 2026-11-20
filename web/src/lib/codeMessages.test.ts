@@ -168,6 +168,14 @@ describe('apiErrorFrom, on a Korean screen', () => {
     expect(err.serverMessage).toBe(sent)
   })
 
+  // Why Proxmox could not list the guests is in pvesh's own output only.
+  it('keeps pvesh\'s output when the guests could not be listed', async () => {
+    const api = await koreanApi()
+    const sent = 'pvesh failed: ipcc_send_rec[1] failed: Connection refused'
+    const err = refusal(api, 500, 'PVE_GUESTS_ERROR', sent)
+    expect(err.message).toBe(`Proxmox VE에서 이 노드의 가상 머신과 LXC 목록을 읽지 못했습니다. (${sent})`)
+  })
+
   // Worded by its code, the sentence would lose the one thing it says: the
   // command's own output, or which of two conflicts the editor reads off it.
   it('keeps the sentence of a code that carries its reason', async () => {

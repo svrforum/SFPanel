@@ -4494,6 +4494,7 @@
     "userNotFound": "The user was not found.",
     "invalidId": "The ID in the request is not valid.",
     "toolNotInstalled": "{{serverMessage}}",
+    "pveGuestsError": "Could not read this node's virtual machines and LXC containers from Proxmox VE. ({{serverMessage}})",
     "hostInfoError": "Could not read the host information.",
     "metricsError": "Could not read the system metrics.",
     "tlsDisabled": "This panel does not manage its own certificate authority.",

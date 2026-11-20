@@ -152,7 +152,8 @@ export const CODE_MESSAGES: Record<string, string> = {
   // the sentence named the operator's own input (the name just typed, the
   // process just picked) the wording leaves it out. TOOL_NOT_INSTALLED keeps
   // the server's sentence beside its own ({{serverMessage}}): which tool, and
-  // the package that brings it, are named nowhere else.
+  // the package that brings it, are named nowhere else. PVE_GUESTS_ERROR does
+  // too: its sentence is pvesh's own output, the only word on why.
   CSRF_TOKEN_MISSING: 'apiErrors.csrfTokenMissing',
   CSRF_TOKEN_MISMATCH: 'apiErrors.csrfTokenMismatch',
   RATE_LIMITED: 'apiErrors.rateLimited',
@@ -164,6 +165,7 @@ export const CODE_MESSAGES: Record<string, string> = {
   USER_NOT_FOUND: 'apiErrors.userNotFound',
   INVALID_ID: 'apiErrors.invalidId',
   TOOL_NOT_INSTALLED: 'apiErrors.toolNotInstalled',
+  PVE_GUESTS_ERROR: 'apiErrors.pveGuestsError',
   HOST_INFO_ERROR: 'apiErrors.hostInfoError',
   METRICS_ERROR: 'apiErrors.metricsError',
   TLS_DISABLED: 'apiErrors.tlsDisabled',

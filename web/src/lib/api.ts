@@ -1095,6 +1095,13 @@ class ApiClient {
     return this.request<PortMapRow[]>(`/system/portmap`, { node })
   }
 
+  // A Proxmox VE node's virtual machines and LXC containers; [] on any other
+  // node. PVE_GUESTS_ERROR when Proxmox could not list them, 404 from a node
+  // older than the route.
+  getGuests(node?: string) {
+    return this.request<import('@/types/api').PveGuest[]>('/system/guests', { node })
+  }
+
   // Docker Containers
   getContainers(node?: string) {
     return this.request<Container[]>('/docker/containers', { node })
@@ -1684,8 +1691,8 @@ class ApiClient {
     return this.request<{ stack: string; platform: string; writable: boolean; reason?: string }>('/network/capabilities')
   }
 
-  getNetworkInterfaces() {
-    return this.request<NetworkInterfaceInfo[]>('/network/interfaces')
+  getNetworkInterfaces(node?: string) {
+    return this.request<NetworkInterfaceInfo[]>('/network/interfaces', { node })
   }
 
   // The interface's saved netplan config, which the list endpoint does not
