@@ -1,6 +1,6 @@
 import '@xyflow/react/dist/style.css'
 import './canvas.css'
-import { useCallback, useMemo, useState, useSyncExternalStore, type FocusEvent } from 'react'
+import { useCallback, useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore, type FocusEvent } from 'react'
 import { useTranslation } from 'react-i18next'
 import {
   Background,
@@ -58,6 +58,11 @@ function writeStored(key: string, positions: Positions | null) {
   } catch {
     // Storage refused: the boxes stay where they are for this visit.
   }
+}
+
+/** An element's width over its height; 0 for one with no size yet, which lays out as a narrow area. */
+function shapeOf(el: HTMLElement | null): number {
+  return el && el.clientHeight > 0 ? el.clientWidth / el.clientHeight : 0
 }
 
 /** "자동 정렬": forgets where the boxes were moved to, and fits the computed layout to the view. */
@@ -121,9 +126,16 @@ function Flow({ sections, scope, localId, query, storageKey, level }: CanvasProp
     [sections, query, full],
   )
   const ids = useMemo(() => sections.map((s) => s.node.id), [sections])
+  // The boxes are set out to the shape of the area they are drawn in: side by
+  // side on a wide screen, one under the other on a phone. The shape is taken
+  // when the canvas opens and when it is asked to arrange itself, not while
+  // the window is being resized, when boxes would jump under the pointer.
+  const frame = useRef<HTMLDivElement>(null)
+  const [shape, setShape] = useState<number | null>(null)
+  useLayoutEffect(() => setShape(shapeOf(frame.current)), [])
   const computed = useMemo(
-    () => layoutBoxes(sections.map((s) => layoutBox(s, full.get(s.node.id)!)), guestLinks(sections, full)),
-    [sections, full],
+    () => layoutBoxes(sections.map((s) => layoutBox(s, full.get(s.node.id)!)), guestLinks(sections, full), shape ?? 0),
+    [sections, full, shape],
   )
   const links = useMemo(() => guestLinks(sections, drawn), [sections, drawn])
 
@@ -190,6 +202,7 @@ function Flow({ sections, scope, localId, query, storageKey, level }: CanvasProp
   const arrange = useCallback(() => {
     setSaved({})
     writeStored(storageKey, null)
+    setShape(shapeOf(frame.current))
   }, [storageKey])
 
   const names = useMemo(() => new Map(sections.map((s) => [s.node.id, s.node.name])), [sections])
@@ -238,8 +251,9 @@ function Flow({ sections, scope, localId, query, storageKey, level }: CanvasProp
   }, [getViewport, setViewport, duration])
 
   return (
-    <div className="running-canvas h-[70dvh] min-h-80 w-full overflow-hidden rounded-2xl card-shadow" onFocus={onFocus}>
-      <ReactFlow<ServerNode>
+    <div ref={frame} className="running-canvas h-[70dvh] min-h-80 w-full overflow-hidden rounded-2xl card-shadow" onFocus={onFocus}>
+      {/* Not before the area's shape is known: the first view is fitted to the layout made for it. */}
+      {shape !== null && <ReactFlow<ServerNode>
         aria-label={t('running.canvas.label')}
         nodes={nodes}
         edges={edges}
@@ -280,7 +294,7 @@ function Flow({ sections, scope, localId, query, storageKey, level }: CanvasProp
             React Flow<span className="sr-only"> ({t('running.port.newTab')})</span>
           </a>
         </Panel>
-      </ReactFlow>
+      </ReactFlow>}
     </div>
   )
 }

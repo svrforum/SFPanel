@@ -26,6 +26,8 @@ export const CANVAS = {
   rowGap: 6,
   columnGap: 120,
   boxGap: 32,
+  /** Between one host's family (the host and its guests' servers) and the next. */
+  blockGap: 48,
   /** How much of a name one line holds, in narrow letters: an estimate on the safe side. */
   headerNameChars: 24,
   tileNameChars: 18,
@@ -101,16 +103,82 @@ export function anchorY(box: LayoutBox): number {
   return CANVAS.boxBorder + CANVAS.boxPadding + (nameLines(box.name, CANVAS.headerNameChars) * CANVAS.nameLineHeight) / 2
 }
 
+/** A host and the servers that are its guests, and theirs: laid out as one block. */
+interface Block {
+  placed: Map<string, Placed>
+  width: number
+  height: number
+}
+
 /**
- * Columns by depth: the servers that are no known guest in column 0, in the
- * order given; the servers that are their guests in column 1, and so on. A
- * guest's server goes level with its guest tile, so the edge between them
- * runs straight, unless the box above it leaves no room; then it goes a gap
- * below that box. A link whose ends are not both drawn, or that would make a
- * server a guest of its own guest, is left out, as is a second host for a
- * server that already has one.
+ * The blocks in rows, in the order given, each row as wide as `limit` lets it
+ * be (a row always takes at least one block).
  */
-export function layoutBoxes(boxes: LayoutBox[], links: LayoutLink[]): Map<string, Placed> {
+function rowsWithin(blocks: Block[], limit: number): Block[][] {
+  const rows: Block[][] = []
+  let width = 0
+  for (const block of blocks) {
+    const row = rows[rows.length - 1]
+    if (row && width + CANVAS.blockGap + block.width <= limit) {
+      row.push(block)
+      width += CANVAS.blockGap + block.width
+    } else {
+      rows.push([block])
+      width = block.width
+    }
+  }
+  return rows
+}
+
+const rowWidth = (row: Block[]) => row.reduce((sum, b) => sum + b.width, 0) + (row.length - 1) * CANVAS.blockGap
+const rowHeightOf = (row: Block[]) => Math.max(...row.map((b) => b.height))
+
+/**
+ * The rows that show the blocks largest in an area `aspect` times as wide as
+ * it is high. Every width a run of neighbouring blocks comes to is tried as
+ * the limit of a row, so nothing a greedy single pass would miss is missed;
+ * there are few servers, and this is done once per layout.
+ */
+function arrange(blocks: Block[], aspect: number): Block[][] {
+  const narrowest = Math.max(...blocks.map((b) => b.width))
+  if (!Number.isFinite(aspect) || aspect <= 0) return rowsWithin(blocks, narrowest)
+  const limits = new Set<number>()
+  for (let i = 0; i < blocks.length; i++) {
+    let width = blocks[i].width
+    limits.add(width)
+    for (let j = i + 1; j < blocks.length; j++) limits.add((width += CANVAS.blockGap + blocks[j].width))
+  }
+  let best: Block[][] = []
+  let bestScale = -1
+  for (const limit of [...limits].filter((l) => l >= narrowest).sort((p, q) => p - q)) {
+    const rows = rowsWithin(blocks, limit)
+    const width = Math.max(...rows.map(rowWidth))
+    const height = rows.reduce((sum, r) => sum + rowHeightOf(r), 0) + (rows.length - 1) * CANVAS.blockGap
+    const scale = Math.min(aspect / width, 1 / height)
+    // Strictly better only: of two that show the same, the narrower stays.
+    if (scale > bestScale) {
+      best = rows
+      bestScale = scale
+    }
+  }
+  return best
+}
+
+/**
+ * Where each box goes. A server that is no known guest heads a block: itself
+ * in the block's first column, the servers that are its guests in the next,
+ * theirs in the one after. A guest's server goes level with its guest tile,
+ * so the edge between them runs straight, unless the box above it leaves no
+ * room; then it goes a gap below that box. The blocks are then set out in
+ * rows, in the order given, the way that shows them largest in an area
+ * `aspect` times as wide as it is high: side by side on a wide screen, one
+ * under the other on a phone.
+ *
+ * A link whose ends are not both drawn, or that would make a server a guest
+ * of its own guest, is left out, as is a second host for a server that
+ * already has one. `column` is a box's depth in its block.
+ */
+export function layoutBoxes(boxes: LayoutBox[], links: LayoutLink[], aspect: number): Map<string, Placed> {
   const byId = new Map(boxes.map((b) => [b.id, b]))
   const hostOf = new Map<string, LayoutLink>()
   for (const l of links) {
@@ -122,40 +190,67 @@ export function layoutBoxes(boxes: LayoutBox[], links: LayoutLink[]): Map<string
     hostOf.set(l.node, l)
   }
 
-  const depth = new Map<string, number>()
-  const depthOf = (id: string): number => {
-    const known = depth.get(id)
-    if (known !== undefined) return known
+  // Every box's head of block and depth in it, and the blocks' columns in
+  // the order the boxes were given.
+  const where = new Map<string, { root: string; depth: number }>()
+  const whereOf = (id: string): { root: string; depth: number } => {
+    const known = where.get(id)
+    if (known) return known
     const link = hostOf.get(id)
-    const d = link ? depthOf(link.host) + 1 : 0
-    depth.set(id, d)
-    return d
+    const up = link ? whereOf(link.host) : null
+    const found = up ? { root: up.root, depth: up.depth + 1 } : { root: id, depth: 0 }
+    where.set(id, found)
+    return found
+  }
+  const columnsOf = new Map<string, LayoutBox[][]>()
+  for (const b of boxes) {
+    const { root, depth } = whereOf(b.id)
+    let columns = columnsOf.get(root)
+    if (!columns) columnsOf.set(root, (columns = []))
+    ;(columns[depth] ??= []).push(b)
   }
 
-  const columns: LayoutBox[][] = []
-  for (const b of boxes) (columns[depthOf(b.id)] ??= []).push(b)
-
-  const placed = new Map<string, Placed>()
-  columns.forEach((column, index) => {
-    const wanted = column.map((b, order) => {
-      const link = hostOf.get(b.id)
-      if (!link) return { b, order, y: 0 }
-      const host = placed.get(link.host)!
-      const hostBox = byId.get(link.host)!
-      const tileRow = hostBox.rows.find((r) => r.key === link.tile)!
-      const middle = host.y + rowTop(hostBox, link.tile)! + rowHeight(tileRow) / 2
-      return { b, order, y: middle - anchorY(b) }
+  const blocks: Block[] = []
+  for (const b of boxes) {
+    const columns = columnsOf.get(b.id)
+    if (!columns) continue
+    const placed = new Map<string, Placed>()
+    let height = 0
+    columns.forEach((column, index) => {
+      const wanted = column.map((box, order) => {
+        const link = hostOf.get(box.id)
+        if (!link) return { box, order, y: 0 }
+        const host = placed.get(link.host)!
+        const hostBox = byId.get(link.host)!
+        const tileRow = hostBox.rows.find((r) => r.key === link.tile)!
+        const middle = host.y + rowTop(hostBox, link.tile)! + rowHeight(tileRow) / 2
+        return { box, order, y: middle - anchorY(box) }
+      })
+      if (index > 0) wanted.sort((p, q) => p.y - q.y || p.order - q.order)
+      let next = 0
+      for (const { box, y: want } of wanted) {
+        const y = Math.max(want, next)
+        const h = boxHeight(box)
+        placed.set(box.id, { x: index * (CANVAS.boxWidth + CANVAS.columnGap), y, width: CANVAS.boxWidth, height: h, column: index })
+        next = y + h + CANVAS.boxGap
+        height = Math.max(height, y + h)
+      }
     })
-    if (index > 0) wanted.sort((p, q) => p.y - q.y || p.order - q.order)
-    let next = 0
-    for (const { b, y: want } of wanted) {
-      const y = Math.max(want, next)
-      const height = boxHeight(b)
-      placed.set(b.id, { x: index * (CANVAS.boxWidth + CANVAS.columnGap), y, width: CANVAS.boxWidth, height, column: index })
-      next = y + height + CANVAS.boxGap
+    blocks.push({ placed, width: columns.length * CANVAS.boxWidth + (columns.length - 1) * CANVAS.columnGap, height })
+  }
+
+  const out = new Map<string, Placed>()
+  if (blocks.length === 0) return out
+  let y = 0
+  for (const row of arrange(blocks, aspect)) {
+    let x = 0
+    for (const block of row) {
+      for (const [id, p] of block.placed) out.set(id, { ...p, x: p.x + x, y: p.y + y })
+      x += block.width + CANVAS.blockGap
     }
-  })
-  return placed
+    y += rowHeightOf(row) + CANVAS.blockGap
+  }
+  return out
 }
 
 /** Where boxes were moved to, by node id. */

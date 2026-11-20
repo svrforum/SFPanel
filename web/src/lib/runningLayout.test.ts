@@ -103,7 +103,10 @@ describe('layoutBoxes', () => {
     { host: 'pve', tile: 'vm-b', node: 'b' },
     { host: 'a', tile: 'c-vm', node: 'c' },
   ]
-  const placed = layoutBoxes(boxes, links)
+  // Tall and narrow: every family gets a row of its own.
+  const TALL = 0.1
+  const placed = layoutBoxes(boxes, links, TALL)
+  const bottom = (...ids: string[]) => Math.max(...ids.map((id) => placed.get(id)!.y + placed.get(id)!.height))
 
   it('places every box, in the column of its depth: hosts first, then their guests', () => {
     expect([...placed.keys()].sort()).toEqual(['a', 'b', 'c', 'd', 'e', 'pve'])
@@ -112,11 +115,13 @@ describe('layoutBoxes', () => {
     for (const p of placed.values()) expect(p.x).toBe(columnX(p.column))
   })
 
-  it('stacks the first column in the order given, a gap apart', () => {
+  it('stacks the families in the order given where the area is narrow, each below all of the one before', () => {
     const [pd, pp, pe] = [placed.get('d')!, placed.get('pve')!, placed.get('e')!]
     expect(pd.y).toBe(0)
-    expect(pp.y).toBe(pd.y + pd.height + CANVAS.boxGap)
-    expect(pe.y).toBe(pp.y + pp.height + CANVAS.boxGap)
+    expect(pp.y).toBe(pd.y + pd.height + CANVAS.blockGap)
+    // Below pve's guests' servers too, which reach lower than pve itself.
+    expect(bottom('pve', 'a', 'b', 'c')).toBeGreaterThan(pp.y + pp.height)
+    expect(pe.y).toBe(bottom('pve', 'a', 'b', 'c') + CANVAS.blockGap)
   })
 
   it('sizes each box as boxHeight does', () => {
@@ -151,14 +156,15 @@ describe('layoutBoxes', () => {
     const h = box('h', [tile('t1'), tile('t2')])
     const p1 = box('p1')
     const q1 = box('q1')
-    const result = layoutBoxes([h, q1, p1], [{ host: 'h', tile: 't1', node: 'p1' }, { host: 'h', tile: 't2', node: 'q1' }])
+    const result = layoutBoxes([h, q1, p1], [{ host: 'h', tile: 't1', node: 'p1' }, { host: 'h', tile: 't2', node: 'q1' }], TALL)
     const [pp, pq] = [result.get('p1')!, result.get('q1')!]
     expect(pp.y + anchorY(p1)).toBe(rowTop(h, 't1')! + rowHeight(tile('t1')) / 2)
     expect(pq.y).toBe(pp.y + pp.height + CANVAS.boxGap)
   })
 
   it('gives the same answer for the same input', () => {
-    expect(layoutBoxes(boxes, links)).toEqual(placed)
+    expect(layoutBoxes(boxes, links, TALL)).toEqual(placed)
+    expect(layoutBoxes(boxes, links, 2)).toEqual(layoutBoxes(boxes, links, 2))
   })
 
   it('ignores a link to or from a box that is not drawn, to its own host, or from a tile that is not there', () => {
@@ -167,14 +173,14 @@ describe('layoutBoxes', () => {
       { host: 'gone', tile: 'x', node: 'e' },
       { host: 'd', tile: 's0', node: 'd' },
       { host: 'd', tile: 'nope', node: 'e' },
-    ])
+    ], TALL)
     expect([...result.values()].map((p) => p.column)).toEqual([0, 0])
   })
 
   it('draws a loop of links as hosts and guests without one, and ends', () => {
     const x = box('x', [tile('y-vm')])
     const y = box('y', [tile('x-vm')])
-    const result = layoutBoxes([x, y], [{ host: 'x', tile: 'y-vm', node: 'y' }, { host: 'y', tile: 'x-vm', node: 'x' }])
+    const result = layoutBoxes([x, y], [{ host: 'x', tile: 'y-vm', node: 'y' }, { host: 'y', tile: 'x-vm', node: 'x' }], TALL)
     expect(result.get('x')!.column).toBe(0)
     expect(result.get('y')!.column).toBe(1)
   })
@@ -183,9 +189,85 @@ describe('layoutBoxes', () => {
     const h1 = box('h1', [tile('g')])
     const h2 = box('h2', [tile('g')])
     const g = box('g')
-    const result = layoutBoxes([h1, h2, g], [{ host: 'h2', tile: 'g', node: 'g' }, { host: 'h1', tile: 'g', node: 'g' }])
+    const result = layoutBoxes([h1, h2, g], [{ host: 'h2', tile: 'g', node: 'g' }, { host: 'h1', tile: 'g', node: 'g' }], TALL)
     const tileMiddle = result.get('h2')!.y + rowTop(h2, 'g')! + rowHeight(tile('g')) / 2
     expect(result.get('g')!.y + anchorY(g)).toBe(tileMiddle)
+  })
+})
+
+// The canvas is as wide as the page and most of the screen high. Stacked in
+// one column, six servers were drawn at half size in a strip down the middle
+// of a wide screen; side by side they are read without zooming.
+describe('layoutBoxes in a wide area', () => {
+  const pve = box('pve', [title('guests'), tile('vm-a'), tile('vm-b')])
+  const a = box('a', [title('stacks'), ...tiles('s', 3)])
+  const b = box('b')
+  const d = box('d', [title('stacks'), ...tiles('s', 8)])
+  const e = box('e', [title('stacks'), ...tiles('s', 8)])
+  const f = box('f', [title('stacks'), ...tiles('s', 8)])
+  const boxes = [d, pve, a, b, e, f]
+  const links: LayoutLink[] = [{ host: 'pve', tile: 'vm-a', node: 'a' }, { host: 'pve', tile: 'vm-b', node: 'b' }]
+  const extent = (placed: Map<string, Placed>) => {
+    const all = [...placed.values()]
+    return { width: Math.max(...all.map((p) => p.x + p.width)), height: Math.max(...all.map((p) => p.y + p.height)) }
+  }
+  // How large the whole drawing is shown in an area of this shape.
+  const scale = (placed: Map<string, Placed>, aspect: number) => Math.min(aspect / extent(placed).width, 1 / extent(placed).height)
+
+  it('puts the families side by side in the order given, tops level', () => {
+    const placed = layoutBoxes(boxes, links, 4)
+    const [pd, pp, pe, pf] = ['d', 'pve', 'e', 'f'].map((id) => placed.get(id)!)
+    expect([pd.y, pp.y, pe.y, pf.y]).toEqual([0, 0, 0, 0])
+    expect(pd.x).toBe(0)
+    expect(pp.x).toBe(pd.x + CANVAS.boxWidth + CANVAS.blockGap)
+    // pve's family is two columns wide: itself and its guests' servers.
+    expect(pe.x).toBe(pp.x + 2 * CANVAS.boxWidth + CANVAS.columnGap + CANVAS.blockGap)
+    expect(pf.x).toBe(pe.x + CANVAS.boxWidth + CANVAS.blockGap)
+  })
+
+  it("keeps a guest's server beside its host, level with its tile, wherever the family lands", () => {
+    for (const aspect of [0.1, 1, 1.6, 4]) {
+      const placed = layoutBoxes(boxes, links, aspect)
+      const pp = placed.get('pve')!
+      expect(placed.get('a')!.x).toBe(pp.x + CANVAS.boxWidth + CANVAS.columnGap)
+      expect(placed.get('a')!.y + anchorY(a)).toBe(pp.y + rowTop(pve, 'vm-a')! + rowHeight(tile('vm-a')) / 2)
+      expect(placed.get('b')!.x).toBe(placed.get('a')!.x)
+    }
+  })
+
+  it('lets no two boxes overlap, whatever the shape', () => {
+    for (const aspect of [0.1, 0.5, 1, 1.6, 2.5, 4, 10]) {
+      const all = [...layoutBoxes(boxes, links, aspect).values()]
+      for (let i = 0; i < all.length; i++) {
+        for (let j = i + 1; j < all.length; j++) expect(overlaps(all[i], all[j])).toBe(false)
+      }
+    }
+  })
+
+  it('breaks into rows where one row would be shown smaller', () => {
+    // Four tall boxes in a square area: two rows of two.
+    const four = [d, e, f, box('g', [title('stacks'), ...tiles('s', 8)])]
+    const placed = layoutBoxes(four, [], 1)
+    const [p1, p2, p3, p4] = four.map((bx) => placed.get(bx.id)!)
+    expect([p1.y, p2.y]).toEqual([0, 0])
+    expect(p3.y).toBe(p1.height + CANVAS.blockGap)
+    expect(p4.y).toBe(p3.y)
+    expect([p1.x, p3.x]).toEqual([0, 0])
+    expect([p2.x, p4.x]).toEqual([CANVAS.boxWidth + CANVAS.blockGap, CANVAS.boxWidth + CANVAS.blockGap])
+  })
+
+  it('is never shown smaller than one row or one column would be', () => {
+    for (const aspect of [0.4, 1, 1.6, 2.5, 4]) {
+      const chosen = scale(layoutBoxes(boxes, links, aspect), aspect)
+      // 100: wider than any area, so everything in one row.
+      expect(chosen).toBeGreaterThanOrEqual(scale(layoutBoxes(boxes, links, 100), aspect))
+      expect(chosen).toBeGreaterThanOrEqual(scale(layoutBoxes(boxes, links, 0.01), aspect))
+    }
+  })
+
+  it('takes a shape that is no shape as a narrow one', () => {
+    const narrow = layoutBoxes(boxes, links, 0.01)
+    for (const aspect of [0, -1, Number.NaN, Number.POSITIVE_INFINITY]) expect(layoutBoxes(boxes, links, aspect)).toEqual(narrow)
   })
 })
 
