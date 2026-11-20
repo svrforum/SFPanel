@@ -582,6 +582,80 @@ test.describe('canvas', () => {
     await expect(canvas(page).locator('.react-flow__edge-path')).toHaveCount(1)
   })
 
+  // On a real cluster the canvas is up before the nodes have answered: the
+  // boxes are first drawn empty, and fill in over the next second. A view
+  // fitted to the empty boxes showed the full ones cut off at the edges.
+  const allBoxesInView = (page: Page) => page.evaluate(() => {
+    const frame = document.querySelector('.react-flow')!.getBoundingClientRect()
+    return Array.from(document.querySelectorAll('.react-flow__node')).every((node) => {
+      const r = node.getBoundingClientRect()
+      return r.left >= frame.left - 1 && r.right <= frame.right + 1 && r.top >= frame.top - 1 && r.bottom <= frame.bottom + 1
+    })
+  })
+  const viewportOf = (page: Page) => page.locator('.react-flow__viewport').evaluate((el) => getComputedStyle(el).transform)
+  const tall = { extra: Array.from({ length: 16 }, (_, i) => ctr(`tool-${i + 1}`, 'running', 'Up 1 hour')) }
+  async function holdDocker(page: Page) {
+    let release!: () => void
+    const held = new Promise<void>((resolve) => { release = resolve })
+    await page.route('**/api/v1/docker/**', async (route) => {
+      await held
+      await route.fallback()
+    })
+    return release
+  }
+
+  test('the view is fitted again to what the boxes hold once it arrives', async ({ page }) => {
+    await mock(page, tall)
+    const release = await holdDocker(page)
+    await page.goto('/cluster/running')
+    await chooseCanvas(page)
+    await expect(box(page, 'alpha-node')).toBeVisible()
+    await page.waitForTimeout(1000)
+    expect(await allBoxesInView(page)).toBe(true)
+    release()
+    await expect(box(page, 'alpha-node').getByRole('button', { name: 'tool-16', exact: true })).toBeAttached()
+    await expect.poll(() => allBoxesInView(page)).toBe(true)
+  })
+
+  test('and is left where the operator put it', async ({ page }) => {
+    await mock(page, tall)
+    const release = await holdDocker(page)
+    await page.goto('/cluster/running')
+    await chooseCanvas(page)
+    await expect(box(page, 'alpha-node')).toBeVisible()
+    await page.waitForTimeout(1000)
+    // The background dragged: the operator has taken hold of the view.
+    const frame = (await canvas(page).boundingBox())!
+    await page.mouse.move(frame.x + frame.width - 60, frame.y + frame.height - 60)
+    await page.mouse.down()
+    await page.mouse.move(frame.x + frame.width - 160, frame.y + frame.height - 120, { steps: 8 })
+    await page.mouse.up()
+    const moved = await viewportOf(page)
+    release()
+    await expect(box(page, 'alpha-node').getByRole('button', { name: 'tool-16', exact: true })).toBeAttached()
+    await page.waitForTimeout(800)
+    expect(await viewportOf(page)).toBe(moved)
+    // Auto arrange is how to ask for the fitted view back.
+    await canvas(page).getByRole('button', { name: 'Auto arrange' }).click()
+    await expect.poll(() => allBoxesInView(page)).toBe(true)
+  })
+
+  test('zoomed with the buttons, the view is the operator\'s too', async ({ page }) => {
+    await mock(page, tall)
+    const release = await holdDocker(page)
+    await page.goto('/cluster/running')
+    await chooseCanvas(page)
+    await expect(box(page, 'alpha-node')).toBeVisible()
+    await page.waitForTimeout(1000)
+    await canvas(page).getByRole('button', { name: 'Zoom in' }).click()
+    await page.waitForTimeout(500)
+    const zoomed = await viewportOf(page)
+    release()
+    await expect(box(page, 'alpha-node').getByRole('button', { name: 'tool-16', exact: true })).toBeAttached()
+    await page.waitForTimeout(800)
+    expect(await viewportOf(page)).toBe(zoomed)
+  })
+
   // The canvas has no list of what needs attention above it: a tile says so
   // itself, in words and a mark, not by its red edge alone. Both of these
   // read "Exited"; one failed two hours ago, the other three days ago.

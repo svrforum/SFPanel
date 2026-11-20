@@ -115,7 +115,7 @@ export default function RunningCanvas(props: CanvasProps) {
 
 function Flow({ sections, scope, localId, query, storageKey, level }: CanvasProps) {
   const { t } = useTranslation()
-  const { getViewport, setViewport } = useReactFlow()
+  const { fitView, getViewport, setViewport } = useReactFlow()
   const dark = useSyncExternalStore(subscribeTheme, isDark)
   const reduced = useSyncExternalStore(subscribeMotion, prefersReduced)
   const duration = reduced ? 0 : 200
@@ -191,7 +191,8 @@ function Flow({ sections, scope, localId, query, storageKey, level }: CanvasProp
     setFrom(base)
     setNodes((prev) => base.map((n) => {
       const old = prev.find((p) => p.id === n.id)
-      return old?.measured ? { ...n, measured: old.measured } : n
+      // Its size is the layout's own figure, which is what it is drawn at.
+      return old?.measured && n.width && n.height ? { ...n, measured: { width: n.width, height: n.height } } : n
     }))
   }
   // An edge ends on a handle inside a box: on a guest's tile, which gets one
@@ -206,15 +207,41 @@ function Flow({ sections, scope, localId, query, storageKey, level }: CanvasProp
   useEffect(() => {
     updateNodeInternals(base.map((n) => n.id))
   }, [base, updateNodeInternals])
+
+  // The canvas is up before the nodes have answered: the boxes are drawn
+  // empty and fill in, and move when it turns out which guest is which
+  // node. The view fitted once, to the empty boxes, showed the full ones
+  // cut off. It follows the layout until the operator takes hold of it —
+  // pans, zooms, moves a box, tabs to a tile out of view — and from then on
+  // is theirs, until they ask for it arranged again. What a search leaves
+  // out changes no place, so typing moves nothing.
+  const held = useRef(false)
+  const extent = useMemo(() => {
+    let left = Infinity, top = Infinity, right = -Infinity, bottom = -Infinity
+    for (const [id, p] of computed.placed) {
+      const at = saved[id] ?? p
+      left = Math.min(left, at.x)
+      top = Math.min(top, at.y)
+      right = Math.max(right, at.x + p.width)
+      bottom = Math.max(bottom, at.y + p.height)
+    }
+    return [left, top, right, bottom].map(Math.round).join(',')
+  }, [computed, saved])
+  useEffect(() => {
+    if (shape === null || held.current) return
+    void fitView(FIT)
+  }, [extent, shape, fitView])
   const onNodesChange = useCallback((changes: NodeChange<ServerNode>[]) => setNodes((prev) => applyNodeChanges(changes, prev)), [])
 
   const onNodeDragStop = useCallback<OnNodeDrag<ServerNode>>((_event, node) => {
+    held.current = true
     const next = keepPositions({ ...saved, [node.id]: { x: node.position.x, y: node.position.y } }, ids)
     setSaved(next)
     writeStored(storageKey, next)
   }, [saved, ids, storageKey])
 
   const arrange = useCallback(() => {
+    held.current = false
     setSaved({})
     writeStored(storageKey, null)
     setShape(shapeOf(frame.current))
@@ -263,6 +290,7 @@ function Flow({ sections, scope, localId, query, storageKey, level }: CanvasProp
     const dx = shift(r.left, r.right, frame.left, frame.right)
     const dy = shift(r.top, r.bottom, frame.top, frame.bottom)
     if (dx === 0 && dy === 0) return
+    held.current = true
     const v = getViewport()
     void setViewport({ x: v.x + dx, y: v.y + dy, zoom: v.zoom }, { duration })
   }, [getViewport, setViewport, duration])
@@ -278,6 +306,8 @@ function Flow({ sections, scope, localId, query, storageKey, level }: CanvasProp
         edgeTypes={edgeTypes}
         onNodesChange={onNodesChange}
         onNodeDragStop={onNodeDragStop}
+        // A move the library made itself (fitting the view) comes with no event.
+        onMoveStart={(event) => { if (event) held.current = true }}
         colorMode={dark ? 'dark' : 'light'}
         fitView
         fitViewOptions={FIT}
@@ -300,7 +330,14 @@ function Flow({ sections, scope, localId, query, storageKey, level }: CanvasProp
         proOptions={{ hideAttribution: true }}
       >
         <Background variant={BackgroundVariant.Dots} gap={20} size={1.5} />
-        <Controls showInteractive={false} fitViewOptions={{ ...FIT, duration }} />
+        <Controls
+          showInteractive={false}
+          fitViewOptions={{ ...FIT, duration }}
+          // Zoomed by hand, the view is the operator's; fitted by hand, it follows the layout again.
+          onZoomIn={() => { held.current = true }}
+          onZoomOut={() => { held.current = true }}
+          onFitView={() => { held.current = false }}
+        />
         <ArrangePanel onArrange={arrange} duration={duration} />
         <Panel position="bottom-right" className="!m-2">
           <a
