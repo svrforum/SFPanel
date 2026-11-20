@@ -210,6 +210,11 @@ test('node scope on a single server: no node header, the same tiles', async ({ p
   await expect(page.getByRole('link', { name: 'media', exact: true })).toHaveAttribute('href', '/docker/stacks/media')
   await expect(page.getByRole('link', { name: '8096 (opens in a new tab)' })).toHaveAttribute('href', 'http://localhost:8096/')
   await expect(page.getByRole('link', { name: 'speedtest', exact: true })).toHaveAttribute('href', '/docker/containers?container=speedtest-id')
+
+  // "View logs" opens the container on its logs.
+  await region(page, 'Needs attention 3').getByRole('link', { name: 'View logs (backup-agent)' }).click()
+  await expect(page).toHaveURL(/\/docker\/containers\?container=backup-agent-id&tab=logs$/)
+  await expect(page.getByRole('dialog').getByRole('tab', { name: 'Logs' })).toHaveAttribute('aria-selected', 'true')
 })
 
 test('the search narrows the tiles, and a search with no match offers to clear it', async ({ page }) => {
@@ -242,6 +247,9 @@ test('a node section folds, and stays folded on the next visit', async ({ page }
   await expect(toggle).toHaveAttribute('aria-expanded', 'false')
   await expect(region(page, 'alpha-node').getByRole('link', { name: 'photos', exact: true })).toHaveCount(0)
   await page.reload()
+  // A reload fetches the app and the lazy page again, which a dev server on a
+  // busy host can take longer than one assertion's wait for.
+  await expect(page.getByRole('heading', { name: 'Running', level: 2 })).toBeVisible({ timeout: 20_000 })
   await expect(region(page, 'alpha-node').getByRole('button', { name: 'alpha-node' })).toHaveAttribute('aria-expanded', 'false')
 })
 
