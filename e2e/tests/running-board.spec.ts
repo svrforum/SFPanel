@@ -127,7 +127,7 @@ test('datacenter scope: totals, what needs attention in order, and links that le
   await expect(lines.nth(0)).toContainText(/^charlie-agent — Offline, last seen 5 minutes ago\. View nodes/)
   await expect(lines.nth(1)).toContainText('photos · alpha-node — 3 of 4 services running. ml keeps restarting. Open stack')
   await expect(lines.nth(2)).toContainText('wiki · alpha-node — 1 of 2 services running. Open stack')
-  await expect(lines.nth(3)).toContainText('backup-agent · alpha-node — Exited 2 hours ago with code 1. View logs')
+  await expect(lines.nth(3)).toContainText('backup-agent · alpha-node — Exited 2 hours ago (exit code 1). View logs')
   await expect(lines.nth(0).getByRole('link', { name: 'View nodes (charlie-agent)' })).toHaveAttribute('href', '/cluster/nodes?status=offline')
   await expect(lines.nth(1).getByRole('link', { name: 'Open stack (photos)' })).toHaveAttribute('href', '/cluster/stacks/m-1/photos')
   await expect(lines.nth(3).getByRole('link', { name: 'View logs (backup-agent)' })).toHaveAttribute('href', '/docker/containers?container=backup-agent-id&tab=logs')
