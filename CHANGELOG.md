@@ -6,6 +6,12 @@ The format is loosely based on [Keep a Changelog](https://keepachangelog.com/), 
 
 ---
 
+## [0.89.2] – 2026-11-21
+
+### Fixed
+
+- **The line from a virtual machine to the server it is was sometimes not drawn.** Which guest is which node is learnt after the canvas is up, and the line ends on a point inside the guest's tile that the tile only gets then. The canvas library reads those points when it measures a box, and measures a box again only when its size changes — so a tile that gained its point in a box of the same size was never read, and the line never appeared. It depended on the order the answers came in: on a cluster of six, four visits in nine. The points are now read again whenever the boxes change. With that, a box is no longer hidden and measured anew at every refresh.
+
 ## [0.89.1] – 2026-11-21
 
 ### Fixed
