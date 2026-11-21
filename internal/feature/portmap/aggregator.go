@@ -17,8 +17,21 @@ import (
 // collapse into one row (first-seen wins for Process; in practice
 // docker-proxy always sorts before user processes, which is the
 // preferred display).
+//
+// A row's Addresses gather every listener's address and every binding's
+// host IP for that port and protocol.
 func Aggregate(ufwByPort map[int]FirewallInfo, dnat []PortBinding, ss []SsEntry) []PortMapRow {
 	rows := map[portKey]*PortMapRow{}
+	addrs := map[portKey]map[string]bool{}
+	addAddr := func(k portKey, addr string) {
+		if addr == "" {
+			return
+		}
+		if addrs[k] == nil {
+			addrs[k] = map[string]bool{}
+		}
+		addrs[k][addr] = true
+	}
 
 	// Listeners → "listening" state.
 	for _, e := range ss {
@@ -30,6 +43,7 @@ func Aggregate(ufwByPort map[int]FirewallInfo, dnat []PortBinding, ss []SsEntry)
 		if row.Process == nil {
 			row.Process = &ProcessInfo{PID: e.PID, Name: e.Name}
 		}
+		addAddr(k, e.Addr)
 	}
 
 	// Docker DNAT → at least "bound" (overrides to "listening" if ss already
@@ -53,6 +67,7 @@ func Aggregate(ufwByPort map[int]FirewallInfo, dnat []PortBinding, ss []SsEntry)
 			Name:  b.ContainerName,
 			Stack: b.Stack,
 		})
+		addAddr(k, b.HostIP)
 	}
 
 	// UFW → attach to whichever row uses this port. UFW rules without a
@@ -70,7 +85,12 @@ func Aggregate(ufwByPort map[int]FirewallInfo, dnat []PortBinding, ss []SsEntry)
 	}
 
 	out := make([]PortMapRow, 0, len(rows))
-	for _, r := range rows {
+	for k, r := range rows {
+		r.Addresses = make([]string, 0, len(addrs[k]))
+		for addr := range addrs[k] {
+			r.Addresses = append(r.Addresses, addr)
+		}
+		sort.Strings(r.Addresses)
 		out = append(out, *r)
 	}
 	sort.Slice(out, func(i, j int) bool {

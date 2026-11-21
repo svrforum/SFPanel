@@ -1,6 +1,7 @@
 package portmap
 
 import (
+	"encoding/json"
 	"testing"
 
 	"github.com/stretchr/testify/require"
@@ -123,4 +124,48 @@ func TestAggregate_MultipleContainersSamePort(t *testing.T) {
 	names := []string{got[0].Containers[0].Name, got[0].Containers[1].Name}
 	require.Contains(t, names, "web-a")
 	require.Contains(t, names, "web-b")
+}
+
+// A port open on 0.0.0.0 and on :: lists both, once each, sorted.
+func TestAggregate_AddressesBothFamilies(t *testing.T) {
+	ss := []SsEntry{
+		{Port: 22, Proto: "tcp", Addr: "0.0.0.0", PID: 1024, Name: "sshd"},
+		{Port: 22, Proto: "tcp", Addr: "::", PID: 1024, Name: "sshd"},
+	}
+	dnat := []PortBinding{
+		{HostPort: 22, Proto: "tcp", HostIP: "0.0.0.0", ContainerID: "x", ContainerName: "ssh"},
+	}
+	got := Aggregate(nil, dnat, ss)
+	require.Len(t, got, 1)
+	require.Equal(t, []string{"0.0.0.0", "::"}, got[0].Addresses)
+}
+
+// A Docker binding on one host address with no listener ss saw lists that
+// address, and the same port on the other protocol keeps its own list.
+func TestAggregate_AddressesFromBindingOnly(t *testing.T) {
+	dnat := []PortBinding{
+		{HostPort: 8443, Proto: "tcp", HostIP: "10.20.30.26", ContainerID: "x", ContainerName: "proxy"},
+	}
+	ss := []SsEntry{{Port: 8443, Proto: "udp", Addr: "127.0.0.1"}}
+	got := Aggregate(nil, dnat, ss)
+	require.Len(t, got, 2)
+	require.Equal(t, "tcp", got[0].Proto)
+	require.Equal(t, []string{"10.20.30.26"}, got[0].Addresses)
+	require.Equal(t, "udp", got[1].Proto)
+	require.Equal(t, []string{"127.0.0.1"}, got[1].Addresses)
+}
+
+// With no address from either source the list is [], not null: the client
+// reads addresses without a guard.
+func TestAggregate_AddressesNeverNull(t *testing.T) {
+	dnat := []PortBinding{{HostPort: 8080, Proto: "tcp", ContainerID: "x", ContainerName: "myapp"}}
+	got := Aggregate(nil, dnat, []SsEntry{{Port: 9000, Proto: "tcp"}})
+	require.Len(t, got, 2)
+	for _, row := range got {
+		require.NotNil(t, row.Addresses)
+		require.Empty(t, row.Addresses)
+		b, err := json.Marshal(row)
+		require.NoError(t, err)
+		require.Contains(t, string(b), `"addresses":[]`)
+	}
 }

@@ -42,10 +42,11 @@ func ParseSs(out, proto string) []SsEntry {
 		if err != nil {
 			continue
 		}
+		addr := ssLocalAddr(strings.TrimSuffix(localAddr, m[0]))
 		// Look for users:(...) somewhere in the line (may not exist if not root).
 		users := ssUserRe.FindAllStringSubmatch(line, -1)
 		if len(users) == 0 {
-			entries = append(entries, SsEntry{Port: port, Proto: proto})
+			entries = append(entries, SsEntry{Port: port, Proto: proto, Addr: addr})
 			continue
 		}
 		for _, u := range users {
@@ -53,10 +54,28 @@ func ParseSs(out, proto string) []SsEntry {
 			entries = append(entries, SsEntry{
 				Port:  port,
 				Proto: proto,
+				Addr:  addr,
 				PID:   pid,
 				Name:  u[1],
 			})
 		}
 	}
 	return entries
+}
+
+// ssLocalAddr is the host half of ss's Local-Address:Port column with the
+// port already cut off. ss brackets IPv6 addresses and appends the device a
+// socket is bound to as %zone, inside or after the brackets: "[::]",
+// "[fe80::1]%eth0", "127.0.0.53%lo". The address alone is what is kept;
+// the wildcard "*" stays as it is.
+func ssLocalAddr(host string) string {
+	if strings.HasPrefix(host, "[") {
+		if end := strings.Index(host, "]"); end > 0 {
+			host = host[1:end]
+		}
+	}
+	if zone := strings.Index(host, "%"); zone >= 0 {
+		host = host[:zone]
+	}
+	return host
 }

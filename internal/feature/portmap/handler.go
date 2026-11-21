@@ -204,6 +204,7 @@ func collectDockerBindings(ctx context.Context, dc *docker.Client) ([]PortBindin
 			out = append(out, PortBinding{
 				HostPort:      int(p.PublicPort),
 				Proto:         proto,
+				HostIP:        p.IP,
 				ContainerID:   c.ID,
 				ContainerName: name,
 				Stack:         stack,

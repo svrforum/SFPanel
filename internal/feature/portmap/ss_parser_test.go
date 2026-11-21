@@ -61,3 +61,39 @@ func TestParseSs_EmptyInput(t *testing.T) {
 	require.Empty(t, ParseSs("", "tcp"))
 	require.Empty(t, ParseSs("   \n  ", "tcp"))
 }
+
+// Each local-address form ss prints: the port, brackets and %zone go, the
+// wildcard "*" stays.
+func TestParseSs_LocalAddress(t *testing.T) {
+	cases := []struct {
+		local string
+		port  int
+		addr  string
+	}{
+		{"0.0.0.0:22", 22, "0.0.0.0"},
+		{"[::]:80", 80, "::"},
+		{"*:3628", 3628, "*"},
+		{"127.0.0.53%lo:53", 53, "127.0.0.53"},
+		{"[::1]:631", 631, "::1"},
+		{"[fe80::1]%eth0:546", 546, "fe80::1"},
+		{"10.20.30.26:8443", 8443, "10.20.30.26"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.local, func(t *testing.T) {
+			in := "LISTEN 0      4096   " + tc.local + "   0.0.0.0:*    users:((\"svc\",pid=42,fd=3))\n"
+			got := ParseSs(in, "tcp")
+			require.Len(t, got, 1)
+			require.Equal(t, tc.port, got[0].Port)
+			require.Equal(t, tc.addr, got[0].Addr)
+			require.Equal(t, "svc", got[0].Name)
+		})
+	}
+}
+
+// A listener without a users:(...) clause (ss run without root) still
+// carries its address.
+func TestParseSs_LocalAddressWithoutUsers(t *testing.T) {
+	got := ParseSs("UNCONN 0      0      127.0.0.53%lo:53      0.0.0.0:*\n", "udp")
+	require.Len(t, got, 1)
+	require.Equal(t, "127.0.0.53", got[0].Addr)
+}
