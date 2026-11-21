@@ -4537,7 +4537,9 @@
     "invalidQuery": "The search contains characters that are not allowed. Use only letters, digits, spaces, '.', '_', '+' and '-'.",
     "stackAlreadyExists": "A stack with that name already exists.",
     "emptyContent": "The config content cannot be empty.",
-    "aiSessionNotFound": "The session was not found."
+    "aiSessionNotFound": "The session was not found.",
+    "lanScanInProgress": "A scan is already running on this server. Try again when it is done.",
+    "lanScanNetworkNotAllowed": "Only a private network this server is directly on can be scanned. ({{serverMessage}})"
   },
   "running": {
     "title": "Running",
@@ -4549,7 +4551,8 @@
     "view": {
       "label": "View",
       "board": "Board",
-      "canvas": "Canvas"
+      "canvas": "Canvas",
+      "network": "Network"
     },
     "canvas": {
       "loading": "Loading the canvas…",
@@ -4670,6 +4673,104 @@
     "notCluster": {
       "body": "This server is not part of a cluster.",
       "link": "See what runs on this server"
+    },
+    "network": {
+      "search": {
+        "label": "Find a device by address, name, maker, MAC or port",
+        "placeholder": "Address, name, maker, port"
+      },
+      "internet": "Internet",
+      "gatewaySilent": "The gateway {{address}} did not answer this scan.",
+      "gatewayNone": "No default route leaves by this network.",
+      "group": {
+        "servers": "Servers {{count}}",
+        "devices": "Other devices {{count}}"
+      },
+      "kind": {
+        "gateway": "Gateway",
+        "server": "Server",
+        "vm": "VM",
+        "lxc": "LXC"
+      },
+      "device": {
+        "scanner": "Scanned from here",
+        "guestOf": "{{kind}} {{vmid}} on {{host}}",
+        "unnamed": "No name",
+        "details": "Details",
+        "timedOut": "The port check timed out.",
+        "noPorts": "None",
+        "ports": "Open ports",
+        "morePorts": "+{{count}}",
+        "notChecked": "Not checked"
+      },
+      "field": {
+        "address": "Address",
+        "mac": "MAC",
+        "vendor": "Maker",
+        "hostname": "Name (DNS)",
+        "ports": "Open ports"
+      },
+      "scan": {
+        "elapsed": "{{count}}s",
+        "runningHosts": "{{node}} is looking for devices…",
+        "runningPorts": "{{node}} is looking for devices and open ports…",
+        "stop": "Stop",
+        "noTool": "nmap is not installed on {{node}}.",
+        "openPackages": "Install nmap in Packages",
+        "tooLarge": "This network is too wide (/{{prefix}}) to scan. Up to /20 is scanned.",
+        "nobody": "No server on this network is answering, so it cannot be scanned.",
+        "from": "Scan from",
+        "withPorts": "Check open ports too",
+        "again": "Scan again",
+        "start": "Scan",
+        "hintHosts": "{{node}} asks every address of this network to answer. About ten seconds.",
+        "hintPorts": "{{node}} checks the 1000 most used ports of every device it finds. About a minute.",
+        "startFailed": "Could not start the scan.",
+        "ended": {
+          "failed": "The scan of {{network}} from {{node}} failed. The earlier result is still shown.",
+          "timeout": "The scan of {{network}} from {{node}} did not finish in time. The earlier result is still shown.",
+          "cancelled": "The scan of {{network}} from {{node}} was stopped."
+        }
+      },
+      "segment": {
+        "found": "Devices: {{count}}",
+        "scanned": "scanned from {{node}}",
+        "withPorts": "ports checked",
+        "hostsOnly": "devices only",
+        "notScanned": "Not scanned yet. Servers on this network: {{nodes}}",
+        "explain": "A scan finds the devices that answer on this network and draws them by address."
+      },
+      "loadError": "Could not load the scan status of {{node}}.",
+      "unsupported": "This server's panel version has no network scan. Update it to use this.",
+      "none": "There is no private network to scan.",
+      "server": {
+        "title": "Networks and ports by server",
+        "explain": "Each server from the inside, its ports told apart by where they can be reached from.",
+        "container": "{{name}} ({{stack}} stack)",
+        "offline": "Not answering",
+        "summary": "Open ports {{open}} · server only {{local}}",
+        "failed": "Could not load",
+        "loadError": "Could not load this server's network details.",
+        "interfaces": "Networks",
+        "noInterfaces": "No interface has an address.",
+        "defaultRoute": "Default route",
+        "down": "Down",
+        "inner": "Inner networks (Docker and the like) not shown: {{count}}",
+        "ports": "Ports reachable from elsewhere",
+        "noOpen": "No port is reachable from elsewhere.",
+        "local": "Ports open to the server alone: {{count}}"
+      },
+      "reach": {
+        "all": "Every address",
+        "local": "Server only",
+        "unknown": "Unknown"
+      },
+      "firewall": {
+        "allow": "Allow",
+        "deny": "Deny",
+        "limit": "Limit",
+        "none": "No firewall rule"
+      }
     }
   }
 }

@@ -4518,7 +4518,9 @@
     "invalidQuery": "검색어에 쓸 수 없는 문자가 있습니다. 영문자, 숫자, 공백과 '.', '_', '+', '-'만 쓰세요.",
     "stackAlreadyExists": "같은 이름의 스택이 이미 있습니다.",
     "emptyContent": "설정 내용을 비워 둘 수 없습니다.",
-    "aiSessionNotFound": "세션을 찾을 수 없습니다."
+    "aiSessionNotFound": "세션을 찾을 수 없습니다.",
+    "lanScanInProgress": "이 서버에서 이미 스캔이 진행 중입니다. 끝난 뒤 다시 시도하세요.",
+    "lanScanNetworkNotAllowed": "이 서버가 직접 붙어 있는 사설 네트워크만 스캔할 수 있습니다. ({{serverMessage}})"
   },
   "running": {
     "title": "실행 현황",
@@ -4530,7 +4532,8 @@
     "view": {
       "label": "보기",
       "board": "보드",
-      "canvas": "캔버스"
+      "canvas": "캔버스",
+      "network": "네트워크"
     },
     "canvas": {
       "loading": "캔버스를 불러오는 중…",
@@ -4650,6 +4653,104 @@
     "notCluster": {
       "body": "이 서버는 클러스터에 속해 있지 않습니다.",
       "link": "이 서버의 실행 현황 보기"
+    },
+    "network": {
+      "search": {
+        "label": "주소·이름·제조사·MAC·포트로 기기 찾기",
+        "placeholder": "주소·이름·제조사·포트"
+      },
+      "internet": "인터넷",
+      "gatewaySilent": "게이트웨이({{address}})가 이 스캔에 응답하지 않았습니다.",
+      "gatewayNone": "이 네트워크로 나가는 기본 경로가 없습니다.",
+      "group": {
+        "servers": "서버 {{count}}",
+        "devices": "그 밖의 기기 {{count}}"
+      },
+      "kind": {
+        "gateway": "게이트웨이",
+        "server": "서버",
+        "vm": "VM",
+        "lxc": "LXC"
+      },
+      "device": {
+        "scanner": "여기서 스캔함",
+        "guestOf": "{{host}}의 {{kind}} {{vmid}}",
+        "unnamed": "이름 없음",
+        "details": "자세히",
+        "timedOut": "포트 확인 시간 초과",
+        "noPorts": "없음",
+        "ports": "열린 포트",
+        "morePorts": "+{{count}}",
+        "notChecked": "확인하지 않음"
+      },
+      "field": {
+        "address": "주소",
+        "mac": "MAC",
+        "vendor": "제조사",
+        "hostname": "이름(DNS)",
+        "ports": "열린 포트"
+      },
+      "scan": {
+        "elapsed": "{{count}}초",
+        "runningHosts": "{{node}}에서 기기를 찾는 중…",
+        "runningPorts": "{{node}}에서 기기와 열린 포트를 찾는 중…",
+        "stop": "중지",
+        "noTool": "{{node}}에 nmap이 설치되어 있지 않습니다.",
+        "openPackages": "패키지에서 nmap 설치",
+        "tooLarge": "네트워크가 너무 넓어(/{{prefix}}) 스캔하지 않습니다. /20까지 스캔합니다.",
+        "nobody": "이 네트워크에 있는 서버가 응답하지 않아 스캔할 수 없습니다.",
+        "from": "스캔할 서버",
+        "withPorts": "열린 포트도 확인",
+        "again": "다시 스캔",
+        "start": "스캔",
+        "hintHosts": "{{node}}에서 이 네트워크의 모든 주소에 응답을 요청합니다. 10초쯤 걸립니다.",
+        "hintPorts": "{{node}}에서 찾은 기기마다 자주 쓰는 포트 1000개를 확인합니다. 1분쯤 걸립니다.",
+        "startFailed": "스캔을 시작하지 못했습니다.",
+        "ended": {
+          "failed": "{{node}}의 {{network}} 스캔이 실패했습니다. 이전 결과를 그대로 보여 줍니다.",
+          "timeout": "{{node}}의 {{network}} 스캔이 제한 시간 안에 끝나지 않았습니다. 이전 결과를 그대로 보여 줍니다.",
+          "cancelled": "{{node}}의 {{network}} 스캔을 중지했습니다."
+        }
+      },
+      "segment": {
+        "found": "기기 {{count}}대",
+        "scanned": "{{node}}에서 스캔",
+        "withPorts": "포트 확인함",
+        "hostsOnly": "기기만 찾음",
+        "notScanned": "아직 스캔하지 않았습니다. 이 네트워크에 있는 서버: {{nodes}}",
+        "explain": "스캔하면 이 네트워크에서 응답하는 기기를 찾아 주소 순으로 그립니다."
+      },
+      "loadError": "{{node}}의 스캔 상태를 불러오지 못했습니다.",
+      "unsupported": "이 서버의 패널 버전은 네트워크 스캔을 지원하지 않습니다. 업데이트하면 쓸 수 있습니다.",
+      "none": "스캔할 수 있는 사설 네트워크가 없습니다.",
+      "server": {
+        "title": "서버별 네트워크·포트",
+        "explain": "서버 안에서 본 모습입니다. 포트마다 어디에서 닿을 수 있는지로 나눕니다.",
+        "container": "{{name}} ({{stack}} 스택)",
+        "offline": "응답 없음",
+        "summary": "열린 포트 {{open}} · 서버 안에서만 {{local}}",
+        "failed": "불러오지 못함",
+        "loadError": "이 서버의 네트워크 정보를 불러오지 못했습니다.",
+        "interfaces": "네트워크",
+        "noInterfaces": "주소가 있는 인터페이스가 없습니다.",
+        "defaultRoute": "기본 경로",
+        "down": "꺼짐",
+        "inner": "Docker 등 내부 네트워크 {{count}}개는 표시하지 않습니다.",
+        "ports": "다른 곳에서 닿는 포트",
+        "noOpen": "다른 곳에서 닿는 포트가 없습니다.",
+        "local": "서버 안에서만 열린 포트 {{count}}"
+      },
+      "reach": {
+        "all": "모든 주소",
+        "local": "서버 안에서만",
+        "unknown": "알 수 없음"
+      },
+      "firewall": {
+        "allow": "허용",
+        "deny": "차단",
+        "limit": "제한",
+        "none": "방화벽 규칙 없음"
+      }
     }
   }
 }

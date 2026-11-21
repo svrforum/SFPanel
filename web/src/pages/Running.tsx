@@ -11,6 +11,7 @@ import { useVisibleInterval } from '@/hooks/useVisibleInterval'
 import { filterContents, filterGuests, type Totals } from '@/lib/running'
 import { cn } from '@/lib/utils'
 import { AttentionList } from './running/AttentionList'
+import { NetworkView } from './running/network/NetworkView'
 import { Heading } from './running/Heading'
 import { Meters, NodeBody, NodeSection } from './running/NodeSection'
 import type { HeadingLevel } from './running/Heading'
@@ -57,15 +58,15 @@ function TotalsRow({ totals, showNodes, loaded }: { totals: Totals; showNodes: b
   )
 }
 
-function SearchField({ value, onChange }: { value: string; onChange: (value: string) => void }) {
+function SearchField({ value, onChange, network }: { value: string; onChange: (value: string) => void; network?: boolean }) {
   const { t } = useTranslation()
   return (
     <div className="relative sm:max-w-xs">
       <Search className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" aria-hidden="true" />
       <Input
         type="search"
-        aria-label={t('running.search.label')}
-        placeholder={t('running.search.placeholder')}
+        aria-label={t(network ? 'running.network.search.label' : 'running.search.label')}
+        placeholder={t(network ? 'running.network.search.placeholder' : 'running.search.placeholder')}
         value={value}
         onChange={(e) => onChange(e.target.value)}
         className="h-9 rounded-xl border-0 bg-secondary/50 pl-9 text-base md:text-[13px]"
@@ -99,7 +100,7 @@ function matches(board: BoardModel, query: string): number {
   return board.sections.reduce((sum, s) => sum + tileCount(s, query), 0)
 }
 
-/** Board or canvas: two buttons, the one in use pressed. */
+/** Board, canvas or network: a button each, the one in use pressed. */
 function ViewSwitch({ view, onView }: { view: RunningView; onView: (view: RunningView) => void }) {
   const { t } = useTranslation()
   const option = (value: RunningView, label: string) => (
@@ -119,6 +120,7 @@ function ViewSwitch({ view, onView }: { view: RunningView; onView: (view: Runnin
     <div role="group" aria-label={t('running.view.label')} className="inline-flex rounded-xl bg-secondary p-0.5">
       {option('board', t('running.view.board'))}
       {option('canvas', t('running.view.canvas'))}
+      {option('network', t('running.view.network'))}
     </div>
   )
 }
@@ -191,6 +193,8 @@ function ClusterRunning() {
   const [query, setQuery] = useState('')
   const [folded, toggleFold] = useFolded()
   const [view, setView] = useRunningView()
+  // The network view's own reads are asked again only when the operator asks.
+  const [netRound, setNetRound] = useState(0)
   useVisibleInterval(refresh, REFRESH_MS)
 
   if (state.phase === 'standalone') {
@@ -225,6 +229,15 @@ function ClusterRunning() {
     if (!section) return
     section.scrollIntoView({ block: 'start' })
     section.querySelector<HTMLElement>('[data-node-toggle]')?.focus({ preventScroll: true })
+  }
+  if (view === 'network') {
+    return (
+      <Frame>
+        <BoardHeader board={board} level={2} subtitle={t('running.subtitleCluster')} onRefresh={() => { refresh(); setNetRound((r) => r + 1) }} view={view} onView={setView} />
+        <SearchField value={query} onChange={setQuery} network />
+        <NetworkView sections={board.sections} scope="cluster" localId={board.localId} query={query} round={netRound} level={3} onClearQuery={() => setQuery('')} />
+      </Frame>
+    )
   }
   if (view === 'canvas') {
     return (
@@ -267,6 +280,7 @@ function NodeRunning() {
   const { board, host, metrics, refresh } = useNodeBoard()
   const [query, setQuery] = useState('')
   const [view, setView] = useRunningView()
+  const [netRound, setNetRound] = useState(0)
   useVisibleInterval(refresh, REFRESH_MS)
   const section = board.sections[0]
   const noMatch = query.trim() !== '' && searchable(section) && matches(board, query) === 0
@@ -276,6 +290,15 @@ function NodeRunning() {
     () => [metrics ? { ...section, metrics: { cpu: metrics.cpu, memory: metrics.mem_percent, disk: metrics.disk_percent } } : section],
     [section, metrics],
   )
+  if (view === 'network') {
+    return (
+      <Frame>
+        <BoardHeader board={board} level={1} subtitle={subtitle} onRefresh={() => { refresh(); setNetRound((r) => r + 1) }} view={view} onView={setView} />
+        <SearchField value={query} onChange={setQuery} network />
+        <NetworkView sections={board.sections} scope="node" localId={board.localId} query={query} round={netRound} level={2} onClearQuery={() => setQuery('')} />
+      </Frame>
+    )
+  }
   if (view === 'canvas') {
     return (
       <Frame wide>

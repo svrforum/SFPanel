@@ -1,0 +1,110 @@
+/* The network map's connecting lines. The page cuts the cards into rows itself
+   (lib/netmap rowsOf), so every line's ends are known without measuring a
+   card: a trunk runs down the left of each block, a rail along the top of each
+   row, and a stub drops from the rail onto each card. */
+.nm {
+  --nm-ink: color-mix(in srgb, var(--muted-foreground) 45%, var(--card));
+  --nm-line: 2px;
+  /* The trunk to the cards' left edge. */
+  --nm-pad: 18px;
+  /* Between the cards of a row. */
+  --nm-gap: 10px;
+  /* A row's top to its cards, and to its rail. */
+  --nm-rise: 20px;
+  --nm-rail: 9px;
+  /* A card's left edge to the stub that lands on it. */
+  --nm-stub: 20px;
+}
+
+/* What the trunk hangs from: the gateway, under where the network leaves. */
+.nm-gateway {
+  position: relative;
+  padding-top: 14px;
+}
+.nm-gateway::before {
+  content: '';
+  position: absolute;
+  left: var(--nm-stub);
+  top: 0;
+  height: 14px;
+  border-left: var(--nm-line) solid var(--nm-ink);
+}
+
+.nm-rows {
+  margin-left: var(--nm-stub);
+  padding-left: var(--nm-pad);
+}
+
+/* Every block carries its own piece of the trunk, so the pieces join whatever
+   the blocks are; the last block is a row, and its piece stops at its rail. */
+.nm-block {
+  position: relative;
+}
+.nm-block::before {
+  content: '';
+  position: absolute;
+  left: calc(-1 * var(--nm-pad));
+  top: 0;
+  bottom: 0;
+  border-left: var(--nm-line) solid var(--nm-ink);
+}
+.nm-rows > .nm-block:last-child::before {
+  bottom: auto;
+  height: calc(var(--nm-rail) + var(--nm-line));
+}
+
+.nm-label {
+  padding-top: 14px;
+}
+.nm-label::after {
+  content: '';
+  position: absolute;
+  left: calc(-1 * var(--nm-pad) - 3px);
+  bottom: 4px;
+  width: 8px;
+  height: 8px;
+  border-radius: 9999px;
+  background: var(--nm-ink);
+}
+
+.nm-row {
+  display: grid;
+  grid-template-columns: repeat(var(--nm-cols, 1), minmax(0, 1fr));
+  column-gap: var(--nm-gap);
+  padding-top: var(--nm-rise);
+}
+
+.nm-cell {
+  position: relative;
+  min-width: 0;
+}
+/* The rail, from the stub before this one — or from the trunk — to this one. */
+.nm-cell::before {
+  content: '';
+  position: absolute;
+  top: calc(var(--nm-rail) - var(--nm-rise));
+  left: calc(-100% - var(--nm-gap) + var(--nm-stub));
+  width: calc(100% + var(--nm-gap) + var(--nm-line));
+  border-top: var(--nm-line) solid var(--nm-ink);
+}
+.nm-cell:first-child::before {
+  left: calc(-1 * var(--nm-pad));
+  width: calc(var(--nm-pad) + var(--nm-stub) + var(--nm-line));
+}
+.nm-cell::after {
+  content: '';
+  position: absolute;
+  left: var(--nm-stub);
+  top: calc(var(--nm-rail) - var(--nm-rise));
+  height: calc(var(--nm-rise) - var(--nm-rail));
+  border-left: var(--nm-line) solid var(--nm-ink);
+}
+
+/* A narrow screen: less room given to the lines. */
+@media (max-width: 480px) {
+  .nm {
+    --nm-pad: 12px;
+    --nm-stub: 14px;
+    --nm-gap: 8px;
+  }
+}

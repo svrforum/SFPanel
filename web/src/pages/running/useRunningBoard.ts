@@ -473,13 +473,14 @@ export function useFolded(): [ReadonlySet<string>, (id: string) => void] {
   return [folded, toggle]
 }
 
-export type RunningView = 'board' | 'canvas'
+export type RunningView = 'board' | 'canvas' | 'network'
 
-/** Board or canvas, kept across visits. The board unless the canvas was chosen: it is the form for a phone and a screen reader. */
+/** Board, canvas or network, kept across visits. The board unless another was chosen: it is the form for a phone and a screen reader. */
 export function useRunningView(): [RunningView, (view: RunningView) => void] {
   const [view, setView] = useState<RunningView>(() => {
     try {
-      return localStorage.getItem(VIEW_KEY) === 'canvas' ? 'canvas' : 'board'
+      const saved = localStorage.getItem(VIEW_KEY)
+      return saved === 'canvas' || saved === 'network' ? saved : 'board'
     } catch {
       return 'board'
     }
