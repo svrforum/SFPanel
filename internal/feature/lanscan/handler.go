@@ -293,7 +293,11 @@ func (h *Handler) runNmap(ctx context.Context, cidr string, ports bool) ([]byte,
 	if err != nil {
 		return nil, fmt.Errorf("make a directory for the output: %w", err)
 	}
-	defer os.RemoveAll(dir)
+	defer func() {
+		if err := os.RemoveAll(dir); err != nil {
+			slog.Warn("scan output not removed", "component", "lanscan", "dir", dir, "error", err)
+		}
+	}()
 	file := filepath.Join(dir, "scan.xml")
 	out, err := h.Cmd.RunCtx(ctx, "nmap", nmapArgs(cidr, ports, file)...)
 	if err != nil {
