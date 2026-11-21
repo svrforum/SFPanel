@@ -257,6 +257,16 @@ var migrations = []migration{
 		value      TEXT NOT NULL,
 		updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
 	)`},
+	// The last successful LAN scan of each network, by its CIDR
+	// (feature/lanscan): result is the JSON of lanscan.Result, finished_at
+	// when it ended, RFC 3339 UTC. A scan that failed, timed out or was
+	// cancelled writes nothing, so the earlier result stays. Per node, never
+	// replicated.
+	{ID: 42, Up: `CREATE TABLE IF NOT EXISTS lan_scans (
+		network     TEXT PRIMARY KEY,
+		result      TEXT NOT NULL,
+		finished_at TEXT NOT NULL
+	)`},
 }
 
 // RunMigrations applies every registered migration that hasn't already been

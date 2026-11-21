@@ -328,6 +328,14 @@ const (
 	// host whose network the panel does not write: anything but netplan,
 	// and on Proxmox VE the bridges every guest hangs off. Details: stack.
 	ErrNetworkReadOnly = "NETWORK_READ_ONLY"
+
+	// ErrLanScanInProgress is returned (HTTP 409) for POST /network/scan
+	// while this node is running a scan: a node runs one at a time.
+	ErrLanScanInProgress = "LAN_SCAN_IN_PROGRESS"
+	// ErrLanScanNetworkNotAllowed is returned (HTTP 400) for POST
+	// /network/scan naming anything but, character for character, a network
+	// GET /network/scan lists as scannable on this node. Nothing is run.
+	ErrLanScanNetworkNotAllowed = "LAN_SCAN_NETWORK_NOT_ALLOWED"
 )
 
 // WireGuard error codes

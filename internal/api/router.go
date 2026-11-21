@@ -35,6 +35,7 @@ import (
 	featureDocker "github.com/svrforum/SFPanel/internal/feature/docker"
 	featureFiles "github.com/svrforum/SFPanel/internal/feature/files"
 	featureFirewall "github.com/svrforum/SFPanel/internal/feature/firewall"
+	featureLanScan "github.com/svrforum/SFPanel/internal/feature/lanscan"
 	featureLogs "github.com/svrforum/SFPanel/internal/feature/logs"
 	featureMonitor "github.com/svrforum/SFPanel/internal/feature/monitor"
 	featureNetwork "github.com/svrforum/SFPanel/internal/feature/network"
@@ -620,6 +621,11 @@ func NewRouter(database *sql.DB, auditWriter *sfdb.AsyncWriter, alertManager *fe
 	net.GET("/bonds", networkHandler.ListBonds)
 	net.POST("/bonds", networkHandler.CreateBond)
 	net.DELETE("/bonds/:name", networkHandler.DeleteBond)
+	// LAN scan with nmap: per node, the scan runs on after POST answers.
+	lanScanHandler := &featureLanScan.Handler{DB: database, Cmd: cmd}
+	net.GET("/scan", lanScanHandler.GetScan)
+	net.POST("/scan", lanScanHandler.StartScan)
+	net.DELETE("/scan", lanScanHandler.CancelScan)
 
 	// WireGuard VPN
 	wireguardHandler := &featureNetwork.WireGuardHandler{Cmd: cmd}
