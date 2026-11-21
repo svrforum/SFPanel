@@ -67,6 +67,20 @@ func TestNetworks_Rules(t *testing.T) {
 					{Name: "lxcbr0", Flags: lanFlags, MAC: mac(t, "02:42:ac:13:00:02"), Addrs: prefixes(t, "10.0.3.1/24")},
 					{Name: "lxdbr0", Flags: lanFlags, MAC: mac(t, "02:42:ac:13:00:03"), Addrs: prefixes(t, "10.10.10.1/24")}}
 			}, eth0Route, []Network{lan}},
+		{"Podman's, Kubernetes', Incus's and desktop hypervisors' bridges are left out",
+			func(t *testing.T) []Interface {
+				return []Interface{eth0(t),
+					{Name: "podman0", Flags: lanFlags, MAC: mac(t, "02:42:ac:13:00:04"), Addrs: prefixes(t, "10.88.0.1/16")},
+					{Name: "cni0", Flags: lanFlags, MAC: mac(t, "02:42:ac:13:00:05"), Addrs: prefixes(t, "10.42.0.1/24")},
+					{Name: "flannel.1", Flags: lanFlags, MAC: mac(t, "02:42:ac:13:00:06"), Addrs: prefixes(t, "10.42.1.0/24")},
+					{Name: "incusbr0", Flags: lanFlags, MAC: mac(t, "02:42:ac:13:00:07"), Addrs: prefixes(t, "10.11.12.1/24")},
+					{Name: "vboxnet0", Flags: lanFlags, MAC: mac(t, "02:42:ac:13:00:08"), Addrs: prefixes(t, "192.168.56.1/24")},
+					{Name: "vmnet8", Flags: lanFlags, MAC: mac(t, "02:42:ac:13:00:09"), Addrs: prefixes(t, "172.16.80.1/24")}}
+			}, eth0Route, []Network{lan}},
+		{"ZeroTier's overlay is left out: its other members are not on this LAN",
+			func(t *testing.T) []Interface {
+				return []Interface{eth0(t), {Name: "ztabcdef0123", Flags: lanFlags, MAC: mac(t, "02:42:ac:13:00:0a"), Addrs: prefixes(t, "10.147.17.5/24")}}
+			}, eth0Route, []Network{lan}},
 		{"a public address is left out",
 			func(t *testing.T) []Interface {
 				i := eth0(t)

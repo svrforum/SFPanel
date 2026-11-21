@@ -50,12 +50,24 @@ const (
 	reasonTooLarge = "too_large"
 )
 
-// excludedNamePrefixes are interfaces that are bridges this host made for
-// its own containers and virtual machines, not a LAN: Docker's docker0 and
-// br-<id>, the veth pair of every container, libvirt's virbr, LXC's and
-// LXD's bridges. Proxmox VE's vmbr0 is not among them: it is the bridge the
-// host itself is on the LAN through.
-var excludedNamePrefixes = []string{"docker", "br-", "veth", "virbr", "lxcbr", "lxdbr"}
+// excludedNamePrefixes are interfaces that are not a LAN though they look
+// like one (up, broadcast, a MAC, a private address):
+//   - the bridges this host made for its own containers and virtual
+//     machines — Docker's docker0 and br-<id> and the veth pair of every
+//     container, Podman's, Kubernetes' cni and flannel, libvirt's virbr,
+//     LXC's, LXD's and Incus's bridges, VirtualBox's and VMware's host-only
+//     networks. What is behind them is this host's own guests, which the
+//     panel already lists.
+//   - ZeroTier's zt<id>: an Ethernet-like overlay whose other members are
+//     machines somewhere on the internet, not devices on this LAN.
+//
+// Proxmox VE's vmbr0 is not among them: it is the bridge the host itself is
+// on the LAN through.
+var excludedNamePrefixes = []string{
+	"docker", "br-", "veth", "podman", "cni", "flannel",
+	"virbr", "lxcbr", "lxdbr", "incusbr", "vboxnet", "vmnet",
+	"zt",
+}
 
 // networks lists the networks a scan may be asked for, in interface order:
 // the private (RFC 1918) IPv4 networks of interfaces that are up, broadcast

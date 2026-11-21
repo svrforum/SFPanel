@@ -112,7 +112,8 @@ func TestParseScan_Ports(t *testing.T) {
 }
 
 // A host the port scan gave up on (--host-timeout) is written with
-// timedout="true" and no <ports> (nmap.dtd). The captures have none.
+// timedout="true", still up, and with no <ports> at all: nmap 7.98 was made
+// to give up on a host to see it. The LAN captures have none.
 func TestParseScan_TimedOutHost(t *testing.T) {
 	doc := `<?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE nmaprun>
