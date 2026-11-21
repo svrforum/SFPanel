@@ -1,0 +1,214 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE nmaprun>
+<?xml-stylesheet href="file:///usr/bin/../share/nmap/nmap.xsl" type="text/xsl"?>
+<!-- Nmap 7.98 scan initiated Sun Nov 22 02:11:31 2026 as: nmap -sn -oX scan.xml 10.20.30.0/24 -->
+<nmaprun scanner="nmap" args="nmap -sn -oX scan.xml 10.20.30.0/24" start="1795281091" startstr="Sun Nov 22 02:11:31 2026" version="7.98" xmloutputversion="1.05">
+<verbose level="0"/>
+<debugging level="0"/>
+<host><status state="up" reason="arp-response" reason_ttl="0"/>
+<address addr="10.20.30.1" addrtype="ipv4"/>
+<address addr="02:42:AC:14:1E:01" addrtype="mac" vendor="Example Electronics"/>
+<hostnames>
+<hostname name="router.lan" type="PTR"/>
+</hostnames>
+<times srtt="913" rttvar="5000" to="100000"/>
+</host>
+<host><status state="up" reason="arp-response" reason_ttl="0"/>
+<address addr="10.20.30.10" addrtype="ipv4"/>
+<address addr="02:42:AC:14:1E:0A" addrtype="mac" vendor="Proxmox Server Solutions GmbH"/>
+<hostnames>
+</hostnames>
+<times srtt="847" rttvar="3767" to="100000"/>
+</host>
+<host><status state="up" reason="arp-response" reason_ttl="0"/>
+<address addr="10.20.30.11" addrtype="ipv4"/>
+<address addr="02:42:AC:14:1E:0B" addrtype="mac" vendor="Proxmox Server Solutions GmbH"/>
+<hostnames>
+</hostnames>
+<times srtt="1388" rttvar="5000" to="100000"/>
+</host>
+<host><status state="up" reason="arp-response" reason_ttl="0"/>
+<address addr="10.20.30.12" addrtype="ipv4"/>
+<address addr="02:42:AC:14:1E:0C" addrtype="mac" vendor="Example Electronics"/>
+<hostnames>
+</hostnames>
+<times srtt="718" rttvar="5000" to="100000"/>
+</host>
+<host><status state="up" reason="arp-response" reason_ttl="0"/>
+<address addr="10.20.30.13" addrtype="ipv4"/>
+<address addr="02:42:AC:14:1E:0D" addrtype="mac" vendor="Raspberry Pi Trading"/>
+<hostnames>
+<hostname name="host-13.lan" type="PTR"/>
+</hostnames>
+<times srtt="685" rttvar="5000" to="100000"/>
+</host>
+<host><status state="up" reason="arp-response" reason_ttl="0"/>
+<address addr="10.20.30.14" addrtype="ipv4"/>
+<address addr="02:42:AC:14:1E:0E" addrtype="mac" vendor="Proxmox Server Solutions GmbH"/>
+<hostnames>
+</hostnames>
+<times srtt="669" rttvar="5000" to="100000"/>
+</host>
+<host><status state="up" reason="arp-response" reason_ttl="0"/>
+<address addr="10.20.30.15" addrtype="ipv4"/>
+<address addr="02:42:AC:14:1E:0F" addrtype="mac" vendor="Proxmox Server Solutions GmbH"/>
+<hostnames>
+<hostname name="host-15.lan" type="PTR"/>
+</hostnames>
+<times srtt="780" rttvar="5000" to="100000"/>
+</host>
+<host><status state="up" reason="arp-response" reason_ttl="0"/>
+<address addr="10.20.30.16" addrtype="ipv4"/>
+<address addr="02:42:AC:14:1E:10" addrtype="mac" vendor="Espressif"/>
+<hostnames>
+<hostname name="host-16.lan" type="PTR"/>
+</hostnames>
+<times srtt="29923" rttvar="29923" to="149615"/>
+</host>
+<host><status state="up" reason="arp-response" reason_ttl="0"/>
+<address addr="10.20.30.17" addrtype="ipv4"/>
+<address addr="02:42:AC:14:1E:11" addrtype="mac" vendor="Example Electronics"/>
+<hostnames>
+</hostnames>
+<times srtt="34012" rttvar="34012" to="170060"/>
+</host>
+<host><status state="up" reason="arp-response" reason_ttl="0"/>
+<address addr="10.20.30.18" addrtype="ipv4"/>
+<address addr="02:42:AC:14:1E:12" addrtype="mac"/>
+<hostnames>
+</hostnames>
+<times srtt="28660" rttvar="28660" to="143300"/>
+</host>
+<host><status state="up" reason="arp-response" reason_ttl="0"/>
+<address addr="10.20.30.19" addrtype="ipv4"/>
+<address addr="02:42:AC:14:1E:13" addrtype="mac" vendor="Proxmox Server Solutions GmbH"/>
+<hostnames>
+<hostname name="host-19.lan" type="PTR"/>
+</hostnames>
+<times srtt="890" rttvar="5000" to="100000"/>
+</host>
+<host><status state="up" reason="arp-response" reason_ttl="0"/>
+<address addr="10.20.30.20" addrtype="ipv4"/>
+<address addr="02:42:AC:14:1E:14" addrtype="mac" vendor="Proxmox Server Solutions GmbH"/>
+<hostnames>
+<hostname name="host-20.lan" type="PTR"/>
+</hostnames>
+<times srtt="868" rttvar="5000" to="100000"/>
+</host>
+<host><status state="up" reason="arp-response" reason_ttl="0"/>
+<address addr="10.20.30.21" addrtype="ipv4"/>
+<address addr="02:42:AC:14:1E:15" addrtype="mac" vendor="Example Electronics"/>
+<hostnames>
+<hostname name="host-21.lan" type="PTR"/>
+</hostnames>
+<times srtt="36663" rttvar="36663" to="183315"/>
+</host>
+<host><status state="up" reason="arp-response" reason_ttl="0"/>
+<address addr="10.20.30.22" addrtype="ipv4"/>
+<address addr="02:42:AC:14:1E:16" addrtype="mac" vendor="Example Electronics"/>
+<hostnames>
+<hostname name="host-22.lan" type="PTR"/>
+</hostnames>
+<times srtt="41174" rttvar="41174" to="205870"/>
+</host>
+<host><status state="up" reason="arp-response" reason_ttl="0"/>
+<address addr="10.20.30.23" addrtype="ipv4"/>
+<address addr="02:42:AC:14:1E:17" addrtype="mac"/>
+<hostnames>
+<hostname name="host-23.lan" type="PTR"/>
+</hostnames>
+<times srtt="35820" rttvar="35820" to="179100"/>
+</host>
+<host><status state="up" reason="arp-response" reason_ttl="0"/>
+<address addr="10.20.30.24" addrtype="ipv4"/>
+<address addr="02:42:AC:14:1E:18" addrtype="mac" vendor="Example Electronics"/>
+<hostnames>
+<hostname name="host-24.lan" type="PTR"/>
+</hostnames>
+<times srtt="39007" rttvar="39007" to="195035"/>
+</host>
+<host><status state="up" reason="arp-response" reason_ttl="0"/>
+<address addr="10.20.30.26" addrtype="ipv4"/>
+<address addr="02:42:AC:14:1E:1A" addrtype="mac"/>
+<hostnames>
+<hostname name="host-26.lan" type="PTR"/>
+</hostnames>
+<times srtt="29331" rttvar="29331" to="146655"/>
+</host>
+<host><status state="up" reason="arp-response" reason_ttl="0"/>
+<address addr="10.20.30.27" addrtype="ipv4"/>
+<address addr="02:42:AC:14:1E:1B" addrtype="mac" vendor="Proxmox Server Solutions GmbH"/>
+<hostnames>
+</hostnames>
+<times srtt="656" rttvar="5000" to="100000"/>
+</host>
+<host><status state="up" reason="arp-response" reason_ttl="0"/>
+<address addr="10.20.30.28" addrtype="ipv4"/>
+<address addr="02:42:AC:14:1E:1C" addrtype="mac" vendor="Proxmox Server Solutions GmbH"/>
+<hostnames>
+</hostnames>
+<times srtt="653" rttvar="5000" to="100000"/>
+</host>
+<host><status state="up" reason="arp-response" reason_ttl="0"/>
+<address addr="10.20.30.29" addrtype="ipv4"/>
+<address addr="02:42:AC:14:1E:1D" addrtype="mac" vendor="Proxmox Server Solutions GmbH"/>
+<hostnames>
+</hostnames>
+<times srtt="700" rttvar="5000" to="100000"/>
+</host>
+<host><status state="up" reason="arp-response" reason_ttl="0"/>
+<address addr="10.20.30.30" addrtype="ipv4"/>
+<address addr="02:42:AC:14:1E:1E" addrtype="mac" vendor="Proxmox Server Solutions GmbH"/>
+<hostnames>
+<hostname name="host-30.lan" type="PTR"/>
+</hostnames>
+<times srtt="685" rttvar="5000" to="100000"/>
+</host>
+<host><status state="up" reason="arp-response" reason_ttl="0"/>
+<address addr="10.20.30.31" addrtype="ipv4"/>
+<address addr="02:42:AC:14:1E:1F" addrtype="mac"/>
+<hostnames>
+<hostname name="host-31.lan" type="PTR"/>
+</hostnames>
+<times srtt="43861" rttvar="43861" to="219305"/>
+</host>
+<host><status state="up" reason="arp-response" reason_ttl="0"/>
+<address addr="10.20.30.32" addrtype="ipv4"/>
+<address addr="02:42:AC:14:1E:20" addrtype="mac"/>
+<hostnames>
+<hostname name="host-32.lan" type="PTR"/>
+</hostnames>
+<times srtt="29980" rttvar="29980" to="149900"/>
+</host>
+<host><status state="up" reason="arp-response" reason_ttl="0"/>
+<address addr="10.20.30.33" addrtype="ipv4"/>
+<address addr="02:42:AC:14:1E:21" addrtype="mac" vendor="Proxmox Server Solutions GmbH"/>
+<hostnames>
+</hostnames>
+<times srtt="660" rttvar="5000" to="100000"/>
+</host>
+<host><status state="up" reason="arp-response" reason_ttl="0"/>
+<address addr="10.20.30.34" addrtype="ipv4"/>
+<address addr="02:42:AC:14:1E:22" addrtype="mac"/>
+<hostnames>
+<hostname name="host-34.lan" type="PTR"/>
+</hostnames>
+<times srtt="102336" rttvar="102336" to="511680"/>
+</host>
+<host><status state="up" reason="arp-response" reason_ttl="0"/>
+<address addr="10.20.30.35" addrtype="ipv4"/>
+<address addr="02:42:AC:14:1E:23" addrtype="mac" vendor="Example Electronics"/>
+<hostnames>
+<hostname name="host-35.lan" type="PTR"/>
+</hostnames>
+<times srtt="83021" rttvar="68389" to="356577"/>
+</host>
+<host><status state="up" reason="localhost-response" reason_ttl="0"/>
+<address addr="10.20.30.25" addrtype="ipv4"/>
+<hostnames>
+<hostname name="host-25.lan" type="PTR"/>
+</hostnames>
+</host>
+<runstats><finished time="1795281098" timestr="Sun Nov 22 02:11:38 2026" summary="Nmap done at Sun Nov 22 02:11:38 2026; 256 IP addresses (27 hosts up) scanned in 7.01 seconds" elapsed="7.01" exit="success"/><hosts up="27" down="229" total="256"/>
+</runstats>
+</nmaprun>
