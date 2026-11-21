@@ -19,8 +19,10 @@ const CLAMP: Record<number, string> = { 1: 'line-clamp-1', 2: 'line-clamp-2' }
 // A tile is a link or plain text, never a place to drag the box from or pan
 // the canvas from: nodrag and nopan are the library's names for that.
 const tileClass = 'nodrag nopan relative flex items-start justify-between gap-2 rounded-lg border-solid border-border bg-background'
+// The state word at the height the rows are sized for: the pill's own line is taller.
+const pillClass = 'shrink-0 leading-4'
 const tileAttention = 'border-destructive/40 bg-destructive/5'
-const nameClass = 'min-w-0 break-words text-[13px] font-semibold leading-[18px]'
+const nameClass = 'min-w-0 break-words text-[14px] font-semibold leading-5'
 const linkClass = 'outline-none hover:underline after:absolute after:inset-0 after:rounded-lg focus-visible:after:ring-2 focus-visible:after:ring-ring'
 
 function Tile({ row, nodeId, scope, localId, linked }: {
@@ -33,7 +35,7 @@ function Tile({ row, nodeId, scope, localId, linked }: {
   const { t } = useTranslation()
   const { item } = row
   const lines = nameLines(row.name, CANVAS.tileNameChars)
-  const style = { height: rowHeight(row), padding: CANVAS.tilePadding, borderWidth: CANVAS.tileBorder }
+  const style = { height: rowHeight(row), padding: `${CANVAS.tilePadding}px ${CANVAS.tileInset}px`, borderWidth: CANVAS.tileBorder }
   const name = cn(nameClass, CLAMP[lines])
 
   if (item.type === 'guest') {
@@ -41,7 +43,7 @@ function Tile({ row, nodeId, scope, localId, linked }: {
     return (
       <li className={tileClass} style={style}>
         <p className={name} title={row.name}>{row.name}</p>
-        <StatusPill tone={word.tone} className="shrink-0">{word.text}</StatusPill>
+        <StatusPill tone={word.tone} className={pillClass}>{word.text}</StatusPill>
         {linked && <Handle type="source" position={Position.Right} id={row.key} isConnectable={false} />}
       </li>
     )
@@ -52,7 +54,7 @@ function Tile({ row, nodeId, scope, localId, linked }: {
   return (
     <li className={cn(tileClass, attention && tileAttention)} style={style}>
       <NodeLink target={target} nodeId={nodeId} localId={localId} className={cn(name, linkClass)} title={row.name}>{row.name}</NodeLink>
-      <StatusPill tone={word.tone} className="shrink-0">{word.text}</StatusPill>
+      <StatusPill tone={word.tone} className={pillClass}>{word.text}</StatusPill>
       {/* The board says what is wrong in a list above it; here the tile has
           to, and not by its red edge alone: a mark on its corner, and the
           words for whoever does not see it. It takes no room from the name. */}
@@ -124,7 +126,7 @@ function ServerBoxView({ data }: NodeProps<ServerNode>) {
       {/* The edge of the host this server is a guest of comes down into the top of the box. */}
       <Handle type="target" position={Position.Top} id="in" isConnectable={false} style={{ left: CANVAS.anchorX }} />
       <div style={{ height: lines * CANVAS.nameLineHeight }}>
-        <Heading level={level} className={cn('break-words text-[15px] font-semibold leading-5', CLAMP[lines])}>
+        <Heading level={level} className={cn('break-words text-[17px] font-semibold leading-[22px]', CLAMP[lines])}>
           <span title={node.name}>{node.name}</span>
         </Heading>
       </div>

@@ -3,31 +3,39 @@
 // canvas draws them with, so the first layout needs no measuring and the
 // layout and the drawing cannot drift apart. Pinned by runningLayout.test.ts.
 
-/** Sizes in CSS pixels at zoom 1. The canvas draws every row at exactly these heights. */
+/**
+ * Sizes in CSS pixels at zoom 1. The canvas draws every row at exactly these
+ * heights. They are kept tight: the whole layout is fitted to the screen, so
+ * every pixel a row or a gap does not need is taken from the size of the
+ * letters. A real cluster drawn at the first, roomier sizes came out at 61 %,
+ * its tile names 8 pixels high.
+ */
 export const CANVAS = {
   boxWidth: 288,
   /** Borders are drawn inside the sizes here (border-box), so they are counted in them. */
   boxBorder: 1,
   boxPadding: 12,
   /** The header: the name (one or two lines), then a row for kind and state, and one for the meters. */
-  nameLineHeight: 20,
-  headerRowHeight: 24,
+  nameLineHeight: 22,
+  headerRowHeight: 22,
   /** Between the header and the first row. */
-  headerGap: 8,
+  headerGap: 6,
   /** A group's title ("스택 4"). */
-  titleHeight: 22,
+  titleHeight: 20,
   /** A tile: its name (one or two lines) beside its state word. */
-  tileLineHeight: 18,
+  tileLineHeight: 20,
   tileBorder: 1,
-  tilePadding: 8,
-  pillHeight: 22,
+  /** Above and below; a tile's sides have tileInset. */
+  tilePadding: 4,
+  tileInset: 8,
+  pillHeight: 20,
   /** A line that says why a box has no tiles: two lines of text. */
   noteHeight: 36,
-  rowGap: 6,
-  columnGap: 120,
-  boxGap: 32,
+  rowGap: 4,
+  columnGap: 88,
+  boxGap: 20,
   /** Between one host's block (the host and its guests' servers) and the next. */
-  blockGap: 48,
+  blockGap: 36,
   /** Where an edge comes into a server's box: on its top edge, this far from its left. */
   anchorX: 28,
   /** An edge leaves its tile, turns into a channel this far past the host's box (each edge a step further), */

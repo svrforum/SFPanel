@@ -18,6 +18,8 @@ import { nodeSectionId, type Scope } from './running/targets'
 import { useClusterBoard, useFolded, useNodeBoard, useRunningView, type BoardModel, type BoardSection, type RunningView } from './running/useRunningBoard'
 
 // The canvas and its library are fetched only once the canvas is chosen.
+import { CANVAS_AREA } from './running/canvasArea'
+
 const RunningCanvas = lazy(() => import('./running/canvas/RunningCanvas'))
 
 const REFRESH_MS = 15_000
@@ -133,7 +135,7 @@ function Canvas({ sections, scope, localId, query, storageKey, level }: {
   const { t } = useTranslation()
   return (
     <Suspense fallback={(
-      <div className="flex h-[70dvh] min-h-80 items-center justify-center rounded-2xl bg-card card-shadow">
+      <div className={cn(CANVAS_AREA, 'flex items-center justify-center rounded-2xl bg-card card-shadow')}>
         <p role="status" className="text-[13px] text-muted-foreground">{t('running.canvas.loading')}</p>
       </div>
     )}
@@ -174,8 +176,13 @@ function BoardHeader({ board, level, subtitle, onRefresh, view, onView }: {
   )
 }
 
-function Frame({ children }: { children: ReactNode }) {
-  return <div className="mx-auto max-w-[1400px] space-y-4">{children}</div>
+/**
+ * The page's column. The board reads best at a column's width; the canvas is
+ * fitted to its area, so it takes all the width there is — every pixel it is
+ * given is a larger letter.
+ */
+function Frame({ wide, children }: { wide?: boolean; children: ReactNode }) {
+  return <div className={cn('mx-auto space-y-4', !wide && 'max-w-[1400px]')}>{children}</div>
 }
 
 function ClusterRunning() {
@@ -221,7 +228,7 @@ function ClusterRunning() {
   }
   if (view === 'canvas') {
     return (
-      <Frame>
+      <Frame wide>
         <BoardHeader board={board} level={2} subtitle={t('running.subtitleCluster')} onRefresh={refresh} view={view} onView={setView} />
         <SearchField value={query} onChange={setQuery} />
         {noMatch && <NoMatch query={query} onClear={() => setQuery('')} />}
@@ -271,7 +278,7 @@ function NodeRunning() {
   )
   if (view === 'canvas') {
     return (
-      <Frame>
+      <Frame wide>
         <BoardHeader board={board} level={1} subtitle={subtitle} onRefresh={refresh} view={view} onView={setView} />
         <SearchField value={query} onChange={setQuery} />
         {noMatch && <NoMatch query={query} onClear={() => setQuery('')} />}

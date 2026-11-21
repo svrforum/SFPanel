@@ -4540,6 +4540,8 @@
       "zoomOut": "축소",
       "fitView": "화면에 맞추기",
       "arrange": "자동 정렬",
+      "expand": "크게 보기",
+      "restore": "원래 크기로",
       "box": "서버",
       "edge": "{{host}}의 {{kind}} {{guest}} → {{node}}",
       "edgeRole": "연결",

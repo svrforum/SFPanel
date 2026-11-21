@@ -76,8 +76,23 @@ describe('box sizes', () => {
   // The numbers the drawing is built on today, so a change to them is a
   // change someone meant.
   it('pins the sizes as they are drawn', () => {
-    expect(boxHeight(box('alpha'))).toBe(94)
-    expect(boxHeight(box('alpha', [title('stacks'), tile('media'), tile('photos')]))).toBe(216)
+    expect(boxHeight(box('alpha'))).toBe(92)
+    expect(boxHeight(box('alpha', [title('stacks'), tile('media'), tile('photos')]))).toBe(186)
+  })
+
+  // A box is as tall as what it lists, and the tallest box sets how small
+  // the whole canvas is drawn: twenty stacks at 46 pixels each put a real
+  // cluster's letters at 8 pixels. A row is the height of its state word and
+  // little more.
+  it('keeps a row close to the height of its text', () => {
+    expect(rowHeight(tile('a'))).toBeLessThanOrEqual(30)
+    expect(rowHeight(tile('a')) + CANVAS.rowGap).toBeLessThanOrEqual(34)
+    // Twenty stacks and their title, in a box with its header.
+    expect(boxHeight(box('n', [title('stacks'), ...tiles('s', 20)]))).toBeLessThanOrEqual(800)
+  })
+
+  it('leaves the channels beside a host room for eight edges at a full step each', () => {
+    expect(CANVAS.columnGap).toBeGreaterThanOrEqual(2 * CANVAS.channelBase + 7 * CANVAS.channelStep)
   })
 
   it('tells where a row starts in its box', () => {

@@ -15,8 +15,11 @@ import {
   type NodeChange,
   type OnNodeDrag,
 } from '@xyflow/react'
+import { Maximize2, Minimize2 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { CANVAS, boxHeight, keepPositions, layoutBoxes, linkKey, readPositions, type Positions } from '@/lib/runningLayout'
+import { cn } from '@/lib/utils'
+import { CANVAS_AREA } from '../canvasArea'
 import type { HeadingLevel } from '../Heading'
 import type { Scope } from '../targets'
 import type { BoardSection } from '../useRunningBoard'
@@ -27,7 +30,8 @@ import { ServerBox } from './ServerBox'
 const nodeTypes = { server: ServerBox }
 const edgeTypes = { guest: GuestEdgeView }
 
-const FIT = { padding: 0.12, maxZoom: 1 }
+// Air enough to clear the buttons in the corners; the rest of the area is for the boxes.
+const FIT = { padding: 0.08, maxZoom: 1 }
 
 // The app's theme is the class on <html>; theme.ts announces every change of
 // it, the operator's and the system's alike.
@@ -67,12 +71,15 @@ function shapeOf(el: HTMLElement | null): number {
   return el && el.clientHeight > 0 ? el.clientWidth / el.clientHeight : 0
 }
 
-/** "자동 정렬": forgets where the boxes were moved to, and fits the computed layout to the view. */
-function ArrangePanel({ onArrange, duration }: { onArrange: () => void; duration: number }) {
+/**
+ * "자동 정렬" forgets where the boxes were moved to and fits the computed
+ * layout to the view. "크게 보기" gives the canvas the whole window.
+ */
+function ArrangePanel({ onArrange, duration, expanded, onExpand }: { onArrange: () => void; duration: number; expanded: boolean; onExpand: () => void }) {
   const { t } = useTranslation()
   const { fitView } = useReactFlow()
   return (
-    <Panel position="top-right">
+    <Panel position="top-right" className="flex gap-2">
       <Button
         variant="outline"
         size="sm"
@@ -84,8 +91,36 @@ function ArrangePanel({ onArrange, duration }: { onArrange: () => void; duration
       >
         {t('running.canvas.arrange')}
       </Button>
+      <Button variant="outline" size="sm" className="rounded-xl bg-card" onClick={onExpand}>
+        {expanded ? <Minimize2 aria-hidden="true" /> : <Maximize2 aria-hidden="true" />}
+        {t(expanded ? 'running.canvas.restore' : 'running.canvas.expand')}
+      </Button>
     </Panel>
   )
+}
+
+/**
+ * While the canvas has the whole window, nothing else on the page can be
+ * reached: it is behind the canvas, and a Tab into it would be a Tab into
+ * what cannot be seen. Everything beside the canvas and beside each of its
+ * ancestors is made inert, and given back afterwards.
+ */
+function useOnlyThis(el: { current: HTMLElement | null }, active: boolean) {
+  useEffect(() => {
+    if (!active || !el.current) return
+    const made: HTMLElement[] = []
+    for (let node: HTMLElement | null = el.current; node && node !== document.body; node = node.parentElement) {
+      for (const sibling of Array.from(node.parentElement?.children ?? [])) {
+        if (sibling !== node && sibling instanceof HTMLElement && !sibling.inert) {
+          sibling.inert = true
+          made.push(sibling)
+        }
+      }
+    }
+    return () => {
+      for (const sibling of made) sibling.inert = false
+    }
+  }, [el, active])
 }
 
 interface CanvasProps {
@@ -134,7 +169,12 @@ function Flow({ sections, scope, localId, query, storageKey, level }: CanvasProp
   // the window is being resized, when boxes would jump under the pointer.
   const frame = useRef<HTMLDivElement>(null)
   const [shape, setShape] = useState<number | null>(null)
-  useLayoutEffect(() => setShape(shapeOf(frame.current)), [])
+  // The whole window, on request: the canvas is fitted to its area, and on
+  // a cluster of any size the page's own share of the screen leaves the
+  // letters small.
+  const [expanded, setExpanded] = useState(false)
+  useLayoutEffect(() => setShape(shapeOf(frame.current)), [expanded])
+  useOnlyThis(frame, expanded)
   const computed = useMemo(
     () => layoutBoxes(sections.map((s) => layoutBox(s, full.get(s.node.id)!)), guestLinks(sections, full), shape ?? 0),
     [sections, full, shape],
@@ -229,8 +269,11 @@ function Flow({ sections, scope, localId, query, storageKey, level }: CanvasProp
   }, [computed, saved])
   useEffect(() => {
     if (shape === null || held.current) return
-    void fitView(FIT)
-  }, [extent, shape, fitView])
+    // A frame later: when the area itself has just changed size, the
+    // library learns its new size in this one.
+    const frameId = requestAnimationFrame(() => void fitView(FIT))
+    return () => cancelAnimationFrame(frameId)
+  }, [extent, shape, expanded, fitView])
   const onNodesChange = useCallback((changes: NodeChange<ServerNode>[]) => setNodes((prev) => applyNodeChanges(changes, prev)), [])
 
   const onNodeDragStop = useCallback<OnNodeDrag<ServerNode>>((_event, node) => {
@@ -246,6 +289,12 @@ function Flow({ sections, scope, localId, query, storageKey, level }: CanvasProp
     writeStored(storageKey, null)
     setShape(shapeOf(frame.current))
   }, [storageKey])
+
+  // Either way the view is fitted to the new area: asking for another size is asking to see it all.
+  const toggleExpanded = useCallback(() => {
+    held.current = false
+    setExpanded((was) => !was)
+  }, [])
 
   const names = useMemo(() => new Map(sections.map((s) => [s.node.id, s.node.name])), [sections])
   const edges = useMemo<GuestEdge[]>(() => links.map((l) => ({
@@ -296,7 +345,14 @@ function Flow({ sections, scope, localId, query, storageKey, level }: CanvasProp
   }, [getViewport, setViewport, duration])
 
   return (
-    <div ref={frame} className="running-canvas h-[70dvh] min-h-80 w-full overflow-hidden rounded-2xl card-shadow" onFocus={onFocus}>
+    <div
+      ref={frame}
+      className={cn('running-canvas overflow-hidden', expanded ? 'fixed inset-0 z-50 bg-background' : cn(CANVAS_AREA, 'rounded-2xl card-shadow'))}
+      onFocus={onFocus}
+      onKeyDown={(e) => {
+        if (expanded && e.key === 'Escape') toggleExpanded()
+      }}
+    >
       {/* Not before the area's shape is known: the first view is fitted to the layout made for it. */}
       {shape !== null && <ReactFlow<ServerNode, GuestEdge>
         aria-label={t('running.canvas.label')}
@@ -338,7 +394,7 @@ function Flow({ sections, scope, localId, query, storageKey, level }: CanvasProp
           onZoomOut={() => { held.current = true }}
           onFitView={() => { held.current = false }}
         />
-        <ArrangePanel onArrange={arrange} duration={duration} />
+        <ArrangePanel onArrange={arrange} duration={duration} expanded={expanded} onExpand={toggleExpanded} />
         <Panel position="bottom-right" className="!m-2">
           <a
             href="https://reactflow.dev"

@@ -656,6 +656,45 @@ test.describe('canvas', () => {
     expect(await viewportOf(page)).toBe(zoomed)
   })
 
+  // The canvas is fitted to its area, so its letters are as large as the
+  // area allows. On the page it has what the page leaves it; expanded, the
+  // whole window.
+  test('expanded, the canvas has the whole window to itself, and Escape gives it back', async ({ page }) => {
+    await mock(page, { pve: true })
+    await page.goto('/cluster/running')
+    await chooseCanvas(page)
+    await expect(box(page, 'pve-host')).toBeVisible()
+    const rect = async () => {
+      const b = (await canvas(page).boundingBox())!
+      return [Math.round(b.x), Math.round(b.y), Math.round(b.width), Math.round(b.height)]
+    }
+    const onPage = await rect()
+    const size = page.viewportSize()!
+    // On the page it takes the page's whole width, not the board's column.
+    expect(onPage[2]).toBeGreaterThan(size.width - 400)
+
+    await canvas(page).getByRole('button', { name: 'Expand', exact: true }).click()
+    await expect.poll(rect).toEqual([0, 0, size.width, size.height])
+    await expect.poll(() => allBoxesInView(page)).toBe(true)
+    await expect(canvas(page).getByRole('button', { name: 'Restore size' })).toBeFocused()
+    // What is behind it cannot be reached: Tab stays in the canvas.
+    for (let i = 0; i < 14; i++) {
+      await page.keyboard.press('Tab')
+      expect(await page.evaluate(() => {
+        const el = document.activeElement
+        return !el || el === document.body || !!el.closest('.running-canvas')
+      }), `focus after ${i + 1} Tab presses`).toBe(true)
+    }
+
+    await page.keyboard.press('Escape')
+    await expect.poll(rect).toEqual(onPage)
+    await expect.poll(() => allBoxesInView(page)).toBe(true)
+    await expect(canvas(page).getByRole('button', { name: 'Expand', exact: true })).toBeVisible()
+    // And the page is there again.
+    await page.getByRole('button', { name: 'Refresh' }).focus()
+    await expect(page.getByRole('button', { name: 'Refresh' })).toBeFocused()
+  })
+
   // The canvas has no list of what needs attention above it: a tile says so
   // itself, in words and a mark, not by its red edge alone. Both of these
   // read "Exited"; one failed two hours ago, the other three days ago.

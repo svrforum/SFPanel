@@ -6,7 +6,7 @@
   --xy-background-pattern-color: var(--border);
   --xy-edge-stroke: var(--muted-foreground);
   --xy-edge-stroke-selected: var(--muted-foreground);
-  --xy-edge-stroke-width: 1.5;
+  --xy-edge-stroke-width: 2;
   --xy-node-background-color: transparent;
   --xy-node-color: var(--card-foreground);
   --xy-controls-button-background-color: var(--card);

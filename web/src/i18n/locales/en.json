@@ -4559,6 +4559,8 @@
       "zoomOut": "Zoom out",
       "fitView": "Fit to screen",
       "arrange": "Auto arrange",
+      "expand": "Expand",
+      "restore": "Restore size",
       "box": "server",
       "edge": "{{kind}} {{guest}} on {{host}} → {{node}}",
       "edgeRole": "link",
