@@ -6,6 +6,27 @@ The format is loosely based on [Keep a Changelog](https://keepachangelog.com/), 
 
 ---
 
+## [0.90.0] – 2026-11-22
+
+A third view of what is running: the network. What nmap finds on the LAN a server is on, drawn as a diagram by address — the gateway, the panel's own servers with their virtual machines inside them, and every other device — and each server's own networks and listening ports, told apart by who can reach them.
+
+### Added
+
+- **Network view.** "Board | Canvas | Network" on the running page, for one node or for the cluster.
+  - **A diagram of each network.** Internet, the gateway, and hung from it by address: the servers of this panel, then every other device that answered. A server and a Proxmox guest are told by the MAC of their network card, so a guest is drawn inside its host under its Proxmox name and number, and a guest that is itself a node of the cluster is named as that node. Each card leads with its address — the part that tells it from its neighbours in bold — then its name (the node's, the guest's, what the network's DNS calls it, or who made its network card), and its open ports. A port a browser is likely to get an answer on is a link that opens in a new tab; the others are a number and, where there is a usual one, a name. Opening a card shows its MAC, maker, DNS name and every port. The page lays the diagram out itself — nothing to drag or zoom — so its letters are the same size on a phone, where it becomes one column.
+  - **Scanning is asked for, never scheduled.** "Scan" on a network runs nmap on a node that is on it: a host scan (about ten seconds on a /24), and with "Check open ports too" — on unless turned off — the 1000 most used TCP ports of each device (about a minute). Where several nodes are on the network and have nmap, the node is a choice. The scan runs on the node and the page watches it; it can be stopped. The result is kept on that node and survives a restart and an update. A scan that fails, times out or is stopped leaves the earlier result and says so.
+  - **Only the node's own private networks.** A scan is of a network the node is directly on, named from the node's own list: there is nowhere to type an address. Public addresses, Docker's and other container and VM bridges, and tunnels (WireGuard, Tailscale, ZeroTier) are not offered; a network wider than a /20 is listed and not scanned.
+  - **Several nodes, one map.** Two nodes that scanned the same network make one diagram, the latest; two sites that happen to use the same addresses stay two. A network nobody has scanned is listed with the nodes on it.
+  - **Each server from the inside.** Under the diagrams, per server: the interfaces that carry an address, and its listening ports by reach — every address, particular addresses, or the server alone (kept apart, folded) — with the container and stack or the process behind each, and its firewall rule. nmap sees a server from outside; this is what it cannot see.
+- **`GET`, `POST` and `DELETE /api/v1/network/scan`.** The networks a node may scan, whether nmap is there, the scan under way, how the last one ended and the stored results; starting a scan (`LAN_SCAN_NETWORK_NOT_ALLOWED` for anything but one of the node's own scannable networks, `LAN_SCAN_IN_PROGRESS` while one runs, `TOOL_NOT_INSTALLED` without nmap); stopping one.
+- **The port map says where each port listens.** `GET /api/v1/system/portmap` rows carry `addresses`: `0.0.0.0`, `::`, `*`, `127.0.0.1`, or the node's own. A port bound to loopback and one open to the LAN used to look the same.
+
+### Upgrading
+
+- Migration 42 adds `lan_scans`. Nothing to do.
+- Scanning needs nmap on the node that scans (`apt install nmap`, or the Packages screen); the page says where it is missing. Nothing is scanned until asked.
+- A node that has not been updated yet is listed with its interfaces and ports — their reach as "Unknown" — and cannot scan.
+
 ## [0.89.3] – 2026-11-21
 
 ### Changed
