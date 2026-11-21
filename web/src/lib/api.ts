@@ -1095,6 +1095,23 @@ class ApiClient {
     return this.request<PortMapRow[]>(`/system/portmap`, { node })
   }
 
+  // The networks a node may scan, a scan that is running and the last result
+  // of each network. 404 from a node older than the route.
+  getLanScan(node?: string) {
+    return this.request<import('@/types/api').LanScanStatus>('/network/scan', { node })
+  }
+
+  // Starts a scan of one of the node's own networks: the node runs nmap and
+  // getLanScan says when it is done. LAN_SCAN_IN_PROGRESS while one runs,
+  // TOOL_NOT_INSTALLED without nmap.
+  startLanScan(network: string, ports: boolean, node?: string) {
+    return this.request<{ started: boolean }>('/network/scan', { method: 'POST', body: JSON.stringify({ network, ports }), node })
+  }
+
+  cancelLanScan(node?: string) {
+    return this.request<{ cancelled: boolean }>('/network/scan', { method: 'DELETE', node })
+  }
+
   // A Proxmox VE node's virtual machines and LXC containers; [] on any other
   // node. PVE_GUESTS_ERROR when Proxmox could not list them, 404 from a node
   // older than the route.

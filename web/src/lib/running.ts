@@ -198,7 +198,7 @@ export function portChips(ports: ContainerPort[], host: string | null): PortChip
     })
 }
 
-function portURL(host: string, port: number, tls: boolean): string {
+export function portURL(host: string, port: number, tls: boolean): string {
   const scheme = tls ? 'https' : 'http'
   const isDefault = (scheme === 'http' && port === 80) || (scheme === 'https' && port === 443)
   return `${scheme}://${host}${isDefault ? '' : `:${port}`}/`
@@ -569,7 +569,7 @@ export interface GuestHost {
 export const guestKey = (hostId: string, vmid: number) => `${hostId}/${vmid}`
 
 /** An address as compared: lower case, colons; null for one that names no NIC (empty, all zero). */
-function macKey(mac: string): string | null {
+export function macKey(mac: string): string | null {
   const key = (mac || '').trim().toLowerCase().replace(/-/g, ':')
   return /[1-9a-f]/.test(key) ? key : null
 }

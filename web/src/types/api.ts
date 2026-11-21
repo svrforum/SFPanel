@@ -1822,6 +1822,69 @@ export interface PortMapRow {
   firewall:   PortMapFirewallInfo  | null
   containers: PortMapContainerInfo[]
   process:    PortMapProcessInfo   | null
+  /**
+   * The addresses it listens on, as the node names them: "0.0.0.0", "::", "*"
+   * (every address, both families), "127.0.0.1", one of the node's own.
+   * Absent from a node older than the field.
+   */
+  addresses?: string[]
+}
+
+/** A network a node is on and may scan (GET /network/scan). */
+export interface LanScanNetwork {
+  cidr: string
+  interface: string
+  /** The node's own address on it, and its interface's MAC. */
+  address: string
+  mac: string
+  /** The default route's gateway when it leaves by this interface; "" otherwise. */
+  gateway: string
+  scannable: boolean
+  /** Why not: "too_large" for a network wider than /20. */
+  reason: string
+}
+
+export interface LanScanPort {
+  port: number
+  proto: string
+}
+
+/** A host nmap found up. */
+export interface LanScanHost {
+  ip: string
+  /** Lower case; "" where nmap saw none. The scanning node carries its interface's. */
+  mac: string
+  vendor: string
+  hostname: string
+  /** The node the scan was made from. */
+  self: boolean
+  /** The port check gave up on it. */
+  timed_out: boolean
+  /** The open ones; empty when none, or when ports were not checked. */
+  ports: LanScanPort[]
+}
+
+/** The last scan of a network that finished. */
+export interface LanScanResult {
+  network: string
+  interface: string
+  address: string
+  gateway: string
+  /** Whether open ports were looked for. */
+  ports: boolean
+  started_at: string
+  finished_at: string
+  hosts: LanScanHost[]
+}
+
+export interface LanScanStatus {
+  /** Whether nmap is there. */
+  installed: boolean
+  networks: LanScanNetwork[]
+  running: { network: string; ports: boolean; started_at: string } | null
+  /** How the last scan since the panel started ended. */
+  last: { network: string; ports: boolean; state: 'done' | 'failed' | 'timeout' | 'cancelled'; at: string } | null
+  results: LanScanResult[]
 }
 
 /** A virtual machine or LXC container of a Proxmox VE node (GET /system/guests). */

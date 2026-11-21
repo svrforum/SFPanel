@@ -166,6 +166,8 @@ export const CODE_MESSAGES: Record<string, string> = {
   INVALID_ID: 'apiErrors.invalidId',
   TOOL_NOT_INSTALLED: 'apiErrors.toolNotInstalled',
   PVE_GUESTS_ERROR: 'apiErrors.pveGuestsError',
+  LAN_SCAN_IN_PROGRESS: 'apiErrors.lanScanInProgress',
+  LAN_SCAN_NETWORK_NOT_ALLOWED: 'apiErrors.lanScanNetworkNotAllowed',
   HOST_INFO_ERROR: 'apiErrors.hostInfoError',
   METRICS_ERROR: 'apiErrors.metricsError',
   TLS_DISABLED: 'apiErrors.tlsDisabled',
