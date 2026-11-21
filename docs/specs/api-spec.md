@@ -648,6 +648,7 @@ AuditMiddleware는 **비-GET/HEAD/OPTIONS** 요청만 기록합니다. `/api/v1/
 | `firewall` | object\|null | `{action, scope, rule_id, source:"ufw"}` (UFW 규칙) |
 | `containers` | array | `{id, name, stack}` (해당 포트를 발행한 컨테이너) |
 | `process` | object\|null | `{pid, name}` (리스닝 호스트 프로세스) |
+| `addresses` | string[] | 이 포트·프로토콜이 열린 지역 주소: `ss`가 본 듣는 주소(포트·대괄호·`%영역`을 뗀 것)와 Docker 바인딩의 호스트 IP를 합쳐 중복 없이 문자열 순으로 정렬. `0.0.0.0`·`::`·`*`는 모든 주소, `127.0.0.1`·`::1`은 이 호스트만. null이 아님 — 어느 쪽도 주소를 말하지 않으면 `[]`. 이 필드가 없는 이전 노드도 있다 |
 
 ---
 
@@ -6904,6 +6905,85 @@ WireGuard 키페어 생성 (`wg genkey` + `wg pubkey`).
 
 ---
 
+## LAN 스캔 (`/api/v1/network/scan`)
+
+이 노드가 붙어 있는 LAN의 기기와 열린 포트를 nmap으로 찾는다. 운영자가 요청할 때만 돌며(예약 없음), 노드별 상태라 `?node=`로 다른 노드의 것을 다룬다. 세 경로 모두 바로 답하고(스캔은 `POST`가 답한 뒤에도 계속 돈다) 클러스터 프록시의 gRPC 30초 한도와 무관하다. 망마다 마지막 **성공** 결과를 이 노드의 DB(`lan_scans`)에 저장하므로 패널 재시작·업데이트 뒤에도 남는다. 복제하지 않는다.
+
+**스캔할 수 있는 망:** 켜져 있고(`UP`) broadcast이며 6바이트 MAC이 있는 인터페이스의 IPv4 사설(RFC 1918) 주소가 속한 망. 이름이 `docker`·`br-`·`veth`·`virbr`·`lxcbr`·`lxdbr`로 시작하는 인터페이스(컨테이너·VM용 브리지)는 뺀다 — Proxmox VE의 `vmbr0`은 LAN이므로 포함. 공인·링크 로컬(169.254/16)·CGNAT(Tailscale 100.64/10)·IPv6 주소, MAC이 없는 인터페이스(루프백·WireGuard·Tailscale)는 목록에 없다. /20~/30은 스캔 가능, /20보다 넓으면 `scannable: false, reason: "too_large"`로 목록에만, /31·/32는 목록에서 뺀다. 같은 망이 두 번 나오면(두 인터페이스, 보조 주소) 처음 것 하나만. 게이트웨이는 `ip -4 route show default` 중 **그 인터페이스**(`dev`)의 default 경로 next hop으로, 그 망 안에 있을 때만.
+
+**명령:** 기기 찾기 `nmap -sn -oX <파일> <cidr>`(한도 2분), 포트 확인 `nmap -sS -T4 --max-retries 2 --host-timeout 30s -oX <파일> <cidr>`(nmap 기본 1000 TCP 포트, 한도 6분). `<cidr>`는 서버 자신의 목록에 있는 문자열이며 요청의 문자열이 아니다. XML은 0700 임시 디렉터리의 파일로 받고(nmap 경고가 stderr로 섞이므로 출력에서 읽지 않는다) 읽은 뒤 지운다. 노드당 한 번에 하나. `<runstats><finished exit="success">`로 끝나지 않는 출력은 저장하지 않는다. nmap 출력은 응답에 넣지 않고 로그(`component=lanscan`)에만 남긴다.
+
+### GET /api/v1/network/scan
+
+- **인증 필요**: 예
+
+**Response (200):**
+```json
+{
+  "success": true,
+  "data": {
+    "installed": true,
+    "networks": [
+      {"cidr": "10.20.30.0/24", "interface": "eth0", "address": "10.20.30.26", "mac": "02:42:ac:14:1e:1a",
+       "gateway": "10.20.30.1", "scannable": true, "reason": ""}
+    ],
+    "running": {"network": "10.20.30.0/24", "ports": true, "started_at": "2026-11-22T02:12:04Z"},
+    "last": {"network": "10.20.30.0/24", "ports": true, "state": "done", "at": "2026-11-22T02:13:08Z"},
+    "results": [
+      {"network": "10.20.30.0/24", "interface": "eth0", "address": "10.20.30.26", "gateway": "10.20.30.1", "ports": true,
+       "started_at": "2026-11-22T02:12:04Z", "finished_at": "2026-11-22T02:13:08Z",
+       "hosts": [
+         {"ip": "10.20.30.1", "mac": "02:42:ac:14:1e:01", "vendor": "Example Electronics", "hostname": "router.lan",
+          "self": false, "timed_out": false, "ports": [{"port": 80, "proto": "tcp"}]}
+       ]}
+    ]
+  }
+}
+```
+
+| 필드 | 설명 |
+|------|------|
+| `installed` | nmap이 PATH에 있는지. `false`면 화면은 그 노드의 패키지 화면으로 보낸다 |
+| `networks` | 위 규칙의 망 목록, 인터페이스 순. null이 아님. `mac`은 인터페이스의 MAC(소문자), `gateway`는 없으면 `""`, `reason`은 스캔 가능하면 `""` |
+| `running` | 진행 중인 스캔, 없으면 `null` |
+| `last` | 패널이 켜진 뒤 마지막 스캔이 어떻게 끝났는지, 없으면 `null`. 메모리에만 있다. `state`: `done` \| `failed` \| `timeout` \| `cancelled`, `at`: 끝난 시각 |
+| `results` | **지금 목록에 있는 망**의 마지막 성공 결과만, `networks` 순. null이 아님. 실패·시간 초과·취소된 스캔은 이전 결과를 지우지 않는다 |
+| `results[].hosts` | 상태가 up인 기기, IPv4 주소 순. null이 아님 |
+| `hosts[].mac` | 소문자. nmap은 자기 자신의 MAC을 모르므로 `self` 기기에는 스캔한 인터페이스의 MAC을 채운다 |
+| `hosts[].vendor` / `hostname` | nmap이 MAC으로 찾은 제조사 / 첫 이름(역방향 DNS). 모르면 `""` |
+| `hosts[].self` | 스캔한 노드 자신(nmap의 `reason="localhost-response"`) |
+| `hosts[].timed_out` | 포트 확인이 `--host-timeout`으로 포기한 기기. 포트 목록이 불완전하거나 비어 있다 |
+| `hosts[].ports` | **열린** 포트만, 번호 순(`proto`는 `tcp`). null이 아님 — 기기 찾기 결과와 열린 포트가 없는 기기는 `[]`. nmap의 서비스 이름은 표에서 고른 추측이라 싣지 않는다 |
+
+시각은 모두 RFC 3339 UTC(`…Z`, 초 단위).
+
+**에러:** `500 NETWORK_ERROR` 인터페이스를 읽을 수 없음, `500 DB_ERROR` 저장된 결과를 읽을 수 없음.
+
+### POST /api/v1/network/scan
+
+**Request:**
+```json
+{ "network": "10.20.30.0/24", "ports": true }
+```
+`network`는 `GET`이 `scannable: true`로 준 `cidr`과 **글자 그대로** 같아야 한다(`10.20.30.5/24`, 공백이 붙은 값, 이를 품는 더 넓은 망도 거부). `ports`가 `false`(또는 없음)면 기기 찾기만.
+
+**Response (200):** `{"success": true, "data": {"started": true}}` — 스캔은 뒤에서 돈다. 끝은 `GET`의 `running`이 `null`이 되고 `last`가 채워지는 것으로 안다.
+
+**에러:**
+- `400 INVALID_REQUEST` — 본문을 읽을 수 없거나 `network`가 비어 있음
+- `400 LAN_SCAN_NETWORK_NOT_ALLOWED` — 이 노드의 스캔 가능한 망이 아님. 아무것도 실행하지 않는다
+- `503 TOOL_NOT_INSTALLED` — nmap이 없음
+- `409 LAN_SCAN_IN_PROGRESS` — 이 노드에서 스캔이 이미 진행 중
+
+### DELETE /api/v1/network/scan
+진행 중인 스캔을 멈춘다(nmap 종료). 끝날 때까지 최대 10초 기다린 뒤 답하므로, 바로 다음 `GET`의 `last.state`는 `cancelled`다. 저장된 결과는 그대로.
+
+**Response (200):** `{"success": true, "data": {"cancelled": true}}` — 진행 중인 스캔이 없었으면 `false`. 같은 순간에 스스로 끝난 스캔은 `done`으로 저장될 수 있으며 `last.state`가 실제 결과를 말한다.
+
+이 경로가 없는 이전 버전 노드는 `404`로 답한다.
+
+---
+
 ## 터미널 — 세션 목록 API
 
 ### GET /api/v1/terminal/sessions
@@ -7168,7 +7248,7 @@ WireGuard 키페어 생성 (`wg genkey` + `wg pubkey`).
 | POST | `/api/v1/logs/custom-sources` | O | 커스텀 로그 소스 추가 |
 | DELETE | `/api/v1/logs/custom-sources/:id` | O | 커스텀 로그 소스 삭제 |
 
-### 네트워크 (12개)
+### 네트워크 (15개)
 
 | 메서드 | 경로 | 인증 | 설명 |
 |--------|------|------|------|
@@ -7184,6 +7264,9 @@ WireGuard 키페어 생성 (`wg genkey` + `wg pubkey`).
 | GET | `/api/v1/network/bonds` | O | 본딩 목록 |
 | POST | `/api/v1/network/bonds` | O | 본딩 생성 |
 | DELETE | `/api/v1/network/bonds/:name` | O | 본딩 삭제 |
+| GET | `/api/v1/network/scan` | O | LAN 스캔: 스캔할 수 있는 망, 진행 상태, 저장된 결과 |
+| POST | `/api/v1/network/scan` | O | LAN 스캔 시작 (nmap, 노드당 하나) |
+| DELETE | `/api/v1/network/scan` | O | 진행 중인 LAN 스캔 중지 |
 
 ### WireGuard VPN (14개)
 
