@@ -8,6 +8,10 @@ The format is loosely based on [Keep a Changelog](https://keepachangelog.com/), 
 
 ## [0.89.3] – 2026-11-21
 
+### Changed
+
+- **The canvas is easier to read.** It is fitted to its area, so its letters are as large as the area is big and the layout small — and a cluster of six servers was drawn at 61 %, its tile names 8 pixels high. Three things change that. The canvas takes the page's whole width and reaches down to the bottom of the window. Its boxes are tighter — a row is the height of its state word and little more — while the names in them are set larger. And "Expand" gives it the whole window, with Escape or "Restore size" to come back. The same cluster is drawn at about 80 % on the page and 95 % expanded. The lines are a little heavier, so they can be followed at any size.
+
 ### Fixed
 
 - **The canvas opened fitted to boxes that were still empty.** It is up before the nodes have answered, so the view was fitted once to six small boxes, and the full ones that followed were cut off at the edges of the screen — at a different zoom on each visit, depending on what had arrived. This came with 0.89.2, which stopped the boxes from being measured anew at every answer; that had been delaying the fit by accident. The view now follows the layout as it fills in and settles, until you take hold of it: pan, zoom, move a box, or tab to a tile out of view, and it stays where you put it. "Auto arrange" and "Fit to screen" hand it back.
