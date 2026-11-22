@@ -54,46 +54,54 @@ type Conflict struct {
 	MACs []string `json:"macs"`
 }
 
-// registryNews is what a stored scan changed in the registry that the
-// alerts are told (ScanEvent's New, Down and Back).
-type registryNews struct {
-	New  []SeenDevice
-	Down []KnownDevice
-	Back []KnownDevice
+// scanNews is what a stored scan tells the alerts: ScanEvent's New, Down,
+// Back and Conflicts.
+type scanNews struct {
+	New       []SeenDevice
+	Down      []KnownDevice
+	Back      []KnownDevice
+	Conflicts []AddressConflict
 }
 
 // recordScan stores a successful scan of r.Network finished at at, all at
 // once: the result, each host with a MAC into the registry and the claims,
-// how many scans in a row missed each device of the network, and what has
-// aged out of the registry and the claims. It answers what that changed for
-// the alerts.
-func recordScan(db *sql.DB, r Result, at time.Time) (registryNews, error) {
+// how many scans in a row missed each device of the network, what has aged
+// out of the registry and the claims, and which of the network's address
+// conflicts have been told. It answers what of all that is news.
+func recordScan(db *sql.DB, r Result, at time.Time) (scanNews, error) {
 	tx, err := db.Begin()
 	if err != nil {
-		return registryNews{}, err
+		return scanNews{}, err
 	}
 	defer func() { _ = tx.Rollback() }()
 	if err := saveResult(tx, r); err != nil {
-		return registryNews{}, err
+		return scanNews{}, err
 	}
 	before, err := loadPriors(tx)
 	if err != nil {
-		return registryNews{}, err
+		return scanNews{}, err
 	}
 	// Every device of the network has been missed once more; the sightings
 	// below set those the scan found back to 0.
 	if _, err := tx.Exec(`UPDATE lan_devices SET missed = missed + 1 WHERE network = ?`, r.Network); err != nil {
-		return registryNews{}, err
+		return scanNews{}, err
 	}
 	if err := recordSightings(tx, r.Network, r.Hosts, at); err != nil {
-		return registryNews{}, err
+		return scanNews{}, err
 	}
 	news, err := readNews(tx, newsOf(r.Network, r.Hosts, before))
 	if err != nil {
-		return registryNews{}, err
+		return scanNews{}, err
 	}
 	if err := pruneRegistry(tx, at); err != nil {
-		return registryNews{}, err
+		return scanNews{}, err
+	}
+	conflicts, err := addressConflicts(tx, r.Network, r.Hosts)
+	if err != nil {
+		return scanNews{}, err
+	}
+	if news.Conflicts, err = noteConflicts(tx, r.Network, conflicts, at); err != nil {
+		return scanNews{}, err
 	}
 	return news, tx.Commit()
 }
@@ -176,7 +184,7 @@ func newsOf(network string, hosts []Host, before map[string]prior) newsMACs {
 
 // readNews reads the devices of a scan's news as the scan left them, each
 // list in address order.
-func readNews(tx *sql.Tx, macs newsMACs) (registryNews, error) {
+func readNews(tx *sql.Tx, macs newsMACs) (scanNews, error) {
 	read := func(list []string) ([]Device, error) {
 		out := make([]Device, 0, len(list))
 		for _, mac := range list {
@@ -194,24 +202,24 @@ func readNews(tx *sql.Tx, macs newsMACs) (registryNews, error) {
 		})
 		return out, nil
 	}
-	var news registryNews
+	var news scanNews
 	added, err := read(macs.new)
 	if err != nil {
-		return registryNews{}, err
+		return scanNews{}, err
 	}
 	for _, d := range added {
 		news.New = append(news.New, SeenDevice{IP: d.IP, MAC: d.MAC, Vendor: d.Vendor, Hostname: d.Hostname})
 	}
 	down, err := read(macs.down)
 	if err != nil {
-		return registryNews{}, err
+		return scanNews{}, err
 	}
 	for _, d := range down {
 		news.Down = append(news.Down, knownDevice(d))
 	}
 	back, err := read(macs.back)
 	if err != nil {
-		return registryNews{}, err
+		return scanNews{}, err
 	}
 	for _, d := range back {
 		news.Back = append(news.Back, knownDevice(d))
@@ -399,7 +407,7 @@ func deleteDevice(db *sql.DB, mac string) (bool, error) {
 // periods: A's [first_at, last_at] and B's meet. An address handed from one
 // device to another (DHCP) has periods that do not, and is no conflict. By
 // network, then address; never nil.
-func loadConflicts(db *sql.DB) ([]Conflict, error) {
+func loadConflicts(db querier) ([]Conflict, error) {
 	rows, err := db.Query(`SELECT a.network, a.ip, a.mac, b.mac FROM lan_claims a JOIN lan_claims b
 		ON a.network = b.network AND a.ip = b.ip AND a.mac < b.mac
 		AND a.first_at <= b.last_at AND b.first_at <= a.last_at`)

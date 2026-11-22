@@ -368,13 +368,8 @@ func (h *Handler) scanNetwork(ctx context.Context, n Network, ports bool, starte
 	if h.Notify == nil {
 		return stateDone, nil
 	}
-	ev := &ScanEvent{Network: n.CIDR, FinishedAt: finished, New: news.New, Down: news.Down, Back: news.Back}
-	// The scan is stored either way; without the conflicts the rest of its
-	// news is still told.
-	if ev.Conflicts, err = addressConflicts(h.DB, n.CIDR, hosts); err != nil {
-		log.Warn("address conflicts unreadable; the scan's news is told without them", "error", err)
-	}
-	return stateDone, ev
+	return stateDone, &ScanEvent{Network: n.CIDR, FinishedAt: finished,
+		New: news.New, Down: news.Down, Back: news.Back, Conflicts: news.Conflicts}
 }
 
 // runNmap runs nmap with its XML written to a file of its own and returns

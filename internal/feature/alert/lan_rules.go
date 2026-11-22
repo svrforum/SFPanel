@@ -50,9 +50,9 @@ var lanRules = map[string]func(ev *AlertLanEvent) []lanFire{
 	// One per device the scan put in the registry for the first time; the
 	// subject is its MAC, so a device is told of once per cooldown.
 	"lan_new_device": newDeviceFires,
-	// One per address in conflict; the subject is the network and the
-	// address, so a conflict that lasts is not sent at every scan within
-	// the cooldown.
+	// One per address in conflict the scan tells of, which is only a
+	// conflict seen for the first time or after a day without it (lanscan
+	// keeps that); the subject is the network and the address.
 	"lan_address_conflict": addressConflictFires,
 	// One per watched device the second scan in a row did not find (the
 	// subject its MAC), and one per such device found again (its MAC and

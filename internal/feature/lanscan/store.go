@@ -34,6 +34,12 @@ type execer interface {
 	Exec(query string, args ...any) (sql.Result, error)
 }
 
+// querier is what a read needs: the database itself, or a transaction on it.
+type querier interface {
+	Query(query string, args ...any) (*sql.Rows, error)
+	QueryRow(query string, args ...any) *sql.Row
+}
+
 // stamp is how this package writes a time: RFC 3339, UTC, to the second.
 // Every time it writes and compares in SQL is in this form, which is of
 // fixed width and so sorts as text.

@@ -502,7 +502,7 @@ func loadSchedules(db *sql.DB) ([]scheduleRow, error) {
 }
 
 // loadSchedule is one network's schedule; ok is false when it has none.
-func loadSchedule(db *sql.DB, network string) (scheduleRow, bool, error) {
+func loadSchedule(db querier, network string) (scheduleRow, bool, error) {
 	s, err := scanSchedule(db.QueryRow(`SELECT `+scheduleColumns+` FROM lan_schedules WHERE network = ?`, network))
 	if errors.Is(err, sql.ErrNoRows) {
 		return scheduleRow{}, false, nil

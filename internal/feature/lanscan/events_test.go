@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"net/http"
 	"testing"
 	"time"
@@ -175,16 +176,18 @@ func TestScanEvent_DownAndBack(t *testing.T) {
 	require.Equal(t, len(steps), missed(t, db, plug), "the plug, unwatched, was missed by every step and never told of")
 }
 
-// The certain conflict is a host answering at a node's address with another
-// MAC; the suspected ones are lan_claims' overlaps. Certain ones come first,
-// and an address listed as certain is not listed again as suspected.
+// The kinds of conflict, each told the first time it is seen. The certain
+// one is a host answering at a node's address with another MAC; the
+// suspected ones are lan_claims' overlaps. Certain ones come first, an
+// address listed as certain is not listed again as suspected, and another
+// network's conflicts are that network's. GET lists every suspected
+// conflict as before. A suspected conflict of an address told as certain is
+// a conflict of its own.
 func TestScanEvent_Conflicts(t *testing.T) {
 	db := openDB(t)
 	h, scan, clock, events := notifying(t, db)
 	node, intruder := "02:42:ac:14:1e:0c", "02:42:ac:14:1e:4d"
 	e, f := "02:42:ac:14:1e:4e", "02:42:ac:14:1e:4f"
-	putSchedule(t, h, `{"network":"10.20.30.0/24","interval_minutes":0,
-		"known":[{"address":"10.20.30.12","macs":["`+node+`"]},{"address":"10.20.30.26","macs":["02:42:ac:14:1e:99"]}]}`)
 	at := func(ip, mac string) xmlHostSpec {
 		return xmlHostSpec{ip: ip, mac: mac, vendor: "Example Electronics"}
 	}
@@ -197,28 +200,117 @@ func TestScanEvent_Conflicts(t *testing.T) {
 	}
 	require.Len(t, conflicts(t, db), 1)
 
-	ev := scanLAN(t, h, scan, events, self, at("10.20.30.12", node), at("10.20.30.13", e))
-	require.Equal(t, []AddressConflict{}, ev.Conflicts, "the node at its address, and this node's own answer, are no conflict")
+	ev := scanLAN(t, h, scan, events, self, at("10.20.30.12", intruder), at("10.20.30.13", e))
+	require.Empty(t, ev.Conflicts, "no schedule says whose .12 is, and nothing overlaps yet")
 
+	putSchedule(t, h, `{"network":"10.20.30.0/24","interval_minutes":0,
+		"known":[{"address":"10.20.30.12","macs":["`+node+`"]},{"address":"10.20.30.26","macs":["02:42:ac:14:1e:99"]}]}`)
 	clock.advance(time.Hour)
-	ev = scanLAN(t, h, scan, events, self, at("10.20.30.12", intruder), at("10.20.30.13", f))
-	require.Equal(t, []AddressConflict{
-		{IP: "10.20.30.12", MACs: []string{intruder}, Vendor: "Example Electronics", Certain: true},
-	}, ev.Conflicts, "a handover is no suspected conflict yet")
-
-	clock.advance(time.Hour)
-	ev = scanLAN(t, h, scan, events, self, at("10.20.30.12", node), at("10.20.30.13", e))
-	require.Equal(t, []AddressConflict{
-		{IP: "10.20.30.12", MACs: []string{node, intruder}},
-		{IP: "10.20.30.13", MACs: []string{e, f}},
-	}, ev.Conflicts, "the node answers at its address again; the periods now overlap")
+	ev = scanLAN(t, h, scan, events, self, at("10.20.30.12", node), at("10.20.30.13", f))
+	require.Empty(t, ev.Conflicts, "the node at its address, and this node's own answer, are no conflict; a handover is none either")
 
 	clock.advance(time.Hour)
 	ev = scanLAN(t, h, scan, events, self, at("10.20.30.12", intruder), at("10.20.30.13", e))
 	require.Equal(t, []AddressConflict{
 		{IP: "10.20.30.12", MACs: []string{intruder}, Vendor: "Example Electronics", Certain: true},
 		{IP: "10.20.30.13", MACs: []string{e, f}},
-	}, ev.Conflicts)
+	}, ev.Conflicts, "the periods at .12 overlap too, and .12 is listed once, as certain")
+	require.Equal(t, []Conflict{
+		{Network: "10.20.30.0/24", IP: "10.20.30.12", MACs: []string{node, intruder}},
+		{Network: "10.20.30.0/24", IP: "10.20.30.13", MACs: []string{e, f}},
+		{Network: "10.20.31.0/24", IP: "10.20.31.13", MACs: []string{"02:42:ac:14:1f:4e", "02:42:ac:14:1f:4f"}},
+	}, getStatus(t, h).Conflicts, "GET lists what is, not what is news")
+
+	// The node answers at .12 again: no longer certain, and the suspected
+	// conflict there, never told, is told now; .13's was told already.
+	clock.advance(time.Hour)
+	ev = scanLAN(t, h, scan, events, self, at("10.20.30.12", node), at("10.20.30.13", e))
+	require.Equal(t, []AddressConflict{
+		{IP: "10.20.30.12", MACs: []string{node, intruder}},
+	}, ev.Conflicts, "a certain and a suspected conflict of one address are told each on its own")
+}
+
+// notes is lan_conflict_notes, "network ip certain" to last_at.
+func notes(t *testing.T, db *sql.DB) map[string]string {
+	t.Helper()
+	rows, err := db.Query(`SELECT network, ip, certain, last_at FROM lan_conflict_notes`)
+	require.NoError(t, err)
+	defer rows.Close()
+	out := map[string]string{}
+	for rows.Next() {
+		var network, ip, last string
+		var certain int
+		require.NoError(t, rows.Scan(&network, &ip, &certain, &last))
+		out[fmt.Sprintf("%s %s %d", network, ip, certain)] = last
+	}
+	require.NoError(t, rows.Err())
+	return out
+}
+
+// A conflict is told when it is first seen; not again while scans keep
+// seeing it, nor when one scan misses it and it is back within a day; and
+// again when it comes back after more than a day without it. Each address
+// is told on its own, a new handler on the same database (a restart)
+// remembers, the network's rows unseen for over a day are dropped, and
+// another network's rows are left alone.
+func TestScanEvent_ConflictsAreToldOnce(t *testing.T) {
+	db := openDB(t)
+	h, scan, clock, events := notifying(t, db)
+	putSchedule(t, h, `{"network":"10.20.30.0/24","interval_minutes":0,"known":[
+		{"address":"10.20.30.12","macs":["02:42:ac:14:1e:0c"]},{"address":"10.20.30.13","macs":["02:42:ac:14:1e:0d"]}]}`)
+	otherRow := "10.20.31.0/24 10.20.31.12 1"
+	_, err := db.Exec(`INSERT INTO lan_conflict_notes (network, ip, certain, last_at) VALUES ('10.20.31.0/24', '10.20.31.12', 1, ?)`,
+		stamp(t0.Add(-72*time.Hour)))
+	require.NoError(t, err)
+	at12 := xmlHostSpec{ip: "10.20.30.12", mac: "02:42:ac:14:1e:4d"}
+	at13 := xmlHostSpec{ip: "10.20.30.13", mac: "02:42:ac:14:1e:4e"}
+	c12 := AddressConflict{IP: "10.20.30.12", MACs: []string{"02:42:ac:14:1e:4d"}, Certain: true}
+	c13 := AddressConflict{IP: "10.20.30.13", MACs: []string{"02:42:ac:14:1e:4e"}, Certain: true}
+	row12, row13 := "10.20.30.0/24 10.20.30.12 1", "10.20.30.0/24 10.20.30.13 1"
+
+	steps := []struct {
+		name    string
+		after   time.Duration // since the step before
+		restart bool
+		found   []xmlHostSpec
+		told    []AddressConflict
+		rows    []string // the LAN's rows after it, all last seen by a scan
+	}{
+		{name: "first seen", found: []xmlHostSpec{at12}, told: []AddressConflict{c12}, rows: []string{row12}},
+		{name: "seen again", after: time.Hour, found: []xmlHostSpec{at12}, rows: []string{row12}},
+		{name: "missing from one scan", after: time.Hour, rows: []string{row12}},
+		{name: "back within a day", after: time.Hour, found: []xmlHostSpec{at12}, rows: []string{row12}},
+		{name: "another address, on its own", after: time.Hour, found: []xmlHostSpec{at12, at13}, told: []AddressConflict{c13},
+			rows: []string{row12, row13}},
+		{name: "after a restart", after: time.Hour, restart: true, found: []xmlHostSpec{at12, at13}, rows: []string{row12, row13}},
+		{name: "back after more than a day, its row still there", after: 24*time.Hour + time.Second,
+			found: []xmlHostSpec{at13}, told: []AddressConflict{c13}, rows: []string{row13}},
+		{name: "back after more than a day, its row dropped", after: time.Second,
+			found: []xmlHostSpec{at12}, told: []AddressConflict{c12}, rows: []string{row12, row13}},
+		{name: "a day exactly after it was last seen is not more than a day", after: 24*time.Hour - time.Second,
+			found: []xmlHostSpec{at13}, rows: []string{row12, row13}},
+	}
+	seen := map[string]string{}
+	for i, step := range steps {
+		clock.advance(step.after)
+		if step.restart {
+			fresh := newHandler(t, db, nodeCommander(true), scan)
+			fresh.now, fresh.Notify = clock.now, h.Notify
+			h = fresh
+		}
+		ev := scanLAN(t, h, scan, events, append([]xmlHostSpec{self}, step.found...)...)
+		require.NotNil(t, ev, "step %d", i)
+		require.Equal(t, step.told, ev.Conflicts, "step %d: %s", i, step.name)
+
+		for _, host := range step.found {
+			seen["10.20.30.0/24 "+host.ip+" 1"] = stamp(clock.now())
+		}
+		want := map[string]string{otherRow: stamp(t0.Add(-72 * time.Hour))}
+		for _, row := range step.rows {
+			want[row] = seen[row]
+		}
+		require.Equal(t, want, notes(t, db), "step %d: %s", i, step.name)
+	}
 }
 
 // A scan that failed or was cancelled stores nothing and tells nothing; the
