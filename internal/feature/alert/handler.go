@@ -67,8 +67,9 @@ func isValidChannelType(t string) bool {
 }
 
 // ruleTypeEvaluated reports whether anything evaluates rules of type t: the
-// manager's periodic pass over host metrics, or the dispatcher docker events
-// reach. A rule of any other type is stored and never fires. The rule form
+// manager's periodic pass over host metrics, the dispatcher docker events
+// reach, or the one a stored LAN scan reaches. A rule of any other type is
+// stored and never fires. The rule form
 // offered three — service, login and package — and these handlers took them,
 // so such a rule was saved, listed itself as Active and never sent a thing
 // (#132).
@@ -76,7 +77,10 @@ func ruleTypeEvaluated(t string) bool {
 	if _, ok := hostMetricRules[t]; ok {
 		return true
 	}
-	_, ok := containerRules[t]
+	if _, ok := containerRules[t]; ok {
+		return true
+	}
+	_, ok := lanRules[t]
 	return ok
 }
 

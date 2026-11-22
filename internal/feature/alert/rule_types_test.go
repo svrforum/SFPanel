@@ -27,12 +27,19 @@ var formRuleTypesUntil132 = []string{
 // container dispatcher (normalizeAction).
 var listenerEvents = []string{"start", "stop", "die", "oom", "kill", "restart", "healthy", "unhealthy"}
 
+// lanRuleTypes are the LAN rule types, which the form offers from 0.92.0.
+var lanRuleTypes = []string{"lan_new_device", "lan_address_conflict", "lan_device_down"}
+
 // ruleCreateBody is a rule as the page posts it, with a condition that fires
 // on anything: a threshold below every reading, every container, one restart.
+// A LAN rule's condition is not read, and the page sends {}.
 func ruleCreateBody(name, typ, severity string) string {
 	condition := `{"operator":">","threshold":-1}`
 	if strings.HasPrefix(typ, "container_") {
 		condition = `{"container_pattern":"*","threshold_count":1,"window_seconds":300}`
+	}
+	if strings.HasPrefix(typ, "lan_") {
+		condition = `{}`
 	}
 	body, _ := json.Marshal(map[string]any{
 		"name": name, "type": typ, "condition": condition, "channel_ids": "[1]",
@@ -42,9 +49,10 @@ func ruleCreateBody(name, typ, severity string) string {
 }
 
 // fireEverything runs every rule in db past everything that can fire one: the
-// periodic host-metric pass, and each event the docker listener forwards, for
-// a container every pattern matches, on the node identity names (nil: a
-// single node). It returns the ids of the rules that fired.
+// periodic host-metric pass, each event the docker listener forwards, for a
+// container every pattern matches, and a stored LAN scan with one of
+// everything in it, on the node identity names (nil: a single node). It
+// returns the ids of the rules that fired.
 func fireEverything(t *testing.T, db *sql.DB, identity NodeIdentity) map[int]bool {
 	t.Helper()
 	if _, err := monitor.GetMetrics(); err != nil {
@@ -65,6 +73,12 @@ func fireEverything(t *testing.T, db *sql.DB, identity NodeIdentity) map[int]boo
 		}
 		d.Dispatch(context.Background(), &AlertContainerEvent{ID: "c1", Name: "app", Type: ev, TS: ts})
 	}
+	NewLanDispatcherWithIdentity(db, m, identity).Dispatch(context.Background(), &AlertLanEvent{
+		Network:   "10.20.30.0/24",
+		New:       []LanSeenDevice{{IP: "10.20.30.51", MAC: "02:42:ac:14:1e:33"}},
+		Down:      []LanKnownDevice{{MAC: "02:42:ac:14:1e:32", IP: "10.20.30.50"}},
+		Conflicts: []LanAddressConflict{{IP: "10.20.30.12", MACs: []string{"02:42:ac:14:1e:4d"}, Certain: true}},
+	})
 	fired := map[int]bool{}
 	for {
 		select {
@@ -102,7 +116,8 @@ func TestCreateRule_NoTypeIsAcceptedAndNeverFires(t *testing.T) {
 
 	created := map[int]string{}
 	var refused []string
-	for _, typ := range append(formRuleTypesUntil132, "made_up") {
+	types := append(append(append([]string{}, formRuleTypesUntil132...), lanRuleTypes...), "made_up")
+	for _, typ := range types {
 		rec := callJSON(t, h.CreateRule, http.MethodPost, ruleCreateBody(typ+"-rule", typ, "warning"), 0)
 		if rec.Code == http.StatusOK {
 			created[createdID(t, rec)] = typ

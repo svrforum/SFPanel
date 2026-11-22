@@ -76,6 +76,9 @@
     "container_down",
     "container_oom",
     "container_restart_loop",
-    "container_unhealthy"
+    "container_unhealthy",
+    "lan_new_device",
+    "lan_address_conflict",
+    "lan_device_down"
   ]
 }

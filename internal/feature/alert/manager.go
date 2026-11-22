@@ -160,9 +160,9 @@ type ruleCondition struct {
 }
 
 // hostMetricRules are the rule types evaluate checks, each with the reading
-// it compares to the rule's threshold. Together with containerRules this is
-// everything that is evaluated, and the handlers accept no other type
-// (ruleTypeEvaluated).
+// it compares to the rule's threshold. Together with containerRules and
+// lanRules this is everything that is evaluated, and the handlers accept no
+// other type (ruleTypeEvaluated).
 var hostMetricRules = map[string]func(*monitor.Metrics) float64{
 	"cpu":    func(m *monitor.Metrics) float64 { return m.CPU },
 	"memory": func(m *monitor.Metrics) float64 { return m.MemPercent },

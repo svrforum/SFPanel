@@ -92,8 +92,8 @@ type AlertFire struct {
 	ChannelIDs string // raw JSON from alert_rules.channel_ids
 	Cooldown   int    // seconds
 	// Subject is what the rule fired for, and the cooldown runs per rule and
-	// subject: the container's name for a container rule, and "" for a host
-	// metric rule.
+	// subject: the container's name for a container rule, what lanRules
+	// names for a LAN rule, and "" for a host metric rule.
 	Subject string
 }
 
@@ -141,8 +141,8 @@ type containerRule struct {
 }
 
 // containerRules are the rule types Dispatch evaluates. Together with
-// hostMetricRules this is everything that is evaluated, and the handlers
-// accept no other type (ruleTypeEvaluated).
+// hostMetricRules and lanRules this is everything that is evaluated, and the
+// handlers accept no other type (ruleTypeEvaluated).
 var containerRules = map[string]containerRule{
 	// Only `die`. Docker emits `oom` immediately followed by `die` for
 	// OOM-kills, so accepting only `die` covers both causes without

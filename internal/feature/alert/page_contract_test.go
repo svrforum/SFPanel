@@ -172,6 +172,9 @@ func TestPageContract_RuleTypesAreWhatIsEvaluated(t *testing.T) {
 	for typ := range containerRules {
 		evaluated = append(evaluated, typ)
 	}
+	for typ := range lanRules {
+		evaluated = append(evaluated, typ)
+	}
 	sort.Strings(evaluated)
 	listed := append([]string(nil), loadPageContract(t).RuleTypes...)
 	sort.Strings(listed)
