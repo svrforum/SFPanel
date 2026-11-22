@@ -339,7 +339,7 @@ SQLite의 AUTOINCREMENT 시퀀스를 추적하는 내부 시스템 테이블. `A
 - **ID 46** — `lan_devices.watch INTEGER NOT NULL DEFAULT 0`. 운영자가 "지켜보기"로 표시한 기기(0/1). 이름표와 함께 `PUT /network/devices/:mac`의 `watch`로 쓰며, 이름표처럼 저장된 `labelled_at`보다 이른 쓰기는 바꾸지 않는다. `lan_device_down` 알림 규칙이 이 기기들만 본다.
 - **ID 47** — `lan_devices.missed INTEGER NOT NULL DEFAULT 0`. 그 기기의 망(`network`)을 성공적으로 스캔했는데 연속으로 찾지 못한 횟수. 스캔이 끝날 때 같은 트랜잭션에서, 그 망의 기기 중 찾은 것은 `0`으로, 못 찾은 것은 `+1`로 바꾼다. 다른 망의 기기와 이 노드가 본 적 없는(`network = ''`) 기기는 그대로. 지켜보는 기기의 값이 이 스캔으로 정확히 2가 되면 "안 보임", 2 이상이던 기기를 다시 찾으면 "다시 보임" 알림이 나간다. 응답에는 싣지 않는다.
 - **ID 48** — `lan_conflict_notes` (이 노드가 알림 규칙에 이미 알린 주소 충돌, `internal/feature/lanscan/events.go`). `(network, ip, certain)` PK — `certain`은 1(확실: 클러스터 노드의 주소에 다른 MAC이 응답)·0(의심: `lan_claims`의 겹침)이라 한 주소의 두 종류는 다른 행이다. `last_at`은 스캔이 그 충돌을 마지막으로 본 때(RFC 3339 UTC). 망을 성공적으로 스캔할 때마다 같은 트랜잭션에서: 지금의 충돌 중 행이 없거나 `last_at`이 이번 스캔보다 24시간 넘게 앞선 것만 **새 소식**으로 알리고, 지금의 충돌은 모두 `last_at`을 이번 스캔으로 쓰고, 그 망의 행 중 `last_at`이 24시간보다 오래된 것은 지운다. 그래서 충돌은 처음 보일 때 한 번 알리고, 스캔마다 계속 보여도, 하루 안에 사라졌다 다시 보여도 다시 알리지 않으며, 하루 넘게 없다가 돌아오면 다시 알린다. 패널을 재시작해도 남는다. 다른 망의 행은 건드리지 않는다. 노드 로컬.
-- **ID 49** — `lan_racks` (운영자가 그린 랙, `internal/feature/lanscan/racks.go`). `id TEXT PRIMARY KEY`(화면이 정한 랙 ID, 1~64자의 `A–Z a–z 0–9 _ -`), `doc TEXT NOT NULL`(`lanscan.RackDoc`의 JSON — `{"name","units","deleted","items":[{"id","u","height","kind","node"|"mac"|"text"}]}`, `PUT /network/racks/:id`가 검사하고 정리한 꼴: 문자열은 앞뒤 공백 없이, MAC은 소문자, 종류가 쓰지 않는 필드 없이), `updated_at TEXT NOT NULL`(화면이 쓴 때, RFC 3339, **보낸 그대로** — 시간대·소수 초가 섞이므로 글자가 아니라 시점으로 비교한다). 저장된 것보다 이른 `updated_at`의 쓰기는 아무것도 바꾸지 않는다. 지운 랙은 `{"name":"","units":n,"deleted":true,"items":[]}` 표시로 남아 그때 꺼져 있던 노드가 옛 랙을 되살리지 않게 하고, `updated_at`이 30일 넘게 늦은 쓰기가 올 때 그 쓰기와 같은 트랜잭션에서 지운다. 지우지 않은 랙은 32개까지. 노드 로컬(FSM 복제 없음) — 화면이 한 랙을 같은 `updated_at`으로 여러 노드에 쓰고, 노드마다 가진 것과 받은 것 중 새 것을 남긴다.
+- **ID 49** — `lan_racks` (운영자가 그린 랙, `internal/feature/lanscan/racks.go`). `id TEXT PRIMARY KEY`(화면이 정한 랙 ID, 1~64자의 `A–Z a–z 0–9 _ -`), `doc TEXT NOT NULL`(`lanscan.RackDoc`의 JSON — `{"name","units","deleted","items":[{"id","u","height","kind","node"|"mac"|"text"}]}`, `PUT /network/racks/:id`가 검사하고 정리한 꼴: 문자열은 앞뒤 공백 없이, MAC은 소문자, 종류가 쓰지 않는 필드 없이), `updated_at TEXT NOT NULL`(화면이 쓴 때, RFC 3339, **보낸 그대로** — 시간대·소수 초가 섞이므로 글자가 아니라 시점으로 비교한다). 저장된 것보다 이른 `updated_at`의 쓰기는 아무것도 바꾸지 않는다. 지운 랙은 `{"name":"","units":n,"deleted":true,"items":[]}` 표시로 남아 그때 꺼져 있던 노드가 옛 랙을 되살리지 않게 하고, 표시의 `updated_at`이 노드 시계보다 30일 넘게 앞서면 그 뒤 랙을 바꾸는 쓰기가 같은 트랜잭션에서 지운다(쓰기의 `updated_at`이 아니라 노드 시계로 잰다). 지우지 않은 랙은 32개까지. 노드 로컬(FSM 복제 없음) — 화면이 한 랙을 같은 `updated_at`으로 여러 노드에 쓰고, 노드마다 가진 것과 받은 것 중 새 것을 남긴다.
 
 ---
 
@@ -471,7 +471,7 @@ SQLite의 AUTOINCREMENT 시퀀스를 추적하는 내부 시스템 테이블. `A
 | `lan_devices` | 이름표 없는 기기는 마지막으로 본 뒤 14일, 이름표 있는 기기는 제한 없음 | LAN 스캔이 성공할 때마다 `DELETE` | `internal/feature/lanscan/registry.go` |
 | `lan_claims` | 마지막으로 본 뒤 48시간 | LAN 스캔이 성공할 때마다 `DELETE` | `internal/feature/lanscan/registry.go` |
 | `lan_conflict_notes` | 마지막으로 본 뒤 24시간 (그 망을 다음에 스캔할 때) | 그 망의 LAN 스캔이 성공할 때마다 `DELETE` | `internal/feature/lanscan/events.go` |
-| `lan_racks` | 지우지 않은 랙은 제한 없음(32개까지), 지운 랙의 표시는 30일 넘게 늦은 쓰기가 올 때까지 | 랙을 바꾸는 쓰기마다 `DELETE` | `internal/feature/lanscan/racks.go` |
+| `lan_racks` | 지우지 않은 랙은 제한 없음(32개까지), 지운 랙의 표시는 노드 시계로 30일이 지난 뒤의 쓰기까지 | 랙을 바꾸는 쓰기마다 `DELETE` | `internal/feature/lanscan/racks.go` |
 | 그 외 모든 테이블 | 제한 없음 | 수동 (CRUD 엔드포인트 경유) | — |
 
 ## 백업/복구

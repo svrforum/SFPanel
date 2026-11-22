@@ -8,6 +8,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/require"
 
@@ -169,13 +170,59 @@ func TestPutRack_DeletedMark(t *testing.T) {
 		{ID: "spare", Doc: RackDoc{Units: 1, Deleted: true, Items: []RackItem{}}, UpdatedAt: "2026-11-22T19:02:00+09:00"},
 	}, racks)
 
-	// Exactly 30 days after main's mark: kept.
+	// A mark's age is told by this node's clock. Exactly 30 days after
+	// main's mark: kept.
+	clock := newClock(time.Date(2026, 12, 22, 10, 1, 0, 0, time.UTC))
+	h.now = clock.now
 	putRackOK(t, h, "other", rackAt(liveRack("Other"), "2026-12-22T10:01:00Z"))
 	require.Equal(t, []string{"main", "old", "other", "spare"}, rackIDs(t, h))
 
 	// A second more: main's mark goes; spare's, a minute younger, stays.
+	clock.advance(time.Second)
 	putRackOK(t, h, "other", rackAt(liveRack("Other"), "2026-12-22T10:01:01Z"))
 	require.Equal(t, []string{"old", "other", "spare"}, rackIDs(t, h))
+}
+
+// A mark's age is not told by the write's own time, which is whatever the
+// device that sent it believes — and the page stamps a change later than the
+// copy it changes, so one device with a clock months ahead moves every later
+// write of that rack ahead too. Such a write must not drop the mark of a rack
+// deleted a minute ago: a node that was down then would bring the rack back.
+func TestPutRack_MarkAgeIsByThisNodesClock(t *testing.T) {
+	db := openDB(t)
+	h := newHandler(t, db, nodeCommander(true), nil)
+	clock := newClock(time.Date(2026, 11, 22, 10, 5, 0, 0, time.UTC))
+	h.now = clock.now
+
+	putRackOK(t, h, "gone", rackAt(`{"deleted":true}`, "2026-11-22T10:04:00Z"))
+	// A write that says it is from next March.
+	putRackOK(t, h, "other", rackAt(liveRack("Other"), "2027-03-01T00:00:00Z"))
+	require.Equal(t, []string{"gone", "other"}, rackIDs(t, h))
+
+	// A mark whose own time is ahead of the clock is kept, however long.
+	putRackOK(t, h, "ahead", rackAt(`{"deleted":true}`, "2027-03-01T00:00:00Z"))
+	clock.advance(31 * 24 * time.Hour)
+	// A write that says it is from long ago is as good as any to sweep by:
+	// gone's mark is 31 days old now.
+	putRackOK(t, h, "claims-2020", rackAt(liveRack("Says it is 2020"), "2020-01-01T00:00:00Z"))
+	require.Equal(t, []string{"ahead", "claims-2020", "other"}, rackIDs(t, h))
+}
+
+// The fullest rack the rules allow is stored: 60 one-unit items, each id and
+// text as long as it may be.
+func TestPutRack_FullestRackFits(t *testing.T) {
+	db := openDB(t)
+	h := newHandler(t, db, nodeCommander(true), nil)
+	for _, wide := range []string{"랙", "𝌆"} {
+		items := make([]string, 60)
+		for i := range items {
+			items[i] = fmt.Sprintf(`{"id":"%064d","u":%d,"height":1,"kind":"text","text":%q}`, i, i+1, strings.Repeat(wide, 64))
+		}
+		body := rackBody(`{"name":"` + strings.Repeat(wide, 64) + `","units":60,"items":[` + strings.Join(items, ",") + `]}`)
+		require.Greater(t, len(body), 16<<10, "what a 16 KiB limit refused")
+		r := putRackOK(t, h, "full", body)
+		require.Len(t, r.Doc.Items, 60)
+	}
 }
 
 // Each guard refuses for its own reason: the code, the field and the
@@ -183,10 +230,6 @@ func TestPutRack_DeletedMark(t *testing.T) {
 func TestPutRack_Refused(t *testing.T) {
 	item := func(fields string) string {
 		return `{"name":"Main rack","units":12,"items":[{"id":"a1","u":1,"height":1,` + fields + `}]}`
-	}
-	var many []string
-	for i := 1; i <= 81; i++ {
-		many = append(many, fmt.Sprintf(`{"id":"i%d","u":%d,"height":1,"kind":"text","text":"x"}`, i, i))
 	}
 	long := strings.Repeat("a", 65)
 	const (
@@ -200,7 +243,7 @@ func TestPutRack_Refused(t *testing.T) {
 		msgHeight   = "Item a1: height is a whole number from 1 to 8"
 		msgAbove    = "Item a1 reaches above the rack's 12 units"
 		msgKind     = "Item a1: kind is node, device or text"
-		msgNode     = "Item a1: node is 1 to 64 characters"
+		msgNode     = "Item a1: node is 1 to 64 characters, on one line"
 		msgMAC      = "Item a1: mac must be six bytes, as 02:42:ac:14:1e:1f"
 		msgText     = "Item a1: text is 1 to 64 characters, on one line"
 		textItem    = `"kind":"text","text":"x"`
@@ -234,8 +277,6 @@ func TestPutRack_Refused(t *testing.T) {
 		{"1.5 units", "main", rackBody(`{"name":"Main rack","units":1.5}`), "units", msgUnits},
 		{"a deleted rack of 61 units", "main", rackBody(`{"deleted":true,"units":61}`), "units", msgUnits},
 
-		{"81 items", "main", rackBody(`{"name":"Main rack","units":60,"items":[` + strings.Join(many, ",") + `]}`),
-			"items", "A rack holds at most 80 items"},
 		{"an item id empty", "main", rackBody(`{"name":"Main rack","units":12,"items":[{"id":" ","u":1,"height":1,` + textItem + `}]}`), "items", msgItemID},
 		{"an item id of 65 characters", "main", rackBody(`{"name":"Main rack","units":12,"items":[{"id":"` + long + `","u":1,"height":1,` + textItem + `}]}`), "items", msgItemID},
 		{"an item id with a space", "main", rackBody(`{"name":"Main rack","units":12,"items":[{"id":"a 1","u":1,"height":1,` + textItem + `}]}`), "items", msgItemID},
@@ -256,6 +297,7 @@ func TestPutRack_Refused(t *testing.T) {
 		{"a node item with no node", "main", rackBody(item(`"kind":"node"`)), "items", msgNode},
 		{"a node item with a node of spaces", "main", rackBody(item(`"kind":"node","node":"   "`)), "items", msgNode},
 		{"a node item with a node of 65 characters", "main", rackBody(item(`"kind":"node","node":"` + long + `"`)), "items", msgNode},
+		{"a node item with a node over two lines", "main", rackBody(item(`"kind":"node","node":"node\none"`)), "items", msgNode},
 		{"a device item with no MAC", "main", rackBody(item(`"kind":"device"`)), "items", msgMAC},
 		{"a device item with five bytes", "main", rackBody(item(`"kind":"device","mac":"02:42:ac:14:1e"`)), "items", msgMAC},
 		{"a device item with an EUI-64", "main", rackBody(item(`"kind":"device","mac":"02:42:ac:14:1e:29:00:01"`)), "items", msgMAC},
@@ -284,21 +326,21 @@ func TestPutRack_Refused(t *testing.T) {
 	}
 }
 
-// Up to 16 KiB is read; one byte more is refused, unread.
+// Up to 64 KiB is read; one byte more is refused, unread.
 func TestPutRack_BodySize(t *testing.T) {
 	db := openDB(t)
 	h := newHandler(t, db, nodeCommander(true), nil)
 	body := rackBody(liveRack("Main rack"))
 	pad := func(n int) string { return body + strings.Repeat(" ", n-len(body)) }
 
-	code, env := putRack(t, h, "exact", pad(16<<10))
+	code, env := putRack(t, h, "exact", pad(64<<10))
 	require.Equal(t, http.StatusOK, code, env.Error)
 
-	code, env = putRack(t, h, "over", pad(16<<10+1))
+	code, env = putRack(t, h, "over", pad(64<<10+1))
 	require.Equal(t, http.StatusBadRequest, code)
 	require.Equal(t, response.ErrLanRackInvalid, env.Error.Code)
 	require.Equal(t, map[string]string{"field": "doc"}, env.Error.Details)
-	require.Equal(t, "The request is larger than 16 KiB", env.Error.Message)
+	require.Equal(t, "The request is larger than 64 KiB", env.Error.Message)
 	require.Equal(t, []string{"exact"}, rackIDs(t, h), "nothing is written")
 }
 

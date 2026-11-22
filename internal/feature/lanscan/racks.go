@@ -20,20 +20,21 @@ import (
 )
 
 const (
-	// maxRackBody is the most a PUT /network/racks/:id body may be, in bytes.
-	maxRackBody = 16 << 10
+	// maxRackBody is the most a PUT /network/racks/:id body may be, in bytes:
+	// well over the fullest rack the rules allow (60 one-unit items, every
+	// id and text at its length, is about 19 KB in Hangul and 25 KB at four
+	// bytes a character).
+	maxRackBody = 64 << 10
 	// maxRackID is the longest a rack's or an item's id may be.
 	maxRackID = 64
 	// maxRackUnits is the tallest a rack may be, in units.
 	maxRackUnits = 60
-	// maxRackItems is the most items a rack may hold.
-	maxRackItems = 80
 	// maxItemHeight is the tallest an item may be, in units.
 	maxItemHeight = 8
 	// maxRacks is the most racks a node keeps that are not deleted.
 	maxRacks = 32
 	// rackMarkKeep is how long a deleted rack's mark is kept: a write drops
-	// the marks more than this before its own updated_at.
+	// the marks written more than this before this node's clock.
 	rackMarkKeep = 30 * 24 * time.Hour
 )
 
@@ -114,7 +115,10 @@ func (h *Handler) GetRacks(c echo.Context) error {
 
 // PutRack writes one rack, normalised. A write older than the stored rack
 // changes nothing and the stored rack is answered; the same time again is
-// written. A write drops the deleted marks more than 30 days older than it.
+// written. A write drops the deleted marks more than 30 days old by this
+// node's clock — not by the write's own time, which is whatever the device
+// that sent it believes: one whose clock runs months ahead would otherwise
+// drop the mark of a rack deleted a minute ago.
 //
 //	PUT /api/v1/network/racks/:id {"doc":{…},"updated_at":"<RFC 3339>"}
 func (h *Handler) PutRack(c echo.Context) error {
@@ -128,7 +132,7 @@ func (h *Handler) PutRack(c echo.Context) error {
 		return response.Fail(c, http.StatusBadRequest, response.ErrInvalidRequest, "Cannot read the request body")
 	}
 	if len(raw) > maxRackBody {
-		return invalidRack(c, "doc", "The request is larger than 16 KiB")
+		return invalidRack(c, "doc", "The request is larger than 64 KiB")
 	}
 	var req rackRequest
 	if err := json.Unmarshal(raw, &req); err != nil {
@@ -150,7 +154,7 @@ func (h *Handler) PutRack(c echo.Context) error {
 	// both find room for one.
 	h.racksMu.Lock()
 	defer h.racksMu.Unlock()
-	r, err := writeRack(h.DB, Rack{ID: id, Doc: doc, UpdatedAt: req.UpdatedAt})
+	r, err := writeRack(h.DB, Rack{ID: id, Doc: doc, UpdatedAt: req.UpdatedAt}, h.clock())
 	if errors.Is(err, errTooManyRacks) {
 		return invalidRack(c, "racks", "A node keeps at most 32 racks that are not deleted")
 	}
@@ -187,9 +191,6 @@ func readRackDoc(in rackDocIn) (RackDoc, *rackRefusal) {
 		return RackDoc{Units: units, Deleted: true, Items: []RackItem{}}, nil
 	}
 
-	if len(in.Items) > maxRackItems {
-		return RackDoc{}, &rackRefusal{"items", "A rack holds at most 80 items"}
-	}
 	items := make([]RackItem, 0, len(in.Items))
 	ids := map[string]bool{}
 	// taken is, for each unit, the id of the item in it.
@@ -234,8 +235,8 @@ func readRackItem(in rackItemIn, units int) (RackItem, *rackRefusal) {
 	switch item.Kind {
 	case "node":
 		node := strings.TrimSpace(in.Node)
-		if node == "" || utf8.RuneCountInString(node) > maxRackID {
-			return RackItem{}, &rackRefusal{"items", fmt.Sprintf("Item %s: node is 1 to 64 characters", id)}
+		if node == "" || utf8.RuneCountInString(node) > maxRackID || strings.IndexFunc(node, unicode.IsControl) >= 0 {
+			return RackItem{}, &rackRefusal{"items", fmt.Sprintf("Item %s: node is 1 to 64 characters, on one line", id)}
 		}
 		item.Node = node
 	case "device":
@@ -315,8 +316,9 @@ func loadRacks(db querier) ([]Rack, error) {
 // writeRack stores r, unless the rack stored under its id is newer: then it
 // changes nothing and answers the stored one. A write that would leave more
 // than maxRacks racks that are not deleted is errTooManyRacks. A write drops
-// the deleted marks more than rackMarkKeep before r.UpdatedAt.
-func writeRack(db *sql.DB, r Rack) (Rack, error) {
+// the deleted marks written more than rackMarkKeep before now, the node's
+// clock; a mark whose time is ahead of the clock stays.
+func writeRack(db *sql.DB, r Rack, now time.Time) (Rack, error) {
 	tx, err := db.Begin()
 	if err != nil {
 		return Rack{}, err
@@ -350,16 +352,12 @@ func writeRack(db *sql.DB, r Rack) (Rack, error) {
 		r.ID, string(doc), r.UpdatedAt); err != nil {
 		return Rack{}, err
 	}
-	written, err := time.Parse(time.RFC3339, r.UpdatedAt)
-	if err != nil {
-		return Rack{}, err
-	}
 	for _, s := range stored {
 		if s.ID == r.ID || !s.Doc.Deleted {
 			continue
 		}
 		at, err := time.Parse(time.RFC3339, s.UpdatedAt)
-		if err != nil || written.Sub(at) <= rackMarkKeep {
+		if err != nil || now.Sub(at) <= rackMarkKeep {
 			continue
 		}
 		if _, err := tx.Exec(`DELETE FROM lan_racks WHERE id = ?`, s.ID); err != nil {
