@@ -60,6 +60,7 @@ func nodeCommander(nmap bool) *exec.MockCommander {
 type fakeScan struct {
 	mu    sync.Mutex
 	calls []string
+	ports []bool
 	data  []byte
 	err   error
 	hold  chan struct{}
@@ -68,6 +69,7 @@ type fakeScan struct {
 func (f *fakeScan) run(ctx context.Context, cidr string, ports bool) ([]byte, error) {
 	f.mu.Lock()
 	f.calls = append(f.calls, cidr)
+	f.ports = append(f.ports, ports)
 	data, err, hold := f.data, f.err, f.hold
 	f.mu.Unlock()
 	if hold != nil {
@@ -150,7 +152,7 @@ func nmapCalls(m *exec.MockCommander) int {
 }
 
 // The shape the page reads, before any scan: the networks, null running and
-// last, and results, devices and conflicts [] rather than null.
+// last, and results, devices, conflicts and schedules [] rather than null.
 func TestGetScan_Shape(t *testing.T) {
 	h := newHandler(t, openDB(t), nodeCommander(true), &fakeScan{})
 	code, env := call(t, h.GetScan, http.MethodGet, "")
@@ -167,7 +169,8 @@ func TestGetScan_Shape(t *testing.T) {
 		"last": null,
 		"results": [],
 		"devices": [],
-		"conflicts": []
+		"conflicts": [],
+		"schedules": []
 	}`, string(env.Data))
 }
 

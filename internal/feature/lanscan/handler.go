@@ -65,6 +65,13 @@ type Handler struct {
 	cancel  context.CancelFunc
 	done    chan struct{}
 	last    *Last
+	// scheduleFrom is when the scheduler may first start a scan: two
+	// minutes after StartScheduler. Zero until then, and no scheduled scan
+	// runs.
+	scheduleFrom time.Time
+	// paused is each schedule's paused reason at the last pass, to log a
+	// change once rather than every minute.
+	paused map[string]string
 }
 
 // Running is the scan under way.
@@ -104,6 +111,9 @@ type Status struct {
 	Devices []Device `json:"devices"`
 	// Conflicts are the addresses two or more MACs held at once.
 	Conflicts []Conflict `json:"conflicts"`
+	// Schedules are the networks this node has a schedule for, in network
+	// order, whether this node is still on them or not.
+	Schedules []Schedule `json:"schedules"`
 }
 
 type startRequest struct {
@@ -160,15 +170,27 @@ func (h *Handler) GetScan(c echo.Context) error {
 		slog.Warn("LAN address claims unreadable", "component", "lanscan", "error", err)
 		return response.Fail(c, http.StatusInternalServerError, response.ErrDBError, "Cannot read the device registry")
 	}
+	rows, err := loadSchedules(h.DB)
+	if err != nil {
+		slog.Warn("scan schedules unreadable", "component", "lanscan", "error", err)
+		return response.Fail(c, http.StatusInternalServerError, response.ErrDBError, "Cannot read the scan schedules")
+	}
+	installed := h.Cmd.Exists("nmap")
+	env := h.scheduleEnv(nets, installed, stored)
+	schedules := make([]Schedule, 0, len(rows))
+	for _, row := range rows {
+		schedules = append(schedules, h.scheduleEntry(row, env))
+	}
 
 	return response.OK(c, Status{
-		Installed: h.Cmd.Exists("nmap"),
+		Installed: installed,
 		Networks:  nets,
 		Running:   running,
 		Last:      last,
 		Results:   results,
 		Devices:   devices,
 		Conflicts: conflicts,
+		Schedules: schedules,
 	})
 }
 
@@ -190,13 +212,7 @@ func (h *Handler) StartScan(c echo.Context) error {
 		slog.Warn("network interfaces unreadable", "component", "lanscan", "error", err)
 		return response.Fail(c, http.StatusInternalServerError, response.ErrNetworkError, "Cannot list this node's network interfaces")
 	}
-	var target *Network
-	for i := range nets {
-		if nets[i].Scannable && nets[i].CIDR == req.Network {
-			target = &nets[i]
-			break
-		}
-	}
+	target := scannableNetwork(nets, req.Network)
 	if target == nil {
 		return response.Fail(c, http.StatusBadRequest, response.ErrLanScanNetworkNotAllowed,
 			"Only a network this node lists as scannable can be scanned")

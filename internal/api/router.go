@@ -86,7 +86,11 @@ func healthHandler(db *sql.DB, version string) echo.HandlerFunc {
 //
 // onManagerActivated (may be nil) is called with the manager a live init or
 // join activates, for what main built before the router and holds itself.
-func NewRouter(database *sql.DB, auditWriter *sfdb.AsyncWriter, alertManager *featureAlert.Manager, cfg *config.Config, webFS embed.FS, version string, clusterMgr *cluster.Manager, cfgPath string, liveActivate cluster.LiveActivateFunc, dockerConn *docker.Lazy, agentSources func(net.IP) bool, onManagerActivated func(*cluster.Manager)) (*echo.Echo, func()) {
+//
+// lanScan is the LAN scan handler main built and runs the scan scheduler
+// on, so a scheduled scan and one the operator starts share one lock; nil
+// builds one without a scheduler.
+func NewRouter(database *sql.DB, auditWriter *sfdb.AsyncWriter, alertManager *featureAlert.Manager, lanScan *featureLanScan.Handler, cfg *config.Config, webFS embed.FS, version string, clusterMgr *cluster.Manager, cfgPath string, liveActivate cluster.LiveActivateFunc, dockerConn *docker.Lazy, agentSources func(net.IP) bool, onManagerActivated func(*cluster.Manager)) (*echo.Echo, func()) {
 	// Every signer and verifier reads the token key from auth.JWTSecret at the
 	// moment of use, so a cluster join can swap it without a restart. Seed it
 	// here, where all of them are wired.
@@ -622,10 +626,15 @@ func NewRouter(database *sql.DB, auditWriter *sfdb.AsyncWriter, alertManager *fe
 	net.POST("/bonds", networkHandler.CreateBond)
 	net.DELETE("/bonds/:name", networkHandler.DeleteBond)
 	// LAN scan with nmap: per node, the scan runs on after POST answers.
-	lanScanHandler := &featureLanScan.Handler{DB: database, Cmd: cmd}
+	lanScanHandler := lanScan
+	if lanScanHandler == nil {
+		lanScanHandler = &featureLanScan.Handler{DB: database, Cmd: cmd}
+	}
 	net.GET("/scan", lanScanHandler.GetScan)
 	net.POST("/scan", lanScanHandler.StartScan)
 	net.DELETE("/scan", lanScanHandler.CancelScan)
+	// Each network's scheduled scan, run by main's scheduler.
+	net.PUT("/scan/schedule", lanScanHandler.PutSchedule)
 	// The device registry this node's scans keep: a label, an
 	// acknowledgement and forgetting, by MAC.
 	net.PUT("/devices/:mac", lanScanHandler.PutDevice)

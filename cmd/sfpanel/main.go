@@ -45,6 +45,7 @@ import (
 	featureCompose "github.com/svrforum/SFPanel/internal/feature/compose"
 	featureFiles "github.com/svrforum/SFPanel/internal/feature/files"
 	featureFirewall "github.com/svrforum/SFPanel/internal/feature/firewall"
+	featureLanScan "github.com/svrforum/SFPanel/internal/feature/lanscan"
 	featureSystem "github.com/svrforum/SFPanel/internal/feature/system"
 	featureTerminal "github.com/svrforum/SFPanel/internal/feature/terminal"
 	"github.com/svrforum/SFPanel/internal/monitor"
@@ -377,6 +378,12 @@ func main() {
 	// starts the collectors above, once Docker is installed.
 	safe.Go("docker-connect", func() { dockerConn.Watch(bgCtx, 30*time.Second) })
 
+	// Scheduled LAN scans. The handler is the one the router serves
+	// /network/scan with, so a scheduled scan and one the operator starts
+	// wait for each other: a node runs one at a time.
+	lanScanHandler := &featureLanScan.Handler{DB: database, Cmd: commonExec.NewCommander()}
+	lanScanHandler.StartScheduler(bgCtx)
+
 	// Start terminal session cleanup (timeout from settings, 0 = never)
 	featureTerminal.CleanupTerminalSessions(bgCtx, database)
 
@@ -419,7 +426,7 @@ func main() {
 	if agentRT != nil {
 		agentSources = agentRT.AllowsSource
 	}
-	e, routerCleanup := api.NewRouter(database, auditWriter, alertManager, cfg, sfpanel.WebDistFS, version, clusterMgr, cfgPath, liveActivate, dockerConn, agentSources, onManagerActivated)
+	e, routerCleanup := api.NewRouter(database, auditWriter, alertManager, lanScanHandler, cfg, sfpanel.WebDistFS, version, clusterMgr, cfgPath, liveActivate, dockerConn, agentSources, onManagerActivated)
 	e.Logger.SetOutput(log.Writer())
 
 	addr := fmt.Sprintf("%s:%d", cfg.Server.Host, cfg.Server.Port)

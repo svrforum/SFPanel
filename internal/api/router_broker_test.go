@@ -60,7 +60,7 @@ func TestAManagerWithoutDockerCarriesAnAgentsStack(t *testing.T) {
 	cfg.Server.StacksPath = filepath.Join(dir, "stacks")
 	cfg.Database.Path = filepath.Join(dir, "t.db")
 	cfg.Auth.JWTSecret = testJWTKey
-	e, cleanup := NewRouter(database, sfdb.NewAsyncWriter(ctx, database, "audit", 16), featureAlert.NewManager(database), cfg, embed.FS{}, "test", mgr, filepath.Join(dir, "config.yaml"), nil, docker.NewLazy("unix:///nonexistent.sock"), nil, nil)
+	e, cleanup := NewRouter(database, sfdb.NewAsyncWriter(ctx, database, "audit", 16), featureAlert.NewManager(database), nil, cfg, embed.FS{}, "test", mgr, filepath.Join(dir, "config.yaml"), nil, docker.NewLazy("unix:///nonexistent.sock"), nil, nil)
 	t.Cleanup(cleanup)
 
 	tok, err := auth.GenerateToken("admin", testJWTKey, time.Minute)
