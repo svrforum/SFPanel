@@ -6938,7 +6938,7 @@ WireGuard 키페어 생성 (`wg genkey` + `wg pubkey`).
        ]}
     ],
     "devices": [
-      {"mac": "02:42:ac:14:1e:1f", "name": "", "note": "", "kind": "", "labelled_at": "", "acked": false,
+      {"mac": "02:42:ac:14:1e:1f", "name": "", "note": "", "kind": "", "labelled_at": "", "acked": false, "watch": false,
        "network": "10.20.30.0/24", "ip": "10.20.30.31", "vendor": "Espressif", "hostname": "",
        "first_seen": "2026-11-21T09:00:00Z", "last_seen": "2026-11-22T02:13:08Z"}
     ],
@@ -7008,6 +7008,14 @@ WireGuard 키페어 생성 (`wg genkey` + `wg pubkey`).
 1. `lan_devices`에 upsert — `network`·`ip`·`last_seen`(끝난 시각)은 새 값으로, `vendor`·`hostname`은 빈 값이 아닐 때만 바꾸고, `first_seen`은 처음 한 번만.
 2. `lan_claims`의 `(network, ip, mac)` — 마지막으로 본 뒤 24시간 안에 다시 보이면 `last_at`만 늘리고, 처음이거나 24시간 넘게 안 보였다가 다시 보이면 `first_at = last_at = 지금`. 이어서 `last_at`이 48시간보다 오래된 행을 지운다.
 3. 이름표가 없고(`labelled_at = ""`) 14일 넘게 안 보인 기기를 지운다. 이름표가 있는 기기는 `DELETE`할 때까지 남는다.
+4. 같은 트랜잭션에서 그 망(`network`가 스캔한 망인 기기)의 연속으로 못 찾은 횟수(`lan_devices.missed`, 응답에는 없음)를 센다 — 이번에 찾은 기기는 `0`, 못 찾은 기기는 `+1`. 다른 망의 기기와 이 노드가 본 적 없는 기기는 그대로.
+
+저장이 끝나면(실패·시간 초과·취소된 스캔은 제외) 그 스캔이 알게 한 것을 이 노드의 LAN 알림 규칙(아래 "알림"의 `lan_*`)에 넘긴다:
+
+- **새 기기** — 이번 스캔이 대장에 처음 넣은 MAC(전에 행이 없던 MAC. 다른 노드가 본 기기에 이름표만 달아 행이 있던 MAC은 아니다). 그 망의 기기가 대장에 하나도 없던 스캔(그 망의 첫 스캔)은 모두가 한꺼번에 새로 보이므로 새 기기로 치지 않는다.
+- **안 보임** — 지켜보는(`watch`) 그 망의 기기 중 이번 스캔으로 `missed`가 **정확히 2**가 된 것(연속 두 번째로 못 찾음). 세 번째부터는 다시 알리지 않는다.
+- **다시 보임** — 지켜보는 기기 중 `missed`가 2 이상이던 것을 이번 스캔이 찾음. 한 번만 못 찾았다가 찾은 것은 아니다.
+- **주소 충돌** — 확실한 것 먼저: 이번 스캔에서 그 망 주기의 `known`이 클러스터 노드의 것이라 한 주소에 그 노드의 MAC이 아닌 MAC이 응답함(주기의 `conflict` 멈춤과 같은 규칙 — 스캔한 노드 자신의 응답과 MAC이 없는 응답은 따지지 않는다). 이어서 의심되는 것: 위 `conflicts`와 같은 `lan_claims`의 겹침 중 그 망의 것, 확실한 것으로 이미 나온 주소는 빼고.
 
 `devices[]`의 필드:
 
@@ -7017,6 +7025,7 @@ WireGuard 키페어 생성 (`wg genkey` + `wg pubkey`).
 | `name` / `note` / `kind` | 운영자가 적은 이름표. `kind`: `""`(안 정함) · `router` · `switch` · `ap` · `server` · `nas` · `pc` · `phone` · `tv` · `camera` · `printer` · `iot` · `other` |
 | `labelled_at` | 이름표를 마지막으로 쓴 때. 한 번도 안 썼으면 `""`. 여러 노드를 합칠 때 최신이 이긴다 |
 | `acked` | 새 기기 표시를 운영자가 확인함 |
+| `watch` | 운영자가 "지켜보기"로 표시한 기기. 이름표와 함께 쓴다. `lan_device_down` 알림 규칙이 이 기기들만 본다 |
 | `network` / `ip` / `vendor` / `hostname` | 이 노드가 마지막으로 본 모습. 다른 노드가 본 기기에 이름표만 단 경우 `""` |
 | `first_seen` / `last_seen` | 이 노드가 처음·마지막으로 본 때. 본 적 없으면 `""` |
 
@@ -7025,17 +7034,18 @@ WireGuard 키페어 생성 (`wg genkey` + `wg pubkey`).
 
 **Request:**
 ```json
-{ "name": "거실 TV", "note": "벽걸이, HDMI 2", "kind": "tv", "labelled_at": "2026-11-22T03:00:00.250Z" }
+{ "name": "거실 TV", "note": "벽걸이, HDMI 2", "kind": "tv", "labelled_at": "2026-11-22T03:00:00.250Z", "watch": true }
 ```
 - `name`·`note`는 앞뒤 공백을 지우고 검사한다. `name`은 64자(바이트가 아니라 문자)까지, 제어 문자 없이 한 줄. `note`는 500자까지, 줄바꿈·탭은 되고 그 밖의 제어 문자는 안 된다. 빈 값이면 지운다.
 - `labelled_at`(선택): 있으면 RFC 3339여야 하며 **보낸 그대로** 저장한다 — 화면이 한 이름표를 여러 노드에 쓸 때 노드들이 같은 시각을 갖게. 없으면 서버의 지금.
-- 그 시각이 저장된 `labelled_at`보다 **이르면** 아무것도 바꾸지 않고 저장된 기기로 `200`을 답한다(같은 시각은 쓴다). 서버의 지금을 쓰는 요청에도 같은 규칙이 적용된다.
+- `watch`(선택, `true`|`false`): 있으면 이름표와 함께 쓴다. 없으면 저장된 값을 그대로 둔다(처음 생기는 행은 `false`). 화면이 이름표처럼 여러 노드에 쓴다.
+- 그 시각이 저장된 `labelled_at`보다 **이르면** 아무것도 바꾸지 않고(`watch` 포함) 저장된 기기로 `200`을 답한다(같은 시각은 쓴다). 서버의 지금을 쓰는 요청에도 같은 규칙이 적용된다.
 
 **Response (200):** 저장된 기기(`devices[]` 한 항목과 같은 모양).
 
 **에러:**
 - `400 LAN_DEVICE_INVALID` — `details.field`: `mac` \| `name` \| `note` \| `kind` \| `labelled_at`. 아무것도 쓰지 않는다
-- `400 INVALID_REQUEST` — 본문이 JSON이 아니거나 필드 타입이 틀림
+- `400 INVALID_REQUEST` — 본문이 JSON이 아니거나 필드 타입이 틀림(`"watch": "yes"` 등)
 
 ### POST /api/v1/network/devices/:mac/ack
 새 기기 표시를 확인한다. **Response (200):** `{"success": true, "data": {"acked": true}}`
@@ -7048,6 +7058,27 @@ WireGuard 키페어 생성 (`wg genkey` + `wg pubkey`).
 **Response (200):** `{"success": true, "data": {"deleted": true}}` — 대장에 없었으면 `false`.
 
 **에러:** `400 LAN_DEVICE_INVALID`(`field: mac`).
+
+### POST /api/v1/network/devices/:mac/wake
+대장에 있는 기기에 Wake-on-LAN 매직 패킷을 보낸다. 매직 패킷(0xFF 6바이트 + MAC 16번, 102바이트)을 UDP로 그 망의 **브로드캐스트 주소 9번 포트**에, 이 노드의 그 망 주소에서(그 인터페이스로 나가게) **3번** 보낸다. 켜졌는지는 여기서 알 수 없다 — 다음 스캔에서 보인다. 기기에서 Wake-on-LAN이 켜져 있어야 하고, 다른 서브넷으로는 보내지 않는다.
+
+**Request:**
+```json
+{ "network": "10.20.30.0/24" }
+```
+- `:mac`은 다른 기기 경로와 같이 읽는다.
+- `network`는 `POST /network/scan`과 똑같이 검사한다 — 이 노드의 스캔 가능한 망의 `cidr`과 글자 그대로 같아야 한다.
+- MAC은 **이 노드의 대장에** 있어야 한다(이름표만 단 MAC 포함). 패널이 아는 기기를 깨우는 경로이지 임의 패킷을 보내는 경로가 아니다.
+
+**Response (200):** `{"success": true, "data": {"sent": 3}}`
+
+**에러:** 거부되면 아무것도 보내지 않는다.
+- `400 LAN_DEVICE_INVALID` — `details.field`: `mac`
+- `400 INVALID_REQUEST` — 본문을 읽을 수 없거나 `network`가 비어 있음
+- `400 LAN_SCAN_NETWORK_NOT_ALLOWED` — 이 노드의 스캔 가능한 망이 아님
+- `404 LAN_DEVICE_NOT_FOUND` — 이 노드의 대장에 없는 MAC
+- `500 NETWORK_ERROR` — 인터페이스를 읽을 수 없거나 패킷을 보내지 못함(원인은 로그 `component=lanscan`에만)
+- `500 DB_ERROR` — 대장을 읽을 수 없음
 
 ### 주기 스캔
 
@@ -7081,7 +7112,7 @@ WireGuard 키페어 생성 (`wg genkey` + `wg pubkey`).
 - `400 LAN_SCAN_NETWORK_NOT_ALLOWED` — 이 노드의 스캔 가능한 망이 아님
 - `400 LAN_SCHEDULE_INVALID` — `details.field`: `interval_minutes` \| `known`. 아무것도 쓰지 않는다
 
-0.91.0보다 오래된 노드는 기기·주기 경로에 `404`로 답하고, 그 `GET`에는 `devices`·`conflicts`·`schedules`·`ports_at`·`scheduled`가 없다.
+0.91.0보다 오래된 노드는 기기·주기 경로에 `404`로 답하고, 그 `GET`에는 `devices`·`conflicts`·`schedules`·`ports_at`·`scheduled`가 없다. 0.92.0보다 오래된 노드는 `wake`에 `404`로 답하고, `devices[]`에 `watch`가 없으며 `PUT`의 `watch`를 무시한다.
 
 ---
 
@@ -7368,6 +7399,11 @@ WireGuard 키페어 생성 (`wg genkey` + `wg pubkey`).
 | GET | `/api/v1/network/scan` | O | LAN 스캔: 스캔할 수 있는 망, 진행 상태, 저장된 결과 |
 | POST | `/api/v1/network/scan` | O | LAN 스캔 시작 (nmap, 노드당 하나) |
 | DELETE | `/api/v1/network/scan` | O | 진행 중인 LAN 스캔 중지 |
+| PUT | `/api/v1/network/scan/schedule` | O | 망별 주기 스캔 설정 |
+| PUT | `/api/v1/network/devices/:mac` | O | 기기 이름표·지켜보기 |
+| POST | `/api/v1/network/devices/:mac/ack` | O | 새 기기 표시 확인 |
+| DELETE | `/api/v1/network/devices/:mac` | O | 기기 잊기 |
+| POST | `/api/v1/network/devices/:mac/wake` | O | Wake-on-LAN (대장에 있는 기기, 스캔 가능한 망) |
 
 ### WireGuard VPN (14개)
 
@@ -7752,7 +7788,7 @@ WireGuard 키페어 생성 (`wg genkey` + `wg pubkey`).
 
 **스키마 요약:**
 - **채널** (`alert_channels`): `{ id, type:"discord"|"telegram"|"webhook", name, config, enabled }`. `config`는 Discord `{"webhook_url":"…"}` / Telegram `{"bot_token":"…","chat_id":"…"}` / Webhook `{"webhook_url":"https://…"}`(v0.25.0+, Slack/Mattermost 호환 — `text` + 구조화 필드 POST). 생성·수정 본문의 `config`는 이 객체 그대로 보내며, 같은 JSON을 담은 문자열도 받습니다 — 저장은 어느 쪽이든 객체 텍스트이고, 객체가 아니면 `400 INVALID_VALUE`(#116 전에는 객체를 보내면 `400 INVALID_BODY`로 거부됐음). 수정은 부분 갱신이라 생략한 필드는 `enabled`까지 저장된 값을 유지합니다. 목록 응답의 `config`는 시크릿 키를 마스킹한 JSON 텍스트(문자열)입니다. `…/test`는 해당 채널로 테스트 알림 1건 발송.
-- **규칙** (`alert_rules`): `{ id, name, type, condition(JSON), channel_ids(JSON 배열), severity:"info"|"warning"|"critical", cooldown(초), node_scope:"all"|"specific", node_ids(JSON), enabled, evaluated }`. `type`은 호스트형(`cpu`/`memory`/`disk`)이면 `condition={"operator":">","threshold":90}`, 컨테이너형(`container_down`/`container_oom`/`container_restart_loop`/`container_unhealthy`)이면 `condition={"container_pattern":"*","threshold_count":N,"window_seconds":N}`. `container_down`은 요청한 정지(die 전 60초 안에, 마지막 start 뒤에 kill 이벤트가 있는 경우 — docker stop·kill·restart, rm -f, compose stop·down, 패널 버튼)는 알리지 않으며 `condition`에 `"include_intentional_stops":true`가 있으면 그것도 알립니다(#135). `container_restart_loop`은 window 안의 비정상 종료(요청한 정지가 아닌 die) 횟수를 셉니다 — Docker는 재시작 정책으로 되살릴 때 `restart` 이벤트를 보내지 않습니다. 쿨다운은 컨테이너형이면 규칙×컨테이너 단위입니다. 평가되는 타입은 이 7개가 전부이고, 생성·수정은 다른 `type`을 `400 ALERT_RULE_TYPE_NOT_EVALUATED`(details `type`)로 거부합니다. v0.78.19까지는 화면이 `service`/`login`/`package`도 내놓고 서버가 그대로 저장했지만, 그 타입은 아무것도 평가하지 않아 알림이 한 번도 가지 않았습니다(#132). 그렇게 저장된 규칙은 목록에 `evaluated: false`로 나오고 삭제만 됩니다 — 수정은 `enabled`만 바꾸는 것까지 같은 코드로 거부합니다. `container_oom` 규칙은 보낸 `severity`와 상관없이 항상 `critical`로 발송되므로, 저장과 목록도 `critical`입니다(전에는 보낸 값을 저장·표시하고 발송만 `critical`이었음). `node_scope`는 `all` 또는 `specific`이고, `specific`이면 `node_ids`에 노드가 하나 이상 있어야 합니다. 아니면 생성과, 범위를 바꾸는 수정이 `400 INVALID_VALUE`로 거부됩니다 — 클러스터에서는 그런 규칙을 모든 노드가 건너뛰어, 화면에서 노드를 고르지 않고 저장한 규칙이 활성으로 표시된 채 발송되지 않았습니다.
+- **규칙** (`alert_rules`): `{ id, name, type, condition(JSON), channel_ids(JSON 배열), severity:"info"|"warning"|"critical", cooldown(초), node_scope:"all"|"specific", node_ids(JSON), enabled, evaluated }`. `type`은 호스트형(`cpu`/`memory`/`disk`)이면 `condition={"operator":">","threshold":90}`, 컨테이너형(`container_down`/`container_oom`/`container_restart_loop`/`container_unhealthy`)이면 `condition={"container_pattern":"*","threshold_count":N,"window_seconds":N}`, LAN형(`lan_new_device`/`lan_address_conflict`/`lan_device_down`)이면 `condition`을 읽지 않는다(화면은 `"{}"`를 보낸다). `container_down`은 요청한 정지(die 전 60초 안에, 마지막 start 뒤에 kill 이벤트가 있는 경우 — docker stop·kill·restart, rm -f, compose stop·down, 패널 버튼)는 알리지 않으며 `condition`에 `"include_intentional_stops":true`가 있으면 그것도 알립니다(#135). `container_restart_loop`은 window 안의 비정상 종료(요청한 정지가 아닌 die) 횟수를 셉니다 — Docker는 재시작 정책으로 되살릴 때 `restart` 이벤트를 보내지 않습니다. 쿨다운은 규칙×대상 단위입니다 — 대상은 컨테이너형이면 컨테이너, LAN형이면 아래, 호스트형이면 없음(규칙 하나에 하나). LAN형은 이 노드가 스캔을 저장할 때마다(수동이든 주기든) 그 스캔이 알게 한 것으로 판정합니다(위 "LAN 스캔"의 "기기 대장"): `lan_new_device`는 새 기기마다 한 번(대상 MAC, 예: `New device on 10.20.30.0/24: 10.20.30.51 (02:42:ac:14:1e:33, Espressif, plug.lan)` — 제조사·이름은 알 때만), `lan_address_conflict`는 충돌한 주소마다 한 번(대상 `<망>/<주소>`, 확실: `Address conflict on 10.20.30.0/24: 10.20.30.12 is a server's address, and 02:42:ac:14:1e:4d (Example Electronics) answered on it.`, 의심: `Suspected address conflict on 10.20.30.0/24: 10.20.30.12 was held by 02:42:ac:14:1e:0c and 02:42:ac:14:1e:4d over the same period.`), `lan_device_down`은 지켜보는 기기가 연속 두 번째 스캔에서 안 보일 때(대상 MAC, `Front door (10.20.30.50, 02:42:ac:14:1e:32) was not found by the last 2 scans of 10.20.30.0/24. Last seen 2026-11-22 02:13 UTC.`)와 다시 보일 때(대상 `<MAC>/back` — 안 보임의 쿨다운에 막히지 않게, `Front door (10.20.30.50) is back on 10.20.30.0/24.`) 한 번씩. 기기 이름은 이름표, 없으면 호스트 이름, 없으면 MAC만. 충돌은 스캔마다 다시 판정되므로(의심되는 충돌은 `lan_claims`에 48시간 남는다), 쿨다운이 스캔 주기보다 짧으면 같은 충돌이 스캔마다 다시 갑니다. `lan_device_down`은 그 망에 주기 스캔이 켜져 있어야 의미가 있습니다. 평가되는 타입은 이 10개가 전부이고, 생성·수정은 다른 `type`을 `400 ALERT_RULE_TYPE_NOT_EVALUATED`(details `type`)로 거부합니다. v0.78.19까지는 화면이 `service`/`login`/`package`도 내놓고 서버가 그대로 저장했지만, 그 타입은 아무것도 평가하지 않아 알림이 한 번도 가지 않았습니다(#132). 그렇게 저장된 규칙은 목록에 `evaluated: false`로 나오고 삭제만 됩니다 — 수정은 `enabled`만 바꾸는 것까지 같은 코드로 거부합니다. `container_oom` 규칙은 보낸 `severity`와 상관없이 항상 `critical`로 발송되므로, 저장과 목록도 `critical`입니다(전에는 보낸 값을 저장·표시하고 발송만 `critical`이었음). `node_scope`는 `all` 또는 `specific`이고, `specific`이면 `node_ids`에 노드가 하나 이상 있어야 합니다. 아니면 생성과, 범위를 바꾸는 수정이 `400 INVALID_VALUE`로 거부됩니다 — 클러스터에서는 그런 규칙을 모든 노드가 건너뛰어, 화면에서 노드를 고르지 않고 저장한 규칙이 활성으로 표시된 채 발송되지 않았습니다.
 - **이력** (`alert_history`): `GET`은 `?page=&limit=` 페이지네이션 → `{items[], total, page, limit}`. 각 항목 `{ rule_id, rule_name, type, severity, message, sent_channels(JSON), created_at }`. `DELETE`는 전체 삭제.
 
 ### SSE 스트리밍 (14개)
