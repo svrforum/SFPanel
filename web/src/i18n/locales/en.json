@@ -4539,7 +4539,10 @@
     "emptyContent": "The config content cannot be empty.",
     "aiSessionNotFound": "The session was not found.",
     "lanScanInProgress": "A scan is already running on this server. Try again when it is done.",
-    "lanScanNetworkNotAllowed": "Only a private network this server is directly on can be scanned. ({{serverMessage}})"
+    "lanScanNetworkNotAllowed": "Only a private network this server is directly on can be scanned. ({{serverMessage}})",
+    "lanDeviceInvalid": "The device could not be saved. ({{serverMessage}})",
+    "lanDeviceNotFound": "This server's registry does not know that device.",
+    "lanScheduleInvalid": "The automatic scan setting is not valid. ({{serverMessage}})"
   },
   "running": {
     "title": "Running",
@@ -4684,13 +4687,25 @@
       "gatewayNone": "No default route leaves by this network.",
       "group": {
         "servers": "Servers {{count}}",
-        "devices": "Other devices {{count}}"
+        "devices": "Other devices {{count}}",
+        "gear": "Network equipment {{count}}"
       },
       "kind": {
         "gateway": "Gateway",
         "server": "Server",
         "vm": "VM",
-        "lxc": "LXC"
+        "lxc": "LXC",
+        "router": "Router",
+        "switch": "Switch",
+        "ap": "Access point",
+        "nas": "NAS",
+        "pc": "PC",
+        "phone": "Phone",
+        "tv": "TV",
+        "camera": "Camera",
+        "printer": "Printer",
+        "iot": "IoT device",
+        "other": "Other"
       },
       "device": {
         "scanner": "Scanned from here",
@@ -4702,7 +4717,10 @@
         "ports": "Open ports",
         "morePorts": "+{{count}}",
         "notChecked": "Not checked",
-        "conflict": "Address conflict: this address is server {{node}}'s."
+        "conflict": "Address conflict: this address is server {{node}}'s.",
+        "fresh": "New",
+        "absent": "Not seen · last {{time}}",
+        "suspect": "Held this address at the same time as another device ({{macs}})."
       },
       "field": {
         "address": "Address",
@@ -4710,7 +4728,9 @@
         "vendor": "Maker",
         "hostname": "Name (DNS)",
         "ports": "Open ports",
-        "gatewayFor": "Default route of"
+        "gatewayFor": "Default route of",
+        "firstSeen": "First seen",
+        "lastSeen": "Last seen"
       },
       "scan": {
         "elapsed": "{{count}}s",
@@ -4732,7 +4752,9 @@
           "failed": "The scan of {{network}} from {{node}} failed. The earlier result is still shown.",
           "timeout": "The scan of {{network}} from {{node}} did not finish in time. The earlier result is still shown.",
           "cancelled": "The scan of {{network}} from {{node}} was stopped."
-        }
+        },
+        "runningScheduled": "{{node}} is scanning by itself…",
+        "conflictCaution": "While an address is in conflict, a scan can cut {{node}} off from the server that address belongs to."
       },
       "segment": {
         "found": "Devices: {{count}}",
@@ -4740,7 +4762,9 @@
         "withPorts": "ports checked",
         "hostsOnly": "devices only",
         "notScanned": "Not scanned yet. Servers on this network: {{nodes}}",
-        "explain": "A scan finds the devices that answer on this network and draws them by address."
+        "explain": "A scan finds the devices that answer on this network and draws them by address.",
+        "portsAt": "ports checked {{time}}",
+        "absent": "not seen {{count}}"
       },
       "loadError": "Could not load the scan status of {{node}}.",
       "unsupported": "This server's panel version has no network scan. Update it to use this.",
@@ -4776,6 +4800,41 @@
       "conflict": {
         "title": "Address conflict at {{address}}",
         "body": "It is server {{node}}'s address, and in the scan another device ({{who}}, {{mac}}) answered on it. With two devices on one address, connections to that server drop now and then. Reserve the address for the server in the router's DHCP, or take it out of the range."
+      },
+      "edit": {
+        "name": "Name",
+        "kind": "Kind",
+        "kindNone": "Not said",
+        "note": "Note",
+        "save": "Save",
+        "ack": "Seen it",
+        "forget": "Forget",
+        "failed": "Could not save.",
+        "noRegistry": "No server on this network keeps a device registry. Update the panel to save this."
+      },
+      "schedule": {
+        "label": "Automatic scan ({{node}})",
+        "every": {
+          "0": "Off",
+          "15": "Every 15 minutes",
+          "60": "Every hour",
+          "360": "Every 6 hours",
+          "1440": "Every day"
+        },
+        "portsDaily": "Check ports too, once a day",
+        "next": "Next scan {{time}} · devices only.",
+        "paused": {
+          "conflict": "Automatic scans are stopped: an address is in conflict. They resume once it is resolved.",
+          "no_tool": "Automatic scans do not run: nmap is missing.",
+          "gone": "Automatic scans do not run: this server is no longer on this network.",
+          "other": "Automatic scans are stopped."
+        },
+        "other": "Also scanned from {{node}}: {{interval}}",
+        "failed": "Could not save the automatic scan setting."
+      },
+      "suspect": {
+        "title": "Suspected address conflict at {{address}}",
+        "body": "Two devices ({{macs}}) held this address at the same time. Change the address of one, or check the DHCP reservation."
       }
     }
   }

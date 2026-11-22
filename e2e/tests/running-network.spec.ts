@@ -45,9 +45,16 @@ const HOSTS = [
   host(41, { vendor: 'Example Electronics', hostname: 'camera.lan', ports: tcp(80, 554) }),
   host(42, { vendor: 'Example Electronics' }),
 ]
-const result = (hosts: unknown[], finished = '2026-11-22T02:13:08Z', ports = true) => ({
-  network: NET, interface: 'eth0', address: ip(5), gateway: ip(1), ports, started_at: '2026-11-22T02:12:04Z', finished_at: finished, hosts,
+const SCANNED = '2026-11-22T02:13:08Z'
+const result = (hosts: unknown[], finished = SCANNED, ports = true, portsAt = ports ? finished : '') => ({
+  network: NET, interface: 'eth0', address: ip(5), gateway: ip(1), ports, ports_at: portsAt, started_at: '2026-11-22T02:12:04Z', finished_at: finished, hosts,
 })
+/** A device as a node's registry keeps it: seen since a month before the scan, to the scan. */
+const known = (n: number, extra: Record<string, unknown> = {}) => ({
+  mac: mac(n), name: '', note: '', kind: '', labelled_at: '', acked: false, network: NET, ip: ip(n), vendor: '', hostname: '',
+  first_seen: '2026-10-22T02:13:08Z', last_seen: SCANNED, ...extra,
+})
+type Known = ReturnType<typeof known>
 
 const base = { role: 'voter', joined_at: '2026-01-01T00:00:00Z', grpc_address: `${ip(5)}:3629`, status: 'online', last_seen: '2026-11-22T02:00:00Z' }
 const NODES = [
@@ -106,6 +113,16 @@ interface Opts {
   twoGateways?: boolean
   /** What answers at bravo-agent's address is another device; bravo-agent itself is not seen. */
   conflict?: boolean
+  /** The nodes are of 0.90: they scan, and keep no registry and no schedule. */
+  noRegistry?: boolean
+  /** What the scanning node's registry holds when the page opens. */
+  devices?: Known[]
+  /** Addresses the scanning node's history says two MACs held at once. */
+  suspects?: { network: string; ip: string; macs: string[] }[]
+  /** Schedules the nodes have when the page opens, by node. */
+  schedules?: Record<string, { interval_minutes: number; ports_daily: boolean; paused_reason?: string }>
+  /** The last scan looked for devices only; ports are from the day before. */
+  hostsOnly?: boolean
   view?: string
 }
 
@@ -119,7 +136,17 @@ async function mock(page: Page, opts: Opts = {}) {
     portmap: [] as string[],
     running: null as null | { network: string; ports: boolean; started_at: string },
     last: null as null | { network: string; ports: boolean; state: string; at: string },
-    results: opts.unscanned ? [] as unknown[] : [result(opts.conflict ? HOSTS.map((h) => (h.ip === ip(12) ? host(12, { mac: mac(77), vendor: 'Example Electronics' }) : h)) : HOSTS)],
+    results: opts.unscanned ? [] as unknown[] : [result(
+      opts.conflict ? HOSTS.map((h) => (h.ip === ip(12) ? host(12, { mac: mac(77), vendor: 'Example Electronics' }) : h)) : HOSTS,
+      SCANNED, !opts.hostsOnly, opts.hostsOnly ? '2026-11-21T02:13:08Z' : SCANNED,
+    )],
+    /** Each node's registry, by MAC. */
+    registry: Object.fromEntries(NODES.map((n) => [n.id, new Map<string, Known>(n.id === 'm-1' ? (opts.devices ?? []).map((d) => [d.mac, d]) : [])])) as Record<string, Map<string, Known>>,
+    schedules: Object.fromEntries(Object.entries(opts.schedules ?? {}).map(([id, x]) => [id, { network: NET, last_run: '', next_run: x.paused_reason ? '' : '2026-11-22T04:00:00Z', paused_reason: '', ...x }])) as Record<string, Record<string, unknown>>,
+    labels: [] as { node: string; mac: string; body: Record<string, unknown> }[],
+    acks: [] as { node: string; mac: string }[],
+    forgets: [] as { node: string; mac: string }[],
+    scheduled: [] as { node: string; body: Record<string, unknown> }[],
     /** Reads of the scanning node's status left before the scan ends. */
     left: 0,
   }
@@ -158,6 +185,36 @@ async function mock(page: Page, opts: Opts = {}) {
     }
     else if (path === '/system/guests') data = node === 'p-1' ? GUESTS : []
     else if (path === '/network/interfaces') data = interfaces(node)
+    else if (path.startsWith('/network/devices/')) {
+      if (opts.old || opts.noRegistry) return fail(404, 'NOT_FOUND', 'Not Found')
+      const [, , , raw, action] = path.split('/')
+      const key = decodeURIComponent(raw).toLowerCase()
+      const book = state.registry[node]
+      const method = request.method()
+      if (method === 'PUT') {
+        const body = request.postDataJSON() as { name: string; note: string; kind: string; labelled_at: string }
+        state.labels.push({ node, mac: key, body })
+        const was = book.get(key) ?? known(0, { mac: key, network: '', ip: '', first_seen: '', last_seen: '' })
+        book.set(key, { ...was, name: body.name, note: body.note, kind: body.kind, labelled_at: body.labelled_at })
+        data = book.get(key)
+      } else if (method === 'POST' && action === 'ack') {
+        state.acks.push({ node, mac: key })
+        const was = book.get(key)
+        if (!was) return fail(404, 'LAN_DEVICE_NOT_FOUND', 'unknown device')
+        book.set(key, { ...was, acked: true })
+        data = { acked: true }
+      } else if (method === 'DELETE') {
+        state.forgets.push({ node, mac: key })
+        data = { deleted: book.delete(key) }
+      }
+    }
+    else if (path === '/network/scan/schedule') {
+      if (opts.old || opts.noRegistry) return fail(404, 'NOT_FOUND', 'Not Found')
+      const body = request.postDataJSON() as { network: string; interval_minutes: number; ports_daily: boolean }
+      state.scheduled.push({ node, body })
+      state.schedules[node] = { network: body.network, interval_minutes: body.interval_minutes, ports_daily: body.ports_daily, last_run: '', next_run: body.interval_minutes > 0 ? '2026-11-22T04:00:00Z' : '', paused_reason: '' }
+      data = state.schedules[node]
+    }
     else if (path === '/network/scan') {
       if (opts.old) return fail(404, 'NOT_FOUND', 'Not Found')
       const method = request.method()
@@ -193,6 +250,11 @@ async function mock(page: Page, opts: Opts = {}) {
           running: scanner ? state.running : null,
           last: scanner ? state.last : null,
           results: scanner ? state.results : [],
+          ...(opts.noRegistry ? {} : {
+            devices: [...state.registry[node].values()],
+            conflicts: scanner ? opts.suspects ?? [] : [],
+            schedules: state.schedules[node] ? [state.schedules[node]] : [],
+          }),
         }
       }
     }
@@ -645,4 +707,222 @@ test('no address conflict is said of a network where every server answers for it
   await expect(page.locator('[data-testid="net-device"][data-kind="server"]')).toHaveCount(6)
   await expect(page.getByTestId('net-conflict')).toHaveCount(0)
   await expect(page.locator('[data-testid="net-device"][data-conflict="true"]')).toHaveCount(0)
+})
+
+// ---- the registry: names and notes by MAC, devices not seen, new ones, schedules ----
+
+const LABELLED = { labelled_at: '2026-11-21T00:00:00Z' }
+
+test('a name, a kind and a note are written to every node of the network, with one time, and drawn', async ({ page }) => {
+  const state = await mock(page)
+  await page.goto('/cluster/running')
+  const plug = device(page, 37)
+  await expect(plug).toContainText('No name')
+  await plug.locator('summary').click()
+  const form = plug.getByTestId('net-label-form')
+  await expect(form.getByRole('button', { name: 'Save' })).toBeDisabled()
+  await form.getByLabel('Name').fill('  Hallway plug ')
+  await form.getByLabel('Kind').selectOption({ label: 'IoT device' })
+  await form.getByLabel('Note').fill('Behind the shoe rack')
+  await form.getByRole('button', { name: 'Save' }).click()
+
+  // One label, to each of the six nodes: a node that goes away does not take
+  // it along, and the nodes agree on which label is the last by its time.
+  await expect.poll(() => state.labels.length).toBe(6)
+  expect(state.labels.map((l) => l.node).sort()).toEqual(['a-1', 'a-3', 'a-4', 'm-1', 'm-2', 'p-1'])
+  expect(new Set(state.labels.map((l) => l.mac))).toEqual(new Set([mac(37)]))
+  expect(new Set(state.labels.map((l) => JSON.stringify(l.body))).size).toBe(1)
+  expect(state.labels[0].body).toMatchObject({ name: 'Hallway plug', kind: 'iot', note: 'Behind the shoe rack' })
+  expect(Date.parse(String(state.labels[0].body.labelled_at))).toBeGreaterThan(0)
+
+  await expect(plug.locator('summary')).toContainText('Hallway plug')
+  await expect(plug.locator('summary')).toContainText('IoT device')
+  await expect(plug).toHaveAttribute('data-kind', 'iot')
+  await expect(plug.getByTestId('net-note')).toHaveText('Behind the shoe rack')
+  // Saved: nothing left to save, and the card stays open on what was written.
+  await expect(form.getByRole('button', { name: 'Save' })).toBeDisabled()
+  await expect(form.getByLabel('Name')).toHaveValue('Hallway plug')
+
+  // Found by what was written.
+  await page.getByRole('searchbox').fill('shoe rack')
+  await expect(page.locator('[data-testid="net-device"][data-kind="iot"]')).toHaveCount(1)
+})
+
+test('a node and a guest have their own names: they take a note', async ({ page }) => {
+  const state = await mock(page)
+  await page.goto('/cluster/running')
+  const nas = device(page, 15)
+  await nas.locator('summary').click()
+  const form = nas.getByTestId('net-label-form')
+  await expect(form.getByLabel('Name')).toHaveCount(0)
+  await expect(form.getByLabel('Kind')).toHaveCount(0)
+  await form.getByLabel('Note').fill('Backups run at 03:00')
+  await form.getByRole('button', { name: 'Save' }).click()
+  await expect.poll(() => state.labels.length).toBe(6)
+  expect(state.labels[0].body).toMatchObject({ name: '', kind: '', note: 'Backups run at 03:00' })
+  await expect(nas.getByTestId('net-note')).toHaveText('Backups run at 03:00')
+  // Still the guest Proxmox says it is.
+  await expect(nas.locator('summary')).toContainText('nas')
+  await expect(nas).toHaveAttribute('data-kind', 'vm')
+})
+
+test('what the operator called a switch or an access point stands in a row of its own, under the gateway', async ({ page }) => {
+  await mock(page, { devices: [known(41, { name: 'Core switch', kind: 'switch', ...LABELLED }), known(42, { name: 'Upstairs AP', kind: 'ap', ...LABELLED }), known(36, { kind: 'tv', ...LABELLED })] })
+  await page.goto('/cluster/running')
+  await expect(page.getByText('Network equipment 2', { exact: true })).toBeVisible()
+  await expect(page.getByText('Other devices 11', { exact: true })).toBeVisible()
+  await expect(device(page, 41)).toHaveAttribute('data-kind', 'switch')
+  await expect(device(page, 41).locator('summary')).toContainText('Core switch')
+  await expect(device(page, 41).locator('summary')).toContainText('Switch · camera.lan')
+  await expect(device(page, 42)).toHaveAttribute('data-kind', 'ap')
+  // A TV is a kind, and no network equipment.
+  await expect(device(page, 36)).toHaveAttribute('data-kind', 'tv')
+  // Under the gateway, above the servers.
+  const order = await page.getByTestId('net-device').evaluateAll((els) => els.map((el) => el.getAttribute('data-ip')))
+  expect(order.slice(0, 4)).toEqual([ip(1), ip(41), ip(42), ip(5)])
+  const gear = await device(page, 41).boundingBox()
+  const gateway = await device(page, 1).boundingBox()
+  const server = await device(page, 5).boundingBox()
+  expect(gear!.y).toBeGreaterThan(gateway!.y + gateway!.height)
+  expect(server!.y).toBeGreaterThan(gear!.y + gear!.height)
+})
+
+test('a device the scan did not find stays, said to be unseen, and can be forgotten', async ({ page }) => {
+  const state = await mock(page, {
+    devices: [
+      known(70, { name: 'Garage printer', ...LABELLED, last_seen: '2026-11-02T02:13:08Z', vendor: 'Example Electronics' }),
+      // Nobody labelled it, and it was last seen nine days before: not kept.
+      known(71, { last_seen: '2026-11-13T02:13:08Z' }),
+      // A guest that is stopped now, seen running two days before: inside its host, by its Proxmox name.
+      known(60, { last_seen: '2026-11-20T02:13:08Z' }),
+    ],
+  })
+  await page.clock.install({ time: new Date('2026-11-22T02:20:00Z') })
+  await page.goto('/cluster/running')
+  await expect(page.locator('[data-testid="net-network"]')).toContainText('Devices: 28')
+  await expect(page.locator('[data-testid="net-network"]')).toContainText('not seen 2')
+  const printer = device(page, 70)
+  await expect(printer).toHaveAttribute('data-absent', 'true')
+  await expect(printer).toContainText('Garage printer')
+  await expect(printer).toContainText(/Not seen · last Nov 2/)
+  await expect(device(page, 71)).toHaveCount(0)
+  await expect(page.locator('[data-testid="net-device"][data-absent="true"]')).toHaveCount(2)
+  const stopped = page.getByTestId('net-host').locator(`[data-ip="${ip(60)}"]`)
+  await expect(stopped).toHaveAttribute('data-absent', 'true')
+  await expect(stopped.locator('summary')).toContainText('old-win')
+  await expect(stopped.locator('summary')).toContainText('VM 113')
+  // Said in words on a card of its own look: no letter is dimmed.
+  expect(await printer.evaluate((el) => getComputedStyle(el).opacity)).toBe('1')
+  expect(await printer.evaluate((el) => getComputedStyle(el).borderTopStyle)).toBe('dashed')
+
+  await printer.locator('summary').click()
+  await printer.getByRole('button', { name: 'Forget' }).click()
+  await expect.poll(() => state.forgets.length).toBe(6)
+  expect(new Set(state.forgets.map((f) => f.mac))).toEqual(new Set([mac(70)]))
+  await expect(device(page, 70)).toHaveCount(0)
+  // One that the scan found has nothing to forget.
+  await device(page, 37).locator('summary').click()
+  await expect(device(page, 37).getByRole('button', { name: 'Forget' })).toHaveCount(0)
+})
+
+test('a device that appeared after the first scan is marked new until looked at', async ({ page }) => {
+  const state = await mock(page, { devices: [...HOSTS.filter((h) => h.mac !== mac(42)).map((h) => known(Number(h.ip.split('.')[3]))), known(42, { first_seen: SCANNED })] })
+  await page.clock.install({ time: new Date('2026-11-22T02:20:00Z') })
+  await page.goto('/cluster/running')
+  await expect(page.locator('[data-testid="net-device"][data-fresh="true"]')).toHaveCount(1)
+  const fresh = device(page, 42)
+  await expect(fresh).toHaveAttribute('data-fresh', 'true')
+  await expect(fresh.getByText('New', { exact: true })).toBeVisible()
+  await fresh.locator('summary').click()
+  await expect(fresh.getByText('First seen', { exact: true })).toBeVisible()
+  await fresh.getByRole('button', { name: 'Seen it' }).click()
+  // Asked of every node; the five that never saw it have nothing to mark, which is no failure.
+  await expect.poll(() => state.acks.length).toBe(6)
+  await expect(page.locator('[data-testid="net-device"][data-fresh="true"]')).toHaveCount(0)
+  await expect(fresh.getByRole('alert')).toHaveCount(0)
+  await expect(fresh.getByRole('button', { name: 'Seen it' })).toHaveCount(0)
+})
+
+test('nodes that keep no registry offer nothing to write, and nothing to schedule', async ({ page }) => {
+  await mock(page, { noRegistry: true })
+  await page.goto('/cluster/running')
+  await expect(page.getByTestId('net-device')).toHaveCount(28)
+  await device(page, 37).locator('summary').click()
+  await expect(device(page, 37).getByText(mac(37), { exact: true }).last()).toBeVisible()
+  await expect(page.getByTestId('net-label-form')).toHaveCount(0)
+  await expect(page.getByTestId('net-schedule')).toHaveCount(0)
+  await expect(page.getByRole('button', { name: 'Scan again' })).toBeVisible()
+})
+
+test('an automatic scan is set on the node that scans, with what it needs to stop by itself on a conflict', async ({ page }) => {
+  const state = await mock(page, { schedules: { 'm-2': { interval_minutes: 15, ports_daily: false } } })
+  await page.goto('/cluster/running')
+  const schedule = page.getByTestId('net-schedule')
+  const every = schedule.getByRole('combobox', { name: 'Automatic scan (alpha-node)' })
+  await expect(every.getByRole('option')).toHaveText(['Off', 'Every 15 minutes', 'Every hour', 'Every 6 hours', 'Every day'])
+  await expect(every).toHaveValue('0')
+  // Off: nothing more to choose.
+  await expect(schedule.getByRole('checkbox')).toHaveCount(0)
+  await expect(schedule).toContainText('Also scanned from delta-node: Every 15 minutes')
+
+  await every.selectOption('60')
+  await expect.poll(() => state.scheduled.length).toBe(1)
+  expect(state.scheduled[0].node).toBe('m-1')
+  expect(state.scheduled[0].body).toMatchObject({ network: NET, interval_minutes: 60, ports_daily: false })
+  // The cluster's own addresses on that network, each with every MAC of its
+  // node: a server with two interfaces may answer for one address with the
+  // other's MAC, and that is no conflict.
+  expect(state.scheduled[0].body.known).toEqual([
+    { address: ip(5), macs: ['02:42:ac:11:00:01', '02:42:ac:12:00:01', '02:42:ac:12:00:09', mac(5)] },
+    ...[10, 11, 12, 13, 14].map((n) => ({ address: ip(n), macs: [mac(n)] })),
+  ])
+  await expect(every).toHaveValue('60')
+  await expect(schedule).toContainText(/Next scan .* · devices only\./)
+
+  await schedule.getByRole('checkbox', { name: 'Check ports too, once a day' }).check()
+  await expect.poll(() => state.scheduled.length).toBe(2)
+  expect(state.scheduled[1].body).toMatchObject({ interval_minutes: 60, ports_daily: true })
+
+  await every.selectOption('0')
+  await expect.poll(() => state.scheduled.length).toBe(3)
+  expect(state.scheduled[2].body).toMatchObject({ interval_minutes: 0 })
+  await expect(schedule.getByRole('checkbox')).toHaveCount(0)
+})
+
+test('a schedule stopped for an address conflict says so, and a scan by hand is cautioned, not refused', async ({ page }) => {
+  await mock(page, { conflict: true, schedules: { 'm-1': { interval_minutes: 60, ports_daily: false, paused_reason: 'conflict' } } })
+  await page.goto('/cluster/running')
+  await expect(page.getByTestId('net-conflict')).toHaveCount(1)
+  await expect(page.getByTestId('net-schedule').getByRole('status')).toHaveText('Automatic scans are stopped: an address is in conflict. They resume once it is resolved.')
+  await expect(page.getByTestId('net-schedule')).not.toContainText('Next scan')
+  await expect(page.getByTestId('net-scan-caution')).toHaveText('While an address is in conflict, a scan can cut alpha-node off from the server that address belongs to.')
+  await expect(page.getByRole('button', { name: 'Scan again' })).toBeEnabled()
+})
+
+test('no caution is said of a network without a conflict', async ({ page }) => {
+  await mock(page)
+  await page.goto('/cluster/running')
+  await expect(page.getByRole('button', { name: 'Scan again' })).toBeVisible()
+  await expect(page.getByTestId('net-scan-caution')).toHaveCount(0)
+  await expect(page.getByTestId('net-suspect')).toHaveCount(0)
+})
+
+test('an address two MACs held at the same time is said as a suspicion', async ({ page }) => {
+  await mock(page, { suspects: [{ network: NET, ip: ip(34), macs: [mac(34), mac(88)] }] })
+  await page.goto('/cluster/running')
+  const suspect = page.getByTestId('net-suspect')
+  await expect(suspect).toHaveCount(1)
+  await expect(suspect).toContainText(`Suspected address conflict at ${ip(34)}`)
+  await expect(suspect).toContainText(`Two devices (${mac(34)}, ${mac(88)}) held this address at the same time.`)
+  await expect(device(page, 34)).toContainText(`Held this address at the same time as another device (${mac(88)}).`)
+  // A suspicion, not the conflict that is seen outright.
+  await expect(page.getByTestId('net-conflict')).toHaveCount(0)
+})
+
+test('a scan for devices only keeps the ports found before, and says from when', async ({ page }) => {
+  await mock(page, { hostsOnly: true })
+  await page.goto('/cluster/running')
+  await expect(page.locator('[data-testid="net-network"]')).toContainText(/ports checked Nov 21/)
+  await expect(page.locator('[data-testid="net-network"]')).not.toContainText('devices only')
+  await expect(device(page, 15).getByRole('link', { name: /^443/ })).toBeVisible()
 })

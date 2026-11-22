@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { api, type ApiError } from '@/lib/api'
-import { networkEntries, type MapNode, type NetworkEntry } from '@/lib/netmap'
+import { knownNodes, labelTargets, networkEntries, type MapNode, type NetworkEntry } from '@/lib/netmap'
 import type { LanScanStatus, NetworkInterfaceInfo, PortMapRow } from '@/types/api'
 import type { BoardSection } from '../useRunningBoard'
 
@@ -57,7 +57,23 @@ export interface NetworkModel {
   /** Starts a scan; resolves to what went wrong, or null. */
   start: (nodeId: string, network: string, ports: boolean) => Promise<string | null>
   cancel: (nodeId: string) => Promise<void>
+  /**
+   * Writes what the operator said of a device to every node on its network
+   * that keeps a registry — one node going away does not take the label with
+   * it — all with the same time, so the nodes agree which label is the last.
+   * Resolves to what went wrong when no node took it, or null.
+   */
+  saveDevice: (entry: NetworkEntry, mac: string, label: { name: string; note: string; kind: string }) => Promise<string | null>
+  /** The operator has seen that a device is new. */
+  ackDevice: (entry: NetworkEntry, mac: string) => Promise<string | null>
+  /** Takes a device out of the registries. */
+  forgetDevice: (entry: NetworkEntry, mac: string) => Promise<string | null>
+  /** Sets how often a node scans the network by itself (0 = never). */
+  setSchedule: (entry: NetworkEntry, nodeId: string, intervalMinutes: number, portsDaily: boolean) => Promise<string | null>
 }
+
+/** What `saveDevice` and its like resolve to when there is no node to write to. */
+export const NO_REGISTRY = 'no-registry'
 
 const message = (err: unknown) => (err instanceof Error ? err.message : String(err))
 
@@ -201,18 +217,55 @@ export function useNetworkView(sections: BoardSection[], round: number): Network
 
   const dismissEnded = useCallback(() => setEnded(null), [])
 
+  // The same request to each node of a network; done when every node has
+  // answered, well when any did. `tolerate` is a refusal that is no failure
+  // (a node that never saw the device has nothing to acknowledge).
+  const toEach = useCallback(async (entry: NetworkEntry, send: (node: string | undefined) => Promise<unknown>, tolerate?: string) => {
+    const targets = labelTargets(entry).map((id) => targetOf.current.get(id)).filter((t): t is Target => !!t)
+    if (targets.length === 0) return NO_REGISTRY
+    const results = await Promise.allSettled(targets.map((t) => send(t.node)))
+    await Promise.all(targets.map((t) => readScan(t)))
+    const failures = results.filter((r): r is PromiseRejectedResult => r.status === 'rejected' && (r.reason as ApiError | undefined)?.code !== tolerate)
+    return failures.length === targets.length ? message(failures[0].reason) : null
+  }, [readScan])
+
+  const saveDevice = useCallback((entry: NetworkEntry, mac: string, label: { name: string; note: string; kind: string }) => {
+    const labelled_at = new Date().toISOString()
+    return toEach(entry, (node) => api.saveLanDevice(mac, { ...label, labelled_at }, node))
+  }, [toEach])
+  const ackDevice = useCallback((entry: NetworkEntry, mac: string) => toEach(entry, (node) => api.ackLanDevice(mac, node), 'LAN_DEVICE_NOT_FOUND'), [toEach])
+  const forgetDevice = useCallback((entry: NetworkEntry, mac: string) => toEach(entry, (node) => api.forgetLanDevice(mac, node)), [toEach])
+
+  const nodes = useMemo<MapNode[]>(() => sections.map((s) => {
+    const nics = interfaces[s.node.id]
+    return {
+      id: s.node.id,
+      name: s.node.name || s.node.id,
+      online: s.node.status === 'online',
+      macs: nics?.phase === 'ready' ? nics.list.map((i) => i.mac_address).filter(Boolean) : [],
+      addresses: nics?.phase === 'ready' ? nics.list.flatMap((i) => (i.addresses ?? []).filter((a) => a.family === 'ipv4').map((a) => a.address)) : [],
+      guests: s.guests?.guests ?? [],
+    }
+  }), [sections, interfaces])
+  const nodesNow = useRef<MapNode[]>([])
+  useEffect(() => { nodesNow.current = nodes }, [nodes])
+
+  const setSchedule = useCallback(async (entry: NetworkEntry, nodeId: string, intervalMinutes: number, portsDaily: boolean) => {
+    const t = targetOf.current.get(nodeId)
+    const network = entry.scanners.find((x) => x.nodeId === nodeId)?.network
+    if (!t || !network) return NO_REGISTRY
+    let problem: string | null = null
+    try {
+      // The node is told the cluster's own addresses there, to stop by itself when one of them is in conflict.
+      await api.setLanSchedule({ network, interval_minutes: intervalMinutes, ports_daily: portsDaily, known: knownNodes(nodesNow.current, entry.cidr) }, t.node)
+    } catch (err) {
+      problem = message(err)
+    }
+    await readScan(t)
+    return problem
+  }, [readScan])
+
   return useMemo<NetworkModel>(() => {
-    const nodes: MapNode[] = sections.map((s) => {
-      const nics = interfaces[s.node.id]
-      return {
-        id: s.node.id,
-        name: s.node.name || s.node.id,
-        online: s.node.status === 'online',
-        macs: nics?.phase === 'ready' ? nics.list.map((i) => i.mac_address).filter(Boolean) : [],
-        addresses: nics?.phase === 'ready' ? nics.list.flatMap((i) => (i.addresses ?? []).filter((a) => a.family === 'ipv4').map((a) => a.address)) : [],
-        guests: s.guests?.guests ?? [],
-      }
-    })
     const statuses = new Map<string, LanScanStatus>()
     for (const n of nodes) {
       const scan = scans[n.id]
@@ -243,6 +296,10 @@ export function useNetworkView(sections: BoardSection[], round: number): Network
       dismissEnded,
       start,
       cancel,
+      saveDevice,
+      ackDevice,
+      forgetDevice,
+      setSchedule,
     }
-  }, [sections, scans, interfaces, ports, ended, dismissEnded, start, cancel, readDetails])
+  }, [sections, nodes, scans, interfaces, ports, ended, dismissEnded, start, cancel, readDetails, saveDevice, ackDevice, forgetDevice, setSchedule])
 }

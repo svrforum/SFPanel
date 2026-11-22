@@ -1,6 +1,6 @@
 import { useTranslation } from 'react-i18next'
 import { AlertTriangle, X } from 'lucide-react'
-import { deviceName, filterSegment, shownCount, type NetworkEntry } from '@/lib/netmap'
+import { deviceName, filterSegment, labelTargets, shownCount, type NetworkEntry } from '@/lib/netmap'
 import { Heading, type HeadingLevel } from '../Heading'
 import type { Scope } from '../targets'
 import type { BoardSection } from '../useRunningBoard'
@@ -34,7 +34,12 @@ function Network({ entry, model, scope, localId, query, level, onClear }: {
               {t('running.network.segment.scanned', { node: segment.scannedBy.name })}{' '}
               <time dateTime={new Date(segment.finishedAt).toISOString()}>{when}</time>
               {' · '}
-              {t(segment.portsChecked ? 'running.network.segment.withPorts' : 'running.network.segment.hostsOnly')}
+              {!segment.portsChecked
+                ? t('running.network.segment.hostsOnly')
+                : segment.portsAt >= segment.finishedAt
+                  ? t('running.network.segment.withPorts')
+                  : t('running.network.segment.portsAt', { time: new Date(segment.portsAt).toLocaleString(i18n.language, { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' }) })}
+              {segment.absent > 0 && ` · ${t('running.network.segment.absent', { count: segment.absent })}`}
             </p>
           ) : (
             <p className="mt-0.5 text-[13px] text-muted-foreground">
@@ -42,7 +47,14 @@ function Network({ entry, model, scope, localId, query, level, onClear }: {
             </p>
           )}
         </div>
-        <ScanControl entry={entry} scope={scope} localId={localId} onStart={model.start} onCancel={model.cancel} />
+        <ScanControl
+          entry={entry}
+          scope={scope}
+          localId={localId}
+          onStart={model.start}
+          onCancel={model.cancel}
+          onSchedule={(nodeId, minutes, portsDaily) => model.setSchedule(entry, nodeId, minutes, portsDaily)}
+        />
       </header>
       {/* Said whatever is searched for: two devices on one address breaks what talks to either. */}
       {entry.segment?.conflicts.map((d) => (
@@ -54,6 +66,15 @@ function Network({ entry, model, scope, localId, query, level, onClear }: {
           </span>
         </p>
       ))}
+      {entry.segment?.suspects.map((x) => (
+        <p key={x.ip} role="status" data-testid="net-suspect" className="flex items-start gap-2 rounded-xl border border-warning bg-[color-mix(in_srgb,var(--warning)_8%,var(--card))] px-3 py-2 text-[13px]">
+          <AlertTriangle className="mt-0.5 size-4 shrink-0 text-warning" aria-hidden="true" />
+          <span className="break-words">
+            <span className="font-semibold">{t('running.network.suspect.title', { address: x.ip })}</span>{' '}
+            {t('running.network.suspect.body', { macs: x.macs.join(', ') })}
+          </span>
+        </p>
+      ))}
       {segment && (searching && shownCount(segment) === 0 ? (
         <p className="text-[13px] text-muted-foreground">
           {t('running.search.noMatch', { query })}{' '}
@@ -61,7 +82,17 @@ function Network({ entry, model, scope, localId, query, level, onClear }: {
             {t('running.search.clear')}
           </button>
         </p>
-      ) : <Diagram segment={segment} />)}
+      ) : (
+        <Diagram
+          segment={segment}
+          actions={{
+            canEdit: labelTargets(entry).length > 0,
+            save: (mac, label) => model.saveDevice(entry, mac, label),
+            ack: (mac) => model.ackDevice(entry, mac),
+            forget: (mac) => model.forgetDevice(entry, mac),
+          }}
+        />
+      ))}
       {!segment && <p className="text-[13px] text-muted-foreground">{t('running.network.segment.explain')}</p>}
     </section>
   )

@@ -1,7 +1,11 @@
-import { useCallback, useLayoutEffect, useRef, useState, type CSSProperties } from 'react'
+import { createContext, useCallback, useContext, useId, useLayoutEffect, useRef, useState, type CSSProperties, type FormEvent } from 'react'
 import { useTranslation } from 'react-i18next'
-import { AlertTriangle, ArrowUpRight, Box, ChevronDown, Globe, MonitorSmartphone, Router, Server, type LucideIcon } from 'lucide-react'
-import { addressParts, columnsFor, deviceName, rowsOf, type MapDevice, type MapPort, type Segment } from '@/lib/netmap'
+import {
+  AlertTriangle, ArrowUpRight, Box, Cctv, ChevronDown, Cpu, Globe, HardDrive, Monitor, MonitorSmartphone, Network, Printer, Router, Server, Smartphone,
+  StickyNote, Tv, Wifi, type LucideIcon,
+} from 'lucide-react'
+import { Button } from '@/components/ui/button'
+import { addressParts, columnsFor, DEVICE_KINDS, deviceName, rowsOf, type MapDevice, type MapPort, type Segment } from '@/lib/netmap'
 import { cn } from '@/lib/utils'
 import './network.css'
 
@@ -33,16 +37,36 @@ function useColumns(): [(el: HTMLElement | null) => void, number] {
   return [ref, columns]
 }
 
-type Kind = 'gateway' | 'server' | 'vm' | 'lxc' | 'device'
+/** What can be done to a device from its card. Each resolves to what went wrong, or null. */
+export interface DeviceActions {
+  /** Whether what is written is kept anywhere: some node of the network keeps a registry. */
+  canEdit: boolean
+  save: (mac: string, label: { name: string; note: string; kind: string }) => Promise<string | null>
+  ack: (mac: string) => Promise<string | null>
+  forget: (mac: string) => Promise<string | null>
+}
+const Actions = createContext<DeviceActions | null>(null)
 
-const kindOf = (d: MapDevice): Kind => (d.gateway ? 'gateway' : d.node ? 'server' : d.guest ? d.guest.kind : 'device')
+type LabelKind = (typeof DEVICE_KINDS)[number]
+type Kind = 'gateway' | 'server' | 'vm' | 'lxc' | LabelKind | 'device'
 
-const ICON: Record<Kind, LucideIcon> = { gateway: Router, server: Server, vm: Box, lxc: Box, device: MonitorSmartphone }
+const isLabelKind = (kind: string | undefined): kind is LabelKind => !!kind && (DEVICE_KINDS as readonly string[]).includes(kind)
+
+/** What a device is drawn as: what the network makes it first, then what the operator said, else a device. */
+const kindOf = (d: MapDevice): Kind =>
+  d.gateway ? 'gateway' : d.node ? 'server' : d.guest ? d.guest.kind : isLabelKind(d.label?.kind) ? d.label.kind : 'device'
+
+const ICON: Record<Kind, LucideIcon> = {
+  gateway: Router, server: Server, vm: Box, lxc: Box, router: Router, switch: Network, ap: Wifi, nas: HardDrive, pc: Monitor, phone: Smartphone,
+  tv: Tv, camera: Cctv, printer: Printer, iot: Cpu, other: MonitorSmartphone, device: MonitorSmartphone,
+}
+const NETWORK_TONE = 'bg-warning/15 text-warning'
+const SERVER_TONE = 'bg-[color-mix(in_srgb,var(--primary)_12%,var(--card))] text-primary'
+const PLAIN_TONE = 'bg-secondary text-secondary-foreground'
 const ICON_TONE: Record<Kind, string> = {
-  gateway: 'bg-warning/15 text-warning',
-  server: 'bg-[color-mix(in_srgb,var(--primary)_12%,var(--card))] text-primary',
-  vm: 'bg-secondary text-secondary-foreground',
-  lxc: 'bg-secondary text-secondary-foreground',
+  gateway: NETWORK_TONE, router: NETWORK_TONE, switch: NETWORK_TONE, ap: NETWORK_TONE,
+  server: SERVER_TONE,
+  vm: PLAIN_TONE, lxc: PLAIN_TONE, nas: PLAIN_TONE, pc: PLAIN_TONE, phone: PLAIN_TONE, tv: PLAIN_TONE, camera: PLAIN_TONE, printer: PLAIN_TONE, iot: PLAIN_TONE, other: PLAIN_TONE,
   device: 'bg-secondary text-muted-foreground',
 }
 
@@ -73,6 +97,73 @@ function Port({ port }: { port: MapPort }) {
   )
 }
 
+const fieldClass = 'w-full rounded-lg border-0 bg-secondary px-2 text-base focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring md:text-[13px]'
+
+/**
+ * What the operator writes of a device, kept by its MAC: a name and what it
+ * is — for a device neither the panel nor Proxmox names — and a note. A new
+ * device can be marked as seen, and one the scan did not find forgotten.
+ */
+function LabelForm({ device, actions }: { device: MapDevice; actions: DeviceActions }) {
+  const { t } = useTranslation()
+  const id = useId()
+  const namable = !device.node && !device.guest
+  const [name, setName] = useState(device.label?.name ?? '')
+  const [kind, setKind] = useState(device.label?.kind ?? '')
+  const [note, setNote] = useState(device.label?.note ?? '')
+  const [busy, setBusy] = useState(false)
+  const [problem, setProblem] = useState<string | null>(null)
+  const changed = name.trim() !== (device.label?.name ?? '') || kind !== (device.label?.kind ?? '') || note.trim() !== (device.label?.note ?? '')
+
+  const run = async (what: () => Promise<string | null>) => {
+    setBusy(true)
+    setProblem(null)
+    setProblem(await what())
+    setBusy(false)
+  }
+  const submit = (e: FormEvent) => {
+    e.preventDefault()
+    void run(() => actions.save(device.mac, { name: namable ? name.trim() : device.label?.name ?? '', kind: namable ? kind : device.label?.kind ?? '', note: note.trim() }))
+  }
+  return (
+    <form onSubmit={submit} className="mt-2 space-y-1.5 border-t border-border/60 pt-2" data-testid="net-label-form">
+      {namable && (
+        <div className="grid grid-cols-[minmax(0,3fr)_minmax(0,2fr)] gap-1.5">
+          <label htmlFor={`${id}-name`} className="text-xs text-muted-foreground">
+            {t('running.network.edit.name')}
+            <input id={`${id}-name`} value={name} onChange={(e) => setName(e.target.value)} maxLength={64} autoComplete="off" className={cn(fieldClass, 'mt-0.5 h-9 text-foreground')} />
+          </label>
+          <label htmlFor={`${id}-kind`} className="text-xs text-muted-foreground">
+            {t('running.network.edit.kind')}
+            <select id={`${id}-kind`} value={kind} onChange={(e) => setKind(e.target.value)} className={cn(fieldClass, 'mt-0.5 h-9 text-foreground')}>
+              <option value="">{t('running.network.edit.kindNone')}</option>
+              {DEVICE_KINDS.map((k) => <option key={k} value={k}>{t(`running.network.kind.${k}`)}</option>)}
+            </select>
+          </label>
+        </div>
+      )}
+      <label htmlFor={`${id}-note`} className="block text-xs text-muted-foreground">
+        {t('running.network.edit.note')}
+        <textarea id={`${id}-note`} value={note} onChange={(e) => setNote(e.target.value)} maxLength={500} rows={2} className={cn(fieldClass, 'mt-0.5 py-1.5 text-foreground')} />
+      </label>
+      <div className="flex flex-wrap items-center gap-1.5">
+        <Button type="submit" size="sm" className="rounded-lg" disabled={busy || !changed}>{t('running.network.edit.save')}</Button>
+        {device.fresh && (
+          <Button type="button" variant="outline" size="sm" className="rounded-lg" disabled={busy} onClick={() => void run(() => actions.ack(device.mac))}>
+            {t('running.network.edit.ack')}
+          </Button>
+        )}
+        {device.absent && (
+          <Button type="button" variant="outline" size="sm" className="rounded-lg" disabled={busy} onClick={() => void run(() => actions.forget(device.mac))}>
+            {t('running.network.edit.forget')}
+          </Button>
+        )}
+      </div>
+      {problem && <p role="alert" className="break-words text-xs text-destructive">{t('running.network.edit.failed')} {problem === 'no-registry' ? t('running.network.edit.noRegistry') : problem}</p>}
+    </form>
+  )
+}
+
 /**
  * One device: its address first — the part that tells it from its neighbours
  * in full weight — then what it is called, and what is open on it. The top of
@@ -85,20 +176,23 @@ export function DeviceCard({ device, prefix, portsChecked, nested }: {
   /** Drawn inside its host: which host need not be said again. */
   nested?: boolean
 }) {
-  const { t } = useTranslation()
+  const { t, i18n } = useTranslation()
+  const actions = useContext(Actions)
   const kind = kindOf(device)
   const Icon = ICON[kind]
   const address = addressParts(device.ip, prefix)
   const name = deviceName(device)
+  const when = (ms: number) => new Date(ms).toLocaleString(i18n.language, { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })
   const notes = [
-    kind === 'gateway' || kind === 'server' ? t(`running.network.kind.${kind}`) : '',
+    // A guest says what it is with its number, a plain device with nothing.
+    kind !== 'vm' && kind !== 'lxc' && kind !== 'device' ? t(`running.network.kind.${kind}`) : '',
     device.scanner ? t('running.network.device.scanner') : '',
     device.guest
       ? nested
         ? t(`running.guest.${device.guest.kind}`, { vmid: device.guest.vmid })
         : t('running.network.device.guestOf', { host: device.guest.hostName, kind: t(`running.network.kind.${device.guest.kind}`), vmid: device.guest.vmid })
       : '',
-    (name?.source === 'node' || name?.source === 'guest') && device.hostname ? device.hostname : '',
+    (name?.source === 'node' || name?.source === 'guest' || name?.source === 'label') && device.hostname ? device.hostname : '',
     // Who made the network card says something of a device nothing else
     // names; of a node or a guest it is the hypervisor's name, every time.
     !device.node && !device.guest && name?.source !== 'vendor' ? device.vendor : '',
@@ -118,8 +212,12 @@ export function DeviceCard({ device, prefix, portsChecked, nested }: {
       data-ip={device.ip}
       data-kind={kind}
       data-conflict={device.conflict ? 'true' : undefined}
+      data-absent={device.absent ? 'true' : undefined}
+      data-fresh={device.fresh ? 'true' : undefined}
       className={cn(
-        'h-full rounded-xl border bg-card p-2.5',
+        'h-full rounded-xl border p-2.5',
+        // Not found by the scan: drawn from memory, and said so in words below — no letter is dimmed.
+        device.absent ? 'border-dashed bg-secondary/40' : 'bg-card',
         device.conflict ? 'border-destructive' : kind === 'server' ? 'border-[color-mix(in_srgb,var(--primary)_35%,var(--border))]' : 'border-border',
       )}
     >
@@ -165,8 +263,35 @@ export function DeviceCard({ device, prefix, portsChecked, nested }: {
               <dd className="break-words">{device.gatewayFor.join(', ')}</dd>
             </>
           )}
+          {device.firstSeen > 0 && (
+            <>
+              <dt className="text-muted-foreground">{t('running.network.field.firstSeen')}</dt>
+              <dd>{when(device.firstSeen)}</dd>
+              <dt className="text-muted-foreground">{t('running.network.field.lastSeen')}</dt>
+              <dd>{when(device.lastSeen)}</dd>
+            </>
+          )}
         </dl>
+        {actions?.canEdit && device.mac && <LabelForm key={`${device.label?.name ?? ''}|${device.label?.kind ?? ''}|${device.label?.note ?? ''}`} device={device} actions={actions} />}
       </details>
+      {(device.fresh || device.absent) && (
+        <p className="mt-1.5 flex flex-wrap gap-1 text-xs">
+          {device.fresh && <span className="rounded-md bg-[color-mix(in_srgb,var(--primary)_12%,var(--card))] px-1.5 py-0.5 font-medium text-primary">{t('running.network.device.fresh')}</span>}
+          {device.absent && <span className="rounded-md bg-secondary px-1.5 py-0.5 text-secondary-foreground">{t('running.network.device.absent', { time: when(device.lastSeen) })}</span>}
+        </p>
+      )}
+      {device.label?.note && (
+        <p className="mt-1.5 flex items-start gap-1 text-xs text-muted-foreground" data-testid="net-note">
+          <StickyNote className="mt-0.5 size-3.5 shrink-0" aria-hidden="true" />
+          <span className="line-clamp-2 break-words">{device.label.note}</span>
+        </p>
+      )}
+      {device.suspect.length > 0 && !device.conflict && (
+        <p className="mt-1.5 flex items-start gap-1 text-xs font-medium text-warning">
+          <AlertTriangle className="mt-0.5 size-3.5 shrink-0" aria-hidden="true" />
+          <span className="break-all">{t('running.network.device.suspect', { macs: device.suspect.join(', ') })}</span>
+        </p>
+      )}
       {device.conflict && (
         <p className="mt-1.5 flex items-start gap-1 text-xs font-medium text-destructive">
           <AlertTriangle className="mt-0.5 size-3.5 shrink-0" aria-hidden="true" />
@@ -246,15 +371,15 @@ function Hung({ groups, prefix, portsChecked, nested }: { groups: Group[]; prefi
  * device, each list by address. Laid out by the page — nothing to drag or
  * zoom — so the letters keep their size on any screen.
  */
-export function Diagram({ segment }: { segment: Segment }) {
+export function Diagram({ segment, actions }: { segment: Segment; actions?: DeviceActions }) {
   const { t } = useTranslation()
   const flat = (list: MapDevice[]): MapDevice[] => list.flatMap((d) => [d, ...flat(d.children)])
   // Under the nodes hang their guests, which are not all nodes: each is counted as what it is.
   const under = flat(segment.servers)
   const nodes = under.filter((d) => d.node).length
   const guests = under.length - nodes
-  const hung = segment.servers.length + segment.devices.length > 0
-  return (
+  const hung = segment.gear.length + segment.servers.length + segment.devices.length > 0
+  const drawn = (
     <div className="nm" data-testid="net-diagram">
       <p className="inline-flex min-h-8 items-center gap-1.5 rounded-full bg-secondary px-3 text-xs font-medium text-secondary-foreground">
         <Globe className="size-3.5" aria-hidden="true" />
@@ -276,6 +401,7 @@ export function Diagram({ segment }: { segment: Segment }) {
           prefix={segment.prefix}
           portsChecked={segment.portsChecked}
           groups={[
+            { label: t('running.network.group.gear', { count: segment.gear.length }), devices: segment.gear },
             {
               label: guests > 0 ? `${t('running.network.group.servers', { count: nodes })} · ${t('running.groups.guests', { count: guests })}` : t('running.network.group.servers', { count: nodes }),
               devices: segment.servers,
@@ -286,4 +412,5 @@ export function Diagram({ segment }: { segment: Segment }) {
       )}
     </div>
   )
+  return <Actions.Provider value={actions ?? null}>{drawn}</Actions.Provider>
 }

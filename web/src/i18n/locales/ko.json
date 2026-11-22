@@ -4520,7 +4520,10 @@
     "emptyContent": "설정 내용을 비워 둘 수 없습니다.",
     "aiSessionNotFound": "세션을 찾을 수 없습니다.",
     "lanScanInProgress": "이 서버에서 이미 스캔이 진행 중입니다. 끝난 뒤 다시 시도하세요.",
-    "lanScanNetworkNotAllowed": "이 서버가 직접 붙어 있는 사설 네트워크만 스캔할 수 있습니다. ({{serverMessage}})"
+    "lanScanNetworkNotAllowed": "이 서버가 직접 붙어 있는 사설 네트워크만 스캔할 수 있습니다. ({{serverMessage}})",
+    "lanDeviceInvalid": "기기 정보를 저장할 수 없습니다. ({{serverMessage}})",
+    "lanDeviceNotFound": "이 서버의 대장에 없는 기기입니다.",
+    "lanScheduleInvalid": "자동 스캔 설정이 올바르지 않습니다. ({{serverMessage}})"
   },
   "running": {
     "title": "실행 현황",
@@ -4664,13 +4667,25 @@
       "gatewayNone": "이 네트워크로 나가는 기본 경로가 없습니다.",
       "group": {
         "servers": "서버 {{count}}",
-        "devices": "그 밖의 기기 {{count}}"
+        "devices": "그 밖의 기기 {{count}}",
+        "gear": "네트워크 장비 {{count}}"
       },
       "kind": {
         "gateway": "게이트웨이",
         "server": "서버",
         "vm": "VM",
-        "lxc": "LXC"
+        "lxc": "LXC",
+        "router": "공유기·라우터",
+        "switch": "스위치",
+        "ap": "무선 AP",
+        "nas": "NAS",
+        "pc": "PC",
+        "phone": "휴대폰",
+        "tv": "TV",
+        "camera": "카메라",
+        "printer": "프린터",
+        "iot": "IoT 기기",
+        "other": "기타"
       },
       "device": {
         "scanner": "여기서 스캔함",
@@ -4682,7 +4697,10 @@
         "ports": "열린 포트",
         "morePorts": "+{{count}}",
         "notChecked": "확인하지 않음",
-        "conflict": "주소 충돌: 이 주소는 서버 {{node}}의 것입니다."
+        "conflict": "주소 충돌: 이 주소는 서버 {{node}}의 것입니다.",
+        "fresh": "새 기기",
+        "absent": "안 보임 · 마지막 {{time}}",
+        "suspect": "이 주소를 다른 기기({{macs}})와 같은 때에 썼습니다."
       },
       "field": {
         "address": "주소",
@@ -4690,7 +4708,9 @@
         "vendor": "제조사",
         "hostname": "이름(DNS)",
         "ports": "열린 포트",
-        "gatewayFor": "기본 경로로 쓰는 서버"
+        "gatewayFor": "기본 경로로 쓰는 서버",
+        "firstSeen": "처음 본 때",
+        "lastSeen": "마지막으로 본 때"
       },
       "scan": {
         "elapsed": "{{count}}초",
@@ -4712,7 +4732,9 @@
           "failed": "{{node}}의 {{network}} 스캔이 실패했습니다. 이전 결과를 그대로 보여 줍니다.",
           "timeout": "{{node}}의 {{network}} 스캔이 제한 시간 안에 끝나지 않았습니다. 이전 결과를 그대로 보여 줍니다.",
           "cancelled": "{{node}}의 {{network}} 스캔을 중지했습니다."
-        }
+        },
+        "runningScheduled": "{{node}}에서 자동 스캔 중…",
+        "conflictCaution": "주소 충돌이 있는 동안 스캔하면 {{node}}에서 그 주소의 서버로 가는 통신이 끊길 수 있습니다."
       },
       "segment": {
         "found": "기기 {{count}}대",
@@ -4720,7 +4742,9 @@
         "withPorts": "포트 확인함",
         "hostsOnly": "기기만 찾음",
         "notScanned": "아직 스캔하지 않았습니다. 이 네트워크에 있는 서버: {{nodes}}",
-        "explain": "스캔하면 이 네트워크에서 응답하는 기기를 찾아 주소 순으로 그립니다."
+        "explain": "스캔하면 이 네트워크에서 응답하는 기기를 찾아 주소 순으로 그립니다.",
+        "portsAt": "포트는 {{time}}에 확인",
+        "absent": "안 보임 {{count}}"
       },
       "loadError": "{{node}}의 스캔 상태를 불러오지 못했습니다.",
       "unsupported": "이 서버의 패널 버전은 네트워크 스캔을 지원하지 않습니다. 업데이트하면 쓸 수 있습니다.",
@@ -4756,6 +4780,41 @@
       "conflict": {
         "title": "주소 충돌 {{address}}",
         "body": "서버 {{node}}의 주소인데, 스캔에서는 다른 기기({{who}}, {{mac}})가 응답했습니다. 두 기기가 같은 주소를 쓰면 그 서버와의 통신이 수시로 끊깁니다. 공유기의 DHCP에서 이 주소를 서버에 예약하거나 범위에서 빼세요."
+      },
+      "edit": {
+        "name": "이름",
+        "kind": "종류",
+        "kindNone": "정하지 않음",
+        "note": "메모",
+        "save": "저장",
+        "ack": "확인함",
+        "forget": "잊기",
+        "failed": "저장하지 못했습니다.",
+        "noRegistry": "이 네트워크의 서버가 기기 대장을 지원하지 않습니다. 패널을 업데이트하면 저장할 수 있습니다."
+      },
+      "schedule": {
+        "label": "자동 스캔({{node}})",
+        "every": {
+          "0": "끔",
+          "15": "15분마다",
+          "60": "1시간마다",
+          "360": "6시간마다",
+          "1440": "하루마다"
+        },
+        "portsDaily": "하루 한 번 포트도 확인",
+        "next": "다음 스캔 {{time}} · 기기 찾기만 합니다.",
+        "paused": {
+          "conflict": "주소 충돌이 있어 자동 스캔을 멈췄습니다. 충돌을 해결하면 다시 돕니다.",
+          "no_tool": "nmap이 없어 자동 스캔이 돌지 않습니다.",
+          "gone": "이 서버가 더는 이 네트워크에 없어 자동 스캔이 돌지 않습니다.",
+          "other": "자동 스캔이 멈춰 있습니다."
+        },
+        "other": "{{node}}에서도 자동 스캔: {{interval}}",
+        "failed": "자동 스캔 설정을 저장하지 못했습니다."
+      },
+      "suspect": {
+        "title": "주소 충돌 의심 {{address}}",
+        "body": "두 기기({{macs}})가 같은 때에 이 주소를 썼습니다. 한쪽의 주소를 바꾸거나 DHCP 예약을 확인하세요."
       }
     }
   }
