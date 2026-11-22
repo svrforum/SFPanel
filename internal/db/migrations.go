@@ -330,6 +330,16 @@ var migrations = []migration{
 		last_at TEXT NOT NULL,
 		PRIMARY KEY (network, ip, certain)
 	)`},
+	// The racks the operator drew (feature/lanscan racks.go): doc is the
+	// JSON of lanscan.RackDoc, updated_at the time the page wrote it (RFC
+	// 3339, as sent). A deleted rack stays as a mark ("deleted":true) until
+	// a write 30 days later. Per node, never replicated: the page writes one
+	// rack to several nodes, and each keeps the newer.
+	{ID: 49, Up: `CREATE TABLE IF NOT EXISTS lan_racks (
+		id         TEXT PRIMARY KEY,
+		doc        TEXT NOT NULL,
+		updated_at TEXT NOT NULL
+	)`},
 }
 
 // RunMigrations applies every registered migration that hasn't already been
