@@ -6907,7 +6907,7 @@ WireGuard 키페어 생성 (`wg genkey` + `wg pubkey`).
 
 ## LAN 스캔 (`/api/v1/network/scan`)
 
-이 노드가 붙어 있는 LAN의 기기와 열린 포트를 nmap으로 찾는다. 운영자가 요청할 때만 돌며(예약 없음), 노드별 상태라 `?node=`로 다른 노드의 것을 다룬다. 세 경로 모두 바로 답하고(스캔은 `POST`가 답한 뒤에도 계속 돈다) 클러스터 프록시의 gRPC 30초 한도와 무관하다. 망마다 마지막 **성공** 결과를 이 노드의 DB(`lan_scans`)에 저장하므로 패널 재시작·업데이트 뒤에도 남는다. 복제하지 않는다.
+이 노드가 붙어 있는 LAN의 기기와 열린 포트를 nmap으로 찾는다. 운영자가 요청할 때와, 망마다 정한 주기(`PUT /network/scan/schedule`, 기본 끔)에 돈다. 노드별 상태라 `?node=`로 다른 노드의 것을 다룬다. 모든 경로가 바로 답하고(스캔은 `POST`가 답한 뒤에도 계속 돈다) 클러스터 프록시의 gRPC 30초 한도와 무관하다. 망마다 마지막 **성공** 결과를 이 노드의 DB(`lan_scans`)에 저장하고, 성공한 스캔마다 찾은 기기를 MAC으로 **기기 대장**(`lan_devices`)에, 어느 MAC이 어느 주소를 언제 썼는지를 `lan_claims`에 남긴다(아래 "기기 대장"). 모두 패널 재시작·업데이트 뒤에도 남는다. 복제하지 않는다 — 여러 노드의 대장은 화면이 MAC으로 합친다.
 
 **스캔할 수 있는 망:** 켜져 있고(`UP`) broadcast이며 6바이트 MAC이 있는 인터페이스의 IPv4 사설(RFC 1918) 주소가 속한 망. 이름이 `docker`·`br-`·`veth`·`podman`·`cni`·`flannel`·`virbr`·`lxcbr`·`lxdbr`·`incusbr`·`vboxnet`·`vmnet`으로 시작하는 인터페이스(컨테이너·VM용 브리지)와 `zt`로 시작하는 인터페이스(ZeroTier 오버레이)는 뺀다 — Proxmox VE의 `vmbr0`은 LAN이므로 포함. 공인·링크 로컬(169.254/16)·CGNAT(Tailscale 100.64/10)·IPv6 주소, MAC이 없는 인터페이스(루프백·WireGuard·Tailscale)는 목록에 없다. /20~/30은 스캔 가능, /20보다 넓으면 `scannable: false, reason: "too_large"`로 목록에만, /31·/32는 목록에서 뺀다. 같은 망이 두 번 나오면(두 인터페이스, 보조 주소) 처음 것 하나만. 게이트웨이는 `ip -4 route show default` 중 **그 인터페이스**(`dev`)의 default 경로 next hop으로, 그 망 안에 있을 때만.
 
@@ -6927,15 +6927,27 @@ WireGuard 키페어 생성 (`wg genkey` + `wg pubkey`).
       {"cidr": "10.20.30.0/24", "interface": "eth0", "address": "10.20.30.26", "mac": "02:42:ac:14:1e:1a",
        "gateway": "10.20.30.1", "scannable": true, "reason": ""}
     ],
-    "running": {"network": "10.20.30.0/24", "ports": true, "started_at": "2026-11-22T02:12:04Z"},
-    "last": {"network": "10.20.30.0/24", "ports": true, "state": "done", "at": "2026-11-22T02:13:08Z"},
+    "running": {"network": "10.20.30.0/24", "ports": true, "started_at": "2026-11-22T02:12:04Z", "scheduled": false},
+    "last": {"network": "10.20.30.0/24", "ports": true, "state": "done", "at": "2026-11-22T02:13:08Z", "scheduled": false},
     "results": [
       {"network": "10.20.30.0/24", "interface": "eth0", "address": "10.20.30.26", "gateway": "10.20.30.1", "ports": true,
-       "started_at": "2026-11-22T02:12:04Z", "finished_at": "2026-11-22T02:13:08Z",
+       "ports_at": "2026-11-22T02:13:08Z", "started_at": "2026-11-22T02:12:04Z", "finished_at": "2026-11-22T02:13:08Z",
        "hosts": [
          {"ip": "10.20.30.1", "mac": "02:42:ac:14:1e:01", "vendor": "Example Electronics", "hostname": "router.lan",
           "self": false, "timed_out": false, "ports": [{"port": 80, "proto": "tcp"}]}
        ]}
+    ],
+    "devices": [
+      {"mac": "02:42:ac:14:1e:1f", "name": "", "note": "", "kind": "", "labelled_at": "", "acked": false,
+       "network": "10.20.30.0/24", "ip": "10.20.30.31", "vendor": "Espressif", "hostname": "",
+       "first_seen": "2026-11-21T09:00:00Z", "last_seen": "2026-11-22T02:13:08Z"}
+    ],
+    "conflicts": [
+      {"network": "10.20.30.0/24", "ip": "10.20.30.12", "macs": ["02:42:ac:14:1e:0c", "02:42:ac:14:1e:4d"]}
+    ],
+    "schedules": [
+      {"network": "10.20.30.0/24", "interval_minutes": 60, "ports_daily": false,
+       "last_run": "2026-11-22T02:00:00Z", "next_run": "2026-11-22T03:00:00Z", "paused_reason": ""}
     ]
   }
 }
@@ -6945,19 +6957,26 @@ WireGuard 키페어 생성 (`wg genkey` + `wg pubkey`).
 |------|------|
 | `installed` | nmap이 PATH에 있는지. `false`면 화면은 그 노드의 패키지 화면으로 보낸다 |
 | `networks` | 위 규칙의 망 목록, 인터페이스 순. null이 아님. `mac`은 인터페이스의 MAC(소문자), `gateway`는 없으면 `""`, `reason`은 스캔 가능하면 `""` |
-| `running` | 진행 중인 스캔, 없으면 `null` |
-| `last` | 패널이 켜진 뒤 마지막 스캔이 어떻게 끝났는지, 없으면 `null`. 메모리에만 있다. `state`: `done` \| `failed` \| `timeout` \| `cancelled`, `at`: 끝난 시각 |
+| `running` | 진행 중인 스캔, 없으면 `null`. `scheduled`: 주기가 시작한 스캔이면 `true` |
+| `last` | 패널이 켜진 뒤 마지막 스캔이 어떻게 끝났는지, 없으면 `null`. 메모리에만 있다. `state`: `done` \| `failed` \| `timeout` \| `cancelled`, `at`: 끝난 시각, `scheduled`: 주기가 시작한 스캔이면 `true`. `last`가 끝났다고 말하면 그 결과는 이미 `results`에 있다 |
 | `results` | **지금 목록에 있는 망**의 마지막 성공 결과만, `networks` 순. null이 아님. 실패·시간 초과·취소된 스캔은 이전 결과를 지우지 않는다 |
+| `results[].ports` | **이 스캔이** 포트를 확인했는지 |
+| `results[].ports_at` | 포트를 마지막으로 확인한 때. 한 번도 안 했으면 `""`. 포트 스캔은 끝난 시각으로 정하고, 기기 찾기만 한 스캔은 이전 결과의 것을 물려받는다(아래) |
 | `results[].hosts` | 상태가 up인 기기, IPv4 주소 순. null이 아님 |
 | `hosts[].mac` | 소문자. nmap은 자기 자신의 MAC을 모르므로 `self` 기기에는 스캔한 인터페이스의 MAC을 채운다 |
 | `hosts[].vendor` / `hostname` | nmap이 MAC으로 찾은 제조사 / 첫 이름(역방향 DNS). 모르면 `""` |
 | `hosts[].self` | 스캔한 노드 자신(nmap의 `reason="localhost-response"`) |
 | `hosts[].timed_out` | 포트 확인이 `--host-timeout`으로 포기한 기기. 포트 목록이 불완전하거나 비어 있다 |
-| `hosts[].ports` | **열린** 포트만, 번호 순(`proto`는 `tcp`). null이 아님 — 기기 찾기 결과와 열린 포트가 없는 기기는 `[]`. nmap의 서비스 이름은 표에서 고른 추측이라 싣지 않는다 |
+| `hosts[].ports` | **열린** 포트만, 번호 순(`proto`는 `tcp`). null이 아님 — 열린 포트가 없거나 확인한 적 없는 기기는 `[]`. nmap의 서비스 이름은 표에서 고른 추측이라 싣지 않는다 |
+| `devices` | 이 노드의 기기 대장 전체, MAC 순. null이 아님. 아래 "기기 대장" |
+| `conflicts` | `lan_claims`에서 두 개 이상의 MAC이 **겹치는 기간에** 쓴 주소, 망·주소 순. `macs`는 다른 MAC과 겹친 것만, 정렬. 없으면 `[]` |
+| `schedules` | 이 노드가 주기를 가진 망마다 하나(행이 있는 망 전부, 더는 붙어 있지 않은 망 포함), 망 주소 순. null이 아님. 아래 "주기 스캔" |
 
-시각은 모두 RFC 3339 UTC(`…Z`, 초 단위).
+시각은 서버가 적는 것은 모두 RFC 3339 UTC(`…Z`, 초 단위). `labelled_at`만 예외로, 페이지가 보낸 값을 그대로 둔다.
 
-**에러:** `500 NETWORK_ERROR` 인터페이스를 읽을 수 없음, `500 DB_ERROR` 저장된 결과를 읽을 수 없음.
+**기기 찾기만 한 스캔은 포트를 지우지 않는다:** 저장되는 결과의 호스트 목록은 새 스캔의 것이고, 이전 결과에 있던 기기는 그때의 `ports`·`timed_out`을 물려받는다. 같은 기기는 MAC으로 찾고, 어느 한쪽에 MAC이 없으면 주소로 찾는다. 같은 주소라도 MAC이 다르면 다른 기기라 물려받지 않는다. 처음 나타난 기기는 `[]`.
+
+**에러:** `500 NETWORK_ERROR` 인터페이스를 읽을 수 없음, `500 DB_ERROR` 저장된 결과·대장·주기를 읽을 수 없음.
 
 ### POST /api/v1/network/scan
 
@@ -6978,9 +6997,91 @@ WireGuard 키페어 생성 (`wg genkey` + `wg pubkey`).
 ### DELETE /api/v1/network/scan
 진행 중인 스캔을 멈춘다(nmap 종료). 끝날 때까지 최대 10초 기다린 뒤 답하므로, 바로 다음 `GET`의 `last.state`는 `cancelled`다. 저장된 결과는 그대로.
 
-**Response (200):** `{"success": true, "data": {"cancelled": true}}` — 진행 중인 스캔이 없었으면 `false`. 같은 순간에 스스로 끝난 스캔은 `done`으로 저장될 수 있으며 `last.state`가 실제 결과를 말한다.
+**Response (200):** `{"success": true, "data": {"cancelled": true}}` — 진행 중인 스캔이 없었으면 `false`. 같은 순간에 스스로 끝난 스캔은 `done`으로 저장될 수 있으며 `last.state`가 실제 결과를 말한다. 주기가 시작한 스캔도 같은 방법으로 멈춘다.
 
 이 경로가 없는 이전 버전 노드는 `404`로 답한다.
+
+### 기기 대장
+
+성공한 스캔(수동이든 주기든)이 끝나면, MAC이 있는 기기마다(스캔한 노드 자신은 그 인터페이스의 MAC으로):
+
+1. `lan_devices`에 upsert — `network`·`ip`·`last_seen`(끝난 시각)은 새 값으로, `vendor`·`hostname`은 빈 값이 아닐 때만 바꾸고, `first_seen`은 처음 한 번만.
+2. `lan_claims`의 `(network, ip, mac)` — 마지막으로 본 뒤 24시간 안에 다시 보이면 `last_at`만 늘리고, 처음이거나 24시간 넘게 안 보였다가 다시 보이면 `first_at = last_at = 지금`. 이어서 `last_at`이 48시간보다 오래된 행을 지운다.
+3. 이름표가 없고(`labelled_at = ""`) 14일 넘게 안 보인 기기를 지운다. 이름표가 있는 기기는 `DELETE`할 때까지 남는다.
+
+`devices[]`의 필드:
+
+| 필드 | 설명 |
+|------|------|
+| `mac` | 소문자, 콜론 구분 |
+| `name` / `note` / `kind` | 운영자가 적은 이름표. `kind`: `""`(안 정함) · `router` · `switch` · `ap` · `server` · `nas` · `pc` · `phone` · `tv` · `camera` · `printer` · `iot` · `other` |
+| `labelled_at` | 이름표를 마지막으로 쓴 때. 한 번도 안 썼으면 `""`. 여러 노드를 합칠 때 최신이 이긴다 |
+| `acked` | 새 기기 표시를 운영자가 확인함 |
+| `network` / `ip` / `vendor` / `hostname` | 이 노드가 마지막으로 본 모습. 다른 노드가 본 기기에 이름표만 단 경우 `""` |
+| `first_seen` / `last_seen` | 이 노드가 처음·마지막으로 본 때. 본 적 없으면 `""` |
+
+### PUT /api/v1/network/devices/:mac
+기기에 이름표를 단다. `:mac`은 `net.ParseMAC`이 읽는 어떤 꼴이든(`02:42:ac:14:1e:1f`, `02-42-AC-14-1E-1F`, `0242.ac14.1e1f`; 콜론을 `%3A`로 이스케이프해도 된다) 6바이트여야 하며, 소문자로 저장한다. 이 노드가 본 적 없는 MAC도 받는다(다른 노드가 본 기기의 이름표를 이 노드에도 두기 위해) — 본 적 없는 칸은 `""`로 남는다.
+
+**Request:**
+```json
+{ "name": "거실 TV", "note": "벽걸이, HDMI 2", "kind": "tv", "labelled_at": "2026-11-22T03:00:00.250Z" }
+```
+- `name`·`note`는 앞뒤 공백을 지우고 검사한다. `name`은 64자(바이트가 아니라 문자)까지, 제어 문자 없이 한 줄. `note`는 500자까지, 줄바꿈·탭은 되고 그 밖의 제어 문자는 안 된다. 빈 값이면 지운다.
+- `labelled_at`(선택): 있으면 RFC 3339여야 하며 **보낸 그대로** 저장한다 — 화면이 한 이름표를 여러 노드에 쓸 때 노드들이 같은 시각을 갖게. 없으면 서버의 지금.
+- 그 시각이 저장된 `labelled_at`보다 **이르면** 아무것도 바꾸지 않고 저장된 기기로 `200`을 답한다(같은 시각은 쓴다). 서버의 지금을 쓰는 요청에도 같은 규칙이 적용된다.
+
+**Response (200):** 저장된 기기(`devices[]` 한 항목과 같은 모양).
+
+**에러:**
+- `400 LAN_DEVICE_INVALID` — `details.field`: `mac` \| `name` \| `note` \| `kind` \| `labelled_at`. 아무것도 쓰지 않는다
+- `400 INVALID_REQUEST` — 본문이 JSON이 아니거나 필드 타입이 틀림
+
+### POST /api/v1/network/devices/:mac/ack
+새 기기 표시를 확인한다. **Response (200):** `{"success": true, "data": {"acked": true}}`
+
+**에러:** `404 LAN_DEVICE_NOT_FOUND` — 이 노드의 대장에 없는 MAC(만들지 않는다), `400 LAN_DEVICE_INVALID`(`field: mac`).
+
+### DELETE /api/v1/network/devices/:mac
+기기를 잊는다(이름표와 그 MAC의 `lan_claims`까지). 아직 망에 있으면 다음 스캔이 이름표 없는 기기로 다시 찾는다.
+
+**Response (200):** `{"success": true, "data": {"deleted": true}}` — 대장에 없었으면 `false`.
+
+**에러:** `400 LAN_DEVICE_INVALID`(`field: mac`).
+
+### 주기 스캔
+
+주기는 **그 노드의 설정**이다(같은 LAN에 노드가 여럿이면 한 노드에만 켠다). 노드마다 고루틴 하나가 1분마다 깨어나고, 패널이 시작한 뒤 2분 동안은 아무것도 하지 않는다. 깰 때마다 주기가 켜진(`interval_minutes > 0`) 망을 망 순서로 보고:
+
+- **멈춤**(`paused_reason`) — `no_tool`: nmap이 없음 · `gone`: 이 노드가 더는 그 망에 없거나 스캔할 수 없음 · `conflict`: 그 망의 저장된 결과에서, `known`이 클러스터 노드의 것이라 한 주소에 그 노드의 MAC이 아닌 MAC이 응답함(스캔한 노드 자신의 응답과 MAC이 없는 응답은 따지지 않는다). 중복 주소가 있는 LAN에서 ARP 스캔은 스캔하는 서버의 ARP 표를 다른 기기로 뒤집어 진짜 주인과의 연결을 끊을 수 있어서, 주기가 그 기회를 거듭 주지 않게 멈춘다. 수동 스캔은 막지 않으며, 충돌이 없는 결과가 저장되면 다시 돈다. 멈춘 이유가 바뀔 때만 로그(`component=lanscan`)에 한 줄 남긴다.
+- **아무 스캔이나 진행 중이면** 조용히 넘어간다.
+- 그 밖에는 `ports_daily`이고 마지막 주기 포트 스캔이 24시간 전이거나 없었으면 **포트 스캔**, 아니면 `last_run`에서 주기가 지났거나 없었으면 **기기 찾기**. 한 번 깰 때 최대 하나만 시작한다.
+- `last_run`(포트 스캔이면 `last_ports_run`도)은 스캔을 **시작할 때** 적는다 — 실패한 스캔을 매분 다시 하지 않게.
+
+주기 스캔은 수동 스캔과 똑같이 돈다(같은 잠금, 같은 저장). `running`·`last`의 `scheduled`가 `true`일 뿐이다.
+
+`schedules[]`의 필드: `network`, `interval_minutes`(0=끔), `ports_daily`, `last_run`(마지막으로 시작한 때, 없으면 `""`), `next_run`(다음에 돌 때 — 끔이거나 멈췄으면 `""`; 때가 지났으면 지금, 패널 시작 후 2분 안이면 그 2분이 끝나는 때), `paused_reason`(`""` · `no_tool` · `gone` · `conflict`; 끈 주기는 `""`).
+
+### PUT /api/v1/network/scan/schedule
+
+**Request:**
+```json
+{ "network": "10.20.30.0/24", "interval_minutes": 60, "ports_daily": false,
+  "known": [{"address": "10.20.30.12", "macs": ["02:42:ac:14:1e:0c"]}] }
+```
+- `network`: `POST /network/scan`과 똑같이 검사한다 — 이 노드의 스캔 가능한 망의 `cidr`과 글자 그대로 같아야 한다.
+- `interval_minutes`: `0`(끔) · `15` · `60` · `360` · `1440`.
+- `known`: 화면이 아는 그 망의 클러스터 노드들 — 주소(IPv4)와 그 노드 인터페이스의 MAC 1~16개, 64개까지. 보낸 그대로 저장한다(MAC은 소문자로). 없으면 `[]`.
+- 다시 보내면 주기·포트·`known`을 바꾸고 `last_run`은 그대로 둔다.
+
+**Response (200):** 저장된 주기(`schedules[]` 한 항목과 같은 모양).
+
+**에러:**
+- `400 INVALID_REQUEST` — 본문을 읽을 수 없거나 `network`가 비어 있음
+- `400 LAN_SCAN_NETWORK_NOT_ALLOWED` — 이 노드의 스캔 가능한 망이 아님
+- `400 LAN_SCHEDULE_INVALID` — `details.field`: `interval_minutes` \| `known`. 아무것도 쓰지 않는다
+
+0.91.0보다 오래된 노드는 기기·주기 경로에 `404`로 답하고, 그 `GET`에는 `devices`·`conflicts`·`schedules`·`ports_at`·`scheduled`가 없다.
 
 ---
 
