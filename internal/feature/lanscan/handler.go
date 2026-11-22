@@ -53,6 +53,11 @@ type Handler struct {
 	// Interfaces lists the host's network interfaces; nil reads the
 	// kernel's (net.Interfaces).
 	Interfaces func() ([]Interface, error)
+	// Notify is told of each successful scan once it is stored, from the
+	// scan's goroutine and outside the handler's lock; nil tells nobody. A
+	// scan that failed, timed out or was cancelled tells nothing. Set it
+	// before the first scan can start.
+	Notify func(ScanEvent)
 
 	// scan runs nmap over cidr and returns its XML output; nil is runNmap.
 	// Tests set it to hand in XML without running anything.
@@ -273,7 +278,7 @@ func (h *Handler) CancelScan(c echo.Context) error {
 func (h *Handler) run(ctx context.Context, cancel context.CancelFunc, done chan struct{}, n Network, ports, scheduled bool, started time.Time) {
 	defer close(done)
 	defer cancel()
-	state := h.scanNetwork(ctx, n, ports, started)
+	state, ev := h.scanNetwork(ctx, n, ports, started)
 
 	h.mu.Lock()
 	h.running = nil
@@ -281,12 +286,20 @@ func (h *Handler) run(ctx context.Context, cancel context.CancelFunc, done chan 
 	h.done = nil
 	h.last = &Last{Network: n.CIDR, Ports: ports, State: state, At: stamp(h.clock()), Scheduled: scheduled}
 	h.mu.Unlock()
+
+	// After the lock is let go, and once last says done: whoever is told
+	// may read the handler, GET /network/scan included.
+	if ev != nil {
+		ev.Scheduled = scheduled
+		h.Notify(*ev)
+	}
 }
 
 // scanNetwork scans n and stores the result when nmap finished, with what
 // it found recorded in the registry. Anything else leaves both as they were
-// and only says how it ended.
-func (h *Handler) scanNetwork(ctx context.Context, n Network, ports bool, started time.Time) string {
+// and only says how it ended. The event is what Notify is to be told of a
+// stored scan; nil when the scan was not stored or there is no Notify.
+func (h *Handler) scanNetwork(ctx context.Context, n Network, ports bool, started time.Time) (string, *ScanEvent) {
 	log := slog.With("component", "lanscan", "network", n.CIDR, "ports", ports)
 	scan := h.scan
 	if scan == nil {
@@ -297,18 +310,18 @@ func (h *Handler) scanNetwork(ctx context.Context, n Network, ports bool, starte
 		switch ctx.Err() {
 		case context.Canceled:
 			log.Info("scan cancelled")
-			return stateCancelled
+			return stateCancelled, nil
 		case context.DeadlineExceeded:
 			log.Warn("scan timed out", "after", h.clock().Sub(started).Round(time.Second).String())
-			return stateTimeout
+			return stateTimeout, nil
 		}
 		log.Warn("scan failed", "error", err)
-		return stateFailed
+		return stateFailed, nil
 	}
 	hosts, err := parseScan(data)
 	if err != nil {
 		log.Warn("scan output refused", "error", err)
-		return stateFailed
+		return stateFailed, nil
 	}
 	// nmap does not learn its own host's MAC; the scanned interface's is it.
 	for i := range hosts {
@@ -334,19 +347,29 @@ func (h *Handler) scanNetwork(ctx context.Context, n Network, ports bool, starte
 		prev, ok, err := loadResult(h.DB, n.CIDR)
 		if err != nil {
 			log.Error("earlier scan unreadable; result not stored", "error", err)
-			return stateFailed
+			return stateFailed, nil
 		}
 		if ok {
 			carryPorts(r.Hosts, prev)
 			r.PortsAt = prev.PortsAt
 		}
 	}
-	if err := recordScan(h.DB, r, finished); err != nil {
+	news, err := recordScan(h.DB, r, finished)
+	if err != nil {
 		log.Error("scan result not stored", "error", err)
-		return stateFailed
+		return stateFailed, nil
 	}
 	log.Info("scan done", "hosts", len(hosts), "duration_ms", finished.Sub(started).Milliseconds())
-	return stateDone
+	if h.Notify == nil {
+		return stateDone, nil
+	}
+	ev := &ScanEvent{Network: n.CIDR, FinishedAt: finished, New: news.New, Down: news.Down, Back: news.Back}
+	// The scan is stored either way; without the conflicts the rest of its
+	// news is still told.
+	if ev.Conflicts, err = addressConflicts(h.DB, n.CIDR, hosts); err != nil {
+		log.Warn("address conflicts unreadable; the scan's news is told without them", "error", err)
+	}
+	return stateDone, ev
 }
 
 // runNmap runs nmap with its XML written to a file of its own and returns

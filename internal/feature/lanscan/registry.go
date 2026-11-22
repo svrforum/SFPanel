@@ -54,30 +54,178 @@ type Conflict struct {
 	MACs []string `json:"macs"`
 }
 
+// registryNews is what a stored scan changed in the registry that the
+// alerts are told (ScanEvent's New, Down and Back).
+type registryNews struct {
+	New  []SeenDevice
+	Down []KnownDevice
+	Back []KnownDevice
+}
+
 // recordScan stores a successful scan of r.Network finished at at, all at
 // once: the result, each host with a MAC into the registry and the claims,
-// and what has aged out of both.
-func recordScan(db *sql.DB, r Result, at time.Time) error {
+// how many scans in a row missed each device of the network, and what has
+// aged out of the registry and the claims. It answers what that changed for
+// the alerts.
+func recordScan(db *sql.DB, r Result, at time.Time) (registryNews, error) {
 	tx, err := db.Begin()
 	if err != nil {
-		return err
+		return registryNews{}, err
 	}
 	defer func() { _ = tx.Rollback() }()
 	if err := saveResult(tx, r); err != nil {
-		return err
+		return registryNews{}, err
+	}
+	before, err := loadPriors(tx)
+	if err != nil {
+		return registryNews{}, err
+	}
+	// Every device of the network has been missed once more; the sightings
+	// below set those the scan found back to 0.
+	if _, err := tx.Exec(`UPDATE lan_devices SET missed = missed + 1 WHERE network = ?`, r.Network); err != nil {
+		return registryNews{}, err
 	}
 	if err := recordSightings(tx, r.Network, r.Hosts, at); err != nil {
-		return err
+		return registryNews{}, err
+	}
+	news, err := readNews(tx, newsOf(r.Network, r.Hosts, before))
+	if err != nil {
+		return registryNews{}, err
 	}
 	if err := pruneRegistry(tx, at); err != nil {
-		return err
+		return registryNews{}, err
 	}
-	return tx.Commit()
+	return news, tx.Commit()
+}
+
+// prior is a registry device as it was before a scan was recorded.
+type prior struct {
+	network string
+	watch   bool
+	missed  int
+}
+
+// loadPriors is the whole registry as it is, by MAC: what a scan's news is
+// judged against.
+func loadPriors(tx *sql.Tx) (map[string]prior, error) {
+	rows, err := tx.Query(`SELECT mac, network, watch, missed FROM lan_devices`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	out := map[string]prior{}
+	for rows.Next() {
+		var mac string
+		var p prior
+		if err := rows.Scan(&mac, &p.network, &p.watch, &p.missed); err != nil {
+			return nil, err
+		}
+		out[mac] = p
+	}
+	return out, rows.Err()
+}
+
+// newsMACs are the MACs of a scan's news, before their devices are read.
+type newsMACs struct{ new, down, back []string }
+
+// newsOf works out, from the registry as it was before a scan of network
+// that found hosts, which MACs are news:
+//   - new: a MAC the registry had no row for, unless the registry held no
+//     device of the network at all: a network's first scan finds everything
+//     on it, and that is not news.
+//   - down: a watched device of the network the scan did not find, that the
+//     scan before it did not find either (missed was 1, and is now 2). Once:
+//     the next scan that misses it makes 3.
+//   - back: a watched device the scan found that two or more scans in a row
+//     had missed, on whichever network they were.
+func newsOf(network string, hosts []Host, before map[string]prior) newsMACs {
+	found := map[string]bool{}
+	var order []string
+	for _, h := range hosts {
+		if h.MAC != "" && !found[h.MAC] {
+			found[h.MAC] = true
+			order = append(order, h.MAC)
+		}
+	}
+	known := false
+	for _, p := range before {
+		if p.network == network {
+			known = true
+			break
+		}
+	}
+	var out newsMACs
+	for _, mac := range order {
+		p, ok := before[mac]
+		switch {
+		case !ok:
+			if known {
+				out.new = append(out.new, mac)
+			}
+		case p.watch && p.missed >= 2:
+			out.back = append(out.back, mac)
+		}
+	}
+	for mac, p := range before {
+		if p.network == network && !found[mac] && p.watch && p.missed+1 == 2 {
+			out.down = append(out.down, mac)
+		}
+	}
+	return out
+}
+
+// readNews reads the devices of a scan's news as the scan left them, each
+// list in address order.
+func readNews(tx *sql.Tx, macs newsMACs) (registryNews, error) {
+	read := func(list []string) ([]Device, error) {
+		out := make([]Device, 0, len(list))
+		for _, mac := range list {
+			d, err := scanDevice(tx.QueryRow(`SELECT `+deviceColumns+` FROM lan_devices WHERE mac = ?`, mac))
+			if err != nil {
+				return nil, err
+			}
+			out = append(out, d)
+		}
+		sort.Slice(out, func(i, j int) bool {
+			if out[i].IP != out[j].IP {
+				return addrLess(out[i].IP, out[j].IP)
+			}
+			return out[i].MAC < out[j].MAC
+		})
+		return out, nil
+	}
+	var news registryNews
+	added, err := read(macs.new)
+	if err != nil {
+		return registryNews{}, err
+	}
+	for _, d := range added {
+		news.New = append(news.New, SeenDevice{IP: d.IP, MAC: d.MAC, Vendor: d.Vendor, Hostname: d.Hostname})
+	}
+	down, err := read(macs.down)
+	if err != nil {
+		return registryNews{}, err
+	}
+	for _, d := range down {
+		news.Down = append(news.Down, knownDevice(d))
+	}
+	back, err := read(macs.back)
+	if err != nil {
+		return registryNews{}, err
+	}
+	for _, d := range back {
+		news.Back = append(news.Back, knownDevice(d))
+	}
+	return news, nil
+}
+
+func knownDevice(d Device) KnownDevice {
+	return KnownDevice{MAC: d.MAC, Name: d.Name, IP: d.IP, Vendor: d.Vendor, Hostname: d.Hostname, LastSeen: d.LastSeen}
 }
 
 // recordSightings upserts every host that has a MAC: the device as seen now
 // (a vendor or hostname only replaced by one that is not "", first_seen set
-// once) and its claim on the address. A claim seen again within claimGap of
+// once, missed back to 0) and its claim on the address. A claim seen again within claimGap of
 // its last_at runs on; one that is new or comes back after a longer gap
 // starts at now.
 func recordSightings(tx execer, network string, hosts []Host, at time.Time) error {
@@ -95,7 +243,8 @@ func recordSightings(tx execer, network string, hosts []Host, at time.Time) erro
 				vendor = CASE WHEN excluded.vendor <> '' THEN excluded.vendor ELSE lan_devices.vendor END,
 				hostname = CASE WHEN excluded.hostname <> '' THEN excluded.hostname ELSE lan_devices.hostname END,
 				first_seen = CASE WHEN lan_devices.first_seen = '' THEN excluded.first_seen ELSE lan_devices.first_seen END,
-				last_seen = excluded.last_seen`,
+				last_seen = excluded.last_seen,
+				missed = 0`,
 			h.MAC, network, h.IP, h.Vendor, h.Hostname, now, now); err != nil {
 			return err
 		}

@@ -87,7 +87,8 @@ func sighting(ip, mac string) Host {
 func record(t *testing.T, db *sql.DB, at time.Time, hosts ...Host) {
 	t.Helper()
 	r := Result{Network: "10.20.30.0/24", Interface: "eth0", StartedAt: stamp(at), FinishedAt: stamp(at), Hosts: hosts}
-	require.NoError(t, recordScan(db, r, at))
+	_, err := recordScan(db, r, at)
+	require.NoError(t, err)
 }
 
 func device(t *testing.T, db *sql.DB, mac string) Device {
@@ -249,9 +250,53 @@ func TestRegistry_Conflicts(t *testing.T) {
 		db := openDB(t)
 		record(t, db, t0, sighting(ip, a))
 		other := Result{Network: "10.20.31.0/24", StartedAt: stamp(t0), FinishedAt: stamp(t0), Hosts: []Host{sighting(ip, b)}}
-		require.NoError(t, recordScan(db, other, t0))
+		_, err := recordScan(db, other, t0)
+		require.NoError(t, err)
 		require.Equal(t, []Conflict{}, conflicts(t, db))
 	})
+}
+
+func missed(t *testing.T, db *sql.DB, mac string) int {
+	t.Helper()
+	var n int
+	require.NoError(t, db.QueryRow(`SELECT missed FROM lan_devices WHERE mac = ?`, mac).Scan(&n))
+	return n
+}
+
+// Each scan of a network sets the devices it found back to 0 and adds one
+// to the network's others; another network's devices, and a MAC labelled
+// here and never seen, are left alone. A device that moved to another
+// network is that network's from then.
+func TestRegistry_Missed(t *testing.T) {
+	db := openDB(t)
+	a, b, c, d := "02:42:ac:14:1e:0a", "02:42:ac:14:1e:0b", "02:42:ac:14:1e:0c", "02:42:ac:14:1e:0d"
+	other := func(at time.Time, hosts ...Host) {
+		t.Helper()
+		_, err := recordScan(db, Result{Network: "10.20.31.0/24", StartedAt: stamp(at), FinishedAt: stamp(at), Hosts: hosts}, at)
+		require.NoError(t, err)
+	}
+	record(t, db, t0, sighting("10.20.30.10", a), sighting("10.20.30.11", b))
+	other(t0, sighting("10.20.31.12", c))
+	_, err := labelDevice(db, d, "Spare", "", "", stamp(t0), nil)
+	require.NoError(t, err)
+	counts := func() []int {
+		return []int{missed(t, db, a), missed(t, db, b), missed(t, db, c), missed(t, db, d)}
+	}
+	require.Equal(t, []int{0, 0, 0, 0}, counts())
+
+	record(t, db, t0.Add(time.Hour), sighting("10.20.30.10", a))
+	require.Equal(t, []int{0, 1, 0, 0}, counts(), "found resets, not found adds, the rest untouched")
+	record(t, db, t0.Add(2*time.Hour))
+	require.Equal(t, []int{1, 2, 0, 0}, counts())
+	record(t, db, t0.Add(3*time.Hour), sighting("10.20.30.11", b))
+	require.Equal(t, []int{2, 0, 0, 0}, counts())
+	other(t0.Add(3 * time.Hour))
+	require.Equal(t, []int{2, 0, 1, 0}, counts(), "the other network's scan counts its own devices only")
+
+	// a moves to the other network: found there, then no longer the LAN's.
+	other(t0.Add(4*time.Hour), sighting("10.20.31.10", a))
+	record(t, db, t0.Add(5*time.Hour), sighting("10.20.30.11", b))
+	require.Equal(t, []int{0, 0, 2, 0}, counts())
 }
 
 // A device nobody labelled goes once it has not been seen for over 14

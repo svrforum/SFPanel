@@ -318,6 +318,14 @@ func pausedReason(row scheduleRow, env scheduleEnv) string {
 // not keep giving it the chance. The scanning node's own answer, and a host
 // with no MAC, prove nothing either way.
 func inConflict(row scheduleRow, r Result) bool {
+	return len(knownConflicts(row, r.Hosts)) > 0
+}
+
+// knownConflicts are the hosts that put a schedule in conflict (inConflict):
+// each answers at an address the known list gives one of the cluster's own
+// nodes, with a MAC that is none of that node's, and is neither the
+// scanning node itself nor a host without a MAC. In the hosts' order.
+func knownConflicts(row scheduleRow, hosts []Host) []Host {
 	known := map[string]map[string]bool{}
 	for _, k := range row.Known {
 		if known[k.Address] == nil {
@@ -327,16 +335,17 @@ func inConflict(row scheduleRow, r Result) bool {
 			known[k.Address][mac] = true
 		}
 	}
-	for _, host := range r.Hosts {
+	var out []Host
+	for _, host := range hosts {
 		macs, listed := known[host.IP]
 		if !listed || host.Self || host.MAC == "" {
 			continue
 		}
 		if !macs[host.MAC] {
-			return true
+			out = append(out, host)
 		}
 	}
-	return false
+	return out
 }
 
 // due says whether a schedule that is on is due at now, and whether for a
