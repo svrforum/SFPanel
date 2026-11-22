@@ -116,6 +116,24 @@ type startRequest struct {
 //
 //	GET /api/v1/network/scan
 func (h *Handler) GetScan(c echo.Context) error {
+	// The scan's state before what is stored: a scan stores its result and
+	// only then says it is done, so a last read first that says done comes
+	// with its result. Read the other way round, a scan ending in between
+	// was answered as done with the result before it, and a page that
+	// stops polling there showed the old one.
+	h.mu.Lock()
+	var running *Running
+	if h.running != nil {
+		r := *h.running
+		running = &r
+	}
+	var last *Last
+	if h.last != nil {
+		l := *h.last
+		last = &l
+	}
+	h.mu.Unlock()
+
 	nets, err := h.networks()
 	if err != nil {
 		slog.Warn("network interfaces unreadable", "component", "lanscan", "error", err)
@@ -142,19 +160,6 @@ func (h *Handler) GetScan(c echo.Context) error {
 		slog.Warn("LAN address claims unreadable", "component", "lanscan", "error", err)
 		return response.Fail(c, http.StatusInternalServerError, response.ErrDBError, "Cannot read the device registry")
 	}
-
-	h.mu.Lock()
-	var running *Running
-	if h.running != nil {
-		r := *h.running
-		running = &r
-	}
-	var last *Last
-	if h.last != nil {
-		l := *h.last
-		last = &l
-	}
-	h.mu.Unlock()
 
 	return response.OK(c, Status{
 		Installed: h.Cmd.Exists("nmap"),
