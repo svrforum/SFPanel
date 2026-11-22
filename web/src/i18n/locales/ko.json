@@ -4850,11 +4850,11 @@
       "kind": {
         "node": "서버",
         "device": "기기",
-        "text": "글자"
+        "text": "직접 입력"
       },
       "pickNode": "서버 고르기",
       "pickDevice": "기기 고르기",
-      "textLabel": "쓸 말",
+      "textLabel": "이름",
       "textPlaceholder": "패치 패널, UPS…",
       "noNodes": "올릴 서버가 없습니다. 모두 랙에 있습니다.",
       "noDevices": "올릴 기기가 없습니다. 네트워크 보기에서 스캔하면 기기가 생깁니다.",
@@ -4871,7 +4871,7 @@
       "ports": "포트 {{total}}개 중 {{up}}개 연결",
       "portList": "주소와 포트",
       "portUp": "연결됨",
-      "portDown": "꺼짐",
+      "portDown": "연결 안 됨",
       "problem": {
         "name": "이름을 1~64자로 넣으세요.",
         "units": "높이는 1~60U입니다.",
