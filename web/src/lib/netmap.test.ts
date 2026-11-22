@@ -47,7 +47,7 @@ function status(extra: Partial<LanScanStatus> = {}): LanScanStatus {
 }
 
 function node(id: string, n: number | null, extra: Partial<MapNode> = {}): MapNode {
-  return { id, name: id, online: true, macs: n === null ? [] : [mac(n)], guests: [], ...extra }
+  return { id, name: id, online: true, macs: n === null ? [] : [mac(n)], addresses: n === null ? [] : [`10.20.30.${n}`], guests: [], ...extra }
 }
 
 /** The one segment a single node's single result makes. */
@@ -61,7 +61,7 @@ describe('a scanned network', () => {
   it('tells the gateway, the nodes and the rest apart, each list by address', () => {
     const nodes = [node('alpha', 26), node('beta', 9)]
     const s = segmentFrom(nodes, 'alpha', [host(26, { self: true }), host(200), host(9), host(1, { hostname: 'router.lan' }), host(10)])
-    expect(s.gateway?.ip).toBe('10.20.30.1')
+    expect(s.gateways.map((d) => [d.ip, d.gatewayFor])).toEqual([['10.20.30.1', ['alpha']]])
     expect(s.gatewayAddress).toBe('10.20.30.1')
     // .9 before .26: by the number, not by the text.
     expect(s.servers.map((d) => [d.ip, d.node?.id])).toEqual([['10.20.30.9', 'beta'], ['10.20.30.26', 'alpha']])
@@ -80,7 +80,7 @@ describe('a scanned network', () => {
   it('names a node by an interface address in any case, and not by one two nodes share', () => {
     const upper = segmentFrom([node('alpha', 26), node('beta', null, { macs: [mac(9).toUpperCase()] })], 'alpha', [host(26, { self: true }), host(9)])
     expect(upper.servers.map((d) => d.node?.id)).toEqual(['beta', 'alpha'])
-    const cloned = segmentFrom([node('alpha', 26), node('beta', 9), node('gamma', 9)], 'alpha', [host(26, { self: true }), host(9)])
+    const cloned = segmentFrom([node('alpha', 26), node('beta', 9), node('gamma', 9, { addresses: [] })], 'alpha', [host(26, { self: true }), host(9)])
     expect(cloned.servers.map((d) => d.node?.id)).toEqual(['alpha'])
     expect(cloned.devices.map((d) => d.ip)).toEqual(['10.20.30.9'])
   })
@@ -119,7 +119,7 @@ describe('a scanned network', () => {
   it('keeps a gateway that is a guest on top, not under its host', () => {
     const nodes = [node('alpha', 26), node('pve', 10, { guests: [{ vmid: 100, title: 'router', kind: 'vm', running: true, macs: [mac(1)] }] })]
     const s = segmentFrom(nodes, 'alpha', [host(26, { self: true }), host(10), host(1)])
-    expect(s.gateway?.guest?.title).toBe('router')
+    expect(s.gateways.map((d) => d.guest?.title)).toEqual(['router'])
     expect(s.servers.find((d) => d.node?.id === 'pve')?.children).toEqual([])
   })
 
@@ -174,7 +174,7 @@ describe('a scanned network', () => {
 
   it('says the gateway address where the scan did not find it', () => {
     const s = segmentFrom([node('alpha', 26)], 'alpha', [host(26, { self: true })])
-    expect(s.gateway).toBeNull()
+    expect(s.gateways).toEqual([])
     expect(s.gatewayAddress).toBe('10.20.30.1')
   })
 })
@@ -281,6 +281,87 @@ describe('networks across nodes', () => {
   })
 })
 
+describe('more than one way out', () => {
+  // Six servers of one LAN, one of which goes out through a router of its own
+  // (a firewall VM): the real cluster this was first run on.
+  const guests = [{ vmid: 100, title: 'firewall', kind: 'vm' as const, running: true, macs: [mac(99)] }, { vmid: 111, title: 'sub', kind: 'vm' as const, running: true, macs: [mac(12)] }]
+  const nodes = [node('alpha', 26), node('pve', 10, { guests }), node('sub', 12)]
+
+  it('lists a network once before any scan, whatever gateway each node uses', () => {
+    const entries = networkEntries(nodes, new Map([
+      ['alpha', status({ networks: [network(26)] })],
+      ['pve', status({ networks: [network(10)], installed: false })],
+      ['sub', status({ networks: [network(12, { gateway: '10.20.30.99' })], installed: false })],
+    ]))
+    expect(entries.map((e) => [e.cidr, e.scanners.map((s) => s.nodeId)])).toEqual([[NET, ['alpha', 'pve', 'sub']]])
+  })
+
+  it('draws every device a node goes out through as a gateway, and says which nodes use it', () => {
+    const entries = networkEntries(nodes, new Map([
+      ['alpha', status({ networks: [network(26)], results: [result([host(26, { self: true }), host(10), host(12), host(99), host(1)])] })],
+      ['pve', status({ networks: [network(10)] })],
+      ['sub', status({ networks: [network(12, { gateway: '10.20.30.99' })] })],
+    ]))
+    expect(entries).toHaveLength(1)
+    const s = entries[0].segment!
+    expect(s.gateways.map((d) => [d.ip, d.gatewayFor, d.guest?.title ?? null])).toEqual([
+      ['10.20.30.1', ['alpha', 'pve'], null],
+      ['10.20.30.99', ['sub'], 'firewall'],
+    ])
+    // The firewall is a guest of the host, and is drawn where traffic goes through it, not inside the host.
+    expect(s.servers.find((d) => d.node?.id === 'pve')?.children.map((d) => d.ip)).toEqual(['10.20.30.12'])
+    expect(shownCount(s)).toBe(3)
+  })
+
+  it('puts a node that was down for the scan with it, when its gateway is a device the scan saw', () => {
+    const entries = networkEntries([...nodes, node('late', 40)], new Map([
+      ['alpha', status({ networks: [network(26)], results: [result([host(26, { self: true }), host(99), host(1)])] })],
+      ['late', status({ networks: [network(40, { gateway: '10.20.30.99' })] })],
+    ]))
+    expect(entries.map((e) => e.scanners.map((s) => s.nodeId))).toEqual([['alpha', 'late']])
+    expect(entries[0].segment!.gateways.map((d) => [d.ip, d.gatewayFor])).toEqual([['10.20.30.1', ['alpha']], ['10.20.30.99', ['late']]])
+  })
+
+  it('keeps apart a node whose gateway the scan knows nothing of', () => {
+    const entries = networkEntries([node('alpha', 26), node('elsewhere', 40)], new Map([
+      ['alpha', status({ networks: [network(26)], results: [result([host(26, { self: true }), host(1)])] })],
+      ['elsewhere', status({ networks: [network(40, { gateway: '10.20.30.254' })] })],
+    ]))
+    expect(entries.map((e) => [!!e.segment, e.scanners.map((s) => s.nodeId)])).toEqual([[true, ['alpha']], [false, ['elsewhere']]])
+  })
+})
+
+describe('an address two devices use', () => {
+  it('says so when a node\'s own address is answered by a MAC that is not the node\'s', () => {
+    // beta is at .9; what answered at .9 is something else. beta itself is not seen.
+    const s = segmentFrom([node('alpha', 26), node('beta', 9)], 'alpha', [host(26, { self: true }), host(9, { mac: mac(77), vendor: 'Example Electronics' }), host(1)])
+    expect(s.conflicts.map((d) => [d.ip, d.mac, d.conflict])).toEqual([['10.20.30.9', mac(77), { id: 'beta', name: 'beta' }]])
+    // The impostor is not drawn as the node.
+    expect(s.servers.map((d) => d.node?.id)).toEqual(['alpha'])
+    expect(s.devices.map((d) => [d.ip, !!d.conflict])).toEqual([['10.20.30.9', true]])
+  })
+
+  it('does not say so of the node itself, of the node that scanned, or of a node whose interfaces were not read', () => {
+    const own = segmentFrom([node('alpha', 26), node('beta', 9)], 'alpha', [host(26, { self: true }), host(9), host(1)])
+    expect(own.conflicts).toEqual([])
+    // The scanning node answers with no MAC of its own in nmap's eyes.
+    const scanner = segmentFrom([node('alpha', 26, { macs: [mac(50)] })], 'alpha', [host(26, { self: true, mac: mac(26) })])
+    expect(scanner.conflicts).toEqual([])
+    const unread = segmentFrom([node('alpha', 26), node('beta', null, { addresses: ['10.20.30.9'] })], 'alpha', [host(26, { self: true }), host(9, { mac: mac(77) })])
+    expect(unread.conflicts).toEqual([])
+  })
+
+  it('takes any of a node\'s interfaces for the node, in any case', () => {
+    const s = segmentFrom([node('alpha', 26), node('beta', 9, { macs: [mac(60), mac(9).toUpperCase()] })], 'alpha', [host(26, { self: true }), host(9)])
+    expect(s.conflicts).toEqual([])
+  })
+
+  it('names no owner for an address two nodes both report', () => {
+    const s = segmentFrom([node('alpha', 26), node('beta', 9), node('gamma', 60, { addresses: ['10.20.30.60', '10.20.30.9'] })], 'alpha', [host(26, { self: true }), host(9, { mac: mac(77) })])
+    expect(s.conflicts).toEqual([])
+  })
+})
+
 describe('searching a segment', () => {
   const nodes = [node('alpha', 26), node('pve', 10, { guests: [{ vmid: 111, title: 'web', kind: 'vm', running: true, macs: [mac(40)] }] })]
   const s = segmentFrom(nodes, 'alpha', [
@@ -314,7 +395,7 @@ describe('searching a segment', () => {
   })
 
   it('keeps the gateway, and gives the segment back for no query', () => {
-    expect(filterSegment(s, 'nothing-like-this').gateway?.ip).toBe('10.20.30.1')
+    expect(filterSegment(s, 'nothing-like-this').gateways.map((d) => d.ip)).toEqual(['10.20.30.1'])
     expect(shownCount(filterSegment(s, 'nothing-like-this'))).toBe(0)
     expect(filterSegment(s, '  ')).toBe(s)
   })

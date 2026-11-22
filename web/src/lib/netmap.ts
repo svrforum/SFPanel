@@ -20,8 +20,10 @@ export interface MapNode {
   id: string
   name: string
   online: boolean
-  /** Its interfaces' addresses; empty until they were read. */
+  /** Its interfaces' MACs; empty until they were read. */
   macs: readonly string[]
+  /** Its interfaces' IPv4 addresses; empty until they were read. */
+  addresses: readonly string[]
   /** Its guests, for a node that is a Proxmox host. */
   guests: readonly MapGuest[]
 }
@@ -42,8 +44,15 @@ export interface MapDevice {
   mac: string
   vendor: string
   hostname: string
-  /** The default route of the node that scanned leaves through it. */
+  /** Some node's default route leaves through it. */
   gateway: boolean
+  /** The nodes whose default route that is, by name. */
+  gatewayFor: string[]
+  /**
+   * It answered on an address that is a node's own, with a MAC that is not
+   * that node's: two devices are using one address.
+   */
+  conflict: { id: string; name: string } | null
   /** The node the scan was made from. */
   scanner: boolean
   /** The node of this panel it is. */
@@ -65,9 +74,15 @@ export interface Segment {
   finishedAt: number
   /** Whether that scan looked for open ports. */
   portsChecked: boolean
-  gateway: MapDevice | null
-  /** The gateway's address, also where the scan did not find it. */
+  /**
+   * The devices some node's default route leaves through, by address: one on
+   * most networks, two where some servers go out through a router of their own.
+   */
+  gateways: MapDevice[]
+  /** The scanning node's gateway address, also where the scan did not find it. */
   gatewayAddress: string
+  /** The devices that answered on a node's address without being that node. */
+  conflicts: MapDevice[]
   /** This panel's nodes, with their guests under them. */
   servers: MapDevice[]
   /** Everything else, by address. */
@@ -187,12 +202,20 @@ interface Owners {
   nodeOf: Map<string, MapNode>
   /** The guest a NIC address belongs to, where that can mean one guest. */
   guestOf: Map<string, { host: MapNode; guest: MapGuest }>
+  /** The node an IPv4 address is an interface address of, where exactly one node has it. */
+  addressOf: Map<string, MapNode>
 }
 
 function owners(nodes: readonly MapNode[]): Owners {
   const claimed = new Map<string, Set<MapNode>>()
   const guests = new Map<string, { host: MapNode; guest: MapGuest }[]>()
+  const addressed = new Map<string, Set<MapNode>>()
   for (const node of nodes) {
+    for (const address of node.addresses) {
+      const set = addressed.get(address)
+      if (set) set.add(node)
+      else addressed.set(address, new Set([node]))
+    }
     for (const mac of node.macs) {
       const key = macKey(mac)
       if (!key) continue
@@ -221,10 +244,16 @@ function owners(nodes: readonly MapNode[]): Owners {
     const one = list.length === 1 ? list[0] : running.length === 1 ? running[0] : null
     if (one) guestOf.set(key, one)
   }
-  return { nodeOf, guestOf }
+  const addressOf = new Map<string, MapNode>()
+  for (const [address, set] of addressed) if (set.size === 1) addressOf.set(address, [...set][0])
+  return { nodeOf, guestOf, addressOf }
 }
 
-function segmentOf(scannedBy: MapNode, result: LanScanResult, own: Owners): Segment {
+/**
+ * `routes`: the addresses default routes of this network's nodes leave
+ * through, with the names of the nodes that use each.
+ */
+function segmentOf(scannedBy: MapNode, result: LanScanResult, own: Owners, routes: ReadonlyMap<string, string[]>): Segment {
   const prefix = prefixOf(result.network)
   const all = result.hosts.map((h): MapDevice => {
     const key = macKey(h.mac)
@@ -232,13 +261,21 @@ function segmentOf(scannedBy: MapNode, result: LanScanResult, own: Owners): Segm
     const claim = key ? own.guestOf.get(key) : undefined
     // A node is never a guest of itself.
     const guest = claim && claim.host.id !== node?.id ? claim : undefined
+    // The address is a node's own, the node's interfaces were read, and what
+    // answered is none of them: another device has taken the address. (The
+    // node itself, answering on its own address, is found by its MAC above.)
+    const owner = h.self || !key ? undefined : own.addressOf.get(h.ip)
+    const ownerMacs = owner ? owner.macs.map((m) => macKey(m)).filter(Boolean) : []
+    const conflict = owner && ownerMacs.length > 0 && !ownerMacs.includes(key) ? owner : undefined
     return {
       key: key ?? `ip:${h.ip}`,
       ip: h.ip,
       mac: key ?? '',
       vendor: h.vendor ?? '',
       hostname: h.hostname ?? '',
-      gateway: !!result.gateway && h.ip === result.gateway,
+      gateway: routes.has(h.ip),
+      gatewayFor: routes.get(h.ip) ?? [],
+      conflict: conflict ? { id: conflict.id, name: conflict.name } : null,
       scanner: !!h.self,
       node: node ? { id: node.id, name: node.name } : null,
       guest: guest ? { hostId: guest.host.id, hostName: guest.host.name, vmid: guest.guest.vmid, kind: guest.guest.kind, title: guest.guest.title } : null,
@@ -274,8 +311,9 @@ function segmentOf(scannedBy: MapNode, result: LanScanResult, own: Owners): Segm
     scannedBy: { id: scannedBy.id, name: scannedBy.name },
     finishedAt: Date.parse(result.finished_at) || 0,
     portsChecked: !!result.ports,
-    gateway: all.find((d) => d.gateway) ?? null,
+    gateways: all.filter((d) => d.gateway),
     gatewayAddress: result.gateway ?? '',
+    conflicts: all.filter((d) => d.conflict),
     servers: top.filter((d) => d.node),
     devices: top.filter((d) => !d.node),
     count: all.length,
@@ -298,7 +336,10 @@ interface Scan {
  *
  * A node is on a scanned network when the scan saw its interface, or when it
  * made the scan; failing both (it was down then), when it names the same CIDR
- * and gateway. A network no scan covers is listed with the nodes on it.
+ * and its gateway is the scan's, or a device the scan saw. A network no scan
+ * covers is listed once, with every node on it — whatever each node's gateway
+ * is: six servers of one LAN, one of them going out through a router of its
+ * own, were listed as two networks.
  */
 export function networkEntries(nodes: readonly MapNode[], statuses: ReadonlyMap<string, LanScanStatus>): NetworkEntry[] {
   const byId = new Map(nodes.map((n) => [n.id, n]))
@@ -326,41 +367,54 @@ export function networkEntries(nodes: readonly MapNode[], statuses: ReadonlyMap<
     else groups.push([scan])
   }
 
-  const entries: NetworkEntry[] = groups.map((group) => {
-    const { node, result } = group[0]
-    return { key: `${node.id}|${result.network}`, cidr: result.network, segment: segmentOf(node, result, own), scanners: [], running: null }
-  })
-
-  // Each node's networks, put with the scan that covers them or listed alone.
-  const loose = new Map<string, NetworkEntry>()
+  // Each node's networks: with the scan that covers them, or on their own.
+  const placed: { index: number | null; nodeId: string; node: MapNode; status: LanScanStatus; net: LanScanStatus['networks'][number] }[] = []
   for (const [nodeId, status] of statuses) {
     const node = byId.get(nodeId)
     if (!node) continue
     for (const net of status.networks ?? []) {
-      const scanner: Scanner = {
-        nodeId,
-        nodeName: node.name,
-        network: net.cidr,
-        installed: !!status.installed,
-        scannable: !!net.scannable,
-        reason: net.reason ?? '',
-        online: node.online,
-      }
       const mac = macKey(net.mac)
       const index =
         firstIndex(groups, (g) => g[0].result.network === net.cidr && (g.some((s) => s.node.id === nodeId) || (!!mac && g.some((s) => s.macs.has(mac))))) ??
-        firstIndex(groups, (g) => g[0].result.network === net.cidr && !!net.gateway && g[0].result.gateway === net.gateway)
-      let entry = index === null ? undefined : entries[index]
-      if (!entry) {
-        const key = `${net.cidr}|${net.gateway ?? ''}`
-        entry = loose.get(key)
-        if (!entry) loose.set(key, (entry = { key: `loose|${key}`, cidr: net.cidr, segment: null, scanners: [], running: null }))
-      }
-      entry.scanners.push(scanner)
-      const run = status.running
-      if (run && run.network === net.cidr && !entry.running) {
-        entry.running = { nodeId, nodeName: node.name, network: run.network, ports: !!run.ports, startedAt: Date.parse(run.started_at) || 0 }
-      }
+        firstIndex(groups, (g) => g[0].result.network === net.cidr && !!net.gateway && (g[0].result.gateway === net.gateway || (g[0].result.hosts ?? []).some((h) => h.ip === net.gateway)))
+      placed.push({ index, nodeId, node, status, net })
+    }
+  }
+
+  // The gateways of a scanned network: the scanning node's as it was then,
+  // and that of every node on the network now.
+  const routes = groups.map((group) => new Map<string, string[]>([[group[0].result.gateway, [group[0].node.name]]].filter(([address]) => !!address) as [string, string[]][]))
+  for (const p of placed) {
+    if (p.index === null || !p.net.gateway) continue
+    const users = routes[p.index].get(p.net.gateway)
+    if (!users) routes[p.index].set(p.net.gateway, [p.node.name])
+    else if (!users.includes(p.node.name)) users.push(p.node.name)
+  }
+
+  const entries: NetworkEntry[] = groups.map((group, i) => {
+    const { node, result } = group[0]
+    return { key: `${node.id}|${result.network}`, cidr: result.network, segment: segmentOf(node, result, own, routes[i]), scanners: [], running: null }
+  })
+
+  const loose = new Map<string, NetworkEntry>()
+  for (const { index, nodeId, node, status, net } of placed) {
+    let entry = index === null ? undefined : entries[index]
+    if (!entry) {
+      entry = loose.get(net.cidr)
+      if (!entry) loose.set(net.cidr, (entry = { key: `loose|${net.cidr}`, cidr: net.cidr, segment: null, scanners: [], running: null }))
+    }
+    entry.scanners.push({
+      nodeId,
+      nodeName: node.name,
+      network: net.cidr,
+      installed: !!status.installed,
+      scannable: !!net.scannable,
+      reason: net.reason ?? '',
+      online: node.online,
+    })
+    const run = status.running
+    if (run && run.network === net.cidr && !entry.running) {
+      entry.running = { nodeId, nodeName: node.name, network: run.network, ports: !!run.ports, startedAt: Date.parse(run.started_at) || 0 }
     }
   }
   for (const entry of entries) {
@@ -410,7 +464,7 @@ function filterDevices(list: MapDevice[], q: string): MapDevice[] {
 
 /**
  * The segment with only what a search finds, by address, name, maker, MAC or
- * port. The gateway stays: it is what the rest hangs from.
+ * port. The gateways stay: they are what the rest hangs from.
  */
 export function filterSegment(segment: Segment, query: string): Segment {
   const q = query.trim().toLowerCase()
