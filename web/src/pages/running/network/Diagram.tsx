@@ -1,11 +1,11 @@
 import { createContext, useCallback, useContext, useId, useLayoutEffect, useRef, useState, type CSSProperties, type FormEvent } from 'react'
 import { useTranslation } from 'react-i18next'
 import {
-  AlertTriangle, ArrowUpRight, Box, Cctv, ChevronDown, Cpu, Globe, HardDrive, Monitor, MonitorSmartphone, Network, Printer, Router, Server, Smartphone,
-  StickyNote, Tv, Wifi, type LucideIcon,
+  AlertTriangle, ArrowUpRight, Box, Cctv, ChevronDown, Cpu, Eye, Globe, HardDrive, Monitor, MonitorSmartphone, Network, Power, Printer, Router, Server,
+  Smartphone, StickyNote, Tv, Wifi, type LucideIcon,
 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
-import { addressParts, columnsFor, DEVICE_KINDS, deviceName, rowsOf, type MapDevice, type MapPort, type Segment } from '@/lib/netmap'
+import { addressParts, columnsFor, DEVICE_KINDS, deviceName, rowsOf, type DeviceLabel, type MapDevice, type MapPort, type Segment } from '@/lib/netmap'
 import { cn } from '@/lib/utils'
 import './network.css'
 
@@ -41,9 +41,11 @@ function useColumns(): [(el: HTMLElement | null) => void, number] {
 export interface DeviceActions {
   /** Whether what is written is kept anywhere: some node of the network keeps a registry. */
   canEdit: boolean
-  save: (mac: string, label: { name: string; note: string; kind: string }) => Promise<string | null>
+  save: (mac: string, label: DeviceLabel) => Promise<string | null>
   ack: (mac: string) => Promise<string | null>
   forget: (mac: string) => Promise<string | null>
+  /** Has a node send the device a Wake-on-LAN packet. */
+  wake: (mac: string) => Promise<string | null>
 }
 const Actions = createContext<DeviceActions | null>(null)
 
@@ -111,9 +113,12 @@ function LabelForm({ device, actions }: { device: MapDevice; actions: DeviceActi
   const [name, setName] = useState(device.label?.name ?? '')
   const [kind, setKind] = useState(device.label?.kind ?? '')
   const [note, setNote] = useState(device.label?.note ?? '')
+  const [watch, setWatch] = useState(device.label?.watch ?? false)
   const [busy, setBusy] = useState(false)
   const [problem, setProblem] = useState<string | null>(null)
+  const [woken, setWoken] = useState(false)
   const changed = name.trim() !== (device.label?.name ?? '') || kind !== (device.label?.kind ?? '') || note.trim() !== (device.label?.note ?? '')
+    || watch !== (device.label?.watch ?? false)
 
   const run = async (what: () => Promise<string | null>) => {
     setBusy(true)
@@ -123,7 +128,16 @@ function LabelForm({ device, actions }: { device: MapDevice; actions: DeviceActi
   }
   const submit = (e: FormEvent) => {
     e.preventDefault()
-    void run(() => actions.save(device.mac, { name: namable ? name.trim() : device.label?.name ?? '', kind: namable ? kind : device.label?.kind ?? '', note: note.trim() }))
+    void run(() => actions.save(device.mac, { name: namable ? name.trim() : device.label?.name ?? '', kind: namable ? kind : device.label?.kind ?? '', note: note.trim(), watch }))
+  }
+  const wake = async () => {
+    setBusy(true)
+    setProblem(null)
+    setWoken(false)
+    const failed = await actions.wake(device.mac)
+    setProblem(failed)
+    setWoken(failed === null)
+    setBusy(false)
   }
   return (
     <form onSubmit={submit} className="mt-2 space-y-1.5 border-t border-border/60 pt-2" data-testid="net-label-form">
@@ -146,6 +160,13 @@ function LabelForm({ device, actions }: { device: MapDevice; actions: DeviceActi
         {t('running.network.edit.note')}
         <textarea id={`${id}-note`} value={note} onChange={(e) => setNote(e.target.value)} maxLength={500} rows={2} className={cn(fieldClass, 'mt-0.5 py-1.5 text-foreground')} />
       </label>
+      <label htmlFor={`${id}-watch`} className="flex min-h-9 cursor-pointer items-start gap-1.5 text-xs">
+        <input id={`${id}-watch`} type="checkbox" checked={watch} onChange={(e) => setWatch(e.target.checked)} className="mt-0.5 size-4 shrink-0 accent-[var(--primary)]" aria-describedby={`${id}-watch-hint`} />
+        <span>
+          <span className="text-foreground">{t('running.network.edit.watch')}</span>
+          <span id={`${id}-watch-hint`} className="block text-muted-foreground">{t('running.network.edit.watchHint')}</span>
+        </span>
+      </label>
       <div className="flex flex-wrap items-center gap-1.5">
         <Button type="submit" size="sm" className="rounded-lg" disabled={busy || !changed}>{t('running.network.edit.save')}</Button>
         {device.fresh && (
@@ -158,7 +179,15 @@ function LabelForm({ device, actions }: { device: MapDevice; actions: DeviceActi
             {t('running.network.edit.forget')}
           </Button>
         )}
+        {/* What a registry has seen can be woken — not the node the scan was made from, which is plainly up. */}
+        {device.firstSeen > 0 && !device.scanner && (
+          <Button type="button" variant="outline" size="sm" className="rounded-lg" disabled={busy} onClick={() => void wake()}>
+            <Power aria-hidden="true" />
+            {t('running.network.edit.wake')}
+          </Button>
+        )}
       </div>
+      {woken && <p role="status" className="text-xs text-muted-foreground">{t('running.network.edit.woken')}</p>}
       {problem && <p role="alert" className="break-words text-xs text-destructive">{t('running.network.edit.failed')} {problem === 'no-registry' ? t('running.network.edit.noRegistry') : problem}</p>}
     </form>
   )
@@ -272,12 +301,18 @@ export function DeviceCard({ device, prefix, portsChecked, nested }: {
             </>
           )}
         </dl>
-        {actions?.canEdit && device.mac && <LabelForm key={`${device.label?.name ?? ''}|${device.label?.kind ?? ''}|${device.label?.note ?? ''}`} device={device} actions={actions} />}
+        {actions?.canEdit && device.mac && <LabelForm key={`${device.label?.name ?? ''}|${device.label?.kind ?? ''}|${device.label?.note ?? ''}|${device.label?.watch ?? false}`} device={device} actions={actions} />}
       </details>
       {(device.fresh || device.absent) && (
         <p className="mt-1.5 flex flex-wrap gap-1 text-xs">
           {device.fresh && <span className="rounded-md bg-[color-mix(in_srgb,var(--primary)_12%,var(--card))] px-1.5 py-0.5 font-medium text-primary">{t('running.network.device.fresh')}</span>}
           {device.absent && <span className="rounded-md bg-secondary px-1.5 py-0.5 text-secondary-foreground">{t('running.network.device.absent', { time: when(device.lastSeen) })}</span>}
+        </p>
+      )}
+      {device.label?.watch && (
+        <p className="mt-1.5 flex items-center gap-1 text-xs text-muted-foreground" data-testid="net-watch">
+          <Eye className="size-3.5 shrink-0" aria-hidden="true" />
+          {t('running.network.device.watched')}
         </p>
       )}
       {device.label?.note && (

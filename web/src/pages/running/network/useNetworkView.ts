@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { api, type ApiError } from '@/lib/api'
-import { knownNodes, labelTargets, networkEntries, type MapNode, type NetworkEntry } from '@/lib/netmap'
+import { knownNodes, labelTargets, networkEntries, wakeNodes, type DeviceLabel, type MapNode, type NetworkEntry } from '@/lib/netmap'
 import type { LanScanStatus, NetworkInterfaceInfo, PortMapRow } from '@/types/api'
 import type { BoardSection } from '../useRunningBoard'
 
@@ -63,11 +63,13 @@ export interface NetworkModel {
    * it — all with the same time, so the nodes agree which label is the last.
    * Resolves to what went wrong when no node took it, or null.
    */
-  saveDevice: (entry: NetworkEntry, mac: string, label: { name: string; note: string; kind: string }) => Promise<string | null>
+  saveDevice: (entry: NetworkEntry, mac: string, label: DeviceLabel) => Promise<string | null>
   /** The operator has seen that a device is new. */
   ackDevice: (entry: NetworkEntry, mac: string) => Promise<string | null>
   /** Takes a device out of the registries. */
   forgetDevice: (entry: NetworkEntry, mac: string) => Promise<string | null>
+  /** Has a node that knows the device send it a Wake-on-LAN packet. */
+  wakeDevice: (entry: NetworkEntry, mac: string) => Promise<string | null>
   /** Sets how often a node scans the network by itself (0 = never). */
   setSchedule: (entry: NetworkEntry, nodeId: string, intervalMinutes: number, portsDaily: boolean) => Promise<string | null>
 }
@@ -229,12 +231,29 @@ export function useNetworkView(sections: BoardSection[], round: number): Network
     return failures.length === targets.length ? message(failures[0].reason) : null
   }, [readScan])
 
-  const saveDevice = useCallback((entry: NetworkEntry, mac: string, label: { name: string; note: string; kind: string }) => {
+  const saveDevice = useCallback((entry: NetworkEntry, mac: string, label: DeviceLabel) => {
     const labelled_at = new Date().toISOString()
     return toEach(entry, (node) => api.saveLanDevice(mac, { ...label, labelled_at }, node))
   }, [toEach])
   const ackDevice = useCallback((entry: NetworkEntry, mac: string) => toEach(entry, (node) => api.ackLanDevice(mac, node), 'LAN_DEVICE_NOT_FOUND'), [toEach])
   const forgetDevice = useCallback((entry: NetworkEntry, mac: string) => toEach(entry, (node) => api.forgetLanDevice(mac, node)), [toEach])
+
+  // What each node last answered, for asking the node that knows a device.
+  const statusesNow = useRef(new Map<string, LanScanStatus>())
+  useEffect(() => {
+    statusesNow.current = new Map(Object.entries(scans).flatMap(([id, s]) => (s.phase === 'ready' ? [[id, s.status] as [string, LanScanStatus]] : [])))
+  }, [scans])
+  const wakeDevice = useCallback(async (entry: NetworkEntry, mac: string) => {
+    const from = wakeNodes(entry, mac, statusesNow.current)[0]
+    const t = from ? targetOf.current.get(from.nodeId) : undefined
+    if (!from || !t) return NO_REGISTRY
+    try {
+      await api.wakeLanDevice(mac, from.network, t.node)
+      return null
+    } catch (err) {
+      return message(err)
+    }
+  }, [])
 
   const nodes = useMemo<MapNode[]>(() => sections.map((s) => {
     const nics = interfaces[s.node.id]
@@ -299,7 +318,8 @@ export function useNetworkView(sections: BoardSection[], round: number): Network
       saveDevice,
       ackDevice,
       forgetDevice,
+      wakeDevice,
       setSchedule,
     }
-  }, [sections, nodes, scans, interfaces, ports, ended, dismissEnded, start, cancel, readDetails, saveDevice, ackDevice, forgetDevice, setSchedule])
+  }, [sections, nodes, scans, interfaces, ports, ended, dismissEnded, start, cancel, readDetails, saveDevice, ackDevice, forgetDevice, wakeDevice, setSchedule])
 }

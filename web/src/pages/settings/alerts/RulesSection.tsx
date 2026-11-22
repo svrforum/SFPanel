@@ -11,7 +11,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Checkbox } from '@/components/ui/checkbox'
 import { Trash2, Plus, X } from 'lucide-react'
 import type { AlertChannel, AlertRule } from '@/types/api'
-import { RULE_TYPES, SEVERITY_OPTIONS, getSeverityStyle } from './shared'
+import { RULE_TYPES, SEVERITY_OPTIONS, getSeverityStyle, LAN_RULE_TYPES } from './shared'
 
 // Rule types that operate on containers (not host metrics) and use a JSON
 // `condition` payload instead of the simple `threshold` percentage.
@@ -162,6 +162,8 @@ export function RulesSection({ channels, channelsFailed }: { channels: AlertChan
         window_seconds: windowSeconds || 300,
       })
     }
+    // Judged from what a scan found: nothing to set.
+    if (LAN_RULE_TYPES.has(type)) return '{}'
     // Host types: cpu/memory/disk — server-side evaluator reads operator+threshold.
     return JSON.stringify({ operator: '>', threshold: ruleForm.threshold })
   }
@@ -263,8 +265,14 @@ export function RulesSection({ channels, channelsFailed }: { channels: AlertChan
               </Select>
             </div>
           </div>
-          {/* Host metric rules: percentage threshold. Hidden for container_* types. */}
-          {!CONTAINER_RULE_TYPES.has(ruleForm.type) && (
+          {/* Scan rules: nothing to set, and a word on what makes them fire. */}
+          {LAN_RULE_TYPES.has(ruleForm.type) && (
+            <p className="text-[13px] text-muted-foreground" data-testid="rule-lan-hint">
+              {t(ruleForm.type === 'lan_device_down' ? 'settings.alerts.rules.lanDownHint' : 'settings.alerts.rules.lanHint')}
+            </p>
+          )}
+          {/* Host metric rules: percentage threshold. Hidden for container_* and scan types. */}
+          {!CONTAINER_RULE_TYPES.has(ruleForm.type) && !LAN_RULE_TYPES.has(ruleForm.type) && (
             <div className="space-y-1.5">
               <Label htmlFor={fieldId('threshold')} className="text-[13px]">{t('settings.alerts.rules.formThresholdLabel')}</Label>
               <Input

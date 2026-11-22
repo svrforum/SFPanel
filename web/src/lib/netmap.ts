@@ -63,7 +63,7 @@ export interface MapDevice {
   /** The port check gave up on it: its ports are not known. */
   timedOut: boolean
   /** What the operator wrote of it; null where nothing was written. */
-  label: { name: string; note: string; kind: string } | null
+  label: DeviceLabel | null
   /** When a scan first and last saw it (ms); 0 where no registry says. */
   firstSeen: number
   lastSeen: number
@@ -236,11 +236,19 @@ export function deviceName(d: MapDevice): { text: string; source: 'node' | 'gues
   return null
 }
 
+/** What the operator says of a device: its name, a note, what it is, and whether to be told when it is gone. */
+export interface DeviceLabel {
+  name: string
+  note: string
+  kind: string
+  watch: boolean
+}
+
 /** A device as the nodes' registries know it together. */
 export interface Known {
   mac: string
   /** What the operator wrote, as the node that was written to last has it; null where nothing was written. */
-  label: { name: string; note: string; kind: string } | null
+  label: DeviceLabel | null
   labelledAt: number
   acked: boolean
   /** As the node that saw it last has it. */
@@ -269,7 +277,7 @@ export function knownDevices(statuses: ReadonlyMap<string, LanScanStatus>): Map<
       const labelledAt = time(d.labelled_at)
       const firstSeen = time(d.first_seen)
       const lastSeen = time(d.last_seen)
-      const label = labelledAt > 0 ? { name: d.name ?? '', note: d.note ?? '', kind: d.kind ?? '' } : null
+      const label = labelledAt > 0 ? { name: d.name ?? '', note: d.note ?? '', kind: d.kind ?? '', watch: !!d.watch } : null
       const was = known.get(mac)
       if (!was) {
         known.set(mac, { mac, label, labelledAt, acked: !!d.acked, network: d.network ?? '', ip: d.ip ?? '', vendor: d.vendor ?? '', hostname: d.hostname ?? '', firstSeen, lastSeen })
@@ -701,6 +709,17 @@ export function knownNodes(nodes: readonly MapNode[], cidr: string): LanKnownNod
     for (const address of node.addresses) if (inNetwork(address, cidr)) list.push({ address, macs: macs.slice(0, 16) })
   }
   return list.sort((a, b) => addressValue(a.address) - addressValue(b.address)).slice(0, 64)
+}
+
+/**
+ * The nodes that can wake a device of this network: those that answer, are on
+ * a network they may use, and have the device in their own registry — a node
+ * wakes what it knows, it is no packet generator. The one that scanned last first.
+ */
+export function wakeNodes(entry: NetworkEntry, mac: string, statuses: ReadonlyMap<string, LanScanStatus>): Scanner[] {
+  const key = macKey(mac)
+  if (!key) return []
+  return entry.scanners.filter((s) => s.online && s.registry && s.scannable && (statuses.get(s.nodeId)?.devices ?? []).some((d) => macKey(d.mac) === key))
 }
 
 /** The nodes a label of a device on this network is written to: those that answer and keep a registry. */

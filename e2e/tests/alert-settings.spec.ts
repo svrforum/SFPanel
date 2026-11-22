@@ -192,6 +192,28 @@ test('the rule form offers the types the server evaluates, and only those', asyn
   expect(sent.rules.map(r => r.type).sort()).toEqual([...contract.rule_types].sort())
 })
 
+test('a rule on what a network scan finds has nothing to set, and says what makes it fire', async ({ page }) => {
+  const sent = await mock(page, { channels: [channel] })
+  await page.goto('/settings?tab=alerts')
+
+  await page.getByRole('button', { name: 'Add Rule', exact: true }).click()
+  await page.getByPlaceholder('e.g. CPU Overload Warning').fill('strangers')
+  await page.getByRole('combobox').first().click()
+  await page.getByRole('option', { name: 'Network: new device' }).click()
+  // No percentage and no container pattern: a scan decides.
+  await expect(page.getByRole('spinbutton', { name: /Threshold/ })).toHaveCount(0)
+  await expect(page.getByTestId('rule-lan-hint')).toHaveText('Judged when a scan of a network ends (Running → Network). With automatic scans on, it checks by itself.')
+
+  await page.getByRole('combobox').first().click()
+  await page.getByRole('option', { name: 'Network: watched device gone' }).click()
+  await expect(page.getByTestId('rule-lan-hint')).toContainText('a device marked “Watch” on its card is not found by two scans in a row')
+
+  await page.getByRole('checkbox', { name: channel.name }).click()
+  await page.getByRole('button', { name: 'Add Rule', exact: true }).click()
+  await expect(page.getByPlaceholder('e.g. CPU Overload Warning')).toBeHidden()
+  expect(sent.rules.map((r) => [r.type, r.condition])).toEqual([['lan_device_down', '{}']])
+})
+
 test('an OOM rule shows the Critical it always fires with, instead of a choice', async ({ page }) => {
   const sent = await mock(page, { channels: [channel] })
   await page.goto('/settings?tab=alerts')

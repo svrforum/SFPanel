@@ -1116,7 +1116,7 @@ class ApiClient {
   // is written to several nodes with the same labelled_at, and a node keeps
   // the newer of what it has and what it is sent. LAN_DEVICE_INVALID names
   // the field.
-  saveLanDevice(mac: string, label: { name: string; note: string; kind: string; labelled_at: string }, node?: string) {
+  saveLanDevice(mac: string, label: { name: string; note: string; kind: string; watch: boolean; labelled_at: string }, node?: string) {
     return this.request<import('@/types/api').LanDevice>(`/network/devices/${encodeURIComponent(mac)}`, { method: 'PUT', body: JSON.stringify(label), node })
   }
 
@@ -1126,6 +1126,12 @@ class ApiClient {
 
   forgetLanDevice(mac: string, node?: string) {
     return this.request<{ deleted: boolean }>(`/network/devices/${encodeURIComponent(mac)}`, { method: 'DELETE', node })
+  }
+
+  // Has the node send a Wake-on-LAN packet for a device of its registry, on
+  // one of its own networks. Whether the device woke is for the next scan to say.
+  wakeLanDevice(mac: string, network: string, node?: string) {
+    return this.request<{ sent: number }>(`/network/devices/${encodeURIComponent(mac)}/wake`, { method: 'POST', body: JSON.stringify({ network }), node })
   }
 
   // How often a node scans one of its networks by itself (0 = never), and

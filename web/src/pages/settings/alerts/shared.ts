@@ -17,7 +17,16 @@ export const RULE_TYPES: { value: string; i18nKey: string }[] = [
   { value: 'container_oom', i18nKey: 'settings.alerts.ruleType.containerOom' },
   { value: 'container_restart_loop', i18nKey: 'settings.alerts.ruleType.containerRestartLoop' },
   { value: 'container_unhealthy', i18nKey: 'settings.alerts.ruleType.containerUnhealthy' },
+  { value: 'lan_new_device', i18nKey: 'settings.alerts.ruleType.lanNewDevice' },
+  { value: 'lan_address_conflict', i18nKey: 'settings.alerts.ruleType.lanAddressConflict' },
+  { value: 'lan_device_down', i18nKey: 'settings.alerts.ruleType.lanDeviceDown' },
 ]
+
+/**
+ * Rules judged when a scan of a network ends (Running → Network): they have
+ * nothing to set but whom to tell.
+ */
+export const LAN_RULE_TYPES: ReadonlySet<string> = new Set(['lan_new_device', 'lan_address_conflict', 'lan_device_down'])
 
 // Severity labels resolve via t() with the English fallback so the badge
 // stays readable even before the locale files carry the keys.

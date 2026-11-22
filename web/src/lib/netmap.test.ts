@@ -18,6 +18,7 @@ import {
   serverInterfaces,
   serverPorts,
   shownCount,
+  wakeNodes,
   type MapNode,
 } from './netmap'
 
@@ -541,7 +542,7 @@ describe('the registries as one', () => {
       ['b', status({ devices: [known(40, { name: 'new name', note: 'in the closet', kind: 'switch', labelled_at: '2026-11-21T00:00:00Z' })] })],
       ['c', status({ devices: [known(40)] })],
     ]))
-    expect(merged.get(mac(40))?.label).toEqual({ name: 'new name', note: 'in the closet', kind: 'switch' })
+    expect(merged.get(mac(40))?.label).toEqual({ name: 'new name', note: 'in the closet', kind: 'switch', watch: false })
   })
 
   it('has no label for a device nobody wrote of, whatever fields it carries', () => {
@@ -578,7 +579,7 @@ describe('what the operator wrote of a device', () => {
     expect(deviceName(s.servers.find((d) => d.node?.id === 'alpha')!)).toEqual({ text: 'alpha', source: 'node' })
     expect(deviceName(s.servers.find((d) => d.node?.id === 'pve')!.children[0])).toEqual({ text: 'web', source: 'guest' })
     expect(deviceName(s.devices[0])).toEqual({ text: 'Front door', source: 'label' })
-    expect(s.devices[0].label).toEqual({ name: 'Front door', note: 'PoE, port 3', kind: '' })
+    expect(s.devices[0].label).toEqual({ name: 'Front door', note: 'PoE, port 3', kind: '', watch: false })
     // A label with no name leaves the naming to the network.
     const unnamed = remembered([host(26, { self: true }), host(50, { hostname: 'cam.lan' })], [known(50, { note: 'only a note', ...label })])
     expect(deviceName(unnamed.segment!.devices[0])).toEqual({ text: 'cam.lan', source: 'hostname' })
@@ -763,5 +764,41 @@ describe('nodes that scan by themselves', () => {
       ['gamma', status({ networks: [network(60)] })],
     ]))
     expect(labelTargets(entries[0])).toEqual(['alpha'])
+  })
+})
+
+describe('a device to be told about, and to wake', () => {
+  it('is watched as the label written last says', () => {
+    const merged = knownDevices(new Map([
+      ['a', status({ devices: [known(40, { watch: true, labelled_at: '2026-11-20T00:00:00Z' })] })],
+      ['b', status({ devices: [known(40, { watch: false, labelled_at: '2026-11-21T00:00:00Z' })] })],
+      ['c', status({ devices: [known(41, { watch: true, labelled_at: '2026-11-21T00:00:00Z' }), known(42, { watch: true })] })],
+    ]))
+    expect(merged.get(mac(40))?.label?.watch).toBe(false)
+    expect(merged.get(mac(41))?.label?.watch).toBe(true)
+    // Nothing was written of it: whatever the field says, it is not watched.
+    expect(merged.get(mac(42))?.label).toBeNull()
+  })
+
+  it('is woken by a node that answers and has it in its own registry, the one that scanned last first', () => {
+    const nodes = [node('alpha', 26), node('beta', 9), node('gamma', 60, { online: false }), node('delta', 61), node('old', 62)]
+    const statuses = new Map([
+      ['alpha', status({ networks: [network(26)], devices: [known(40)], results: [result([host(26, { self: true }), host(9), host(60), host(61), host(62)])] })],
+      ['beta', status({ networks: [network(9)], devices: [known(40, { mac: mac(40).toUpperCase() }), known(41)] })],
+      ['gamma', status({ networks: [network(60)], devices: [known(40)] })],
+      ['delta', status({ networks: [network(61)], devices: [] })],
+      ['old', status({ networks: [network(62)] })],
+    ])
+    const entry = networkEntries(nodes, statuses)[0]
+    expect(wakeNodes(entry, mac(40), statuses).map((s) => s.nodeId)).toEqual(['alpha', 'beta'])
+    expect(wakeNodes(entry, mac(41), statuses).map((s) => s.nodeId)).toEqual(['beta'])
+    expect(wakeNodes(entry, mac(77), statuses)).toEqual([])
+    expect(wakeNodes(entry, '', statuses)).toEqual([])
+  })
+
+  it('is not woken through a network the node may not use', () => {
+    const statuses = new Map([['alpha', status({ networks: [network(26, { scannable: false, reason: 'too_large' })], devices: [known(40)] })]])
+    const entry = networkEntries([node('alpha', 26)], statuses)[0]
+    expect(wakeNodes(entry, mac(40), statuses)).toEqual([])
   })
 })

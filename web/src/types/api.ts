@@ -1890,6 +1890,8 @@ export interface LanDevice {
   labelled_at: string
   /** The operator has seen that it is new. */
   acked: boolean
+  /** The operator wants to be told when it is no longer found (a rule of the alerts decides whom). Absent from a node older than it. */
+  watch?: boolean
   network: string
   ip: string
   vendor: string

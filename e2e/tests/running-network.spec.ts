@@ -51,7 +51,7 @@ const result = (hosts: unknown[], finished = SCANNED, ports = true, portsAt = po
 })
 /** A device as a node's registry keeps it: seen since a month before the scan, to the scan. */
 const known = (n: number, extra: Record<string, unknown> = {}) => ({
-  mac: mac(n), name: '', note: '', kind: '', labelled_at: '', acked: false, network: NET, ip: ip(n), vendor: '', hostname: '',
+  mac: mac(n), name: '', note: '', kind: '', labelled_at: '', acked: false, watch: false, network: NET, ip: ip(n), vendor: '', hostname: '',
   first_seen: '2026-10-22T02:13:08Z', last_seen: SCANNED, ...extra,
 })
 type Known = ReturnType<typeof known>
@@ -146,6 +146,7 @@ async function mock(page: Page, opts: Opts = {}) {
     labels: [] as { node: string; mac: string; body: Record<string, unknown> }[],
     acks: [] as { node: string; mac: string }[],
     forgets: [] as { node: string; mac: string }[],
+    wakes: [] as { node: string; mac: string; body: unknown }[],
     scheduled: [] as { node: string; body: Record<string, unknown> }[],
     /** Reads of the scanning node's status left before the scan ends. */
     left: 0,
@@ -192,11 +193,16 @@ async function mock(page: Page, opts: Opts = {}) {
       const book = state.registry[node]
       const method = request.method()
       if (method === 'PUT') {
-        const body = request.postDataJSON() as { name: string; note: string; kind: string; labelled_at: string }
+        const body = request.postDataJSON() as { name: string; note: string; kind: string; watch: boolean; labelled_at: string }
         state.labels.push({ node, mac: key, body })
         const was = book.get(key) ?? known(0, { mac: key, network: '', ip: '', first_seen: '', last_seen: '' })
-        book.set(key, { ...was, name: body.name, note: body.note, kind: body.kind, labelled_at: body.labelled_at })
+        book.set(key, { ...was, name: body.name, note: body.note, kind: body.kind, watch: body.watch, labelled_at: body.labelled_at })
         data = book.get(key)
+      } else if (method === 'POST' && action === 'wake') {
+        state.wakes.push({ node, mac: key, body: request.postDataJSON() })
+        // A node wakes what its own registry knows.
+        if (!book.has(key)) return fail(404, 'LAN_DEVICE_NOT_FOUND', 'unknown device')
+        data = { sent: 3 }
       } else if (method === 'POST' && action === 'ack') {
         state.acks.push({ node, mac: key })
         const was = book.get(key)
@@ -926,4 +932,53 @@ test('a scan for devices only keeps the ports found before, and says from when',
   await expect(page.locator('[data-testid="net-network"]')).toContainText(/ports checked Nov 21/)
   await expect(page.locator('[data-testid="net-network"]')).not.toContainText('devices only')
   await expect(device(page, 15).getByRole('link', { name: /^443/ })).toBeVisible()
+})
+
+// ---- watched devices and Wake-on-LAN ----
+
+test('a device can be watched, and its card says it is', async ({ page }) => {
+  const state = await mock(page)
+  await page.goto('/cluster/running')
+  const nas = device(page, 15)
+  await expect(nas.getByTestId('net-watch')).toHaveCount(0)
+  await nas.locator('summary').click()
+  const form = nas.getByTestId('net-label-form')
+  await expect(form).toContainText('Says so when two scans in a row do not find it.')
+  await form.getByRole('checkbox', { name: 'Watch' }).check()
+  await form.getByRole('button', { name: 'Save' }).click()
+  await expect.poll(() => state.labels.length).toBe(6)
+  expect(state.labels[0].body).toMatchObject({ watch: true, name: '', note: '' })
+  await expect(nas.getByTestId('net-watch')).toHaveText('Watched')
+  await expect(form.getByRole('checkbox', { name: 'Watch' })).toBeChecked()
+  await expect(form.getByRole('button', { name: 'Save' })).toBeDisabled()
+
+  // Unticked and saved, it is no longer.
+  await form.getByRole('checkbox', { name: 'Watch' }).uncheck()
+  await form.getByRole('button', { name: 'Save' }).click()
+  await expect.poll(() => state.labels.length).toBe(12)
+  expect(state.labels[11].body).toMatchObject({ watch: false })
+  await expect(nas.getByTestId('net-watch')).toHaveCount(0)
+})
+
+test('a device a node knows can be woken: asked of that node, on its own network', async ({ page }) => {
+  const state = await mock(page, { devices: [known(70, { name: 'Garage NAS', kind: 'nas', ...LABELLED, last_seen: '2026-11-20T02:13:08Z' }), known(37)] })
+  await page.clock.install({ time: new Date('2026-11-22T02:20:00Z') })
+  await page.goto('/cluster/running')
+  const nas = device(page, 70)
+  await expect(nas).toHaveAttribute('data-absent', 'true')
+  await nas.locator('summary').click()
+  await nas.getByRole('button', { name: 'Wake' }).click()
+  await expect(nas.getByRole('status')).toHaveText('Magic packet sent. The device wakes only if Wake-on-LAN is on in it.')
+  // Only the node whose registry holds the device is asked, with the network as that node names it.
+  expect(state.wakes).toEqual([{ node: 'm-1', mac: mac(70), body: { network: NET } }])
+  await expect(nas.getByRole('alert')).toHaveCount(0)
+
+  // One that is up can be woken too (a wake does no harm); what no registry has seen cannot, nor the node that scanned.
+  await device(page, 37).locator('summary').click()
+  await expect(device(page, 37).getByRole('button', { name: 'Wake' })).toBeVisible()
+  await device(page, 38).locator('summary').click()
+  await expect(device(page, 38).getByTestId('net-label-form')).toBeVisible()
+  await expect(device(page, 38).getByRole('button', { name: 'Wake' })).toHaveCount(0)
+  await device(page, 5).locator('summary').click()
+  await expect(device(page, 5).getByRole('button', { name: 'Wake' })).toHaveCount(0)
 })

@@ -2379,7 +2379,10 @@
         "containerDown": "컨테이너 종료",
         "containerOom": "컨테이너 OOM kill",
         "containerRestartLoop": "컨테이너 재시작 루프",
-        "containerUnhealthy": "컨테이너 healthcheck 실패"
+        "containerUnhealthy": "컨테이너 healthcheck 실패",
+        "lanNewDevice": "네트워크: 새 기기",
+        "lanAddressConflict": "네트워크: 주소 충돌",
+        "lanDeviceDown": "네트워크: 지켜보는 기기 꺼짐"
       },
       "channels": {
         "title": "채널 관리",
@@ -2460,7 +2463,9 @@
         "errorToggleFailed": "규칙 변경에 실패했습니다",
         "notEvaluatedBadge": "알림 안 함",
         "notEvaluatedNotice": "패널은 {{type}} 규칙을 평가하지 않습니다. 이 규칙은 알림을 보낸 적이 없고 앞으로도 보내지 않으니 삭제하세요.",
-        "typeNotEvaluated": "패널은 {{type}} 규칙을 평가하지 않습니다. 이런 규칙으로는 알림이 가지 않습니다."
+        "typeNotEvaluated": "패널은 {{type}} 규칙을 평가하지 않습니다. 이런 규칙으로는 알림이 가지 않습니다.",
+        "lanHint": "네트워크 스캔이 끝날 때 판정합니다(실행 현황 → 네트워크). 자동 스캔을 켜 두면 스스로 확인합니다.",
+        "lanDownHint": "기기 카드에서 ‘지켜보기’를 켠 기기가 연속 두 번의 스캔에서 안 보이면 알리고, 다시 보이면 한 번 알립니다. 그 네트워크의 자동 스캔이 켜져 있어야 합니다."
       },
       "history": {
         "title": "알림 기록",
@@ -4700,7 +4705,8 @@
         "conflict": "주소 충돌: 이 주소는 서버 {{node}}의 것입니다.",
         "fresh": "새 기기",
         "absent": "안 보임 · 마지막 {{time}}",
-        "suspect": "이 주소를 다른 기기({{macs}})와 같은 때에 썼습니다."
+        "suspect": "이 주소를 다른 기기({{macs}})와 같은 때에 썼습니다.",
+        "watched": "지켜보는 중"
       },
       "field": {
         "address": "주소",
@@ -4790,7 +4796,11 @@
         "ack": "확인함",
         "forget": "잊기",
         "failed": "저장하지 못했습니다.",
-        "noRegistry": "이 네트워크의 서버가 기기 대장을 지원하지 않습니다. 패널을 업데이트하면 저장할 수 있습니다."
+        "noRegistry": "이 네트워크의 서버가 기기 대장을 지원하지 않습니다. 패널을 업데이트하면 저장할 수 있습니다.",
+        "watch": "지켜보기",
+        "watchHint": "연속 두 번의 스캔에서 안 보이면 알립니다. 설정 → 알림에 ‘지켜보는 기기 꺼짐’ 규칙이 있어야 하고, 자동 스캔이 켜져 있어야 합니다.",
+        "wake": "깨우기",
+        "woken": "매직 패킷을 보냈습니다. 기기에서 Wake-on-LAN이 켜져 있어야 켜집니다."
       },
       "schedule": {
         "label": "자동 스캔({{node}})",

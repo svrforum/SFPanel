@@ -90,6 +90,7 @@ function Network({ entry, model, scope, localId, query, level, onClear }: {
             save: (mac, label) => model.saveDevice(entry, mac, label),
             ack: (mac) => model.ackDevice(entry, mac),
             forget: (mac) => model.forgetDevice(entry, mac),
+            wake: (mac) => model.wakeDevice(entry, mac),
           }}
         />
       ))}
