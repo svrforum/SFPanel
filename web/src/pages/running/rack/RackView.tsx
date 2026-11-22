@@ -1,4 +1,4 @@
-import { useId, useState, type FormEvent } from 'react'
+import { Fragment, useId, useState, type FormEvent } from 'react'
 import { useTranslation } from 'react-i18next'
 import { ChevronDown, ChevronUp, Pencil, Plus, Server, Trash2, Type } from 'lucide-react'
 import { Button } from '@/components/ui/button'
@@ -31,19 +31,34 @@ function held(item: RackItem, model: RackModel): Held {
   return { kind: 'text', text: item.text ?? '' }
 }
 
-/** A node's sockets as small lamps: lit where the link is up. Said in words too, for who cannot see them. */
+/** How many ports are drawn one by one, and up to how many each says its speed. */
+const LAMPS = 8
+const LAMPS_WITH_SPEED = 4
+
+/**
+ * A node's sockets as small lamps: filled where the link is up, hollow where
+ * it is not, with the link's speed beside it while there is room. Said in
+ * words too, for who cannot see them.
+ */
 function Lamps({ ports }: { ports: Port[] }) {
   const { t } = useTranslation()
   if (ports.length === 0) return null
+  const speeds = ports.length <= LAMPS_WITH_SPEED
   return (
-    <span role="img" aria-label={t('running.rack.ports', { up: ports.filter((p) => p.up).length, total: ports.length })} className="flex shrink-0 items-center gap-0.5">
-      {ports.slice(0, 8).map((p) => (
+    <span role="img" aria-label={t('running.rack.ports', { up: ports.filter((p) => p.up).length, total: ports.length })} className="flex shrink-0 items-center gap-1">
+      {ports.slice(0, LAMPS).map((p) => (
         <span
           key={p.name}
+          data-testid="rack-port"
+          data-up={p.up}
           title={`${p.name}${p.speed ? ` ${p.speed}` : ''} · ${t(p.up ? 'running.rack.portUp' : 'running.rack.portDown')}`}
-          className={cn('size-2.5 rounded-[2px] border', p.up ? 'border-success bg-success' : 'border-muted-foreground/70')}
-        />
+          className="inline-flex h-5 items-center gap-1 rounded-[5px] border border-border bg-secondary/60 px-1 font-mono text-xs text-secondary-foreground"
+        >
+          <span className={cn('size-2 rounded-full', p.up ? 'bg-success' : 'border border-muted-foreground')} />
+          {speeds && p.up && p.speed}
+        </span>
       ))}
+      {ports.length > LAMPS && <span className="text-xs text-muted-foreground">+{ports.length - LAMPS}</span>}
     </span>
   )
 }
@@ -125,7 +140,7 @@ function AddForm({ rack, unit, model, racks, onPut, onCancel }: {
     })
   }
   return (
-    <form onSubmit={submit} data-testid="rack-add-form" className="mt-3 space-y-2 rounded-xl bg-secondary/60 p-3 text-[13px]">
+    <form onSubmit={submit} data-testid="rack-add-form" className="my-1 space-y-2 rounded-xl border border-primary/40 bg-card p-3 text-[13px]">
       <p className="font-semibold">{t('running.rack.addAt', { unit })}</p>
       <fieldset className="flex flex-wrap gap-x-4 gap-y-1">
         <legend className="sr-only">{t('running.rack.what')}</legend>
@@ -188,7 +203,7 @@ function ItemPanel({ rack, item, what, onChange, onClose }: {
   const id = useId()
   const room = roomAt(rack, item.u, item.id)
   return (
-    <div role="group" aria-label={nameOf(what, t)} data-testid="rack-item-panel" className="mt-3 space-y-2 rounded-xl bg-secondary/60 p-3 text-[13px]">
+    <div role="group" aria-label={nameOf(what, t)} data-testid="rack-item-panel" className="my-1 space-y-2 rounded-xl border border-primary/40 bg-card p-3 text-[13px]">
       <p className="break-words font-semibold">
         {nameOf(what, t)}
         <span className="ml-2 font-normal text-muted-foreground">{t('running.rack.at', { from: item.u, to: item.u + item.height - 1 })}</span>
@@ -280,6 +295,16 @@ function RackCard({ rack, racks, model, level }: { rack: Rack; racks: Rack[]; mo
     setProblem(failed === NO_RACK_NODE ? t('running.rack.problem.noNode') : failed)
   }
   const item = rack.items.find((i) => i.id === chosen) ?? null
+  // What is done with a thing is said right under it, the units below moved
+  // down for it: in a rack of 42 units the foot of the rack is a long way
+  // from its top. `openAfter` is the row, from the top, that it follows.
+  const chosenRows = item ? gridRows(rack.units, item) : null
+  const openAfter = chosenRows ? chosenRows.start + chosenRows.span - 1 : adding !== null && adding <= rack.units ? rack.units - adding + 1 : null
+  const row = (r: number) => (openAfter !== null && r > openAfter ? r + 1 : r)
+  const below = openAfter === null ? 0 : rack.units - openAfter
+  const template = openAfter === null
+    ? `repeat(${rack.units}, 2.5rem)`
+    : `repeat(${openAfter}, 2.5rem) auto${below > 0 ? ` repeat(${below}, 2.5rem)` : ''}`
   const erase = async () => {
     if (!(await confirm({ title: t('running.rack.confirmDelete', { name: rack.name }), confirmLabel: t('running.rack.delete'), danger: true }))) return
     void write(rack, true)
@@ -306,75 +331,84 @@ function RackCard({ rack, racks, model, level }: { rack: Rack; racks: Rack[]; mo
       )}
       <ol
         aria-label={t('running.rack.label', { name: rack.name })}
-        className="mt-3 grid grid-cols-[1.75rem_minmax(0,1fr)] gap-x-1.5 gap-y-0.5 rounded-xl border border-border bg-secondary/30 p-1.5"
-        style={{ gridTemplateRows: `repeat(${rack.units}, 2.5rem)` }}
+        className="mt-3 grid grid-cols-[1.75rem_minmax(0,1fr)] gap-x-1.5 gap-y-0.5 rounded-xl border-2 border-border bg-secondary/40 p-1.5"
+        style={{ gridTemplateRows: template }}
       >
         {Array.from({ length: rack.units }, (_, i) => rack.units - i).map((unit) => (
-          <li key={`n${unit}`} aria-hidden="true" className="col-start-1 flex items-center justify-end pr-0.5 font-mono text-xs tabular-nums text-muted-foreground" style={{ gridRow: rack.units - unit + 1 }}>
+          <li key={`n${unit}`} aria-hidden="true" className="col-start-1 flex items-center justify-end pr-0.5 font-mono text-xs tabular-nums text-muted-foreground" style={{ gridRow: row(rack.units - unit + 1) }}>
             {unit}
           </li>
         ))}
         {slots(rack).map((slot) => {
           if (slot.kind === 'free') {
             return (
-              <li key={`f${slot.unit}`} className="col-start-2" style={{ gridRow: rack.units - slot.unit + 1 }}>
-                <button
-                  type="button"
-                  data-testid="rack-free"
-                  data-unit={slot.unit}
-                  aria-label={t('running.rack.addAt', { unit: slot.unit })}
-                  aria-pressed={adding === slot.unit}
-                  onClick={() => { setAdding(adding === slot.unit ? null : slot.unit); setChosen(null); setEditing(false) }}
-                  className={cn(
-                    'group flex h-full w-full items-center justify-center rounded-md border border-dashed text-muted-foreground hover:border-primary hover:text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring',
-                    adding === slot.unit ? 'border-primary text-primary' : 'border-border/80',
-                  )}
-                >
-                  <Plus className={cn('size-4 group-hover:opacity-100 group-focus-visible:opacity-100', adding === slot.unit ? 'opacity-100' : 'opacity-50')} aria-hidden="true" />
-                </button>
-              </li>
+              <Fragment key={`f${slot.unit}`}>
+                <li className="col-start-2" style={{ gridRow: row(rack.units - slot.unit + 1) }}>
+                  <button
+                    type="button"
+                    data-testid="rack-free"
+                    data-unit={slot.unit}
+                    aria-label={t('running.rack.addAt', { unit: slot.unit })}
+                    aria-pressed={adding === slot.unit}
+                    onClick={() => { setAdding(adding === slot.unit ? null : slot.unit); setChosen(null); setEditing(false) }}
+                    className={cn(
+                      'group flex h-full w-full items-center justify-center rounded-md border border-dashed text-muted-foreground hover:border-primary hover:text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring',
+                      adding === slot.unit ? 'border-primary text-primary' : 'border-border/80',
+                    )}
+                  >
+                    <Plus className={cn('size-4 group-hover:opacity-100 group-focus-visible:opacity-100', adding === slot.unit ? 'opacity-100' : 'opacity-50')} aria-hidden="true" />
+                  </button>
+                </li>
+                {adding === slot.unit && (
+                  <li style={{ gridRow: openAfter! + 1, gridColumn: '1 / -1' }}>
+                    <AddForm
+                      rack={rack}
+                      unit={slot.unit}
+                      model={model}
+                      racks={racks}
+                      onCancel={() => setAdding(null)}
+                      onPut={(next) => {
+                        const placedRack = place(rack, next)
+                        setAdding(null)
+                        if (placedRack) void write(placedRack)
+                      }}
+                    />
+                  </li>
+                )}
+              </Fragment>
             )
           }
           const rows = gridRows(rack.units, slot.item)
           const what = held(slot.item, model)
           return (
-            <li key={slot.item.id} className="col-start-2" style={{ gridRow: `${rows.start} / span ${rows.span}` }}>
-              <button
-                type="button"
-                data-testid="rack-item"
-                data-kind={slot.item.kind}
-                data-unit={slot.item.u}
-                data-height={slot.item.height}
-                aria-pressed={chosen === slot.item.id}
-                onClick={() => { setChosen(chosen === slot.item.id ? null : slot.item.id); setAdding(null); setEditing(false) }}
-                className={cn(
-                  'flex h-full w-full items-center gap-2 rounded-md border bg-card px-2 text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring',
-                  chosen === slot.item.id ? 'border-primary' : 'border-border hover:border-muted-foreground',
-                )}
-              >
-                <Face what={what} tall={rows.span > 1} />
-                <span className="sr-only">{t('running.rack.at', { from: slot.item.u, to: slot.item.u + slot.item.height - 1 })}</span>
-              </button>
-            </li>
+            <Fragment key={slot.item.id}>
+              <li className="col-start-2" style={{ gridRow: `${row(rows.start)} / span ${rows.span}` }}>
+                <button
+                  type="button"
+                  data-testid="rack-item"
+                  data-kind={slot.item.kind}
+                  data-unit={slot.item.u}
+                  data-height={slot.item.height}
+                  aria-pressed={chosen === slot.item.id}
+                  onClick={() => { setChosen(chosen === slot.item.id ? null : slot.item.id); setAdding(null); setEditing(false) }}
+                  className={cn(
+                    'flex h-full w-full items-center gap-2 rounded-md border bg-card px-2 text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring',
+                    chosen === slot.item.id ? 'border-primary' : 'border-border hover:border-muted-foreground',
+                  )}
+                >
+                  <Face what={what} tall={rows.span > 1} />
+                  <span className="sr-only">{t('running.rack.at', { from: slot.item.u, to: slot.item.u + slot.item.height - 1 })}</span>
+                </button>
+              </li>
+              {chosen === slot.item.id && (
+                <li style={{ gridRow: openAfter! + 1, gridColumn: '1 / -1' }}>
+                  <ItemPanel rack={rack} item={slot.item} what={what} onChange={(next) => void write(next)} onClose={() => setChosen(null)} />
+                </li>
+              )}
+            </Fragment>
           )
         })}
       </ol>
-      {item && <ItemPanel rack={rack} item={item} what={held(item, model)} onChange={(next) => void write(next)} onClose={() => setChosen(null)} />}
-      {adding !== null && (
-        <AddForm
-          key={adding}
-          rack={rack}
-          unit={adding}
-          model={model}
-          racks={racks}
-          onCancel={() => setAdding(null)}
-          onPut={(next) => {
-            const placedRack = place(rack, next)
-            setAdding(null)
-            if (placedRack) void write(placedRack)
-          }}
-        />
-      )}
       {problem && <p role="alert" className="mt-2 break-words text-xs text-destructive">{t('running.rack.problem.saveFailed')} {problem}</p>}
     </section>
   )

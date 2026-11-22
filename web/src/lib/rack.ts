@@ -142,7 +142,7 @@ export function placed(racks: readonly Rack[]): { nodes: Set<string>; macs: Set<
 /** A name a new rack or thing goes by in the data; nothing an operator reads. */
 export function newId(): string {
   const random = globalThis.crypto?.randomUUID?.() ?? `${Date.now().toString(36)}${Math.random().toString(36).slice(2, 10)}`
-  return random.replace(/[^A-Za-z0-9_-]/g, '').slice(0, 24)
+  return random.replace(/[^A-Za-z0-9]/g, '').slice(0, 24)
 }
 
 /** What stops a rack from being made or renamed so, or null. */

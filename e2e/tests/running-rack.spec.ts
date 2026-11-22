@@ -287,6 +287,51 @@ test('a thing is moved a unit at a time, made taller or shorter, and taken out â
   await expect.poll(() => (state.puts.at(-1)!.body.doc.items as unknown[]).length).toBe(2)
 })
 
+test('what is done with a thing is said right under it, however tall the rack', async ({ page }) => {
+  // 42 units are some 1,800 px: at the foot of the rack the buttons would be two screens away.
+  const tall = rack('main', 'Main rack', EARLIER, { units: 42, items: [
+    { id: 'a', u: 41, height: 2, kind: 'node', node: 'p-1' },
+    { id: 'b', u: 1, height: 1, kind: 'text', text: 'UPS' },
+  ] })
+  await mock(page, { racks: everywhere([tall]) })
+  await page.goto('/cluster/running')
+  const server = page.locator('[data-testid="rack-item"][data-kind="node"]')
+  await server.click()
+  const panel = page.getByTestId('rack-item-panel')
+  await expect(panel).toBeInViewport()
+  const [item, under] = [await server.boundingBox(), await panel.boundingBox()]
+  expect(under!.y).toBeGreaterThanOrEqual(item!.y + item!.height)
+  expect(under!.y - (item!.y + item!.height)).toBeLessThan(16)
+  // The units under it are moved down, none hidden: U40 is the next free one, below the panel.
+  const next = await free(page, 40).boundingBox()
+  expect(next!.y).toBeGreaterThanOrEqual(under!.y + under!.height)
+  // Moved, the panel goes with it.
+  await panel.getByRole('button', { name: 'Down' }).click()
+  await expect(server).toHaveAttribute('data-unit', '40')
+  const [moved, after] = [await server.boundingBox(), await panel.boundingBox()]
+  expect(after!.y - (moved!.y + moved!.height)).toBeLessThan(16)
+  expect(after!.y).toBeGreaterThanOrEqual(moved!.y + moved!.height)
+
+  // The same for putting a thing on a free unit, and at the foot of the rack.
+  await free(page, 38).click()
+  await expect(page.getByTestId('rack-item-panel')).toHaveCount(0)
+  const form = page.getByTestId('rack-add-form')
+  await expect(form).toBeInViewport()
+  const [slot, formBox] = [await free(page, 38).boundingBox(), await form.boundingBox()]
+  expect(formBox!.y - (slot!.y + slot!.height)).toBeLessThan(16)
+  expect(formBox!.y).toBeGreaterThanOrEqual(slot!.y + slot!.height)
+  const foot = page.locator('[data-testid="rack-item"][data-kind="text"]')
+  await foot.scrollIntoViewIfNeeded()
+  await foot.click()
+  const last = page.getByTestId('rack-item-panel')
+  await expect(last).toBeVisible()
+  const [footBox, lastBox] = [await foot.boundingBox(), await last.boundingBox()]
+  expect(lastBox!.y).toBeGreaterThanOrEqual(footBox!.y + footBox!.height)
+  // Still inside the rack's card.
+  const card = await racks(page).boundingBox()
+  expect(lastBox!.y + lastBox!.height).toBeLessThanOrEqual(card!.y + card!.height)
+})
+
 test('a rack is renamed and made taller, not shorter than what is in it, and deleted after asking', async ({ page }) => {
   const state = await mock(page, { racks: everywhere([FILLED]) })
   await page.goto('/cluster/running')
