@@ -6,7 +6,7 @@ The format is loosely based on [Keep a Changelog](https://keepachangelog.com/), 
 
 ---
 
-## [0.93.0] – 2026-11-22
+## [0.93.0] – 2026-11-23
 
 A rack view. Draw your racks — which server, device or thing sits at which height — and the panel fills each unit with what it knows: a server's network ports and their links, a device's name, whether the last scan found it.
 
