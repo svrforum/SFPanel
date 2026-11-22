@@ -171,6 +171,7 @@ export const CODE_MESSAGES: Record<string, string> = {
   LAN_DEVICE_INVALID: 'apiErrors.lanDeviceInvalid',
   LAN_DEVICE_NOT_FOUND: 'apiErrors.lanDeviceNotFound',
   LAN_SCHEDULE_INVALID: 'apiErrors.lanScheduleInvalid',
+  LAN_RACK_INVALID: 'apiErrors.lanRackInvalid',
   HOST_INFO_ERROR: 'apiErrors.hostInfoError',
   METRICS_ERROR: 'apiErrors.metricsError',
   TLS_DISABLED: 'apiErrors.tlsDisabled',

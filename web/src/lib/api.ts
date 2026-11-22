@@ -1134,6 +1134,18 @@ class ApiClient {
     return this.request<{ sent: number }>(`/network/devices/${encodeURIComponent(mac)}/wake`, { method: 'POST', body: JSON.stringify({ network }), node })
   }
 
+  // The racks a node keeps: drawings of what sits at which height, made in
+  // the page. 404 from a node older than them.
+  getRacks(node?: string) {
+    return this.request<{ racks: import('@/types/api').LanRack[] }>('/network/racks', { node })
+  }
+
+  // One rack, written to several nodes with one updated_at; a node keeps the
+  // newer of what it has and what it is sent. LAN_RACK_INVALID names the field.
+  saveRack(id: string, doc: import('@/types/api').LanRackDoc, updated_at: string, node?: string) {
+    return this.request<import('@/types/api').LanRack>(`/network/racks/${encodeURIComponent(id)}`, { method: 'PUT', body: JSON.stringify({ doc, updated_at }), node })
+  }
+
   // How often a node scans one of its networks by itself (0 = never), and
   // what it is told of the cluster's nodes there so it can stop when an
   // address is in conflict.

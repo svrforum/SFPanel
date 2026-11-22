@@ -1919,6 +1919,34 @@ export interface LanSchedule {
   paused_reason: string
 }
 
+/** One thing in a rack: a node of the panel, a device of the registry, or words (a patch panel, a UPS). */
+export interface LanRackItem {
+  id: string
+  /** The lowest unit it takes; 1 is the bottom of the rack. */
+  u: number
+  /** How many units it takes, upward. */
+  height: number
+  kind: 'node' | 'device' | 'text'
+  node?: string
+  mac?: string
+  text?: string
+}
+
+/** A rack as the operator drew it. A deleted one is kept as a mark, so a node that was down then does not bring it back. */
+export interface LanRackDoc {
+  name: string
+  units: number
+  deleted: boolean
+  items: LanRackItem[]
+}
+
+export interface LanRack {
+  id: string
+  doc: LanRackDoc
+  /** When the page wrote it; the newer of two is the rack. */
+  updated_at: string
+}
+
 /** What a node is told of the cluster's own nodes on a network, to know an address conflict by. */
 export interface LanKnownNode {
   address: string
