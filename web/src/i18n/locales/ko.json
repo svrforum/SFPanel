@@ -4681,14 +4681,16 @@
         "noPorts": "없음",
         "ports": "열린 포트",
         "morePorts": "+{{count}}",
-        "notChecked": "확인하지 않음"
+        "notChecked": "확인하지 않음",
+        "conflict": "주소 충돌: 이 주소는 서버 {{node}}의 것입니다."
       },
       "field": {
         "address": "주소",
         "mac": "MAC",
         "vendor": "제조사",
         "hostname": "이름(DNS)",
-        "ports": "열린 포트"
+        "ports": "열린 포트",
+        "gatewayFor": "기본 경로로 쓰는 서버"
       },
       "scan": {
         "elapsed": "{{count}}초",
@@ -4750,6 +4752,10 @@
         "deny": "차단",
         "limit": "제한",
         "none": "방화벽 규칙 없음"
+      },
+      "conflict": {
+        "title": "주소 충돌 {{address}}",
+        "body": "서버 {{node}}의 주소인데, 스캔에서는 다른 기기({{who}}, {{mac}})가 응답했습니다. 두 기기가 같은 주소를 쓰면 그 서버와의 통신이 수시로 끊깁니다. 공유기의 DHCP에서 이 주소를 서버에 예약하거나 범위에서 빼세요."
       }
     }
   }

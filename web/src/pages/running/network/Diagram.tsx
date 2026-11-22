@@ -1,6 +1,6 @@
 import { useCallback, useLayoutEffect, useRef, useState, type CSSProperties } from 'react'
 import { useTranslation } from 'react-i18next'
-import { ArrowUpRight, Box, ChevronDown, Globe, MonitorSmartphone, Router, Server, type LucideIcon } from 'lucide-react'
+import { AlertTriangle, ArrowUpRight, Box, ChevronDown, Globe, MonitorSmartphone, Router, Server, type LucideIcon } from 'lucide-react'
 import { addressParts, columnsFor, deviceName, rowsOf, type MapDevice, type MapPort, type Segment } from '@/lib/netmap'
 import { cn } from '@/lib/utils'
 import './network.css'
@@ -117,7 +117,11 @@ export function DeviceCard({ device, prefix, portsChecked, nested }: {
       data-testid="net-device"
       data-ip={device.ip}
       data-kind={kind}
-      className={cn('h-full rounded-xl border bg-card p-2.5', kind === 'server' ? 'border-[color-mix(in_srgb,var(--primary)_35%,var(--border))]' : 'border-border')}
+      data-conflict={device.conflict ? 'true' : undefined}
+      className={cn(
+        'h-full rounded-xl border bg-card p-2.5',
+        device.conflict ? 'border-destructive' : kind === 'server' ? 'border-[color-mix(in_srgb,var(--primary)_35%,var(--border))]' : 'border-border',
+      )}
     >
       <details className="group">
         <summary className="relative flex cursor-pointer list-none items-start gap-2.5 rounded-lg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring [&::-webkit-details-marker]:hidden">
@@ -155,8 +159,20 @@ export function DeviceCard({ device, prefix, portsChecked, nested }: {
           <dd className="break-all">{device.hostname || '—'}</dd>
           <dt className="text-muted-foreground">{t('running.network.field.ports')}</dt>
           <dd className="break-words">{allPorts}</dd>
+          {device.gatewayFor.length > 0 && (
+            <>
+              <dt className="text-muted-foreground">{t('running.network.field.gatewayFor')}</dt>
+              <dd className="break-words">{device.gatewayFor.join(', ')}</dd>
+            </>
+          )}
         </dl>
       </details>
+      {device.conflict && (
+        <p className="mt-1.5 flex items-start gap-1 text-xs font-medium text-destructive">
+          <AlertTriangle className="mt-0.5 size-3.5 shrink-0" aria-hidden="true" />
+          <span className="break-words">{t('running.network.device.conflict', { node: device.conflict.name })}</span>
+        </p>
+      )}
       {device.timedOut && <p className="mt-1.5 text-xs text-muted-foreground">{t('running.network.device.timedOut')}</p>}
       {shown.length > 0 && (
         <ul aria-label={t('running.network.device.ports')} className="mt-1.5 flex flex-wrap gap-1">
@@ -244,11 +260,13 @@ export function Diagram({ segment }: { segment: Segment }) {
         <Globe className="size-3.5" aria-hidden="true" />
         {t('running.network.internet')}
       </p>
-      <div className="nm-gateway max-w-[22rem]">
-        {segment.gateway
-          ? <DeviceCard device={segment.gateway} prefix={segment.prefix} portsChecked={segment.portsChecked} />
+      <div className="nm-gateway flex flex-wrap items-stretch gap-[var(--nm-gap)]">
+        {segment.gateways.length > 0
+          ? segment.gateways.map((d) => (
+            <div key={d.key} className="w-full max-w-[22rem]"><DeviceCard device={d} prefix={segment.prefix} portsChecked={segment.portsChecked} /></div>
+          ))
           : (
-            <p data-testid="net-no-gateway" className="rounded-xl border border-dashed border-border bg-card p-2.5 text-xs text-muted-foreground">
+            <p data-testid="net-no-gateway" className="w-full max-w-[22rem] rounded-xl border border-dashed border-border bg-card p-2.5 text-xs text-muted-foreground">
               {segment.gatewayAddress ? t('running.network.gatewaySilent', { address: segment.gatewayAddress }) : t('running.network.gatewayNone')}
             </p>
           )}

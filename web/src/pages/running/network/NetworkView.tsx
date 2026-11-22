@@ -1,6 +1,6 @@
 import { useTranslation } from 'react-i18next'
-import { X } from 'lucide-react'
-import { filterSegment, shownCount, type NetworkEntry } from '@/lib/netmap'
+import { AlertTriangle, X } from 'lucide-react'
+import { deviceName, filterSegment, shownCount, type NetworkEntry } from '@/lib/netmap'
 import { Heading, type HeadingLevel } from '../Heading'
 import type { Scope } from '../targets'
 import type { BoardSection } from '../useRunningBoard'
@@ -44,6 +44,16 @@ function Network({ entry, model, scope, localId, query, level, onClear }: {
         </div>
         <ScanControl entry={entry} scope={scope} localId={localId} onStart={model.start} onCancel={model.cancel} />
       </header>
+      {/* Said whatever is searched for: two devices on one address breaks what talks to either. */}
+      {entry.segment?.conflicts.map((d) => (
+        <p key={d.key} role="alert" data-testid="net-conflict" className="flex items-start gap-2 rounded-xl border border-destructive bg-[color-mix(in_srgb,var(--destructive)_6%,var(--card))] px-3 py-2 text-[13px]">
+          <AlertTriangle className="mt-0.5 size-4 shrink-0 text-destructive" aria-hidden="true" />
+          <span className="break-words">
+            <span className="font-semibold">{t('running.network.conflict.title', { address: d.ip })}</span>{' '}
+            {t('running.network.conflict.body', { node: d.conflict!.name, who: deviceName(d)?.text ?? t('running.network.device.unnamed'), mac: d.mac })}
+          </span>
+        </p>
+      ))}
       {segment && (searching && shownCount(segment) === 0 ? (
         <p className="text-[13px] text-muted-foreground">
           {t('running.search.noMatch', { query })}{' '}

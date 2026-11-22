@@ -209,6 +209,7 @@ export function useNetworkView(sections: BoardSection[], round: number): Network
         name: s.node.name || s.node.id,
         online: s.node.status === 'online',
         macs: nics?.phase === 'ready' ? nics.list.map((i) => i.mac_address).filter(Boolean) : [],
+        addresses: nics?.phase === 'ready' ? nics.list.flatMap((i) => (i.addresses ?? []).filter((a) => a.family === 'ipv4').map((a) => a.address)) : [],
         guests: s.guests?.guests ?? [],
       }
     })

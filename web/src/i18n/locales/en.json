@@ -4701,14 +4701,16 @@
         "noPorts": "None",
         "ports": "Open ports",
         "morePorts": "+{{count}}",
-        "notChecked": "Not checked"
+        "notChecked": "Not checked",
+        "conflict": "Address conflict: this address is server {{node}}'s."
       },
       "field": {
         "address": "Address",
         "mac": "MAC",
         "vendor": "Maker",
         "hostname": "Name (DNS)",
-        "ports": "Open ports"
+        "ports": "Open ports",
+        "gatewayFor": "Default route of"
       },
       "scan": {
         "elapsed": "{{count}}s",
@@ -4770,6 +4772,10 @@
         "deny": "Deny",
         "limit": "Limit",
         "none": "No firewall rule"
+      },
+      "conflict": {
+        "title": "Address conflict at {{address}}",
+        "body": "It is server {{node}}'s address, and in the scan another device ({{who}}, {{mac}}) answered on it. With two devices on one address, connections to that server drop now and then. Reserve the address for the server in the router's DHCP, or take it out of the range."
       }
     }
   }

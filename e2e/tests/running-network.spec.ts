@@ -102,6 +102,10 @@ interface Opts {
   old?: boolean
   /** Every answer takes between 150 and 1100 ms, as on a real panel. */
   slow?: boolean
+  /** foxtrot-agent goes out through a router of its own: the guest at .17. */
+  twoGateways?: boolean
+  /** What answers at bravo-agent's address is another device; bravo-agent itself is not seen. */
+  conflict?: boolean
   view?: string
 }
 
@@ -115,7 +119,7 @@ async function mock(page: Page, opts: Opts = {}) {
     portmap: [] as string[],
     running: null as null | { network: string; ports: boolean; started_at: string },
     last: null as null | { network: string; ports: boolean; state: string; at: string },
-    results: opts.unscanned ? [] as unknown[] : [result(HOSTS)],
+    results: opts.unscanned ? [] as unknown[] : [result(opts.conflict ? HOSTS.map((h) => (h.ip === ip(12) ? host(12, { mac: mac(77), vendor: 'Example Electronics' }) : h)) : HOSTS)],
     /** Reads of the scanning node's status left before the scan ends. */
     left: 0,
   }
@@ -185,7 +189,7 @@ async function mock(page: Page, opts: Opts = {}) {
         const address = AT[node]
         data = {
           installed: !opts.noTool && (node === 'm-1' || node === 'm-2'),
-          networks: [{ cidr: NET, interface: 'eth0', address: ip(address), mac: mac(address), gateway: ip(1), scannable: true, reason: '' }],
+          networks: [{ cidr: NET, interface: 'eth0', address: ip(address), mac: mac(address), gateway: ip(opts.twoGateways && node === 'a-4' ? 17 : 1), scannable: true, reason: '' }],
           running: scanner ? state.running : null,
           last: scanner ? state.last : null,
           results: scanner ? state.results : [],
@@ -565,4 +569,80 @@ test('answers that arrive late and out of order end in the same diagram', async 
   await expect(page.locator('[data-testid="net-device"][data-kind="server"]')).toHaveCount(6, { timeout: 30_000 })
   await expect(page.getByTestId('net-host').getByTestId('net-device')).toHaveCount(13, { timeout: 30_000 })
   await expect(page.getByText('Servers 6 · VMs and LXC containers 8', { exact: true })).toBeVisible()
+})
+
+test('a LAN whose servers go out two ways is one network, with both gateways on top', async ({ page }) => {
+  // Six servers of one LAN, one of them going out through a firewall that is a
+  // guest of the Proxmox host. Listed by network and gateway they were two
+  // networks until the first scan.
+  await mock(page, { twoGateways: true, unscanned: true })
+  await page.goto('/cluster/running')
+  await expect(page.locator('[data-testid="net-network"]')).toHaveCount(1)
+  await expect(page.locator('[data-testid="net-network"]')).toContainText('alpha-node, delta-node, bravo-agent, echo-agent, foxtrot-agent, pve-host')
+})
+
+test('every device a server goes out through is a gateway, and says whose', async ({ page }) => {
+  await mock(page, { twoGateways: true })
+  await page.goto('/cluster/running')
+  await expect(page.getByTestId('net-device')).toHaveCount(28)
+  const top = page.locator('.nm-gateway').getByTestId('net-device')
+  await expect(top).toHaveCount(2)
+  await expect(top.nth(0)).toHaveAttribute('data-ip', ip(1))
+  await expect(top.nth(1)).toHaveAttribute('data-ip', ip(17))
+  await expect(device(page, 17)).toHaveAttribute('data-kind', 'gateway')
+  // A guest of the host, drawn where traffic goes through it — and saying whose guest it is.
+  await expect(device(page, 17).locator('summary')).toContainText('Gateway · VM 107 on pve-host')
+  await expect(page.getByTestId('net-host').getByTestId('net-device')).toHaveCount(12)
+  await device(page, 17).locator('summary').click()
+  await expect(device(page, 17).getByText('Default route of', { exact: true })).toBeVisible()
+  await expect(device(page, 17).locator('dd').last()).toHaveText('foxtrot-agent')
+  await device(page, 1).locator('summary').click()
+  await expect(device(page, 1).locator('dd').last()).toHaveText('alpha-node, delta-node, bravo-agent, echo-agent, pve-host')
+  // Side by side on a wide screen, above everything that hangs from them.
+  const a = await device(page, 1).boundingBox()
+  const b = await device(page, 17).boundingBox()
+  const first = await device(page, 5).boundingBox()
+  expect(Math.abs(a!.y - b!.y)).toBeLessThan(2)
+  expect(b!.x).toBeGreaterThan(a!.x + a!.width)
+  expect(Math.max(a!.y + a!.height, b!.y + b!.height)).toBeLessThan(first!.y)
+})
+
+test('an address two devices use is said on top of the network and on the device', async ({ page }) => {
+  // What answered at a server's own address has a MAC that is not the
+  // server's: another device took the address. On the LAN this was first run
+  // on, a smart plug held a server's address, and the page drew it as one
+  // more device with nothing said.
+  await mock(page, { conflict: true })
+  await page.goto('/cluster/running')
+  await expect(page.getByTestId('net-device')).toHaveCount(28)
+  const alert = page.getByTestId('net-conflict')
+  await expect(alert).toHaveCount(1)
+  await expect(alert).toHaveRole('alert')
+  await expect(alert).toContainText(`Address conflict at ${ip(12)}`)
+  await expect(alert).toContainText(`It is server bravo-agent's address, and in the scan another device (Example Electronics, ${mac(77)}) answered on it.`)
+  await expect(alert).toContainText("Reserve the address for the server in the router's DHCP")
+
+  const impostor = device(page, 12)
+  await expect(impostor).toHaveAttribute('data-conflict', 'true')
+  // Not drawn as the server, and not inside the host the server is a guest of.
+  await expect(impostor).toHaveAttribute('data-kind', 'device')
+  await expect(impostor).toContainText("Address conflict: this address is server bravo-agent's.")
+  await expect(page.getByTestId('net-host').locator(`[data-ip="${ip(12)}"]`)).toHaveCount(0)
+  await expect(page.getByText('Servers 5 · VMs and LXC containers 8', { exact: true })).toBeVisible()
+  await expect(page.getByText('Other devices 14', { exact: true })).toBeVisible()
+  // The others carry no such mark.
+  await expect(page.locator('[data-testid="net-device"][data-conflict="true"]')).toHaveCount(1)
+
+  // A search for something else does not take the warning away.
+  await page.getByRole('searchbox').fill('printer')
+  await expect(page.getByTestId('net-device')).toHaveCount(2)
+  await expect(alert).toBeVisible()
+})
+
+test('no address conflict is said of a network where every server answers for itself', async ({ page }) => {
+  await mock(page)
+  await page.goto('/cluster/running')
+  await expect(page.locator('[data-testid="net-device"][data-kind="server"]')).toHaveCount(6)
+  await expect(page.getByTestId('net-conflict')).toHaveCount(0)
+  await expect(page.locator('[data-testid="net-device"][data-conflict="true"]')).toHaveCount(0)
 })
