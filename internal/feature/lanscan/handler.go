@@ -2,10 +2,12 @@
 // nmap, when the operator asks.
 //
 // Per node: the networks are this node's own, the scan runs here, and its
-// result is stored in this node's database (lan_scans). ?node= reaches
-// another node's through the cluster proxy; all three routes answer at once,
-// the scan itself running on after POST returns, so the proxy's 30-second
-// unary limit is never near. Nothing is replicated.
+// result is stored in this node's database (lan_scans), with every device it
+// found by MAC (lan_devices) and the addresses they held (lan_claims). ?node=
+// reaches another node's through the cluster proxy; every route answers at
+// once, the scan itself running on after POST returns, so the proxy's
+// 30-second unary limit is never near. Nothing is replicated: the page
+// merges the nodes' registries.
 package lanscan
 
 import (
@@ -55,6 +57,8 @@ type Handler struct {
 	// scan runs nmap over cidr and returns its XML output; nil is runNmap.
 	// Tests set it to hand in XML without running anything.
 	scan func(ctx context.Context, cidr string, ports bool) ([]byte, error)
+	// now is the clock; nil is time.Now. Tests set it.
+	now func() time.Time
 
 	mu      sync.Mutex
 	running *Running
@@ -68,6 +72,8 @@ type Running struct {
 	Network   string `json:"network"`
 	Ports     bool   `json:"ports"`
 	StartedAt string `json:"started_at"`
+	// Scheduled is a scan the schedule started, not the operator.
+	Scheduled bool `json:"scheduled"`
 }
 
 // Last is how the last scan since the panel started ended. It is kept in
@@ -80,6 +86,8 @@ type Last struct {
 	State string `json:"state"`
 	// At is when it ended, RFC 3339 UTC.
 	At string `json:"at"`
+	// Scheduled is a scan the schedule started, not the operator.
+	Scheduled bool `json:"scheduled"`
 }
 
 // Status is GET /network/scan.
@@ -92,6 +100,10 @@ type Status struct {
 	// Results are the stored results of the networks listed now, in their
 	// order; a network this node is no longer on is not answered.
 	Results []Result `json:"results"`
+	// Devices is this node's whole registry, by MAC.
+	Devices []Device `json:"devices"`
+	// Conflicts are the addresses two or more MACs held at once.
+	Conflicts []Conflict `json:"conflicts"`
 }
 
 type startRequest struct {
@@ -120,6 +132,16 @@ func (h *Handler) GetScan(c echo.Context) error {
 			results = append(results, r)
 		}
 	}
+	devices, err := loadDevices(h.DB)
+	if err != nil {
+		slog.Warn("LAN device registry unreadable", "component", "lanscan", "error", err)
+		return response.Fail(c, http.StatusInternalServerError, response.ErrDBError, "Cannot read the device registry")
+	}
+	conflicts, err := loadConflicts(h.DB)
+	if err != nil {
+		slog.Warn("LAN address claims unreadable", "component", "lanscan", "error", err)
+		return response.Fail(c, http.StatusInternalServerError, response.ErrDBError, "Cannot read the device registry")
+	}
 
 	h.mu.Lock()
 	var running *Running
@@ -140,6 +162,8 @@ func (h *Handler) GetScan(c echo.Context) error {
 		Running:   running,
 		Last:      last,
 		Results:   results,
+		Devices:   devices,
+		Conflicts: conflicts,
 	})
 }
 
@@ -182,19 +206,25 @@ func (h *Handler) StartScan(c echo.Context) error {
 	if h.running != nil {
 		return response.Fail(c, http.StatusConflict, response.ErrLanScanInProgress, "A scan is already running on this node")
 	}
+	h.startLocked(*target, req.Ports, false)
+	return response.OK(c, map[string]bool{"started": true})
+}
+
+// startLocked starts a scan of n. h.mu is held and no scan is running: a
+// node runs one at a time, whoever started it.
+func (h *Handler) startLocked(n Network, ports, scheduled bool) {
 	timeout := hostsTimeout
-	if req.Ports {
+	if ports {
 		timeout = portsTimeout
 	}
 	// Its own context, not the request's: the scan outlives the request.
 	ctx, cancel := context.WithTimeout(context.Background(), timeout)
-	started := time.Now().UTC()
+	started := h.clock()
 	done := make(chan struct{})
-	h.running = &Running{Network: target.CIDR, Ports: req.Ports, StartedAt: started.Format(time.RFC3339)}
+	h.running = &Running{Network: n.CIDR, Ports: ports, StartedAt: stamp(started), Scheduled: scheduled}
 	h.cancel = cancel
 	h.done = done
-	go h.run(ctx, cancel, done, *target, req.Ports, started)
-	return response.OK(c, map[string]bool{"started": true})
+	go h.run(ctx, cancel, done, n, ports, scheduled, started)
 }
 
 // CancelScan stops the scan under way. cancelled is false when there was
@@ -219,7 +249,7 @@ func (h *Handler) CancelScan(c echo.Context) error {
 }
 
 // run is one scan, from start to its Last.
-func (h *Handler) run(ctx context.Context, cancel context.CancelFunc, done chan struct{}, n Network, ports bool, started time.Time) {
+func (h *Handler) run(ctx context.Context, cancel context.CancelFunc, done chan struct{}, n Network, ports, scheduled bool, started time.Time) {
 	defer close(done)
 	defer cancel()
 	state := h.scanNetwork(ctx, n, ports, started)
@@ -228,12 +258,13 @@ func (h *Handler) run(ctx context.Context, cancel context.CancelFunc, done chan 
 	h.running = nil
 	h.cancel = nil
 	h.done = nil
-	h.last = &Last{Network: n.CIDR, Ports: ports, State: state, At: time.Now().UTC().Format(time.RFC3339)}
+	h.last = &Last{Network: n.CIDR, Ports: ports, State: state, At: stamp(h.clock()), Scheduled: scheduled}
 	h.mu.Unlock()
 }
 
-// scanNetwork scans n and stores the result when nmap finished. Anything
-// else leaves the stored result as it was and only says how it ended.
+// scanNetwork scans n and stores the result when nmap finished, with what
+// it found recorded in the registry. Anything else leaves both as they were
+// and only says how it ended.
 func (h *Handler) scanNetwork(ctx context.Context, n Network, ports bool, started time.Time) string {
 	log := slog.With("component", "lanscan", "network", n.CIDR, "ports", ports)
 	scan := h.scan
@@ -247,7 +278,7 @@ func (h *Handler) scanNetwork(ctx context.Context, n Network, ports bool, starte
 			log.Info("scan cancelled")
 			return stateCancelled
 		case context.DeadlineExceeded:
-			log.Warn("scan timed out", "after", time.Since(started).Round(time.Second).String())
+			log.Warn("scan timed out", "after", h.clock().Sub(started).Round(time.Second).String())
 			return stateTimeout
 		}
 		log.Warn("scan failed", "error", err)
@@ -264,18 +295,32 @@ func (h *Handler) scanNetwork(ctx context.Context, n Network, ports bool, starte
 			hosts[i].MAC = n.MAC
 		}
 	}
-	finished := time.Now().UTC()
+	finished := h.clock()
 	r := Result{
 		Network:    n.CIDR,
 		Interface:  n.Interface,
 		Address:    n.Address,
 		Gateway:    n.Gateway,
 		Ports:      ports,
-		StartedAt:  started.Format(time.RFC3339),
-		FinishedAt: finished.Format(time.RFC3339),
+		StartedAt:  stamp(started),
+		FinishedAt: stamp(finished),
 		Hosts:      hosts,
 	}
-	if err := saveResult(h.DB, r); err != nil {
+	if ports {
+		r.PortsAt = r.FinishedAt
+	} else {
+		// A host scan does not forget the ports a port scan found.
+		prev, ok, err := loadResult(h.DB, n.CIDR)
+		if err != nil {
+			log.Error("earlier scan unreadable; result not stored", "error", err)
+			return stateFailed
+		}
+		if ok {
+			carryPorts(r.Hosts, prev)
+			r.PortsAt = prev.PortsAt
+		}
+	}
+	if err := recordScan(h.DB, r, finished); err != nil {
 		log.Error("scan result not stored", "error", err)
 		return stateFailed
 	}
@@ -308,6 +353,14 @@ func (h *Handler) runNmap(ctx context.Context, cidr string, ports bool) ([]byte,
 		return nil, fmt.Errorf("read nmap's output: %w", err)
 	}
 	return data, nil
+}
+
+// clock is the time now, UTC.
+func (h *Handler) clock() time.Time {
+	if h.now != nil {
+		return h.now().UTC()
+	}
+	return time.Now().UTC()
 }
 
 // networks is this node's network list, read now.

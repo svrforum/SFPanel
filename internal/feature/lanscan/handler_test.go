@@ -150,7 +150,7 @@ func nmapCalls(m *exec.MockCommander) int {
 }
 
 // The shape the page reads, before any scan: the networks, null running and
-// last, and results [] rather than null.
+// last, and results, devices and conflicts [] rather than null.
 func TestGetScan_Shape(t *testing.T) {
 	h := newHandler(t, openDB(t), nodeCommander(true), &fakeScan{})
 	code, env := call(t, h.GetScan, http.MethodGet, "")
@@ -165,7 +165,9 @@ func TestGetScan_Shape(t *testing.T) {
 		],
 		"running": null,
 		"last": null,
-		"results": []
+		"results": [],
+		"devices": [],
+		"conflicts": []
 	}`, string(env.Data))
 }
 
