@@ -626,6 +626,11 @@ func NewRouter(database *sql.DB, auditWriter *sfdb.AsyncWriter, alertManager *fe
 	net.GET("/scan", lanScanHandler.GetScan)
 	net.POST("/scan", lanScanHandler.StartScan)
 	net.DELETE("/scan", lanScanHandler.CancelScan)
+	// The device registry this node's scans keep: a label, an
+	// acknowledgement and forgetting, by MAC.
+	net.PUT("/devices/:mac", lanScanHandler.PutDevice)
+	net.POST("/devices/:mac/ack", lanScanHandler.AckDevice)
+	net.DELETE("/devices/:mac", lanScanHandler.DeleteDevice)
 
 	// WireGuard VPN
 	wireguardHandler := &featureNetwork.WireGuardHandler{Cmd: cmd}

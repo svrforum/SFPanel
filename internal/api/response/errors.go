@@ -336,6 +336,19 @@ const (
 	// /network/scan naming anything but, character for character, a network
 	// GET /network/scan lists as scannable on this node. Nothing is run.
 	ErrLanScanNetworkNotAllowed = "LAN_SCAN_NETWORK_NOT_ALLOWED"
+	// ErrLanDeviceInvalid is returned (HTTP 400) for a device route whose MAC
+	// or label is refused. Nothing is written. Details: field (mac, name,
+	// note, kind or labelled_at).
+	ErrLanDeviceInvalid = "LAN_DEVICE_INVALID"
+	// ErrLanDeviceNotFound is returned (HTTP 404) for POST
+	// /network/devices/:mac/ack naming a MAC this node's registry does not
+	// hold.
+	ErrLanDeviceNotFound = "LAN_DEVICE_NOT_FOUND"
+	// ErrLanScheduleInvalid is returned (HTTP 400) for PUT
+	// /network/scan/schedule with an interval that is not offered or a
+	// known list that is not addresses and MACs. Nothing is written.
+	// Details: field (interval_minutes or known).
+	ErrLanScheduleInvalid = "LAN_SCHEDULE_INVALID"
 )
 
 // WireGuard error codes
