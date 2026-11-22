@@ -104,7 +104,7 @@ function Schedule({ entry, nodeId, nodeName, onSchedule }: {
       </div>
       {mine && (mine.pausedReason
         ? <p role="status" className="text-xs font-medium text-warning">{t(`running.network.schedule.paused.${mine.pausedReason}`, { defaultValue: t('running.network.schedule.paused.other') })}</p>
-        : mine.nextRun > 0 && <p className="text-xs text-muted-foreground">{t('running.network.schedule.next', { time: time(mine.nextRun) })}</p>)}
+        : mine.nextRun > 0 && <p className="text-xs text-muted-foreground">{t(mine.portsDaily ? 'running.network.schedule.nextDaily' : 'running.network.schedule.next', { time: time(mine.nextRun) })}</p>)}
       {others.map((x) => (
         <p key={x.nodeId} className="text-xs text-muted-foreground">
           {t('running.network.schedule.other', { node: x.nodeName, interval: t(`running.network.schedule.every.${x.intervalMinutes}`, { defaultValue: String(x.intervalMinutes) }) })}

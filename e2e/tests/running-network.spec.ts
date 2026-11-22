@@ -882,6 +882,7 @@ test('an automatic scan is set on the node that scans, with what it needs to sto
   await schedule.getByRole('checkbox', { name: 'Check ports too, once a day' }).check()
   await expect.poll(() => state.scheduled.length).toBe(2)
   expect(state.scheduled[1].body).toMatchObject({ interval_minutes: 60, ports_daily: true })
+  await expect(schedule).toContainText(/Next scan .* · devices, and ports once a day\./)
 
   await every.selectOption('0')
   await expect.poll(() => state.scheduled.length).toBe(3)

@@ -4830,7 +4830,8 @@
           "other": "Automatic scans are stopped."
         },
         "other": "Also scanned from {{node}}: {{interval}}",
-        "failed": "Could not save the automatic scan setting."
+        "failed": "Could not save the automatic scan setting.",
+        "nextDaily": "Next scan {{time}} · devices, and ports once a day."
       },
       "suspect": {
         "title": "Suspected address conflict at {{address}}",
