@@ -6,6 +6,17 @@ The format is loosely based on [Keep a Changelog](https://keepachangelog.com/), 
 
 ---
 
+## [0.90.1] – 2026-11-22
+
+### Added
+
+- **An address two devices use is said.** When what answers a scan at a server's own address has a MAC that is not the server's, another device has taken the address — and connections to that server drop now and then, for no reason the server's own logs give. The network view now says so on top of that network (the address, the server it belongs to, what answered and its MAC, and what to do at the router) and marks the device. On the LAN this view was first run on, a smart plug held a server's address; the view drew it as one more device and said nothing.
+- **Every gateway, not only the scanning server's.** A device any server of the network goes out through is drawn as a gateway, side by side on top, and opening its card says which servers use it. A firewall that runs as a guest of a Proxmox host is drawn there, not inside the host.
+
+### Fixed
+
+- **A LAN whose servers do not all use the same gateway was listed as two networks** until its first scan — each with some of the servers, one of them perhaps saying nmap was missing. A network that has not been scanned is listed once, with every server on it.
+
 ## [0.90.0] – 2026-11-22
 
 A third view of what is running: the network. What nmap finds on the LAN a server is on, drawn as a diagram by address — the gateway, the panel's own servers with their virtual machines inside them, and every other device — and each server's own networks and listening ports, told apart by who can reach them.
