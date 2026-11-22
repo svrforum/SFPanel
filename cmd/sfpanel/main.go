@@ -380,8 +380,11 @@ func main() {
 
 	// Scheduled LAN scans. The handler is the one the router serves
 	// /network/scan with, so a scheduled scan and one the operator starts
-	// wait for each other: a node runs one at a time.
-	lanScanHandler := &featureLanScan.Handler{DB: database, Cmd: commonExec.NewCommander()}
+	// wait for each other: a node runs one at a time. Each stored scan,
+	// scheduled or not, is put before the LAN alert rules.
+	lanDisp := featureAlert.NewLanDispatcherWithIdentity(database, alertManager, alertIdentity)
+	lanScanHandler := &featureLanScan.Handler{DB: database, Cmd: commonExec.NewCommander(),
+		Notify: func(ev featureLanScan.ScanEvent) { lanDisp.Dispatch(bgCtx, lanAlertEvent(ev)) }}
 	lanScanHandler.StartScheduler(bgCtx)
 
 	// Start terminal session cleanup (timeout from settings, 0 = never)
@@ -418,6 +421,9 @@ func main() {
 		// m != nil: a nil *Manager would be a typed nil identity.
 		if containerDisp != nil && m != nil {
 			containerDisp.SetIdentity(m)
+		}
+		if m != nil {
+			lanDisp.SetIdentity(m)
 		}
 	}
 
@@ -936,6 +942,27 @@ func (s *dispShim) Dispatch(ctx context.Context, ev *monitor.ContainerEvent) {
 		TS:       ev.TS,
 		ExitCode: ev.ExitCode,
 	})
+}
+
+// lanAlertEvent is lanscan's ScanEvent as the alert package's
+// AlertLanEvent, without coupling the two packages.
+func lanAlertEvent(ev featureLanScan.ScanEvent) *featureAlert.AlertLanEvent {
+	out := &featureAlert.AlertLanEvent{Network: ev.Network, FinishedAt: ev.FinishedAt, Scheduled: ev.Scheduled}
+	for _, d := range ev.New {
+		out.New = append(out.New, featureAlert.LanSeenDevice{IP: d.IP, MAC: d.MAC, Vendor: d.Vendor, Hostname: d.Hostname})
+	}
+	known := func(list []featureLanScan.KnownDevice) []featureAlert.LanKnownDevice {
+		var out []featureAlert.LanKnownDevice
+		for _, d := range list {
+			out = append(out, featureAlert.LanKnownDevice{MAC: d.MAC, Name: d.Name, IP: d.IP, Vendor: d.Vendor, Hostname: d.Hostname, LastSeen: d.LastSeen})
+		}
+		return out
+	}
+	out.Down, out.Back = known(ev.Down), known(ev.Back)
+	for _, c := range ev.Conflicts {
+		out.Conflicts = append(out.Conflicts, featureAlert.LanAddressConflict{IP: c.IP, MACs: c.MACs, Vendor: c.Vendor, Certain: c.Certain})
+	}
+	return out
 }
 
 // parseObservabilityRetention maps the small set of allowed retention strings
