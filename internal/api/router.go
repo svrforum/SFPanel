@@ -643,6 +643,9 @@ func NewRouter(database *sql.DB, auditWriter *sfdb.AsyncWriter, alertManager *fe
 	// Wake-on-LAN for a device of the registry, on one of the node's
 	// scannable networks.
 	net.POST("/devices/:mac/wake", lanScanHandler.WakeDevice)
+	// The racks the operator drew: which device sits at which height.
+	net.GET("/racks", lanScanHandler.GetRacks)
+	net.PUT("/racks/:id", lanScanHandler.PutRack)
 
 	// WireGuard VPN
 	wireguardHandler := &featureNetwork.WireGuardHandler{Cmd: cmd}

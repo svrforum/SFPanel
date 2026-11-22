@@ -29,6 +29,8 @@ func serve(t *testing.T, h *Handler, method, path, body string) (int, envelope) 
 	g.POST("/devices/:mac/ack", h.AckDevice)
 	g.DELETE("/devices/:mac", h.DeleteDevice)
 	g.POST("/devices/:mac/wake", h.WakeDevice)
+	g.GET("/racks", h.GetRacks)
+	g.PUT("/racks/:id", h.PutRack)
 
 	var req *http.Request
 	if body == "" {

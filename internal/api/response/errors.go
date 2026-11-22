@@ -351,6 +351,11 @@ const (
 	// known list that is not addresses and MACs. Nothing is written.
 	// Details: field (interval_minutes or known).
 	ErrLanScheduleInvalid = "LAN_SCHEDULE_INVALID"
+	// ErrLanRackInvalid is returned (HTTP 400) for PUT /network/racks/:id
+	// whose id, updated_at or doc is refused, or that would leave more than
+	// 32 racks that are not deleted. Nothing is written. Details: field (id,
+	// updated_at, doc, name, units, items or racks).
+	ErrLanRackInvalid = "LAN_RACK_INVALID"
 )
 
 // WireGuard error codes

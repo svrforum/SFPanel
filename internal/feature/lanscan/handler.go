@@ -83,6 +83,9 @@ type Handler struct {
 	// paused is each schedule's paused reason at the last pass, to log a
 	// change once rather than every minute.
 	paused map[string]string
+
+	// racksMu keeps rack writes to one at a time.
+	racksMu sync.Mutex
 }
 
 // Running is the scan under way.
