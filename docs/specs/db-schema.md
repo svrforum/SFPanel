@@ -308,7 +308,7 @@ SQLite의 AUTOINCREMENT 시퀀스를 추적하는 내부 시스템 테이블. `A
 - `alert_history` 테이블 생성 (알림 발송 이력)
 - `idx_alert_history_created_at` 인덱스 생성
 
-### v4 이후 (migrations.go ID 8 – 42, v0.11.x 이후, ID 42는 미출시)
+### v4 이후 (migrations.go ID 8 – 45, v0.11.x 이후, ID 43–45는 미출시)
 
 권한 있는 출처는 `internal/db/migrations.go`. 본 단락은 변경 이력 요약입니다.
 
@@ -333,6 +333,9 @@ SQLite의 AUTOINCREMENT 시퀀스를 추적하는 내부 시스템 테이블. `A
 - **ID 40** — `idx_task_jobs_started_at` — `task_jobs(started_at)` 인덱스. 잡을 시작할 때마다 도는 보존 정리(최근 200개, 30일)가 이 열로 고른다.
 - **ID 41** — `terminal_prefs` (터미널 페이지의 개인 설정). `key TEXT PRIMARY KEY`, `value TEXT NOT NULL`(JSON), `updated_at`. 행은 둘뿐이다: `snippets`(다시 보낼 글의 목록 — `[{kind, body}]`, kind는 `agent`·`shell`, 100개·각 2000자까지)와 `keysets`(터미널 아래 키 줄의 구성 — `{agent: [[키…]…], shell: […]}`, 종류별 6쪽 × 7키까지, 키는 `{id}` 또는 `{label, text, enter}`). `internal/feature/ai/prefs.go`가 형태와 한도만 검증하고, 어떤 키가 있는지는 페이지가 안다. 노드 로컬(FSM 복제 없음) — 페이지는 보고 있는 노드가 아니라 **접속한 노드**에 묻는다. `settings` 표를 쓰지 않는 이유: `GET /settings`가 그 표의 모든 행을 돌려주는데 이 값은 수백 KB까지 된다. 읽을 수 없거나 한도를 넘는 행은 빈 값으로 응답한다(잘못된 행 하나가 터미널을 막지 않게).
 - **ID 42** — `lan_scans` (LAN 스캔, `internal/feature/lanscan`). `network TEXT PRIMARY KEY`(스캔한 망의 CIDR, 예: `10.20.30.0/24`), `result TEXT NOT NULL`(`lanscan.Result`의 JSON — 망·인터페이스·이 노드의 주소·게이트웨이·포트 확인 여부·시작/끝 시각·기기 목록, `GET /network/scan`의 `results[]` 한 항목과 같은 모양), `finished_at TEXT NOT NULL`(끝난 시각, RFC 3339 UTC). 망마다 **마지막 성공** 결과 한 행: nmap이 `<runstats><finished exit="success">`까지 쓴 스캔만 저장하고, 실패·시간 초과·취소된 스캔은 쓰지 않아 이전 행이 남는다. 응답에는 지금 붙어 있는 망의 행만 나가며, 더는 붙어 있지 않은 망의 행도 지우지 않는다(망 하나에 한 행뿐). 읽을 수 없는 행은 건너뛴다. 노드 로컬(FSM 복제 없음).
+- **ID 43** — `lan_devices` (LAN 기기 대장, `internal/feature/lanscan/registry.go`). MAC 하나에 한 행: `mac TEXT PRIMARY KEY`(소문자), 운영자가 적은 이름표 `name`·`note`·`kind`(`''`·`router`·`switch`·`ap`·`server`·`nas`·`pc`·`phone`·`tv`·`camera`·`printer`·`iot`·`other`)와 `labelled_at`(마지막으로 고친 때, RFC 3339; 한 번도 안 적었으면 `''`), `acked`(새 기기 표시를 운영자가 확인함, 0/1), 마지막으로 본 모습 `network`·`ip`·`vendor`·`hostname`, `first_seen`·`last_seen`(RFC 3339 UTC). 모두 `NOT NULL DEFAULT ''`(`acked`는 0). 성공한 스캔마다 MAC이 있는 기기를 upsert한다 — `vendor`·`hostname`은 빈 값으로 덮지 않고, `first_seen`은 처음 한 번만. 다른 노드가 본 기기에 이름표를 달면 이 노드가 본 적 없는 MAC도 행이 생긴다(보인 적 없는 칸은 `''`). 이름표가 없고(`labelled_at = ''`) 14일 넘게 안 보인 행은 스캔이 끝날 때 지운다(망마다 임의 MAC을 쓰는 휴대폰이 쌓이지 않게). 이름표가 있는 행은 운영자가 지울 때까지 남는다. 노드 로컬(FSM 복제 없음) — 여러 노드의 대장은 화면이 MAC으로 합친다.
+- **ID 44** — `lan_claims` (주소를 쓴 기간, IP 충돌 판정용). `(network, ip, mac)` PK, `first_at`·`last_at`(RFC 3339 UTC). 같은 MAC이 그 주소로 24시간 안에 다시 보이면 `last_at`만 늘리고, 처음이거나 24시간 넘게 안 보였다가 다시 보이면 `first_at = last_at = 지금`으로 새로 잡는다. 두 MAC의 `[first_at, last_at]`이 겹치면 충돌이다(DHCP가 주소를 넘겨준 것은 겹치지 않는다). `last_at`이 48시간보다 오래된 행은 스캔이 끝날 때 지운다. 기기를 지우면 그 MAC의 행도 지운다. 노드 로컬.
+- **ID 45** — `lan_schedules` (망별 주기 스캔). `network TEXT PRIMARY KEY`(CIDR), `interval_minutes`(0=끔, 15·60·360·1440), `ports_daily`(0/1, 하루 한 번 포트도 확인), `known`(그 망에 있는 클러스터 노드들의 주소와 MAC, `[{"address","macs":[…]}]` JSON — 화면이 보낸 그대로, MAC은 소문자), `last_run`·`last_ports_run`(주기 스캔·주기 포트 스캔이 마지막으로 **시작**한 때, RFC 3339 UTC, 없으면 `''`). 시작할 때 적으므로 실패한 스캔을 매분 다시 하지 않는다. 노드 로컬 — 주기는 그 노드의 설정이다.
 
 ---
 
@@ -461,6 +464,8 @@ SQLite의 AUTOINCREMENT 시퀀스를 추적하는 내부 시스템 테이블. `A
 | `metrics_history` | 24시간 (~1,440 포인트 @ 60초 간격) | 60초 주기, `time <= cutoff` `DELETE` | `internal/monitor/history.go` |
 | `alert_history` | 제한 없음 | 수동 (UI에서 전체 삭제) | — |
 | `task_jobs` | 최근 200개, 30일 이내 (`running`·`rebooting` 행은 제외) | 잡을 시작할 때와 부팅 때, 행과 로그 파일을 함께 `DELETE` | `internal/feature/taskjob/store.go` |
+| `lan_devices` | 이름표 없는 기기는 마지막으로 본 뒤 14일, 이름표 있는 기기는 제한 없음 | LAN 스캔이 성공할 때마다 `DELETE` | `internal/feature/lanscan/registry.go` |
+| `lan_claims` | 마지막으로 본 뒤 48시간 | LAN 스캔이 성공할 때마다 `DELETE` | `internal/feature/lanscan/registry.go` |
 | 그 외 모든 테이블 | 제한 없음 | 수동 (CRUD 엔드포인트 경유) | — |
 
 ## 백업/복구

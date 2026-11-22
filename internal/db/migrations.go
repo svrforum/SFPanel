@@ -267,6 +267,50 @@ var migrations = []migration{
 		result      TEXT NOT NULL,
 		finished_at TEXT NOT NULL
 	)`},
+	// The LAN devices this node's scans have seen, one row per MAC (lower
+	// case), with the label the operator wrote (name, note, kind;
+	// labelled_at '' = never written) and the device as last seen. An
+	// unlabelled device not seen for 14 days is dropped (feature/lanscan
+	// registry.go). Per node, never replicated: the page merges the nodes'.
+	{ID: 43, Up: `CREATE TABLE IF NOT EXISTS lan_devices (
+		mac         TEXT PRIMARY KEY,
+		name        TEXT NOT NULL DEFAULT '',
+		note        TEXT NOT NULL DEFAULT '',
+		kind        TEXT NOT NULL DEFAULT '',
+		labelled_at TEXT NOT NULL DEFAULT '',
+		acked       INTEGER NOT NULL DEFAULT 0,
+		network     TEXT NOT NULL DEFAULT '',
+		ip          TEXT NOT NULL DEFAULT '',
+		vendor      TEXT NOT NULL DEFAULT '',
+		hostname    TEXT NOT NULL DEFAULT '',
+		first_seen  TEXT NOT NULL DEFAULT '',
+		last_seen   TEXT NOT NULL DEFAULT ''
+	)`},
+	// Which MAC answered at which address, from when to when: two MACs
+	// holding one address over overlapping periods is an address conflict.
+	// Kept 48 hours. Per node, never replicated.
+	{ID: 44, Up: `CREATE TABLE IF NOT EXISTS lan_claims (
+		network  TEXT NOT NULL,
+		ip       TEXT NOT NULL,
+		mac      TEXT NOT NULL,
+		first_at TEXT NOT NULL,
+		last_at  TEXT NOT NULL,
+		PRIMARY KEY (network, ip, mac)
+	)`},
+	// The scheduled scan of each network: every interval_minutes (0 = off),
+	// with a port scan once a day when ports_daily. known is the JSON of the
+	// cluster's own nodes on that network ([{address, macs}]), which a
+	// schedule pauses on when another device answers at one of them.
+	// last_run and last_ports_run are when a scheduled scan last started.
+	// Per node, never replicated.
+	{ID: 45, Up: `CREATE TABLE IF NOT EXISTS lan_schedules (
+		network          TEXT PRIMARY KEY,
+		interval_minutes INTEGER NOT NULL DEFAULT 0,
+		ports_daily      INTEGER NOT NULL DEFAULT 0,
+		known            TEXT NOT NULL DEFAULT '[]',
+		last_run         TEXT NOT NULL DEFAULT '',
+		last_ports_run   TEXT NOT NULL DEFAULT ''
+	)`},
 }
 
 // RunMigrations applies every registered migration that hasn't already been
