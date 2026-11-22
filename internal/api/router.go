@@ -640,6 +640,9 @@ func NewRouter(database *sql.DB, auditWriter *sfdb.AsyncWriter, alertManager *fe
 	net.PUT("/devices/:mac", lanScanHandler.PutDevice)
 	net.POST("/devices/:mac/ack", lanScanHandler.AckDevice)
 	net.DELETE("/devices/:mac", lanScanHandler.DeleteDevice)
+	// Wake-on-LAN for a device of the registry, on one of the node's
+	// scannable networks.
+	net.POST("/devices/:mac/wake", lanScanHandler.WakeDevice)
 
 	// WireGuard VPN
 	wireguardHandler := &featureNetwork.WireGuardHandler{Cmd: cmd}

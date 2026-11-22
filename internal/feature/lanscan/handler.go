@@ -16,6 +16,7 @@ import (
 	"fmt"
 	"log/slog"
 	"net/http"
+	"net/netip"
 	"os"
 	"path/filepath"
 	"strings"
@@ -64,6 +65,10 @@ type Handler struct {
 	scan func(ctx context.Context, cidr string, ports bool) ([]byte, error)
 	// now is the clock; nil is time.Now. Tests set it.
 	now func() time.Time
+	// sendWake sends one Wake-on-LAN packet from this node's address to a
+	// broadcast address; nil is sendUDP. Tests set it, so that nothing is
+	// sent.
+	sendWake func(from netip.Addr, to netip.AddrPort, packet []byte) error
 
 	mu      sync.Mutex
 	running *Running

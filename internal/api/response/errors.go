@@ -333,16 +333,18 @@ const (
 	// while this node is running a scan: a node runs one at a time.
 	ErrLanScanInProgress = "LAN_SCAN_IN_PROGRESS"
 	// ErrLanScanNetworkNotAllowed is returned (HTTP 400) for POST
-	// /network/scan naming anything but, character for character, a network
-	// GET /network/scan lists as scannable on this node. Nothing is run.
+	// /network/scan, PUT /network/scan/schedule and POST
+	// /network/devices/:mac/wake naming anything but, character for
+	// character, a network GET /network/scan lists as scannable on this node.
+	// Nothing is run, written or sent.
 	ErrLanScanNetworkNotAllowed = "LAN_SCAN_NETWORK_NOT_ALLOWED"
 	// ErrLanDeviceInvalid is returned (HTTP 400) for a device route whose MAC
 	// or label is refused. Nothing is written. Details: field (mac, name,
 	// note, kind or labelled_at).
 	ErrLanDeviceInvalid = "LAN_DEVICE_INVALID"
 	// ErrLanDeviceNotFound is returned (HTTP 404) for POST
-	// /network/devices/:mac/ack naming a MAC this node's registry does not
-	// hold.
+	// /network/devices/:mac/ack and /wake naming a MAC this node's registry
+	// does not hold. Nothing is written or sent.
 	ErrLanDeviceNotFound = "LAN_DEVICE_NOT_FOUND"
 	// ErrLanScheduleInvalid is returned (HTTP 400) for PUT
 	// /network/scan/schedule with an interval that is not offered or a
