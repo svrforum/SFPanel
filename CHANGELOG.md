@@ -14,7 +14,7 @@ The network view tells you. Alert rules for what a scan finds — a device nobod
 
 - **Alerts on what a network scan finds.** Three rule types in Settings → Alerts, sent through the channels you already have and judged each time a scan ends:
   - **New device** — a MAC a network's scans had not seen before. A network's first scan is not news.
-  - **Address conflict** — a server's own address answered by another device, or one address held by two MACs over the same period. Said once for an address, not at every scan.
+  - **Address conflict** — a server's own address answered by another device, or one address held by two MACs over the same period. Said when it is first seen, not at every scan while it stands, and again only after a full day without it; a restart does not send it again.
   - **Watched device gone** — a device you marked "Watch" on its card that two scans in a row did not find; and once more when it is back.
 - **Watch.** A tick on a device's card, kept with its name and note.
 - **Wake.** A device the registry has seen can be sent a Wake-on-LAN packet from its card, by a server on its network. The panel wakes devices it knows, on networks it is on; whether the device woke is for the next scan to say.
