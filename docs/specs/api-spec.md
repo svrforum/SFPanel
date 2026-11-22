@@ -7112,7 +7112,73 @@ WireGuard 키페어 생성 (`wg genkey` + `wg pubkey`).
 - `400 LAN_SCAN_NETWORK_NOT_ALLOWED` — 이 노드의 스캔 가능한 망이 아님
 - `400 LAN_SCHEDULE_INVALID` — `details.field`: `interval_minutes` \| `known`. 아무것도 쓰지 않는다
 
-0.91.0보다 오래된 노드는 기기·주기 경로에 `404`로 답하고, 그 `GET`에는 `devices`·`conflicts`·`schedules`·`ports_at`·`scheduled`가 없다. 0.92.0보다 오래된 노드는 `wake`에 `404`로 답하고, `devices[]`에 `watch`가 없으며 `PUT`의 `watch`를 무시한다.
+### 랙
+
+운영자가 화면에서 그린 랙 — 어느 기기가 랙의 몇 번째 칸(U)에 있는지. 서버는 저장하고 검사할 뿐 그리지 않는다. 노드별로 이 노드의 DB(`lan_racks`)에 두고 복제하지 않는다 — 화면이 한 랙을 같은 `updated_at`으로 여러 노드에 쓰고, 노드마다 가진 것과 받은 것 중 **새 것**을 남긴다. 운영자가 지운 랙은 표시(`"deleted": true`)로 남겨, 그때 꺼져 있던 노드가 옛 랙을 되살리지 않게 한다.
+
+**랙 문서(`doc`):**
+```json
+{ "name": "Main rack", "units": 12, "deleted": false,
+  "items": [{"id": "a1", "u": 1, "height": 2, "kind": "node", "node": "<클러스터 노드 ID>"},
+            {"id": "a2", "u": 3, "height": 1, "kind": "device", "mac": "02:42:ac:14:1e:29"},
+            {"id": "a3", "u": 12, "height": 1, "kind": "text", "text": "Patch panel"}] }
+```
+
+| 필드 | 설명 |
+|------|------|
+| `name` | 랙 이름. 앞뒤 공백을 지우고 1~64자(바이트가 아니라 문자), 제어 문자 없이 한 줄 |
+| `units` | 랙 높이(칸 수), 정수 1~60 |
+| `deleted` | 운영자가 지운 랙 |
+| `items[]` | 80개까지. 두 항목이 같은 칸을 차지할 수 없다. 보낸 순서대로 저장한다 |
+| `items[].id` | 1~64자의 `A–Z a–z 0–9 _ -`, 랙 안에서 한 번만 |
+| `items[].u` | 항목이 차지하는 가장 낮은 칸(1이 맨 아래), 정수 |
+| `items[].height` | 차지하는 칸 수, 정수 1~8. `u + height − 1`이 `units`를 넘을 수 없다 |
+| `items[].kind` | `node` · `device` · `text`, 그리고 그 종류의 필드 하나: `node`(클러스터 노드 ID, 1~64자), `mac`(6바이트 MAC — `net.ParseMAC`이 읽는 어떤 꼴이든), `text`(1~64자, 제어 문자 없이 한 줄) |
+
+**정규화:** 문서는 정리해서 저장하고 그대로 답한다 — 문자열은 앞뒤 공백을 지우고, MAC은 소문자 콜론 꼴로, 종류가 쓰지 않는 필드(`text` 항목의 `mac` 등)와 모르는 필드는 버린다. 지운 랙은 `{"name": "", "units": <보낸 값, 없으면 1>, "deleted": true, "items": []}`로 저장한다 — 이름과 항목은 읽지 않고 버리며(검사하지 않음), `units`는 보냈으면 검사한다.
+
+### GET /api/v1/network/racks
+이 노드가 가진 모든 랙을 `id` 순으로, 지운 표시까지 답한다.
+
+**Response (200):**
+```json
+{ "success": true, "data": { "racks": [ { "id": "main-1", "doc": { "name": "Main rack", "units": 12, "deleted": false, "items": [] }, "updated_at": "2026-11-22T10:00:00.000Z" } ] } }
+```
+- 랙이 없으면 `[]`. `doc`은 문자열이 아니라 객체다.
+- 읽을 수 없는 행은 건너뛴다(로그 `component=lanscan`).
+
+**에러:** `500 DB_ERROR`
+
+### PUT /api/v1/network/racks/:id
+랙 하나를 쓴다.
+
+**Request:**
+```json
+{ "doc": { "name": "Main rack", "units": 12, "deleted": false, "items": [] }, "updated_at": "2026-11-22T10:00:00.000Z" }
+```
+- `:id`: 1~64자의 `A–Z a–z 0–9 _ -`.
+- `updated_at`: 화면이 랙을 쓴 때, RFC 3339. **보낸 그대로** 저장한다 — 한 랙을 여러 노드에 쓸 때 노드들이 같은 시각을 갖게.
+- 본문은 16 KiB(16384바이트)까지.
+- 그 시각이 저장된 랙의 `updated_at`보다 **이르면** 아무것도 바꾸지 않고 저장된 랙으로 `200`을 답한다(같은 시각은 쓴다). 시각은 글자가 아니라 시점으로 비교한다(`+09:00`과 `Z`처럼 다르게 쓴 같은 시점은 같다).
+- 랙을 바꾼 쓰기는 같은 트랜잭션에서, 지운 표시 중 `updated_at`이 이번 쓰기의 `updated_at`보다 30일 넘게 앞선 것을 지운다(정확히 30일은 남긴다). 지우지 않은 랙은 오래돼도 지우지 않는다.
+- 지우지 않은 랙은 노드에 32개까지.
+
+**Response (200):** 저장된 랙(`racks[]` 한 항목과 같은 모양) — 이른 쓰기였으면 저장되어 있던 랙.
+
+**에러:** 거부되면 아무것도 쓰지 않는다. 아래 순서로 검사해 처음 걸린 것을 답한다.
+- `400 LAN_RACK_INVALID` — `details.field`:
+  - `id` — `:id`가 위 꼴이 아님
+  - `doc` — 본문이 16 KiB를 넘음(읽지 않는다)
+  - `updated_at` — 없음, 빈 값, RFC 3339가 아님(시간대 없는 시각 포함)
+  - `doc` — `doc`이 없거나 `null`
+  - `name` — 앞뒤 공백을 지운 뒤 비었거나 64자를 넘거나 제어 문자가 있음(지운 랙은 검사하지 않음)
+  - `units` — 정수 1~60이 아님(없음 포함, 지운 랙은 없으면 1)
+  - `items` — 80개를 넘음 · 항목 `id`가 위 꼴이 아님 · 항목 `id`를 두 번 씀 · `u`가 1보다 작거나 정수가 아님 · `height`가 정수 1~8이 아님 · 항목이 `units` 위로 넘침 · `kind`가 `node`·`device`·`text`가 아님 · `node` 항목의 `node`가 비었거나 64자를 넘음 · `device` 항목의 `mac`이 6바이트 MAC이 아님 · `text` 항목의 `text`가 비었거나 64자를 넘거나 제어 문자가 있음 · 두 항목이 같은 칸. 어느 항목의 무엇인지는 `message`(영어)에만 있다
+  - `racks` — 이 쓰기로 지우지 않은 랙이 32개를 넘게 됨. 지운 표시는 세지 않으며, 있는 랙을 고치거나 지우는 쓰기와 무시되는 이른 쓰기는 걸리지 않는다
+- `400 INVALID_REQUEST` — 본문이 JSON이 아니거나 필드 타입이 틀림(`"units": "12"`, `"doc": "…"` 등). 본문 크기 다음, `updated_at` 앞에서 검사한다. 숫자이지만 정수가 아닌 값(`1.5`)은 그 필드의 `LAN_RACK_INVALID`
+- `500 DB_ERROR`
+
+0.91.0보다 오래된 노드는 기기·주기 경로에 `404`로 답하고, 그 `GET`에는 `devices`·`conflicts`·`schedules`·`ports_at`·`scheduled`가 없다. 0.92.0보다 오래된 노드는 `wake`에 `404`로 답하고, `devices[]`에 `watch`가 없으며 `PUT`의 `watch`를 무시한다. 0.93.0보다 오래된 노드는 랙 경로에 `404`로 답한다.
 
 ---
 
@@ -7404,6 +7470,8 @@ WireGuard 키페어 생성 (`wg genkey` + `wg pubkey`).
 | POST | `/api/v1/network/devices/:mac/ack` | O | 새 기기 표시 확인 |
 | DELETE | `/api/v1/network/devices/:mac` | O | 기기 잊기 |
 | POST | `/api/v1/network/devices/:mac/wake` | O | Wake-on-LAN (대장에 있는 기기, 스캔 가능한 망) |
+| GET | `/api/v1/network/racks` | O | 이 노드가 가진 랙(지운 표시 포함) |
+| PUT | `/api/v1/network/racks/:id` | O | 랙 쓰기 (이른 `updated_at`은 무시) |
 
 ### WireGuard VPN (14개)
 
