@@ -6,6 +6,24 @@ The format is loosely based on [Keep a Changelog](https://keepachangelog.com/), 
 
 ---
 
+## [0.92.0] – 2026-11-22
+
+The network view tells you. Alert rules for what a scan finds — a device nobody has seen before, an address two devices use, a device you watch that is gone — and a way to wake a device from its card.
+
+### Added
+
+- **Alerts on what a network scan finds.** Three rule types in Settings → Alerts, sent through the channels you already have and judged each time a scan ends:
+  - **New device** — a MAC a network's scans had not seen before. A network's first scan is not news.
+  - **Address conflict** — a server's own address answered by another device, or one address held by two MACs over the same period. Said once for an address, not at every scan.
+  - **Watched device gone** — a device you marked "Watch" on its card that two scans in a row did not find; and once more when it is back.
+- **Watch.** A tick on a device's card, kept with its name and note.
+- **Wake.** A device the registry has seen can be sent a Wake-on-LAN packet from its card, by a server on its network. The panel wakes devices it knows, on networks it is on; whether the device woke is for the next scan to say.
+
+### Upgrading
+
+- Two columns are added to `lan_devices`. Nothing to do.
+- No rule is made for you: add the ones you want in Settings → Alerts. The rules are judged when a scan ends, so "Watched device gone" needs automatic scans on that network.
+
 ## [0.91.0] – 2026-11-22
 
 The network view remembers. Devices get a name, a kind and a note that stay with their MAC; a server can scan its network by itself; and the map shows what is new, what is no longer there, and where two devices seem to share an address.
