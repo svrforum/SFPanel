@@ -1870,21 +1870,71 @@ export interface LanScanResult {
   interface: string
   address: string
   gateway: string
-  /** Whether open ports were looked for. */
+  /** Whether this scan looked for open ports. */
   ports: boolean
+  /** When ports were last looked for: a scan for devices only keeps what an earlier one found. "" for never; absent from a node older than the field. */
+  ports_at?: string
   started_at: string
   finished_at: string
   hosts: LanScanHost[]
+}
+
+/** A device as a node's registry keeps it (by MAC): what the operator wrote of it, and where and when it was seen. */
+export interface LanDevice {
+  mac: string
+  name: string
+  note: string
+  /** "" (not said), router, switch, ap, server, nas, pc, phone, tv, camera, printer, iot, other. */
+  kind: string
+  /** When the operator last wrote to it; "" for never. */
+  labelled_at: string
+  /** The operator has seen that it is new. */
+  acked: boolean
+  network: string
+  ip: string
+  vendor: string
+  hostname: string
+  first_seen: string
+  last_seen: string
+}
+
+/** An address two or more MACs held over overlapping periods. */
+export interface LanConflict {
+  network: string
+  ip: string
+  macs: string[]
+}
+
+export interface LanSchedule {
+  network: string
+  /** 0 (off), 15, 60, 360 or 1440. */
+  interval_minutes: number
+  ports_daily: boolean
+  last_run: string
+  /** "" when off or paused. */
+  next_run: string
+  /** Why it does not run: "" · no_tool · gone · conflict. */
+  paused_reason: string
+}
+
+/** What a node is told of the cluster's own nodes on a network, to know an address conflict by. */
+export interface LanKnownNode {
+  address: string
+  macs: string[]
 }
 
 export interface LanScanStatus {
   /** Whether nmap is there. */
   installed: boolean
   networks: LanScanNetwork[]
-  running: { network: string; ports: boolean; started_at: string } | null
+  running: { network: string; ports: boolean; started_at: string; scheduled?: boolean } | null
   /** How the last scan since the panel started ended. */
-  last: { network: string; ports: boolean; state: 'done' | 'failed' | 'timeout' | 'cancelled'; at: string } | null
+  last: { network: string; ports: boolean; state: 'done' | 'failed' | 'timeout' | 'cancelled'; at: string; scheduled?: boolean } | null
   results: LanScanResult[]
+  /** The node's device registry. Absent from a node older than it (0.90). */
+  devices?: LanDevice[]
+  conflicts?: LanConflict[]
+  schedules?: LanSchedule[]
 }
 
 /** A virtual machine or LXC container of a Proxmox VE node (GET /system/guests). */

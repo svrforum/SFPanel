@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import type { LanScanHost, LanScanNetwork, LanScanResult, LanScanStatus, NetworkInterfaceInfo, PortMapRow } from '@/types/api'
+import type { LanDevice, LanScanHost, LanScanNetwork, LanScanResult, LanScanStatus, NetworkInterfaceInfo, PortMapRow } from '@/types/api'
 import {
   addressParts,
   addressValue,
@@ -8,6 +8,10 @@ import {
   deviceName,
   exposure,
   filterSegment,
+  inNetwork,
+  knownDevices,
+  knownNodes,
+  labelTargets,
   mapPort,
   networkEntries,
   rowsOf,
@@ -273,7 +277,7 @@ describe('networks across nodes', () => {
       [node('alpha', 26)],
       new Map([['alpha', status({ networks: [network(26)], running: { network: NET, ports: false, started_at: '2026-11-22T03:00:00Z' } })]]),
     )
-    expect(entries[0].running).toEqual({ nodeId: 'alpha', nodeName: 'alpha', network: NET, ports: false, startedAt: Date.parse('2026-11-22T03:00:00Z') })
+    expect(entries[0].running).toEqual({ nodeId: 'alpha', nodeName: 'alpha', network: NET, ports: false, startedAt: Date.parse('2026-11-22T03:00:00Z'), scheduled: false })
   })
 
   it('leaves out a node that is not in the cluster any more', () => {
@@ -507,5 +511,257 @@ describe('a node\'s interfaces', () => {
       { name: 'vmbr0', addresses: ['10.20.31.2/24'], mac: mac(1), up: false, isDefault: false },
     ])
     expect(inner).toBe(2)
+  })
+})
+
+// ---- the registry: what the nodes remember of the devices, by MAC ----
+
+const DAY = 24 * 3600 * 1000
+const SCANNED = Date.parse('2026-11-22T02:13:08Z')
+const at = (ms: number) => new Date(ms).toISOString().replace('.000Z', 'Z')
+
+function known(n: number, extra: Partial<LanDevice> = {}): LanDevice {
+  return {
+    mac: mac(n), name: '', note: '', kind: '', labelled_at: '', acked: false,
+    network: NET, ip: `10.20.30.${n}`, vendor: '', hostname: '', first_seen: at(SCANNED - 30 * DAY), last_seen: at(SCANNED), ...extra,
+  }
+}
+
+/** One node's one result with its registry, drawn a minute after the scan. */
+function remembered(hosts: LanScanHost[], devices: LanDevice[], nodes: MapNode[] = [node('alpha', 26)], extra: Partial<LanScanStatus> = {}, now = SCANNED + 60_000) {
+  const entries = networkEntries(nodes, new Map([['alpha', status({ networks: [network(26)], results: [result(hosts)], devices, ...extra })]]), now)
+  expect(entries).toHaveLength(1)
+  return entries[0]
+}
+
+describe('the registries as one', () => {
+  it('takes the label written last, whichever node has it', () => {
+    const merged = knownDevices(new Map([
+      ['a', status({ devices: [known(40, { name: 'old name', kind: 'nas', labelled_at: '2026-11-20T00:00:00Z' })] })],
+      ['b', status({ devices: [known(40, { name: 'new name', note: 'in the closet', kind: 'switch', labelled_at: '2026-11-21T00:00:00Z' })] })],
+      ['c', status({ devices: [known(40)] })],
+    ]))
+    expect(merged.get(mac(40))?.label).toEqual({ name: 'new name', note: 'in the closet', kind: 'switch' })
+  })
+
+  it('has no label for a device nobody wrote of, whatever fields it carries', () => {
+    expect(knownDevices(new Map([['a', status({ devices: [known(40, { name: 'stray' })] })]])).get(mac(40))?.label).toBeNull()
+  })
+
+  it('knows a device from when any node first saw it to when any last did, where the last one saw it', () => {
+    const merged = knownDevices(new Map([
+      ['a', status({ devices: [known(40, { first_seen: '2026-11-01T00:00:00Z', last_seen: '2026-11-10T00:00:00Z', ip: '10.20.30.40', vendor: 'Espressif' })] })],
+      ['b', status({ devices: [known(40, { mac: mac(40).toUpperCase(), first_seen: '2026-11-05T00:00:00Z', last_seen: '2026-11-20T00:00:00Z', ip: '10.20.30.41', vendor: '', acked: true })] })],
+    ])).get(mac(40))!
+    expect([merged.firstSeen, merged.lastSeen]).toEqual([Date.parse('2026-11-01T00:00:00Z'), Date.parse('2026-11-20T00:00:00Z')])
+    expect(merged.ip).toBe('10.20.30.41')
+    // What the later sighting did not say is kept from the earlier one.
+    expect(merged.vendor).toBe('Espressif')
+    expect(merged.acked).toBe(true)
+  })
+
+  it('is empty for nodes older than the registry', () => {
+    expect(knownDevices(new Map([['old', status()]])).size).toBe(0)
+  })
+})
+
+describe('what the operator wrote of a device', () => {
+  it('names it before the network does, and never over a node or a guest', () => {
+    const nodes = [node('alpha', 26), node('pve', 10, { guests: [{ vmid: 111, title: 'web', kind: 'vm', running: true, macs: [mac(40)] }] })]
+    const label = { labelled_at: '2026-11-21T00:00:00Z' }
+    const e = remembered(
+      [host(26, { self: true }), host(10), host(40, { hostname: 'web.lan' }), host(50, { hostname: 'cam.lan', vendor: 'Espressif' }), host(1)],
+      [known(26, { name: 'mine', ...label }), known(40, { name: 'guest label', ...label }), known(50, { name: 'Front door', note: 'PoE, port 3', ...label })],
+      nodes,
+    )
+    const s = e.segment!
+    expect(deviceName(s.servers.find((d) => d.node?.id === 'alpha')!)).toEqual({ text: 'alpha', source: 'node' })
+    expect(deviceName(s.servers.find((d) => d.node?.id === 'pve')!.children[0])).toEqual({ text: 'web', source: 'guest' })
+    expect(deviceName(s.devices[0])).toEqual({ text: 'Front door', source: 'label' })
+    expect(s.devices[0].label).toEqual({ name: 'Front door', note: 'PoE, port 3', kind: '' })
+    // A label with no name leaves the naming to the network.
+    const unnamed = remembered([host(26, { self: true }), host(50, { hostname: 'cam.lan' })], [known(50, { note: 'only a note', ...label })])
+    expect(deviceName(unnamed.segment!.devices[0])).toEqual({ text: 'cam.lan', source: 'hostname' })
+  })
+
+  it('is found by a search, name and note', () => {
+    const e = remembered([host(26, { self: true }), host(50), host(51)], [known(50, { name: 'Front door', note: 'PoE, port 3', labelled_at: '2026-11-21T00:00:00Z' })])
+    expect(filterSegment(e.segment!, 'front').devices.map((d) => d.ip)).toEqual(['10.20.30.50'])
+    expect(filterSegment(e.segment!, 'poe').devices.map((d) => d.ip)).toEqual(['10.20.30.50'])
+  })
+})
+
+describe('network equipment', () => {
+  const label = { labelled_at: '2026-11-21T00:00:00Z' }
+  it('is what the operator said is a router, a switch or an access point, in a row of its own', () => {
+    const e = remembered(
+      [host(26, { self: true }), host(2), host(3), host(4), host(50), host(51), host(1)],
+      [known(2, { kind: 'switch', ...label }), known(3, { kind: 'ap', ...label }), known(4, { kind: 'router', ...label }), known(50, { kind: 'camera', ...label })],
+    )
+    const s = e.segment!
+    expect(s.gear.map((d) => [d.ip, d.label?.kind])).toEqual([['10.20.30.2', 'switch'], ['10.20.30.3', 'ap'], ['10.20.30.4', 'router']])
+    expect(s.devices.map((d) => d.ip)).toEqual(['10.20.30.50', '10.20.30.51'])
+    expect(shownCount(s)).toBe(6)
+    expect(filterSegment(s, '30.3').gear.map((d) => d.ip)).toEqual(['10.20.30.3'])
+  })
+
+  it('leaves a node a server and a gateway a gateway, whatever was said of them', () => {
+    const e = remembered([host(26, { self: true }), host(1)], [known(26, { kind: 'switch', ...label }), known(1, { kind: 'switch', ...label })])
+    expect(e.segment!.gear).toEqual([])
+    expect(e.segment!.servers.map((d) => d.ip)).toEqual(['10.20.30.26'])
+    expect(e.segment!.gateways.map((d) => d.ip)).toEqual(['10.20.30.1'])
+  })
+})
+
+describe('a device the scan did not find', () => {
+  const label = { name: 'Printer', labelled_at: '2026-11-21T00:00:00Z' }
+
+  it('stays on the map, marked, while it has a label or was seen within a week', () => {
+    const e = remembered(
+      [host(26, { self: true }), host(50)],
+      [
+        known(50),
+        known(60, { ...label, last_seen: at(SCANNED - 20 * DAY) }),
+        known(61, { last_seen: at(SCANNED - 2 * DAY), vendor: 'Espressif' }),
+        known(62, { last_seen: at(SCANNED - 9 * DAY) }),
+      ],
+    )
+    const s = e.segment!
+    expect(s.devices.map((d) => [d.ip, d.absent])).toEqual([['10.20.30.50', false], ['10.20.30.60', true], ['10.20.30.61', true]])
+    expect(s.devices[1].lastSeen).toBe(SCANNED - 20 * DAY)
+    expect(s.devices[2].vendor).toBe('Espressif')
+    // The scan found two; two more are drawn from memory.
+    expect([s.count, s.absent]).toEqual([2, 2])
+  })
+
+  it('is not one that is on another network now, nor one the scan did find', () => {
+    const e = remembered([host(26, { self: true }), host(50)], [known(50, label), known(70, { ...label, network: '10.9.0.0/24', ip: '10.9.0.70' })])
+    expect(e.segment!.devices.map((d) => [d.ip, d.absent])).toEqual([['10.20.30.50', false]])
+    expect(e.segment!.absent).toBe(0)
+  })
+
+  it('is drawn as what it is: a node as a server, a guest inside its host', () => {
+    const nodes = [node('alpha', 26), node('beta', 9), node('pve', 10, { guests: [{ vmid: 111, title: 'web', kind: 'vm', running: false, macs: [mac(40)] }] })]
+    const e = remembered([host(26, { self: true }), host(10)], [known(9, { last_seen: at(SCANNED - DAY) }), known(40, { last_seen: at(SCANNED - DAY) })], nodes)
+    const s = e.segment!
+    expect(s.servers.map((d) => [d.node?.id, d.absent])).toEqual([['beta', true], ['pve', false], ['alpha', false]])
+    expect(s.servers[1].children.map((d) => [d.guest?.title, d.absent])).toEqual([['web', true]])
+  })
+
+  it('carries no ports and is no conflict', () => {
+    const e = remembered([host(26, { self: true })], [known(60, label)])
+    const d = e.segment!.devices[0]
+    expect([d.ports, d.conflict, d.fresh]).toEqual([[], null, false])
+  })
+})
+
+describe('a new device', () => {
+  const first = at(SCANNED - 30 * DAY)
+  const base = [known(26, { first_seen: first }), known(50, { first_seen: first })]
+
+  it('is one that came after the network was first scanned, within a week, that nobody has looked at', () => {
+    const e = remembered([host(26, { self: true }), host(50), host(51)], [...base, known(51, { first_seen: at(SCANNED) })])
+    expect(e.segment!.devices.map((d) => [d.ip, d.fresh])).toEqual([['10.20.30.50', false], ['10.20.30.51', true]])
+  })
+
+  it('is not what the first scan of a network found', () => {
+    const e = remembered([host(26, { self: true }), host(50)], [known(26, { first_seen: at(SCANNED) }), known(50, { first_seen: at(SCANNED + 20_000) })])
+    expect(e.segment!.devices.map((d) => d.fresh)).toEqual([false])
+  })
+
+  it('is no longer new once looked at, labelled, or a week old', () => {
+    const fresh = (extra: Partial<LanDevice>, now?: number) =>
+      remembered([host(26, { self: true }), host(50), host(51)], [...base, known(51, { first_seen: at(SCANNED), ...extra })], undefined, undefined, now).segment!.devices[1].fresh
+    expect(fresh({})).toBe(true)
+    expect(fresh({ acked: true })).toBe(false)
+    expect(fresh({ name: 'Mine', labelled_at: at(SCANNED) })).toBe(false)
+    expect(fresh({}, SCANNED + 8 * DAY)).toBe(false)
+  })
+
+  it('is nothing a node without a registry can tell', () => {
+    const entries = networkEntries([node('alpha', 26)], new Map([['alpha', status({ networks: [network(26)], results: [result([host(26, { self: true }), host(51)])] })]]), SCANNED)
+    expect(entries[0].segment!.devices.map((d) => [d.fresh, d.firstSeen])).toEqual([[false, 0]])
+  })
+})
+
+describe('an address two MACs held at once', () => {
+  it('is said as a suspicion, with the other MAC on each device', () => {
+    const e = remembered([host(26, { self: true }), host(50)], [], undefined, { conflicts: [{ network: NET, ip: '10.20.30.50', macs: [mac(77).toUpperCase(), mac(50)] }] })
+    expect(e.segment!.suspects).toEqual([{ ip: '10.20.30.50', macs: [mac(50), mac(77)] }])
+    expect(e.segment!.devices[0].suspect).toEqual([mac(77)])
+  })
+
+  it('is not said twice where the conflict is seen outright, nor of another network', () => {
+    const nodes = [node('alpha', 26), node('beta', 9)]
+    const e = remembered([host(26, { self: true }), host(9, { mac: mac(77) })], [], nodes, {
+      conflicts: [{ network: NET, ip: '10.20.30.9', macs: [mac(9), mac(77)] }, { network: '10.9.0.0/24', ip: '10.9.0.5', macs: [mac(1), mac(2)] }],
+    })
+    expect(e.segment!.conflicts.map((d) => d.ip)).toEqual(['10.20.30.9'])
+    expect(e.segment!.suspects).toEqual([])
+  })
+})
+
+describe('ports kept from an earlier scan', () => {
+  it('are known, and from when, after a scan for devices only', () => {
+    const entries = networkEntries([node('alpha', 26)], new Map([['alpha', status({
+      networks: [network(26)],
+      results: [result([host(26, { self: true }), host(50, { ports: [{ port: 80, proto: 'tcp' }] })], { ports: false, ports_at: '2026-11-21T00:00:00Z' })],
+    })]]))
+    const s = entries[0].segment!
+    expect([s.portsChecked, s.portsAt]).toEqual([true, Date.parse('2026-11-21T00:00:00Z')])
+    expect(s.devices[0].ports.map((p) => p.port)).toEqual([80])
+  })
+
+  it('are not known where none was ever looked for', () => {
+    const s = networkEntries([node('alpha', 26)], new Map([['alpha', status({ networks: [network(26)], results: [result([host(26, { self: true })], { ports: false, ports_at: '' })] })]]))[0].segment!
+    expect([s.portsChecked, s.portsAt]).toEqual([false, 0])
+    const scanned = networkEntries([node('alpha', 26)], new Map([['alpha', status({ networks: [network(26)], results: [result([host(26, { self: true })])] })]]))[0].segment!
+    expect([scanned.portsChecked, scanned.portsAt]).toEqual([true, SCANNED])
+  })
+})
+
+describe('nodes that scan by themselves', () => {
+  it('are listed with their network, how often, when next and why not', () => {
+    const entries = networkEntries([node('alpha', 26), node('beta', 9)], new Map([
+      ['alpha', status({ networks: [network(26)], devices: [], schedules: [{ network: NET, interval_minutes: 60, ports_daily: true, last_run: '', next_run: '2026-11-22T03:00:00Z', paused_reason: '' }], running: { network: NET, ports: false, started_at: '2026-11-22T02:59:00Z', scheduled: true } })],
+      ['beta', status({ networks: [network(9)], schedules: [{ network: NET, interval_minutes: 0, ports_daily: false, last_run: '', next_run: '', paused_reason: '' }, { network: '10.9.0.0/24', interval_minutes: 15, ports_daily: false, last_run: '', next_run: '', paused_reason: 'gone' }] })],
+    ]))
+    expect(entries).toHaveLength(1)
+    expect(entries[0].schedules).toEqual([{ nodeId: 'alpha', nodeName: 'alpha', intervalMinutes: 60, portsDaily: true, nextRun: Date.parse('2026-11-22T03:00:00Z'), pausedReason: '' }])
+    expect(entries[0].running?.scheduled).toBe(true)
+    // A node answers with a registry or it is older than it: only the first can be written to.
+    expect(entries[0].scanners.map((s) => [s.nodeId, s.registry])).toEqual([['alpha', true], ['beta', false]])
+    expect(labelTargets(entries[0])).toEqual(['alpha'])
+  })
+
+  it('are told the cluster\'s own addresses on that network, each with its node\'s MACs', () => {
+    const nodes = [
+      node('alpha', 26, { macs: [mac(26).toUpperCase(), mac(90)], addresses: ['10.20.30.26', '172.17.0.1'] }),
+      node('beta', 9),
+      node('unread', null, { addresses: ['10.20.30.70'] }),
+      node('elsewhere', 5, { addresses: ['10.9.0.5'] }),
+    ]
+    expect(knownNodes(nodes, NET)).toEqual([
+      { address: '10.20.30.9', macs: [mac(9)] },
+      { address: '10.20.30.26', macs: [mac(26), mac(90)] },
+    ])
+  })
+
+  it('tell an address of a network from one that is not', () => {
+    expect(inNetwork('10.20.30.255', NET)).toBe(true)
+    expect(inNetwork('10.20.31.0', NET)).toBe(false)
+    expect(inNetwork('10.20.47.9', '10.20.32.0/20')).toBe(true)
+    expect(inNetwork('10.20.48.9', '10.20.32.0/20')).toBe(false)
+    expect(inNetwork('router', NET)).toBe(false)
+    expect(inNetwork('10.20.30.5', 'nonsense')).toBe(false)
+  })
+
+  it('write a label to the nodes that answer and keep a registry, each once', () => {
+    const entries = networkEntries([node('alpha', 26), node('beta', 9, { online: false }), node('gamma', 60)], new Map([
+      ['alpha', status({ networks: [network(26)], devices: [] })],
+      ['beta', status({ networks: [network(9)], devices: [] })],
+      ['gamma', status({ networks: [network(60)] })],
+    ]))
+    expect(labelTargets(entries[0])).toEqual(['alpha'])
   })
 })

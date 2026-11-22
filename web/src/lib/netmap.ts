@@ -1,4 +1,4 @@
-import type { LanScanResult, LanScanStatus, NetworkInterfaceInfo, PortMapRow } from '@/types/api'
+import type { LanKnownNode, LanScanResult, LanScanStatus, NetworkInterfaceInfo, PortMapRow } from '@/types/api'
 import { macKey, portURL } from './running'
 
 // The network view's model: what nmap found on a network, told apart into the
@@ -62,6 +62,17 @@ export interface MapDevice {
   ports: MapPort[]
   /** The port check gave up on it: its ports are not known. */
   timedOut: boolean
+  /** What the operator wrote of it; null where nothing was written. */
+  label: { name: string; note: string; kind: string } | null
+  /** When a scan first and last saw it (ms); 0 where no registry says. */
+  firstSeen: number
+  lastSeen: number
+  /** Known from before, and not in the scan that is drawn. */
+  absent: boolean
+  /** It appeared after the network was first scanned, and nobody has looked at it yet. */
+  fresh: boolean
+  /** The other MACs that held its address over the same period: a conflict that is suspected, not seen. */
+  suspect: string[]
   /** The guests that run on it, by address. */
   children: MapDevice[]
 }
@@ -72,8 +83,10 @@ export interface Segment {
   prefix: number
   scannedBy: { id: string; name: string }
   finishedAt: number
-  /** Whether that scan looked for open ports. */
+  /** Whether open ports are known: looked for by that scan, or kept from an earlier one. */
   portsChecked: boolean
+  /** When they were last looked for (ms); 0 for never. */
+  portsAt: number
   /**
    * The devices some node's default route leaves through, by address: one on
    * most networks, two where some servers go out through a router of their own.
@@ -83,12 +96,18 @@ export interface Segment {
   gatewayAddress: string
   /** The devices that answered on a node's address without being that node. */
   conflicts: MapDevice[]
+  /** Addresses two MACs held over the same period, as the nodes' registries tell. */
+  suspects: { ip: string; macs: string[] }[]
+  /** What the operator said is network equipment (a router, a switch, an access point), by address. */
+  gear: MapDevice[]
   /** This panel's nodes, with their guests under them. */
   servers: MapDevice[]
   /** Everything else, by address. */
   devices: MapDevice[]
-  /** Hosts found, whichever way they are drawn. */
+  /** Hosts the scan found, whichever way they are drawn. */
   count: number
+  /** Devices drawn that the scan did not find. */
+  absent: number
 }
 
 /** A node that is on a network: whether and why it can scan it. */
@@ -102,6 +121,20 @@ export interface Scanner {
   /** Why not scannable ("too_large"). */
   reason: string
   online: boolean
+  /** The node keeps a device registry and schedules (0.91 and later). */
+  registry: boolean
+}
+
+/** A node's own scanning of a network at intervals. */
+export interface ScanSchedule {
+  nodeId: string
+  nodeName: string
+  intervalMinutes: number
+  portsDaily: boolean
+  /** ms; 0 for none. */
+  nextRun: number
+  /** Why it does not run: "" · no_tool · gone · conflict. */
+  pausedReason: string
 }
 
 export interface ScanRun {
@@ -110,6 +143,8 @@ export interface ScanRun {
   network: string
   ports: boolean
   startedAt: number
+  /** Started by the node's schedule, not by the operator. */
+  scheduled: boolean
 }
 
 /** A network some node is on: scanned (a segment) or not yet. */
@@ -121,6 +156,8 @@ export interface NetworkEntry {
   scanners: Scanner[]
   /** A scan of it that is running now. */
   running: ScanRun | null
+  /** The nodes that scan it by themselves. */
+  schedules: ScanSchedule[]
 }
 
 // Ports a browser tab usually gets an answer on, and those of them that speak
@@ -186,16 +223,85 @@ export function addressParts(ip: string, prefix: number): { network: string; hos
 
 /**
  * What to call a device, and where the name is from: the node's own name, the
- * guest's as Proxmox has it, the name the network's DNS gave, or failing all
- * of those who made its network card. Null for a device nothing names.
+ * guest's as Proxmox has it, the name the operator gave it, the name the
+ * network's DNS gave, or failing all of those who made its network card. Null
+ * for a device nothing names.
  */
-export function deviceName(d: MapDevice): { text: string; source: 'node' | 'guest' | 'hostname' | 'vendor' } | null {
+export function deviceName(d: MapDevice): { text: string; source: 'node' | 'guest' | 'label' | 'hostname' | 'vendor' } | null {
   if (d.node) return { text: d.node.name, source: 'node' }
   if (d.guest) return { text: d.guest.title, source: 'guest' }
+  if (d.label?.name) return { text: d.label.name, source: 'label' }
   if (d.hostname) return { text: d.hostname, source: 'hostname' }
   if (d.vendor) return { text: d.vendor, source: 'vendor' }
   return null
 }
+
+/** A device as the nodes' registries know it together. */
+export interface Known {
+  mac: string
+  /** What the operator wrote, as the node that was written to last has it; null where nothing was written. */
+  label: { name: string; note: string; kind: string } | null
+  labelledAt: number
+  acked: boolean
+  /** As the node that saw it last has it. */
+  network: string
+  ip: string
+  vendor: string
+  hostname: string
+  firstSeen: number
+  lastSeen: number
+}
+
+const time = (s: string | undefined) => (s ? Date.parse(s) || 0 : 0)
+
+/**
+ * The nodes' registries as one, by MAC. A label is written to every node on
+ * the network and one that was down then has an older one: the label written
+ * last is the label. A device was first seen when any node first saw it, last
+ * seen when any last did, and is where the node that saw it last says.
+ */
+export function knownDevices(statuses: ReadonlyMap<string, LanScanStatus>): Map<string, Known> {
+  const known = new Map<string, Known>()
+  for (const status of statuses.values()) {
+    for (const d of status.devices ?? []) {
+      const mac = macKey(d.mac)
+      if (!mac) continue
+      const labelledAt = time(d.labelled_at)
+      const firstSeen = time(d.first_seen)
+      const lastSeen = time(d.last_seen)
+      const label = labelledAt > 0 ? { name: d.name ?? '', note: d.note ?? '', kind: d.kind ?? '' } : null
+      const was = known.get(mac)
+      if (!was) {
+        known.set(mac, { mac, label, labelledAt, acked: !!d.acked, network: d.network ?? '', ip: d.ip ?? '', vendor: d.vendor ?? '', hostname: d.hostname ?? '', firstSeen, lastSeen })
+        continue
+      }
+      if (labelledAt > was.labelledAt) {
+        was.label = label
+        was.labelledAt = labelledAt
+      }
+      was.acked = was.acked || !!d.acked
+      if (firstSeen > 0 && (was.firstSeen === 0 || firstSeen < was.firstSeen)) was.firstSeen = firstSeen
+      if (lastSeen > was.lastSeen) {
+        was.lastSeen = lastSeen
+        was.network = d.network ?? ''
+        was.ip = d.ip ?? ''
+        was.vendor = d.vendor || was.vendor
+        was.hostname = d.hostname || was.hostname
+      }
+    }
+  }
+  return known
+}
+
+/** How long a device nobody labelled stays on the map after it was last seen. */
+const ABSENT_SHOWN_MS = 7 * 24 * 3600 * 1000
+/** How long a device counts as new. */
+const FRESH_MS = 7 * 24 * 3600 * 1000
+/** Devices first seen within this of a network's first scan came with that scan: they are not news. */
+const FIRST_SCAN_MS = 60 * 1000
+/** What the operator can say a device is; the first three are network equipment. */
+export const DEVICE_KINDS = ['router', 'switch', 'ap', 'server', 'nas', 'pc', 'phone', 'tv', 'camera', 'printer', 'iot', 'other'] as const
+const GEAR_KINDS: ReadonlySet<string> = new Set(['router', 'switch', 'ap'])
 
 interface Owners {
   /** The node an interface address belongs to, where exactly one node has it. */
@@ -253,10 +359,34 @@ function owners(nodes: readonly MapNode[]): Owners {
  * `routes`: the addresses default routes of this network's nodes leave
  * through, with the names of the nodes that use each.
  */
-function segmentOf(scannedBy: MapNode, result: LanScanResult, own: Owners, routes: ReadonlyMap<string, string[]>): Segment {
+function segmentOf(
+  scannedBy: MapNode,
+  result: LanScanResult,
+  own: Owners,
+  routes: ReadonlyMap<string, string[]>,
+  known: ReadonlyMap<string, Known>,
+  suspects: readonly { ip: string; macs: string[] }[],
+  now: number,
+): Segment {
   const prefix = prefixOf(result.network)
-  const all = result.hosts.map((h): MapDevice => {
+  const finishedAt = Date.parse(result.finished_at) || 0
+  // When this network was first scanned, as far as any registry tells: what
+  // was found then is not news.
+  let firstScan = 0
+  for (const k of known.values()) if (k.network === result.network && k.firstSeen > 0 && (firstScan === 0 || k.firstSeen < firstScan)) firstScan = k.firstSeen
+  const record = (key: string | null) => {
+    const k = key ? known.get(key) : undefined
+    return {
+      label: k?.label ?? null,
+      firstSeen: k?.firstSeen ?? 0,
+      lastSeen: k?.lastSeen ?? 0,
+      fresh: !!k && !k.acked && !k.label && k.firstSeen > firstScan + FIRST_SCAN_MS && now - k.firstSeen <= FRESH_MS,
+    }
+  }
+  const seen = new Set<string>()
+  const found = result.hosts.map((h): MapDevice => {
     const key = macKey(h.mac)
+    if (key) seen.add(key)
     const node = h.self ? scannedBy : key ? own.nodeOf.get(key) ?? null : null
     const claim = key ? own.guestOf.get(key) : undefined
     // A node is never a guest of itself.
@@ -281,9 +411,43 @@ function segmentOf(scannedBy: MapNode, result: LanScanResult, own: Owners, route
       guest: guest ? { hostId: guest.host.id, hostName: guest.host.name, vmid: guest.guest.vmid, kind: guest.guest.kind, title: guest.guest.title } : null,
       ports: [...(h.ports ?? [])].sort((a, b) => a.port - b.port || a.proto.localeCompare(b.proto)).map((p) => mapPort(h.ip, p.port, p.proto)),
       timedOut: !!h.timed_out,
+      ...record(key),
+      absent: false,
+      suspect: (suspects.find((x) => x.ip === h.ip)?.macs ?? []).filter((m) => m !== key),
       children: [],
     }
-  }).sort(byAddress)
+  })
+  // What a registry knows of this network and the scan did not find: kept
+  // while it has a label, or for a week after it was last seen.
+  const gone: MapDevice[] = []
+  for (const k of known.values()) {
+    if (k.network !== result.network || seen.has(k.mac) || k.lastSeen === 0) continue
+    if (!k.label && now - k.lastSeen > ABSENT_SHOWN_MS) continue
+    const node = own.nodeOf.get(k.mac) ?? null
+    const claim = own.guestOf.get(k.mac)
+    const guest = claim && claim.host.id !== node?.id ? claim : undefined
+    gone.push({
+      key: k.mac,
+      ip: k.ip,
+      mac: k.mac,
+      vendor: k.vendor,
+      hostname: k.hostname,
+      gateway: routes.has(k.ip) && !found.some((d) => d.ip === k.ip),
+      gatewayFor: routes.get(k.ip) ?? [],
+      conflict: null,
+      scanner: false,
+      node: node ? { id: node.id, name: node.name } : null,
+      guest: guest ? { hostId: guest.host.id, hostName: guest.host.name, vmid: guest.guest.vmid, kind: guest.guest.kind, title: guest.guest.title } : null,
+      ports: [],
+      timedOut: false,
+      ...record(k.mac),
+      fresh: false,
+      absent: true,
+      suspect: [],
+      children: [],
+    })
+  }
+  const all = [...found, ...gone].sort(byAddress)
 
   const byNode = new Map<string, MapDevice>()
   for (const d of all) if (d.node && !byNode.has(d.node.id)) byNode.set(d.node.id, d)
@@ -305,18 +469,26 @@ function segmentOf(scannedBy: MapNode, result: LanScanResult, own: Owners, route
   for (const d of all) d.children.sort(byAddress)
 
   const top = all.filter((d) => !d.gateway && !parent.has(d))
+  // Network equipment is what the operator said is: a scan cannot tell a
+  // switch from a smart plug of the same maker. A node stays a server.
+  const isGear = (d: MapDevice) => !d.node && !!d.label && GEAR_KINDS.has(d.label.kind)
   return {
     cidr: result.network,
     prefix,
     scannedBy: { id: scannedBy.id, name: scannedBy.name },
-    finishedAt: Date.parse(result.finished_at) || 0,
-    portsChecked: !!result.ports,
+    finishedAt,
+    // A scan for devices only keeps the ports an earlier one found.
+    portsChecked: !!result.ports || !!result.ports_at,
+    portsAt: result.ports ? finishedAt : time(result.ports_at),
     gateways: all.filter((d) => d.gateway),
     gatewayAddress: result.gateway ?? '',
     conflicts: all.filter((d) => d.conflict),
+    suspects: suspects.filter((x) => !all.some((d) => d.conflict && d.ip === x.ip)),
+    gear: top.filter(isGear),
     servers: top.filter((d) => d.node),
-    devices: top.filter((d) => !d.node),
-    count: all.length,
+    devices: top.filter((d) => !d.node && !isGear(d)),
+    count: found.length,
+    absent: gone.length,
   }
 }
 
@@ -341,9 +513,24 @@ interface Scan {
  * is: six servers of one LAN, one of them going out through a router of its
  * own, were listed as two networks.
  */
-export function networkEntries(nodes: readonly MapNode[], statuses: ReadonlyMap<string, LanScanStatus>): NetworkEntry[] {
+export function networkEntries(nodes: readonly MapNode[], statuses: ReadonlyMap<string, LanScanStatus>, now = Date.now()): NetworkEntry[] {
   const byId = new Map(nodes.map((n) => [n.id, n]))
   const own = owners(nodes)
+  const known = knownDevices(statuses)
+  // Addresses two MACs held at once, as any node's history has it.
+  const suspects = new Map<string, { network: string; ip: string; macs: Set<string> }>()
+  for (const status of statuses.values()) {
+    for (const c of status.conflicts ?? []) {
+      const key = `${c.network}|${c.ip}`
+      const was = suspects.get(key) ?? { network: c.network, ip: c.ip, macs: new Set<string>() }
+      for (const m of c.macs ?? []) {
+        const mac = macKey(m)
+        if (mac) was.macs.add(mac)
+      }
+      suspects.set(key, was)
+    }
+  }
+  const suspectsOf = (cidr: string) => [...suspects.values()].filter((x) => x.network === cidr && x.macs.size > 1).map((x) => ({ ip: x.ip, macs: [...x.macs].sort() }))
 
   const scans: Scan[] = []
   for (const [nodeId, status] of statuses) {
@@ -393,7 +580,7 @@ export function networkEntries(nodes: readonly MapNode[], statuses: ReadonlyMap<
 
   const entries: NetworkEntry[] = groups.map((group, i) => {
     const { node, result } = group[0]
-    return { key: `${node.id}|${result.network}`, cidr: result.network, segment: segmentOf(node, result, own, routes[i]), scanners: [], running: null }
+    return { key: `${node.id}|${result.network}`, cidr: result.network, segment: segmentOf(node, result, own, routes[i], known, suspectsOf(result.network), now), scanners: [], running: null, schedules: [] }
   })
 
   const loose = new Map<string, NetworkEntry>()
@@ -401,7 +588,7 @@ export function networkEntries(nodes: readonly MapNode[], statuses: ReadonlyMap<
     let entry = index === null ? undefined : entries[index]
     if (!entry) {
       entry = loose.get(net.cidr)
-      if (!entry) loose.set(net.cidr, (entry = { key: `loose|${net.cidr}`, cidr: net.cidr, segment: null, scanners: [], running: null }))
+      if (!entry) loose.set(net.cidr, (entry = { key: `loose|${net.cidr}`, cidr: net.cidr, segment: null, scanners: [], running: null, schedules: [] }))
     }
     entry.scanners.push({
       nodeId,
@@ -411,10 +598,22 @@ export function networkEntries(nodes: readonly MapNode[], statuses: ReadonlyMap<
       scannable: !!net.scannable,
       reason: net.reason ?? '',
       online: node.online,
+      registry: Array.isArray(status.devices),
     })
     const run = status.running
     if (run && run.network === net.cidr && !entry.running) {
-      entry.running = { nodeId, nodeName: node.name, network: run.network, ports: !!run.ports, startedAt: Date.parse(run.started_at) || 0 }
+      entry.running = { nodeId, nodeName: node.name, network: run.network, ports: !!run.ports, startedAt: Date.parse(run.started_at) || 0, scheduled: !!run.scheduled }
+    }
+    const schedule = (status.schedules ?? []).find((x) => x.network === net.cidr)
+    if (schedule && schedule.interval_minutes > 0) {
+      entry.schedules.push({
+        nodeId,
+        nodeName: node.name,
+        intervalMinutes: schedule.interval_minutes,
+        portsDaily: !!schedule.ports_daily,
+        nextRun: time(schedule.next_run),
+        pausedReason: schedule.paused_reason ?? '',
+      })
     }
   }
   for (const entry of entries) {
@@ -443,7 +642,7 @@ export function defaultScanner(entry: NetworkEntry): Scanner | null {
 
 function matchesDevice(d: MapDevice, q: string): boolean {
   if (d.ip.includes(q) || d.mac.includes(q)) return true
-  const words = [d.hostname, d.vendor, d.node?.name, d.guest?.title, d.guest?.hostName, d.guest ? String(d.guest.vmid) : '']
+  const words = [d.hostname, d.vendor, d.node?.name, d.guest?.title, d.guest?.hostName, d.guest ? String(d.guest.vmid) : '', d.label?.name, d.label?.note]
   if (words.some((w) => !!w && w.toLowerCase().includes(q))) return true
   return d.ports.some((p) => String(p.port) === q || (!!p.name && p.name.toLowerCase() === q))
 }
@@ -469,13 +668,44 @@ function filterDevices(list: MapDevice[], q: string): MapDevice[] {
 export function filterSegment(segment: Segment, query: string): Segment {
   const q = query.trim().toLowerCase()
   if (!q) return segment
-  return { ...segment, servers: filterDevices(segment.servers, q), devices: filterDevices(segment.devices, q) }
+  return { ...segment, gear: filterDevices(segment.gear, q), servers: filterDevices(segment.servers, q), devices: filterDevices(segment.devices, q) }
 }
 
 /** How many devices a segment shows below its gateway, guests included. */
 export function shownCount(segment: Segment): number {
   const count = (list: MapDevice[]): number => list.reduce((sum, d) => sum + 1 + count(d.children), 0)
-  return count(segment.servers) + count(segment.devices)
+  return count(segment.gear) + count(segment.servers) + count(segment.devices)
+}
+
+/** Whether an IPv4 address is of the network "10.20.30.0/24". */
+export function inNetwork(ip: string, cidr: string): boolean {
+  const [base, bits] = cidr.split('/')
+  const a = addressValue(ip)
+  const b = addressValue(base ?? '')
+  const prefix = Number(bits)
+  if (Number.isNaN(a) || Number.isNaN(b) || !Number.isInteger(prefix) || prefix < 0 || prefix > 32) return false
+  const size = 2 ** (32 - prefix)
+  return Math.floor(a / size) === Math.floor(b / size)
+}
+
+/**
+ * What a node that scans a network by itself is told of the cluster's nodes
+ * there: each node's addresses on that network with its interfaces' MACs, so
+ * the node can tell that another device answers on one of them and stop.
+ */
+export function knownNodes(nodes: readonly MapNode[], cidr: string): LanKnownNode[] {
+  const list: LanKnownNode[] = []
+  for (const node of nodes) {
+    const macs = [...new Set(node.macs.map((m) => macKey(m)).filter((m): m is string => !!m))].sort()
+    if (macs.length === 0) continue
+    for (const address of node.addresses) if (inNetwork(address, cidr)) list.push({ address, macs: macs.slice(0, 16) })
+  }
+  return list.sort((a, b) => addressValue(a.address) - addressValue(b.address)).slice(0, 64)
+}
+
+/** The nodes a label of a device on this network is written to: those that answer and keep a registry. */
+export function labelTargets(entry: NetworkEntry): string[] {
+  return [...new Set(entry.scanners.filter((s) => s.online && s.registry).map((s) => s.nodeId))]
 }
 
 /** The cards of a row of `columns`: the list cut into rows. */

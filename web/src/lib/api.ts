@@ -1112,6 +1112,29 @@ class ApiClient {
     return this.request<{ cancelled: boolean }>('/network/scan', { method: 'DELETE', node })
   }
 
+  // What the operator writes of a device, kept by MAC on the node. One label
+  // is written to several nodes with the same labelled_at, and a node keeps
+  // the newer of what it has and what it is sent. LAN_DEVICE_INVALID names
+  // the field.
+  saveLanDevice(mac: string, label: { name: string; note: string; kind: string; labelled_at: string }, node?: string) {
+    return this.request<import('@/types/api').LanDevice>(`/network/devices/${encodeURIComponent(mac)}`, { method: 'PUT', body: JSON.stringify(label), node })
+  }
+
+  ackLanDevice(mac: string, node?: string) {
+    return this.request<{ acked: boolean }>(`/network/devices/${encodeURIComponent(mac)}/ack`, { method: 'POST', node })
+  }
+
+  forgetLanDevice(mac: string, node?: string) {
+    return this.request<{ deleted: boolean }>(`/network/devices/${encodeURIComponent(mac)}`, { method: 'DELETE', node })
+  }
+
+  // How often a node scans one of its networks by itself (0 = never), and
+  // what it is told of the cluster's nodes there so it can stop when an
+  // address is in conflict.
+  setLanSchedule(schedule: { network: string; interval_minutes: number; ports_daily: boolean; known: import('@/types/api').LanKnownNode[] }, node?: string) {
+    return this.request<import('@/types/api').LanSchedule>('/network/scan/schedule', { method: 'PUT', body: JSON.stringify(schedule), node })
+  }
+
   // A Proxmox VE node's virtual machines and LXC containers; [] on any other
   // node. PVE_GUESTS_ERROR when Proxmox could not list them, 404 from a node
   // older than the route.
