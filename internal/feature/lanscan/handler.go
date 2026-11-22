@@ -19,6 +19,7 @@ import (
 	"net/netip"
 	"os"
 	"path/filepath"
+	"runtime/debug"
 	"strings"
 	"sync"
 	"time"
@@ -296,8 +297,23 @@ func (h *Handler) run(ctx context.Context, cancel context.CancelFunc, done chan 
 	// may read the handler, GET /network/scan included.
 	if ev != nil {
 		ev.Scheduled = scheduled
-		h.Notify(*ev)
+		h.tell(*ev)
 	}
+}
+
+// tell hands a stored scan's event to Notify. A panic in it is the
+// listener's, not the scan's: it is recovered and logged, and the scan,
+// already recorded as done, ends as it would have had Notify returned.
+// Unrecovered, it would end the panel: the scan runs on a goroutine of its
+// own.
+func (h *Handler) tell(ev ScanEvent) {
+	defer func() {
+		if r := recover(); r != nil {
+			slog.Error("scan listener panicked", "component", "lanscan", "network", ev.Network,
+				"panic", r, "stack", string(debug.Stack()))
+		}
+	}()
+	h.Notify(ev)
 }
 
 // scanNetwork scans n and stores the result when nmap finished, with what

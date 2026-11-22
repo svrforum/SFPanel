@@ -1,12 +1,17 @@
 package lanscan
 
 import (
+	"bytes"
 	"context"
 	"database/sql"
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log/slog"
 	"net/http"
+	"strings"
+	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -390,5 +395,69 @@ func TestScanEvent_OutsideTheLock(t *testing.T) {
 		require.Equal(t, "10.20.30.0/24", s.ev.Network)
 	case <-time.After(5 * time.Second):
 		t.Fatal("Notify was not called, or waits on the handler's lock")
+	}
+}
+
+// lockedBuffer is a log destination the scan's goroutine and the test can
+// both use.
+type lockedBuffer struct {
+	mu  sync.Mutex
+	buf bytes.Buffer
+}
+
+func (b *lockedBuffer) Write(p []byte) (int, error) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	return b.buf.Write(p)
+}
+
+func (b *lockedBuffer) String() string {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	return b.buf.String()
+}
+
+// A listener that panics does not take the panel down, nor leave the
+// handler with a scan running: the scan ends as done, GET answers, and the
+// next scan starts. The panic is logged, with its value.
+func TestScanEvent_ListenerPanics(t *testing.T) {
+	logs := &lockedBuffer{}
+	before := slog.Default()
+	slog.SetDefault(slog.New(slog.NewJSONHandler(logs, nil)))
+	t.Cleanup(func() { slog.SetDefault(before) })
+
+	db := openDB(t)
+	h, scan, clock, events := notifying(t, db)
+	var calls atomic.Int32
+	h.Notify = func(ScanEvent) {
+		calls.Add(1)
+		panic("listener broke")
+	}
+
+	for i := 1; i <= 2; i++ {
+		require.Nil(t, scanLAN(t, h, scan, events, self), "scan %d", i)
+		st := getStatus(t, h)
+		require.Nil(t, st.Running, "scan %d", i)
+		require.NotNil(t, st.Last, "scan %d", i)
+		require.Equal(t, stateDone, st.Last.State, "scan %d", i)
+		require.Equal(t, int32(i), calls.Load(), "scan %d: Notify was called", i)
+		clock.advance(time.Hour)
+	}
+
+	var panicked []map[string]any
+	for _, line := range strings.Split(strings.TrimSpace(logs.String()), "\n") {
+		var rec map[string]any
+		require.NoError(t, json.Unmarshal([]byte(line), &rec), line)
+		if rec["msg"] == "scan listener panicked" {
+			panicked = append(panicked, rec)
+		}
+	}
+	require.Len(t, panicked, 2)
+	for _, rec := range panicked {
+		require.Equal(t, "ERROR", rec["level"])
+		require.Equal(t, "lanscan", rec["component"])
+		require.Equal(t, "10.20.30.0/24", rec["network"])
+		require.Equal(t, "listener broke", rec["panic"])
+		require.Contains(t, rec["stack"], "TestScanEvent_ListenerPanics")
 	}
 }
