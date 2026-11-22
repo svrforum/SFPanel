@@ -600,11 +600,11 @@ test('one server with no cluster: its own network, its own ports open on the pag
   await expect(page.getByTestId('net-port').first()).toBeVisible()
 })
 
-test('the view is one of three, and the choice is kept', async ({ page }) => {
+test('the view is one of the four, and the choice is kept', async ({ page }) => {
   await mock(page, { view: 'board' })
   await page.goto('/cluster/running')
   const views = page.getByRole('group', { name: 'View' })
-  await expect(views.getByRole('button')).toHaveText(['Board', 'Canvas', 'Network'])
+  await expect(views.getByRole('button')).toHaveText(['Board', 'Canvas', 'Network', 'Rack'])
   await expect(views.getByRole('button', { name: 'Board' })).toHaveAttribute('aria-pressed', 'true')
   await expect(page.getByTestId('net-view')).toHaveCount(0)
   await views.getByRole('button', { name: 'Network' }).click()
@@ -752,6 +752,24 @@ test('a name, a kind and a note are written to every node of the network, with o
   // Found by what was written.
   await page.getByRole('searchbox').fill('shoe rack')
   await expect(page.locator('[data-testid="net-device"][data-kind="iot"]')).toHaveCount(1)
+})
+
+test('a label is written later than the one it replaces, whatever this clock says', async ({ page }) => {
+  // The label there was written by a device whose clock runs ahead. A node
+  // keeps the newer of two labels by their times: one stamped with this clock
+  // alone would be the older, and dropped without a word.
+  const AHEAD = '2099-01-01T00:00:00.000Z'
+  const state = await mock(page, { devices: [known(37, { name: 'Old name', labelled_at: AHEAD })] })
+  await page.goto('/cluster/running')
+  const plug = device(page, 37)
+  await expect(plug.locator('summary')).toContainText('Old name')
+  await plug.locator('summary').click()
+  const form = plug.getByTestId('net-label-form')
+  await form.getByLabel('Name').fill('New name')
+  await form.getByRole('button', { name: 'Save' }).click()
+  await expect.poll(() => state.labels.length).toBeGreaterThan(0)
+  for (const l of state.labels) expect(Date.parse(String(l.body.labelled_at))).toBeGreaterThan(Date.parse(AHEAD))
+  await expect(plug.locator('summary')).toContainText('New name')
 })
 
 test('a node and a guest have their own names: they take a note', async ({ page }) => {

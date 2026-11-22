@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { api, type ApiError } from '@/lib/api'
-import { knownNodes, labelTargets, networkEntries, wakeNodes, type DeviceLabel, type MapNode, type NetworkEntry } from '@/lib/netmap'
+import { knownDevices, knownNodes, labelTargets, networkEntries, wakeNodes, writeTime, type DeviceLabel, type MapNode, type NetworkEntry } from '@/lib/netmap'
+import { macKey } from '@/lib/running'
 import type { LanScanStatus, NetworkInterfaceInfo, PortMapRow } from '@/types/api'
 import type { BoardSection } from '../useRunningBoard'
 
@@ -231,18 +232,22 @@ export function useNetworkView(sections: BoardSection[], round: number): Network
     return failures.length === targets.length ? message(failures[0].reason) : null
   }, [readScan])
 
-  const saveDevice = useCallback((entry: NetworkEntry, mac: string, label: DeviceLabel) => {
-    const labelled_at = new Date().toISOString()
-    return toEach(entry, (node) => api.saveLanDevice(mac, { ...label, labelled_at }, node))
-  }, [toEach])
-  const ackDevice = useCallback((entry: NetworkEntry, mac: string) => toEach(entry, (node) => api.ackLanDevice(mac, node), 'LAN_DEVICE_NOT_FOUND'), [toEach])
-  const forgetDevice = useCallback((entry: NetworkEntry, mac: string) => toEach(entry, (node) => api.forgetLanDevice(mac, node)), [toEach])
-
   // What each node last answered, for asking the node that knows a device.
   const statusesNow = useRef(new Map<string, LanScanStatus>())
   useEffect(() => {
     statusesNow.current = new Map(Object.entries(scans).flatMap(([id, s]) => (s.phase === 'ready' ? [[id, s.status] as [string, LanScanStatus]] : [])))
   }, [scans])
+
+  const saveDevice = useCallback((entry: NetworkEntry, mac: string, label: DeviceLabel) => {
+    // Later than the label it replaces, whichever clock wrote that one.
+    const key = macKey(mac)
+    const was = (key ? knownDevices(statusesNow.current).get(key)?.labelledAt : undefined) ?? 0
+    const labelled_at = new Date(writeTime(was, Date.now())).toISOString()
+    return toEach(entry, (node) => api.saveLanDevice(mac, { ...label, labelled_at }, node))
+  }, [toEach])
+  const ackDevice = useCallback((entry: NetworkEntry, mac: string) => toEach(entry, (node) => api.ackLanDevice(mac, node), 'LAN_DEVICE_NOT_FOUND'), [toEach])
+  const forgetDevice = useCallback((entry: NetworkEntry, mac: string) => toEach(entry, (node) => api.forgetLanDevice(mac, node)), [toEach])
+
   const wakeDevice = useCallback(async (entry: NetworkEntry, mac: string) => {
     const from = wakeNodes(entry, mac, statusesNow.current)[0]
     const t = from ? targetOf.current.get(from.nodeId) : undefined

@@ -7,7 +7,6 @@ import type { LanRack, LanRackDoc, LanRackItem, NetworkInterfaceInfo } from '@/t
 
 export const MAX_UNITS = 60
 export const MAX_HEIGHT = 8
-export const MAX_ITEMS = 80
 export const MAX_RACKS = 32
 export const MAX_NAME = 64
 
@@ -70,9 +69,9 @@ export function roomAt(rack: Rack, u: number, except?: string): number {
   return height
 }
 
-/** The rack with one thing more, or null where it does not fit, the rack is full, or the id is taken. */
+/** The rack with one thing more, or null where it does not fit or the id is taken. */
 export function place(rack: Rack, item: RackItem): Rack | null {
-  if (rack.items.length >= MAX_ITEMS || rack.items.some((i) => i.id === item.id) || !fits(rack, item.u, item.height)) return null
+  if (rack.items.some((i) => i.id === item.id) || !fits(rack, item.u, item.height)) return null
   return { ...rack, items: [...rack.items, { ...item }] }
 }
 

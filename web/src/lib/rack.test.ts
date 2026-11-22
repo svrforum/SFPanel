@@ -88,12 +88,6 @@ describe('moves in a rack', () => {
     expect(r.items).toHaveLength(2)
   })
 
-  it('does not take more things than a rack can hold', () => {
-    const crowd = (n: number): Rack => ({ ...rack([], 60), items: Array.from({ length: n }, (_, i) => item(`k${i}`, 1)) })
-    expect(place(crowd(79), item('new', 60))?.items).toHaveLength(80)
-    expect(place(crowd(80), item('new', 60))).toBeNull()
-  })
-
   it('moves a thing a unit up or down, and not into another or out of the rack', () => {
     expect(move(r, 'a', 1)?.items[0].u).toBe(3)
     expect(move(r, 'a', -1)?.items[0].u).toBe(1)

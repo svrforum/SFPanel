@@ -12,6 +12,7 @@ import { filterContents, filterGuests, type Totals } from '@/lib/running'
 import { cn } from '@/lib/utils'
 import { AttentionList } from './running/AttentionList'
 import { NetworkView } from './running/network/NetworkView'
+import { RackView } from './running/rack/RackView'
 import { Heading } from './running/Heading'
 import { Meters, NodeBody, NodeSection } from './running/NodeSection'
 import type { HeadingLevel } from './running/Heading'
@@ -100,7 +101,7 @@ function matches(board: BoardModel, query: string): number {
   return board.sections.reduce((sum, s) => sum + tileCount(s, query), 0)
 }
 
-/** Board, canvas or network: a button each, the one in use pressed. */
+/** Board, canvas, network or rack: a button each, the one in use pressed. */
 function ViewSwitch({ view, onView }: { view: RunningView; onView: (view: RunningView) => void }) {
   const { t } = useTranslation()
   const option = (value: RunningView, label: string) => (
@@ -121,6 +122,7 @@ function ViewSwitch({ view, onView }: { view: RunningView; onView: (view: Runnin
       {option('board', t('running.view.board'))}
       {option('canvas', t('running.view.canvas'))}
       {option('network', t('running.view.network'))}
+      {option('rack', t('running.view.rack'))}
     </div>
   )
 }
@@ -230,6 +232,14 @@ function ClusterRunning() {
     section.scrollIntoView({ block: 'start' })
     section.querySelector<HTMLElement>('[data-node-toggle]')?.focus({ preventScroll: true })
   }
+  if (view === 'rack') {
+    return (
+      <Frame wide>
+        <BoardHeader board={board} level={2} subtitle={t('running.subtitleCluster')} onRefresh={() => { refresh(); setNetRound((r) => r + 1) }} view={view} onView={setView} />
+        <RackView sections={board.sections} round={netRound} level={3} />
+      </Frame>
+    )
+  }
   if (view === 'network') {
     return (
       <Frame>
@@ -290,6 +300,14 @@ function NodeRunning() {
     () => [metrics ? { ...section, metrics: { cpu: metrics.cpu, memory: metrics.mem_percent, disk: metrics.disk_percent } } : section],
     [section, metrics],
   )
+  if (view === 'rack') {
+    return (
+      <Frame wide>
+        <BoardHeader board={board} level={1} subtitle={subtitle} onRefresh={() => { refresh(); setNetRound((r) => r + 1) }} view={view} onView={setView} />
+        <RackView sections={board.sections} round={netRound} level={2} />
+      </Frame>
+    )
+  }
   if (view === 'network') {
     return (
       <Frame>

@@ -244,6 +244,17 @@ export interface DeviceLabel {
   watch: boolean
 }
 
+/**
+ * The time a write carries. A node keeps the newer of what it has and what it
+ * is sent, by their times — and the time of what it has may come from a
+ * device whose clock runs ahead of this one. Stamped with this clock alone, a
+ * change would then be the older of the two and dropped without a word: so a
+ * write is always later than what it replaces (`was`, ms; 0 for nothing).
+ */
+export function writeTime(was: number, now: number): number {
+  return Math.max(now, (was > 0 ? was : 0) + 1)
+}
+
 /** A device as the nodes' registries know it together. */
 export interface Known {
   mac: string

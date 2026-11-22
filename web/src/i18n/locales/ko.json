@@ -4528,7 +4528,8 @@
     "lanScanNetworkNotAllowed": "이 서버가 직접 붙어 있는 사설 네트워크만 스캔할 수 있습니다. ({{serverMessage}})",
     "lanDeviceInvalid": "기기 정보를 저장할 수 없습니다. ({{serverMessage}})",
     "lanDeviceNotFound": "이 서버의 대장에 없는 기기입니다.",
-    "lanScheduleInvalid": "자동 스캔 설정이 올바르지 않습니다. ({{serverMessage}})"
+    "lanScheduleInvalid": "자동 스캔 설정이 올바르지 않습니다. ({{serverMessage}})",
+    "lanRackInvalid": "랙을 저장할 수 없습니다. ({{serverMessage}})"
   },
   "running": {
     "title": "실행 현황",
@@ -4541,7 +4542,8 @@
       "label": "보기",
       "board": "보드",
       "canvas": "캔버스",
-      "network": "네트워크"
+      "network": "네트워크",
+      "rack": "랙"
     },
     "canvas": {
       "loading": "캔버스를 불러오는 중…",
@@ -4826,6 +4828,57 @@
       "suspect": {
         "title": "주소 충돌 의심 {{address}}",
         "body": "두 기기({{macs}})가 같은 때에 이 주소를 썼습니다. 한쪽의 주소를 바꾸거나 DHCP 예약을 확인하세요."
+      }
+    },
+    "rack": {
+      "add": "랙 추가",
+      "name": "이름",
+      "units": "높이(U)",
+      "create": "만들기",
+      "edit": "편집",
+      "save": "저장",
+      "delete": "랙 삭제",
+      "confirmDelete": "‘{{name}}’ 랙을 삭제할까요?",
+      "empty": "아직 랙이 없습니다. 랙을 만들고, 서버와 기기를 실제로 놓인 높이에 올리세요.",
+      "unsupported": "이 서버의 패널 버전은 랙을 저장하지 못합니다. 업데이트하면 쓸 수 있습니다.",
+      "loadError": "{{node}}의 랙을 불러오지 못했습니다.",
+      "summary": "{{units}}U · {{count}}개",
+      "label": "{{name}} 랙, 위에서 아래로",
+      "addAt": "U{{unit}}에 올리기",
+      "at": "U{{from}}~U{{to}}",
+      "what": "무엇을 올릴지",
+      "kind": {
+        "node": "서버",
+        "device": "기기",
+        "text": "글자"
+      },
+      "pickNode": "서버 고르기",
+      "pickDevice": "기기 고르기",
+      "textLabel": "쓸 말",
+      "textPlaceholder": "패치 패널, UPS…",
+      "noNodes": "올릴 서버가 없습니다. 모두 랙에 있습니다.",
+      "noDevices": "올릴 기기가 없습니다. 네트워크 보기에서 스캔하면 기기가 생깁니다.",
+      "height": "높이",
+      "heightUnits": "{{count}}U",
+      "put": "올리기",
+      "up": "위로",
+      "down": "아래로",
+      "takeOut": "빼기",
+      "offline": "응답 없음",
+      "absent": "안 보임",
+      "unknownDevice": "대장에 없음",
+      "unknownNode": "클러스터에 없는 서버",
+      "ports": "포트 {{total}}개 중 {{up}}개 연결",
+      "portList": "주소와 포트",
+      "portUp": "연결됨",
+      "portDown": "꺼짐",
+      "problem": {
+        "name": "이름을 1~64자로 넣으세요.",
+        "units": "높이는 1~60U입니다.",
+        "tooShort": "들어 있는 것이 U{{min}}까지 차지합니다. 그보다 낮출 수 없습니다.",
+        "racks": "랙은 32개까지 만들 수 있습니다.",
+        "saveFailed": "저장하지 못했습니다.",
+        "noNode": "랙을 저장할 서버가 없습니다."
       }
     }
   }

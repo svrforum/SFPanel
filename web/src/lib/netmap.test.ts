@@ -20,6 +20,7 @@ import {
   shownCount,
   wakeNodes,
   type MapNode,
+  writeTime,
 } from './netmap'
 
 const NET = '10.20.30.0/24'
@@ -800,5 +801,20 @@ describe('a device to be told about, and to wake', () => {
     const statuses = new Map([['alpha', status({ networks: [network(26, { scannable: false, reason: 'too_large' })], devices: [known(40)] })]])
     const entry = networkEntries([node('alpha', 26)], statuses)[0]
     expect(wakeNodes(entry, mac(40), statuses)).toEqual([])
+  })
+})
+
+describe('the time a write carries', () => {
+  it('is now, where nothing or something older is replaced', () => {
+    expect(writeTime(0, 5_000)).toBe(5_000)
+    expect(writeTime(4_000, 5_000)).toBe(5_000)
+    expect(writeTime(Number.NaN, 5_000)).toBe(5_000)
+  })
+
+  it('is later than what it replaces where that was written by a clock ahead of this one', () => {
+    expect(writeTime(9_000, 5_000)).toBe(9_001)
+    expect(writeTime(5_000, 5_000)).toBe(5_001)
+    // And so is the change after it, made from what the first one wrote.
+    expect(writeTime(writeTime(9_000, 5_000), 5_010)).toBe(9_002)
   })
 })

@@ -4547,7 +4547,8 @@
     "lanScanNetworkNotAllowed": "Only a private network this server is directly on can be scanned. ({{serverMessage}})",
     "lanDeviceInvalid": "The device could not be saved. ({{serverMessage}})",
     "lanDeviceNotFound": "This server's registry does not know that device.",
-    "lanScheduleInvalid": "The automatic scan setting is not valid. ({{serverMessage}})"
+    "lanScheduleInvalid": "The automatic scan setting is not valid. ({{serverMessage}})",
+    "lanRackInvalid": "The rack could not be saved. ({{serverMessage}})"
   },
   "running": {
     "title": "Running",
@@ -4560,7 +4561,8 @@
       "label": "View",
       "board": "Board",
       "canvas": "Canvas",
-      "network": "Network"
+      "network": "Network",
+      "rack": "Rack"
     },
     "canvas": {
       "loading": "Loading the canvas…",
@@ -4846,6 +4848,57 @@
       "suspect": {
         "title": "Suspected address conflict at {{address}}",
         "body": "Two devices ({{macs}}) held this address at the same time. Change the address of one, or check the DHCP reservation."
+      }
+    },
+    "rack": {
+      "add": "Add rack",
+      "name": "Name",
+      "units": "Height (U)",
+      "create": "Create",
+      "edit": "Edit",
+      "save": "Save",
+      "delete": "Delete rack",
+      "confirmDelete": "Delete the rack “{{name}}”?",
+      "empty": "No rack yet. Make one, and put the servers and devices at the height they really sit at.",
+      "unsupported": "This server's panel version cannot keep racks. Update it to use this.",
+      "loadError": "Could not load the racks of {{node}}.",
+      "summary": "{{units}}U · {{count}} in it",
+      "label": "Rack {{name}}, from the top down",
+      "addAt": "Put something at U{{unit}}",
+      "at": "U{{from}}–U{{to}}",
+      "what": "What to put there",
+      "kind": {
+        "node": "Server",
+        "device": "Device",
+        "text": "Words"
+      },
+      "pickNode": "Server",
+      "pickDevice": "Device",
+      "textLabel": "What it says",
+      "textPlaceholder": "Patch panel, UPS…",
+      "noNodes": "No server left to put: all are in a rack.",
+      "noDevices": "No device to put. A scan in the Network view finds them.",
+      "height": "Height",
+      "heightUnits": "{{count}}U",
+      "put": "Put",
+      "up": "Up",
+      "down": "Down",
+      "takeOut": "Take out",
+      "offline": "Not answering",
+      "absent": "Not seen",
+      "unknownDevice": "Not in the registry",
+      "unknownNode": "A server not in the cluster",
+      "ports": "{{up}} of {{total}} ports linked",
+      "portList": "Address and ports",
+      "portUp": "linked",
+      "portDown": "down",
+      "problem": {
+        "name": "Give it a name of 1 to 64 characters.",
+        "units": "The height is 1 to 60 U.",
+        "tooShort": "What is in it reaches U{{min}}: it cannot be shorter.",
+        "racks": "There can be 32 racks at most.",
+        "saveFailed": "Could not save.",
+        "noNode": "No server to keep the rack on."
       }
     }
   }
