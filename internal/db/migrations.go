@@ -311,6 +311,13 @@ var migrations = []migration{
 		last_run         TEXT NOT NULL DEFAULT '',
 		last_ports_run   TEXT NOT NULL DEFAULT ''
 	)`},
+	// A registry device the operator watches (0/1): written with its label,
+	// and what the lan_device_down alert rule reports on.
+	{ID: 46, Up: `ALTER TABLE lan_devices ADD COLUMN watch INTEGER NOT NULL DEFAULT 0`},
+	// How many successful scans of the device's network in a row did not find
+	// it: 0 when the last one did. A device of another network, or one never
+	// seen here, is not counted.
+	{ID: 47, Up: `ALTER TABLE lan_devices ADD COLUMN missed INTEGER NOT NULL DEFAULT 0`},
 }
 
 // RunMigrations applies every registered migration that hasn't already been

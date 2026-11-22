@@ -308,7 +308,7 @@ SQLite의 AUTOINCREMENT 시퀀스를 추적하는 내부 시스템 테이블. `A
 - `alert_history` 테이블 생성 (알림 발송 이력)
 - `idx_alert_history_created_at` 인덱스 생성
 
-### v4 이후 (migrations.go ID 8 – 45, v0.11.x 이후, ID 43–45는 미출시)
+### v4 이후 (migrations.go ID 8 – 47, v0.11.x 이후, ID 46–47은 미출시)
 
 권한 있는 출처는 `internal/db/migrations.go`. 본 단락은 변경 이력 요약입니다.
 
@@ -336,6 +336,8 @@ SQLite의 AUTOINCREMENT 시퀀스를 추적하는 내부 시스템 테이블. `A
 - **ID 43** — `lan_devices` (LAN 기기 대장, `internal/feature/lanscan/registry.go`). MAC 하나에 한 행: `mac TEXT PRIMARY KEY`(소문자), 운영자가 적은 이름표 `name`·`note`·`kind`(`''`·`router`·`switch`·`ap`·`server`·`nas`·`pc`·`phone`·`tv`·`camera`·`printer`·`iot`·`other`)와 `labelled_at`(마지막으로 고친 때, RFC 3339; 한 번도 안 적었으면 `''`), `acked`(새 기기 표시를 운영자가 확인함, 0/1), 마지막으로 본 모습 `network`·`ip`·`vendor`·`hostname`, `first_seen`·`last_seen`(RFC 3339 UTC). 모두 `NOT NULL DEFAULT ''`(`acked`는 0). 성공한 스캔마다 MAC이 있는 기기를 upsert한다 — `vendor`·`hostname`은 빈 값으로 덮지 않고, `first_seen`은 처음 한 번만. 다른 노드가 본 기기에 이름표를 달면 이 노드가 본 적 없는 MAC도 행이 생긴다(보인 적 없는 칸은 `''`). 이름표가 없고(`labelled_at = ''`) 14일 넘게 안 보인 행은 스캔이 끝날 때 지운다(망마다 임의 MAC을 쓰는 휴대폰이 쌓이지 않게). 이름표가 있는 행은 운영자가 지울 때까지 남는다. 노드 로컬(FSM 복제 없음) — 여러 노드의 대장은 화면이 MAC으로 합친다.
 - **ID 44** — `lan_claims` (주소를 쓴 기간, IP 충돌 판정용). `(network, ip, mac)` PK, `first_at`·`last_at`(RFC 3339 UTC). 같은 MAC이 그 주소로 24시간 안에 다시 보이면 `last_at`만 늘리고, 처음이거나 24시간 넘게 안 보였다가 다시 보이면 `first_at = last_at = 지금`으로 새로 잡는다. 두 MAC의 `[first_at, last_at]`이 겹치면 충돌이다(DHCP가 주소를 넘겨준 것은 겹치지 않는다). `last_at`이 48시간보다 오래된 행은 스캔이 끝날 때 지운다. 기기를 지우면 그 MAC의 행도 지운다. 노드 로컬.
 - **ID 45** — `lan_schedules` (망별 주기 스캔). `network TEXT PRIMARY KEY`(CIDR), `interval_minutes`(0=끔, 15·60·360·1440), `ports_daily`(0/1, 하루 한 번 포트도 확인), `known`(그 망에 있는 클러스터 노드들의 주소와 MAC, `[{"address","macs":[…]}]` JSON — 화면이 보낸 그대로, MAC은 소문자), `last_run`·`last_ports_run`(주기 스캔·주기 포트 스캔이 마지막으로 **시작**한 때, RFC 3339 UTC, 없으면 `''`). 시작할 때 적으므로 실패한 스캔을 매분 다시 하지 않는다. 노드 로컬 — 주기는 그 노드의 설정이다.
+- **ID 46** — `lan_devices.watch INTEGER NOT NULL DEFAULT 0`. 운영자가 "지켜보기"로 표시한 기기(0/1). 이름표와 함께 `PUT /network/devices/:mac`의 `watch`로 쓰며, 이름표처럼 저장된 `labelled_at`보다 이른 쓰기는 바꾸지 않는다. `lan_device_down` 알림 규칙이 이 기기들만 본다.
+- **ID 47** — `lan_devices.missed INTEGER NOT NULL DEFAULT 0`. 그 기기의 망(`network`)을 성공적으로 스캔했는데 연속으로 찾지 못한 횟수. 스캔이 끝날 때 같은 트랜잭션에서, 그 망의 기기 중 찾은 것은 `0`으로, 못 찾은 것은 `+1`로 바꾼다. 다른 망의 기기와 이 노드가 본 적 없는(`network = ''`) 기기는 그대로. 지켜보는 기기의 값이 이 스캔으로 정확히 2가 되면 "안 보임", 2 이상이던 기기를 다시 찾으면 "다시 보임" 알림이 나간다. 응답에는 싣지 않는다.
 
 ---
 
