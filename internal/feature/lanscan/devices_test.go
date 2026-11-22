@@ -69,7 +69,7 @@ func TestPutDevice_LabelsAnUnseenMAC(t *testing.T) {
 		`{"name":"  Living room TV ","note":"\n  wall mount, HDMI 2\n","kind":"tv"}`)
 	require.Equal(t, http.StatusOK, code, env.Error)
 	require.JSONEq(t, `{"mac":"02:42:ac:14:1e:2a","name":"Living room TV","note":"wall mount, HDMI 2","kind":"tv",
-		"labelled_at":"2026-11-22T03:00:00Z","acked":false,"network":"","ip":"","vendor":"","hostname":"",
+		"labelled_at":"2026-11-22T03:00:00Z","acked":false,"watch":false,"network":"","ip":"","vendor":"","hostname":"",
 		"first_seen":"","last_seen":""}`, string(env.Data))
 
 	st := getStatus(t, h)
@@ -254,4 +254,49 @@ func TestDeleteDevice(t *testing.T) {
 	require.Equal(t, response.ErrLanDeviceInvalid, env.Error.Code)
 	require.Equal(t, map[string]string{"field": "mac"}, env.Error.Details)
 	require.Equal(t, 1, deviceCount(t, db))
+}
+
+// watch is written with the label when it is given: absent, the stored flag
+// stays; with a label older than the stored one, nothing changes, watch
+// included. A watch that is not a boolean is refused and writes nothing.
+func TestPutDevice_Watch(t *testing.T) {
+	db := openDB(t)
+	clock := newClock(t0)
+	h := newHandler(t, db, nodeCommander(true), nil)
+	h.now = clock.now
+	path := "/api/v1/network/devices/02:42:ac:14:1e:32"
+	put := func(body string) Device {
+		t.Helper()
+		code, env := serve(t, h, http.MethodPut, path, body)
+		require.Equal(t, http.StatusOK, code, env.Error)
+		return decodeDevice(t, env)
+	}
+
+	require.False(t, put(`{"name":"Front door","kind":"camera"}`).Watch, "a new row is not watched unless it says so")
+	clock.advance(time.Minute)
+	require.True(t, put(`{"name":"Front door","kind":"camera","watch":true}`).Watch)
+	clock.advance(time.Minute)
+	d := put(`{"name":"Front door camera","kind":"camera"}`)
+	require.Equal(t, "Front door camera", d.Name)
+	require.True(t, d.Watch, "absent: as it was")
+	require.True(t, device(t, db, "02:42:ac:14:1e:32").Watch)
+
+	d = put(`{"name":"Old","watch":false,"labelled_at":"2026-11-22T02:00:00Z"}`)
+	require.True(t, d.Watch, "an older label changes nothing, watch included")
+	require.Equal(t, "Front door camera", d.Name)
+	require.True(t, device(t, db, "02:42:ac:14:1e:32").Watch)
+
+	clock.advance(time.Minute)
+	require.False(t, put(`{"name":"Front door camera","kind":"camera","watch":false}`).Watch)
+	require.False(t, device(t, db, "02:42:ac:14:1e:32").Watch)
+
+	// Unseen and unlabelled, with watch: written as given.
+	code, env := serve(t, h, http.MethodPut, "/api/v1/network/devices/02:42:ac:14:1e:33", `{"watch":true}`)
+	require.Equal(t, http.StatusOK, code, env.Error)
+	require.True(t, decodeDevice(t, env).Watch)
+
+	code, env = serve(t, h, http.MethodPut, "/api/v1/network/devices/02:42:ac:14:1e:34", `{"name":"x","watch":"yes"}`)
+	require.Equal(t, http.StatusBadRequest, code)
+	require.Equal(t, response.ErrInvalidRequest, env.Error.Code)
+	require.Equal(t, 2, deviceCount(t, db))
 }

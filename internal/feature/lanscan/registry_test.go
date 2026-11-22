@@ -157,7 +157,7 @@ func TestRegistry_Upsert(t *testing.T) {
 func TestRegistry_LabelledBeforeSeen(t *testing.T) {
 	db := openDB(t)
 	tv := "02:42:ac:14:1e:2a"
-	_, err := labelDevice(db, tv, "Living room TV", "", "tv", stamp(t0))
+	_, err := labelDevice(db, tv, "Living room TV", "", "tv", stamp(t0), nil)
 	require.NoError(t, err)
 	require.Equal(t, "", device(t, db, tv).FirstSeen)
 
@@ -260,7 +260,7 @@ func TestRegistry_PruneUnlabelled(t *testing.T) {
 	db := openDB(t)
 	phone, nas, plug := "02:42:ac:14:1e:50", "02:42:ac:14:1e:51", "02:42:ac:14:1e:52"
 	record(t, db, t0, sighting("10.20.30.50", phone), sighting("10.20.30.51", nas))
-	_, err := labelDevice(db, nas, "Backup NAS", "", "nas", stamp(t0))
+	_, err := labelDevice(db, nas, "Backup NAS", "", "nas", stamp(t0), nil)
 	require.NoError(t, err)
 
 	// 14 days on: not yet over.

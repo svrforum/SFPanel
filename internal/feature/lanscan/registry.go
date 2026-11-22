@@ -33,7 +33,10 @@ type Device struct {
 	// never was.
 	LabelledAt string `json:"labelled_at"`
 	// Acked is the operator having seen the device as new.
-	Acked    bool   `json:"acked"`
+	Acked bool `json:"acked"`
+	// Watch is the operator watching the device: the lan_device_down alert
+	// rule reports it missing and back. Written with the label.
+	Watch    bool   `json:"watch"`
 	Network  string `json:"network"`
 	IP       string `json:"ip"`
 	Vendor   string `json:"vendor"`
@@ -117,7 +120,7 @@ func pruneRegistry(tx execer, at time.Time) error {
 	return err
 }
 
-const deviceColumns = `mac, name, note, kind, labelled_at, acked, network, ip, vendor, hostname, first_seen, last_seen`
+const deviceColumns = `mac, name, note, kind, labelled_at, acked, watch, network, ip, vendor, hostname, first_seen, last_seen`
 
 type rowScanner interface {
 	Scan(dest ...any) error
@@ -125,7 +128,7 @@ type rowScanner interface {
 
 func scanDevice(row rowScanner) (Device, error) {
 	var d Device
-	err := row.Scan(&d.MAC, &d.Name, &d.Note, &d.Kind, &d.LabelledAt, &d.Acked,
+	err := row.Scan(&d.MAC, &d.Name, &d.Note, &d.Kind, &d.LabelledAt, &d.Acked, &d.Watch,
 		&d.Network, &d.IP, &d.Vendor, &d.Hostname, &d.FirstSeen, &d.LastSeen)
 	return d, err
 }
@@ -160,10 +163,11 @@ func getDevice(db *sql.DB, mac string) (Device, bool, error) {
 	return d, true, nil
 }
 
-// labelDevice writes a device's label, creating the row for a MAC this node
-// has never seen, unless the stored label is newer than labelledAt: then it
-// changes nothing. Either way it returns the device as stored.
-func labelDevice(db *sql.DB, mac, name, note, kind, labelledAt string) (Device, error) {
+// labelDevice writes a device's label, and its watch flag when watch is not
+// nil, creating the row for a MAC this node has never seen, unless the stored
+// label is newer than labelledAt: then it changes nothing. Either way it
+// returns the device as stored.
+func labelDevice(db *sql.DB, mac, name, note, kind, labelledAt string, watch *bool) (Device, error) {
 	tx, err := db.Begin()
 	if err != nil {
 		return Device{}, err
@@ -177,10 +181,15 @@ func labelDevice(db *sql.DB, mac, name, note, kind, labelledAt string) (Device, 
 	case newer(stored.LabelledAt, labelledAt):
 		return stored, nil
 	}
-	if _, err := tx.Exec(`INSERT INTO lan_devices (mac, name, note, kind, labelled_at) VALUES (?, ?, ?, ?, ?)
+	// NULL, for no watch given, leaves the stored flag as it is.
+	var w any
+	if watch != nil {
+		w = *watch
+	}
+	if _, err := tx.Exec(`INSERT INTO lan_devices (mac, name, note, kind, labelled_at, watch) VALUES (?, ?, ?, ?, ?, COALESCE(?, 0))
 		ON CONFLICT(mac) DO UPDATE SET name = excluded.name, note = excluded.note, kind = excluded.kind,
-			labelled_at = excluded.labelled_at`,
-		mac, name, note, kind, labelledAt); err != nil {
+			labelled_at = excluded.labelled_at, watch = COALESCE(?, lan_devices.watch)`,
+		mac, name, note, kind, labelledAt, w, w); err != nil {
 		return Device{}, err
 	}
 	d, err := scanDevice(tx.QueryRow(`SELECT `+deviceColumns+` FROM lan_devices WHERE mac = ?`, mac))

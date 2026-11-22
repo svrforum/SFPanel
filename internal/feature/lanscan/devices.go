@@ -34,13 +34,17 @@ type labelRequest struct {
 	// LabelledAt, when given, is the label's time as the page set it, so
 	// that every node it writes one label to stores the same time.
 	LabelledAt *string `json:"labelled_at"`
+	// Watch, when given, is written with the label; absent, the stored flag
+	// stays as it is.
+	Watch *bool `json:"watch"`
 }
 
-// PutDevice writes a device's label: its name, note and kind. A MAC this
-// node has never seen is added (another node saw it). A label older than
-// the one stored changes nothing, and the stored device is answered.
+// PutDevice writes a device's label: its name, note and kind, and whether it
+// is watched when watch is given. A MAC this node has never seen is added
+// (another node saw it). A label older than the one stored changes nothing,
+// watch included, and the stored device is answered.
 //
-//	PUT /api/v1/network/devices/:mac {"name","note","kind","labelled_at"?}
+//	PUT /api/v1/network/devices/:mac {"name","note","kind","labelled_at"?,"watch"?}
 func (h *Handler) PutDevice(c echo.Context) error {
 	mac, ok := deviceMAC(c)
 	if !ok {
@@ -70,7 +74,7 @@ func (h *Handler) PutDevice(c echo.Context) error {
 		labelledAt = *req.LabelledAt
 	}
 
-	d, err := labelDevice(h.DB, mac, name, note, req.Kind, labelledAt)
+	d, err := labelDevice(h.DB, mac, name, note, req.Kind, labelledAt, req.Watch)
 	if err != nil {
 		slog.Warn("device label not stored", "component", "lanscan", "mac", mac, "error", err)
 		return response.Fail(c, http.StatusInternalServerError, response.ErrDBError, "Cannot store the label")
