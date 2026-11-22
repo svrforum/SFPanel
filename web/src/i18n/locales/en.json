@@ -4899,7 +4899,8 @@
         "racks": "There can be 32 racks at most.",
         "saveFailed": "Could not save.",
         "noNode": "No server to keep the rack on."
-      }
+      },
+      "settling": "Waiting for the other servers to answer. Racks can be changed once all have."
     }
   }
 }

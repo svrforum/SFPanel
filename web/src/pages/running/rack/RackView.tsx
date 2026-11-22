@@ -352,7 +352,7 @@ function RackCard({ rack, racks, model, level }: { rack: Rack; racks: Rack[]; mo
                     aria-pressed={adding === slot.unit}
                     onClick={() => { setAdding(adding === slot.unit ? null : slot.unit); setChosen(null); setEditing(false) }}
                     className={cn(
-                      'group flex h-full w-full items-center justify-center rounded-md border border-dashed text-muted-foreground hover:border-primary hover:text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring',
+                      'group flex h-full w-full items-center justify-center rounded-md border border-dashed text-muted-foreground hover:border-primary hover:text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:pointer-events-none disabled:opacity-50',
                       adding === slot.unit ? 'border-primary text-primary' : 'border-border/80',
                     )}
                   >
@@ -392,7 +392,7 @@ function RackCard({ rack, racks, model, level }: { rack: Rack; racks: Rack[]; mo
                   aria-pressed={chosen === slot.item.id}
                   onClick={() => { setChosen(chosen === slot.item.id ? null : slot.item.id); setAdding(null); setEditing(false) }}
                   className={cn(
-                    'flex h-full w-full items-center gap-2 rounded-md border bg-card px-2 text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring',
+                    'flex h-full w-full items-center gap-2 rounded-md border bg-card px-2 text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:pointer-events-none',
                     chosen === slot.item.id ? 'border-primary' : 'border-border hover:border-muted-foreground',
                   )}
                 >
@@ -485,7 +485,11 @@ export function RackView({ sections, round, level }: { sections: BoardSection[];
       {model.loading && <p role="status" className="rounded-2xl bg-card px-4 py-3 text-[13px] text-muted-foreground card-shadow">{t('common.loading')}</p>}
       {model.unsupported && <p className="rounded-2xl bg-card px-4 py-3 text-[13px] text-muted-foreground card-shadow">{t('running.rack.unsupported')}</p>}
       {!model.loading && !model.unsupported && (
-        <>
+        // Not to be changed while a node's answer is still on its way: a change
+        // made to an older copy would be written over the newer one.
+        <fieldset disabled={model.settling} className="m-0 min-w-0 space-y-4 border-0 p-0">
+          <legend className="sr-only">{t('running.view.rack')}</legend>
+          {model.settling && <p role="status" data-testid="rack-settling" className="rounded-2xl bg-card px-4 py-3 text-[13px] text-muted-foreground card-shadow">{t('running.rack.settling')}</p>}
           <NewRack count={model.racks.length} onCreate={create} />
           {problem && <p role="alert" className="break-words text-xs text-destructive">{t('running.rack.problem.saveFailed')} {problem}</p>}
           {model.racks.length === 0 && model.failed.length === 0 && (
@@ -494,7 +498,7 @@ export function RackView({ sections, round, level }: { sections: BoardSection[];
           <div className="flex flex-wrap items-start gap-4">
             {model.racks.map((rack) => <RackCard key={rack.id} rack={rack} racks={model.racks} model={model} level={level} />)}
           </div>
-        </>
+        </fieldset>
       )}
     </div>
   )

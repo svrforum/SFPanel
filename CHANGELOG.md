@@ -6,6 +6,27 @@ The format is loosely based on [Keep a Changelog](https://keepachangelog.com/), 
 
 ---
 
+## [0.93.0] – 2026-11-22
+
+A rack view. Draw your racks — which server, device or thing sits at which height — and the panel fills each unit with what it knows: a server's network ports and their links, a device's name, whether the last scan found it.
+
+### Added
+
+- **Rack.** A fourth view on the running page, beside Board, Canvas and Network. A rack has a name and a height (1–60 U); racks stand side by side, one under another on a phone.
+- **What goes in a unit.** A server of the panel, a device of the network registry, or a word of your own (a patch panel, a UPS), 1 to 8 units tall. Press a free unit to put something there; press a thing to move it a unit up or down, change its height or take it out. Nothing is dragged, so a phone and a keyboard do all a mouse does, and two things can never take the same unit.
+- **What a unit shows.** A server: its name, its address when it is two units or taller, and its physical network ports as lamps — filled where the link is up, with the link speed (1G, 2.5G, 10G) while there are four or fewer — or "Not answering". A device: the name and kind you gave it in the Network view, and "Not seen" when the last scan did not find it.
+- **Kept by every server.** A rack is written to every server that answers, so it does not go away with one of them; a server that was down then has an older copy, and the one written last is the rack. A deleted rack stays deleted when that server comes back. While a server has yet to answer, what the others hold is shown and nothing can be changed: the answer still on its way may be the newer copy.
+
+### Fixed
+
+- **A name or note written from a device whose clock runs ahead could not be changed from another.** A server keeps the newer of two labels by their times, and the page stamped a label with the clock of the device you were using: after one written by a clock some minutes ahead, a change from a device with the right time was the older of the two and was dropped without a word. A label is now always written later than the one it replaces.
+
+### Upgrading
+
+- A table `lan_racks` is added. Nothing to do.
+- Racks are yours to draw: none is made for you.
+- In a cluster, a server still on an older version does not keep racks; the others do. Once updated, it keeps a rack from the next time that rack is changed.
+
 ## [0.92.0] – 2026-11-22
 
 The network view tells you. Alert rules for what a scan finds — a device nobody has seen before, an address two devices use, a device you watch that is gone — and a way to wake a device from its card.

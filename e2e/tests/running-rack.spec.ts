@@ -55,6 +55,8 @@ interface Opts {
   old?: string[]
   /** Nodes that refuse every write. */
   refuses?: string[]
+  /** Nodes whose racks are a while in coming, until the test lets them through. */
+  slow?: string[]
   view?: string
 }
 
@@ -64,7 +66,10 @@ async function mock(page: Page, opts: Opts = {}) {
     racks: Object.fromEntries(NODES.map((n) => [n.id, new Map<string, Stored>((opts.racks?.[n.id] ?? []).map((r) => [r.id, r]))])) as Record<string, Map<string, Stored>>,
     puts: [] as { node: string; id: string; body: { doc: Record<string, unknown>; updated_at: string } }[],
     reads: [] as string[],
+    /** Lets the slow nodes answer. */
+    release: () => {},
   }
+  const held = new Promise<void>((resolve) => { state.release = resolve })
   await page.addInitScript(({ view }) => {
     sessionStorage.setItem('token', 'fixture-token')
     localStorage.setItem('sfpanel_language', 'en')
@@ -95,6 +100,7 @@ async function mock(page: Page, opts: Opts = {}) {
     else if (path === '/network/scan') data = node === 'm-1' ? SCAN : { ...SCAN, networks: [{ ...SCAN.networks[0], address: ip(AT[node]), mac: mac(AT[node]) }], results: [], devices: [] }
     else if (path === '/network/racks') {
       if (opts.old?.includes(node)) return fail(404, 'NOT_FOUND', 'Not Found')
+      if (opts.slow?.includes(node)) await held
       state.reads.push(node)
       data = { racks: [...state.racks[node].values()].sort((a, b) => a.id.localeCompare(b.id)) }
     }
@@ -395,6 +401,35 @@ test('a change is kept when the copy it changes was written by a clock ahead of 
   expect(Date.parse(state.puts[5].body.updated_at)).toBeGreaterThan(Date.parse(state.puts[0].body.updated_at))
   await page.reload()
   await expect(things(page)).toHaveAttribute('data-unit', '2')
+})
+
+test('nothing is changed while a server has yet to answer: what it holds may be the newer copy', async ({ page }) => {
+  // m-2 was the only one up when the rack was last changed, and when another was deleted; it is slow to answer now.
+  const state = await mock(page, { slow: ['m-2'], racks: {
+    'm-1': [rack('a', 'Old name', EARLIER), rack('b', 'Deleted since', EARLIER)],
+    'p-1': [rack('a', 'Old name', EARLIER), rack('b', 'Deleted since', EARLIER)],
+    'm-2': [rack('a', 'New name', LATER, { items: [{ id: 'x', u: 1, height: 1, kind: 'text', text: 'UPS' }] }), rack('b', '', LATER, { deleted: true })],
+  } })
+  await page.goto('/cluster/running')
+  // What the others hold is drawn, and said to be not all there is.
+  await expect(racks(page).getByRole('heading')).toHaveText(['Deleted since', 'Old name'])
+  await expect(page.getByTestId('rack-settling')).toHaveText('Waiting for the other servers to answer. Racks can be changed once all have.')
+  await expect(page.getByRole('button', { name: 'Add rack' })).toBeDisabled()
+  await expect(racks(page).first().getByRole('button', { name: 'Edit' })).toBeDisabled()
+  for (const slot of await page.getByTestId('rack-free').all()) await expect(slot).toBeDisabled()
+  expect(state.puts).toHaveLength(0)
+
+  state.release()
+  await expect(racks(page).getByRole('heading')).toHaveText(['New name'])
+  await expect(page.getByTestId('rack-settling')).toHaveCount(0)
+  await expect(things(page)).toHaveCount(1)
+  await expect(page.getByRole('button', { name: 'Add rack' })).toBeEnabled()
+  // Now a change is made to the newer copy, and keeps what was in it.
+  await free(page, 3).click()
+  await page.getByTestId('rack-add-form').getByRole('button', { name: 'Put' }).click()
+  await expect.poll(() => state.puts.length).toBe(3)
+  expect((state.puts[0].body.doc.items as { id: string }[]).map((i) => i.id)).toContain('x')
+  expect(Date.parse(state.puts[0].body.updated_at)).toBeGreaterThan(Date.parse(LATER))
 })
 
 test('nodes older than the racks are not written to, and with none that keeps racks the page says so', async ({ page }) => {

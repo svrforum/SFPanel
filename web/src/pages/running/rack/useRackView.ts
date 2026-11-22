@@ -26,6 +26,12 @@ export interface RackModel {
   /** The devices the networks' scans and registries know, by MAC. */
   devices: ReadonlyMap<string, MapDevice>
   loading: boolean
+  /**
+   * Some node asked has not answered yet. What is drawn may be an older copy
+   * than the one still on its way — or a rack that one says was deleted — so
+   * nothing is changed until every node has answered or failed.
+   */
+  settling: boolean
   /** No node keeps racks: every one that answered is older than them. */
   unsupported: boolean
   failed: { id: string; name: string; error: string }[]
@@ -187,6 +193,7 @@ export function useRackView(sections: BoardSection[], round: number): RackModel 
       }),
       devices,
       loading: asked.length > 0 && answered.length === 0,
+      settling: answered.length < asked.length,
       unsupported: answered.length > 0 && answered.every((a) => a.load!.phase === 'unsupported'),
       failed: asked.flatMap((a) => (a.load?.phase === 'error' ? [{ id: a.node.id, name: a.node.name || a.node.id, error: a.load.error }] : [])),
       save,
