@@ -318,6 +318,18 @@ var migrations = []migration{
 	// it: 0 when the last one did. A device of another network, or one never
 	// seen here, is not counted.
 	{ID: 47, Up: `ALTER TABLE lan_devices ADD COLUMN missed INTEGER NOT NULL DEFAULT 0`},
+	// The address conflicts this node has already told the alert rules of,
+	// one row per network, address and kind (certain 1, suspected 0), with
+	// when a scan last saw each. A conflict is news again only after a full
+	// day without it; rows older than that are dropped at the network's
+	// next scan. Per node, never replicated.
+	{ID: 48, Up: `CREATE TABLE IF NOT EXISTS lan_conflict_notes (
+		network TEXT NOT NULL,
+		ip      TEXT NOT NULL,
+		certain INTEGER NOT NULL,
+		last_at TEXT NOT NULL,
+		PRIMARY KEY (network, ip, certain)
+	)`},
 }
 
 // RunMigrations applies every registered migration that hasn't already been

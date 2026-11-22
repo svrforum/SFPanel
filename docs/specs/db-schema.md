@@ -308,7 +308,7 @@ SQLite의 AUTOINCREMENT 시퀀스를 추적하는 내부 시스템 테이블. `A
 - `alert_history` 테이블 생성 (알림 발송 이력)
 - `idx_alert_history_created_at` 인덱스 생성
 
-### v4 이후 (migrations.go ID 8 – 47, v0.11.x 이후, ID 46–47은 미출시)
+### v4 이후 (migrations.go ID 8 – 48, v0.11.x 이후, ID 46–48은 미출시)
 
 권한 있는 출처는 `internal/db/migrations.go`. 본 단락은 변경 이력 요약입니다.
 
@@ -338,6 +338,7 @@ SQLite의 AUTOINCREMENT 시퀀스를 추적하는 내부 시스템 테이블. `A
 - **ID 45** — `lan_schedules` (망별 주기 스캔). `network TEXT PRIMARY KEY`(CIDR), `interval_minutes`(0=끔, 15·60·360·1440), `ports_daily`(0/1, 하루 한 번 포트도 확인), `known`(그 망에 있는 클러스터 노드들의 주소와 MAC, `[{"address","macs":[…]}]` JSON — 화면이 보낸 그대로, MAC은 소문자), `last_run`·`last_ports_run`(주기 스캔·주기 포트 스캔이 마지막으로 **시작**한 때, RFC 3339 UTC, 없으면 `''`). 시작할 때 적으므로 실패한 스캔을 매분 다시 하지 않는다. 노드 로컬 — 주기는 그 노드의 설정이다.
 - **ID 46** — `lan_devices.watch INTEGER NOT NULL DEFAULT 0`. 운영자가 "지켜보기"로 표시한 기기(0/1). 이름표와 함께 `PUT /network/devices/:mac`의 `watch`로 쓰며, 이름표처럼 저장된 `labelled_at`보다 이른 쓰기는 바꾸지 않는다. `lan_device_down` 알림 규칙이 이 기기들만 본다.
 - **ID 47** — `lan_devices.missed INTEGER NOT NULL DEFAULT 0`. 그 기기의 망(`network`)을 성공적으로 스캔했는데 연속으로 찾지 못한 횟수. 스캔이 끝날 때 같은 트랜잭션에서, 그 망의 기기 중 찾은 것은 `0`으로, 못 찾은 것은 `+1`로 바꾼다. 다른 망의 기기와 이 노드가 본 적 없는(`network = ''`) 기기는 그대로. 지켜보는 기기의 값이 이 스캔으로 정확히 2가 되면 "안 보임", 2 이상이던 기기를 다시 찾으면 "다시 보임" 알림이 나간다. 응답에는 싣지 않는다.
+- **ID 48** — `lan_conflict_notes` (이 노드가 알림 규칙에 이미 알린 주소 충돌, `internal/feature/lanscan/events.go`). `(network, ip, certain)` PK — `certain`은 1(확실: 클러스터 노드의 주소에 다른 MAC이 응답)·0(의심: `lan_claims`의 겹침)이라 한 주소의 두 종류는 다른 행이다. `last_at`은 스캔이 그 충돌을 마지막으로 본 때(RFC 3339 UTC). 망을 성공적으로 스캔할 때마다 같은 트랜잭션에서: 지금의 충돌 중 행이 없거나 `last_at`이 이번 스캔보다 24시간 넘게 앞선 것만 **새 소식**으로 알리고, 지금의 충돌은 모두 `last_at`을 이번 스캔으로 쓰고, 그 망의 행 중 `last_at`이 24시간보다 오래된 것은 지운다. 그래서 충돌은 처음 보일 때 한 번 알리고, 스캔마다 계속 보여도, 하루 안에 사라졌다 다시 보여도 다시 알리지 않으며, 하루 넘게 없다가 돌아오면 다시 알린다. 패널을 재시작해도 남는다. 다른 망의 행은 건드리지 않는다. 노드 로컬.
 
 ---
 
@@ -468,6 +469,7 @@ SQLite의 AUTOINCREMENT 시퀀스를 추적하는 내부 시스템 테이블. `A
 | `task_jobs` | 최근 200개, 30일 이내 (`running`·`rebooting` 행은 제외) | 잡을 시작할 때와 부팅 때, 행과 로그 파일을 함께 `DELETE` | `internal/feature/taskjob/store.go` |
 | `lan_devices` | 이름표 없는 기기는 마지막으로 본 뒤 14일, 이름표 있는 기기는 제한 없음 | LAN 스캔이 성공할 때마다 `DELETE` | `internal/feature/lanscan/registry.go` |
 | `lan_claims` | 마지막으로 본 뒤 48시간 | LAN 스캔이 성공할 때마다 `DELETE` | `internal/feature/lanscan/registry.go` |
+| `lan_conflict_notes` | 마지막으로 본 뒤 24시간 (그 망을 다음에 스캔할 때) | 그 망의 LAN 스캔이 성공할 때마다 `DELETE` | `internal/feature/lanscan/events.go` |
 | 그 외 모든 테이블 | 제한 없음 | 수동 (CRUD 엔드포인트 경유) | — |
 
 ## 백업/복구
