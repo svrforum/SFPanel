@@ -6,6 +6,28 @@ The format is loosely based on [Keep a Changelog](https://keepachangelog.com/), 
 
 ---
 
+## [0.91.0] – 2026-11-22
+
+The network view remembers. Devices get a name, a kind and a note that stay with their MAC; a server can scan its network by itself; and the map shows what is new, what is no longer there, and where two devices seem to share an address.
+
+### Added
+
+- **A registry of devices, by MAC.** Open a device's card to give it a name, say what it is (router, switch, access point, NAS, PC, phone, TV, camera, printer, IoT device) and leave a note. They follow the MAC, whatever address the device has next week. A server and a Proxmox guest keep their own names and take a note. What is written goes to every server on that network, so one server going away does not take it along. A search finds names and notes.
+- **Network equipment has a row of its own.** What you call a router, a switch or an access point stands under the gateway, above the servers. A scan cannot tell a switch from a smart plug of the same maker, so nothing is guessed: it is what you said it is.
+- **Devices that are not there.** A device the registry knows and the last scan did not find stays on the map — while it has a name, or for a week — with a dashed outline and "Not seen · last …", a stopped virtual machine inside its host. "Forget" takes it out.
+- **New devices.** One that appears after a network's first scan is marked "New" until you look at it or name it.
+- **Automatic scans.** A server can scan a network every 15 minutes, hour, 6 hours or day — off unless you turn it on. These look for devices only, which takes seconds; ports once a day is a choice of its own, and a scan for devices keeps the ports an earlier one found.
+- **Suspected address conflicts.** Each server keeps which MAC held which address when, for two days; an address two MACs held over the same period is said on top of the network and on the device.
+
+### Changed
+
+- **A scan does not run by itself on a network with an address conflict**, and one started by hand says why to think first. On a LAN where two devices answer for one address, a scan can leave the scanning server's ARP table pointing at the wrong one — and that server cut off from the right one. That happened on the network this was first run on.
+
+### Upgrading
+
+- Migrations 43–45 add `lan_devices`, `lan_claims` and `lan_schedules`. Nothing to do; no scan runs by itself until you choose an interval.
+- A server that has not been updated keeps scanning as before and is not written to: names and schedules need 0.91.0 on the server that keeps them.
+
 ## [0.90.1] – 2026-11-22
 
 ### Added
