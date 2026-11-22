@@ -47,14 +47,14 @@ const fireWorkers = 2
 // channel's config could not be read for its type.
 var errUnusableChannelConfig = errors.New("channel config unusable for its type")
 
-// fireKey is what a cooldown runs per: the rule and, for a container rule,
-// the container it fired for. Keyed on the rule alone, a "*" rule's alert for
-// one container held back every other container's for the cooldown (#135).
-// lastSent keeps one entry per container a rule has alerted on, for the life
-// of the process.
+// fireKey is what a cooldown runs per: the rule and the subject it fired for
+// (AlertFire.Subject) — for a container rule, the container. Keyed on the
+// rule alone, a "*" rule's alert for one container held back every other
+// container's for the cooldown (#135). lastSent keeps one entry per subject a
+// rule has alerted on, for the life of the process.
 type fireKey struct {
-	rule      int
-	container string
+	rule    int
+	subject string
 }
 
 type Manager struct {
@@ -251,7 +251,7 @@ func (m *Manager) evaluate() {
 // single lock, so two concurrent fires for the same rule (container-event path
 // + periodic evaluate) cannot both pass the gate and double-send.
 func (m *Manager) Fire(_ context.Context, f AlertFire) {
-	key := fireKey{rule: f.RuleID, container: f.Container}
+	key := fireKey{rule: f.RuleID, subject: f.Subject}
 	m.mu.Lock()
 	if lastSent, ok := m.lastSent[key]; ok &&
 		time.Since(lastSent) < time.Duration(f.Cooldown)*time.Second {
@@ -259,7 +259,7 @@ func (m *Manager) Fire(_ context.Context, f AlertFire) {
 		return
 	}
 	if m.inFlight[key] {
-		m.mu.Unlock() // a dispatch for this rule and container is already queued/running
+		m.mu.Unlock() // a dispatch for this rule and subject is already queued/running
 		return
 	}
 	m.inFlight[key] = true
@@ -282,7 +282,7 @@ func (m *Manager) Fire(_ context.Context, f AlertFire) {
 func (m *Manager) runFire(f AlertFire) {
 	sentChannelNames := m.deliver(f)
 
-	key := fireKey{rule: f.RuleID, container: f.Container}
+	key := fireKey{rule: f.RuleID, subject: f.Subject}
 	m.mu.Lock()
 	delete(m.inFlight, key)
 	if len(sentChannelNames) > 0 {

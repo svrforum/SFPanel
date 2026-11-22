@@ -91,9 +91,10 @@ type AlertFire struct {
 	Message    string
 	ChannelIDs string // raw JSON from alert_rules.channel_ids
 	Cooldown   int    // seconds
-	// Container is the name of the container a container rule fired for,
-	// and "" for any other rule. The cooldown runs per rule and container.
-	Container string
+	// Subject is what the rule fired for, and the cooldown runs per rule and
+	// subject: the container's name for a container rule, and "" for a host
+	// metric rule.
+	Subject string
 }
 
 // stopRequestWindow is how long before a die the kill event of a stop
@@ -269,7 +270,7 @@ func (d *ContainerDispatcher) Dispatch(ctx context.Context, ev *AlertContainerEv
 				Message:    formatAlertMessage(typ, ev, requested),
 				ChannelIDs: channelIDs,
 				Cooldown:   cooldown,
-				Container:  ev.Name,
+				Subject:    ev.Name,
 			})
 		}
 	}
