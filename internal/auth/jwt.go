@@ -12,6 +12,13 @@ import (
 // golang-jwt otherwise accepts.
 var ErrEmptyJWTKey = errors.New("the JWT signing key is empty")
 
+// CLIUsername is the identity the sfpanel command presents to its own running
+// panel (callLocalAPI). It is not an account, and setup refuses it as one, so
+// a token carrying it is one signed with the panel's JWT secret, which only
+// root on a manager can read. Password reset trusts it for that reason, and
+// refuses while an account of that name (made before setup refused it) exists.
+const CLIUsername = "sfpanel-cli"
+
 type Claims struct {
 	Username string `json:"username"`
 	jwt.RegisteredClaims

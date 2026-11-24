@@ -90,7 +90,7 @@ func attachCSRFIfNeeded(req *http.Request) error {
 // This is how CLI commands that need LIVE cluster state (token, remove, …)
 // coordinate with the running process instead of spawning a conflicting one.
 func callLocalAPI(cfg *config.Config, method, path string, body interface{}) ([]byte, error) {
-	jwt, err := auth.GenerateToken("sfpanel-cli", cfg.Auth.JWTSecret, time.Minute)
+	jwt, err := auth.GenerateToken(auth.CLIUsername, cfg.Auth.JWTSecret, time.Minute)
 	if err != nil {
 		return nil, fmt.Errorf("mint admin token: %w", err)
 	}

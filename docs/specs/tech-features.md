@@ -1005,6 +1005,7 @@ SFPanel 바이너리는 서버 실행 외에도 관리 명령을 지원합니다
 | `sfpanel version` | 버전 정보 출력 (버전, 커밋 해시, 빌드 날짜) |
 | `sfpanel update` | GitHub Releases에서 최신 버전 다운로드 및 자동 업데이트. 현재 아키텍처(amd64/arm64) 자동 감지. systemd 서비스 실행 중이면 자동 재시작. |
 | `sfpanel reset` | 데이터베이스 삭제 및 초기화 (셋업 위저드로 복귀). 확인 프롬프트(y/N) 표시. |
+| `sfpanel reset-password [--user NAME]` | 현재 비밀번호 없이 새 비밀번호 설정(root, 실행 중인 매니저). 터미널에서 두 번 입력받거나 stdin 한 줄을 읽는다. 클러스터면 리더를 거쳐 모든 매니저에 반영되고, 2FA는 그대로다. 에이전트에서는 거부. |
 | `sfpanel cluster init [--name]` | 새 클러스터 초기화 (CA 생성, Raft 부트스트랩) |
 | `sfpanel cluster join ADDR TOKEN --ca FINGERPRINT` | 기존 클러스터 참가 (FINGERPRINT = 리더 토큰 화면의 CA 지문) |
 | `sfpanel cluster leave` | 클러스터 탈퇴 (단독 모드 복귀) |

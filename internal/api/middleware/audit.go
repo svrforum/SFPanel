@@ -43,12 +43,13 @@ func AuditMiddleware(writer *sfdb.AsyncWriter, localNodeIDFn func() string) echo
 			path := c.Request().URL.Path
 			// Skip auth endpoints. The login / setup endpoints handle bodies that
 			// contain passwords; the post-auth security flows (change-password,
-			// 2fa enable/verify/disable) write their own enriched audit rows via
+			// reset-password, 2fa enable/verify/disable) write their own enriched audit rows via
 			// recordSecurityEvent — without this skip the same request would
 			// produce two rows (plain + reasoned) and dilute filterable audit data.
 			if strings.HasPrefix(path, "/api/v1/auth/login") ||
 				strings.HasPrefix(path, "/api/v1/auth/setup") ||
 				strings.HasPrefix(path, "/api/v1/auth/change-password") ||
+				strings.HasPrefix(path, "/api/v1/auth/reset-password") ||
 				strings.HasPrefix(path, "/api/v1/auth/2fa") {
 				return err
 			}

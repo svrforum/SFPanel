@@ -84,6 +84,7 @@ var expectedManagerOnlyRoutes = func() []string {
 		"GET /api/v1/auth/setup-status",
 		"POST /api/v1/auth/setup",
 		"POST /api/v1/auth/refresh",
+		"POST /api/v1/auth/reset-password",
 
 		"GET /api/v1/auth/2fa/status",
 		"POST /api/v1/auth/2fa/setup",

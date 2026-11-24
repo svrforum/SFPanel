@@ -392,6 +392,37 @@ AuditMiddleware는 **비-GET/HEAD/OPTIONS** 요청만 기록합니다. `/api/v1/
 
 ---
 
+### POST /api/v1/auth/reset-password
+현재 비밀번호 없이 새 비밀번호를 설정한다 (v0.93.1+). `sudo sfpanel reset-password` 전용이다.
+
+- **인증 필요**: 예 — 호출자가 `sfpanel-cli`여야 한다. 최초 설정이 이 이름을 계정으로 받지 않으므로, 이 이름의 토큰은 매니저의 JWT 비밀(`/etc/sfpanel/config.yaml`, root만 읽음)로 서명된 것이다. 브라우저 세션은 거부된다(`password_reset#not_cli` 감사 행). 이는 "API로는 현재 비밀번호 없이 바꿀 수 없다"는 규칙일 뿐, 탈취된 세션에 대한 방어선은 아니다 — 세션만으로 root 터미널을 열어 이 명령을 실행할 수 있다.
+- 이 이름의 계정이 (설정이 막기 전에) 이미 있으면 거부한다(`password_reset#reserved_name` 감사 행).
+- **클러스터**: 팔로워는 리더로 넘긴다. 계정이 FSM에 있기 때문이다. 에이전트에는 이 경로가 없다.
+- 2FA는 그대로 두고, 처리한 노드의 리프레시 세션을 끝낸다(`change-password`와 같음). 성공은 감사 행 `/api/v1/auth/password_reset#cli`(대상 계정 이름)로 남는다.
+
+**Request Body:**
+```json
+{
+  "username": "string (생략 시 계정이 하나뿐이면 그 계정)",
+  "new_password": "string"
+}
+```
+
+**Response (200):**
+```json
+{ "success": true, "data": { "username": "admin" } }
+```
+
+**에러 응답:**
+| 코드 | HTTP 상태 | 조건 |
+|------|-----------|------|
+| `PERMISSION_DENIED` | 403 | 호출자가 CLI가 아님, 또는 `sfpanel-cli`라는 계정이 있음 |
+| `MISSING_FIELDS` | 400 | 새 비밀번호 누락, 또는 이름 생략 시 계정이 하나가 아님 |
+| `WEAK_PASSWORD` | 400 | 비밀번호 규칙 불충족 (12자 이상, 72바이트 이하, 흔한 비밀번호 아님) |
+| `USER_NOT_FOUND` | 404 | 사용자를 찾을 수 없음 |
+
+---
+
 ## 설정 API (`/api/v1/settings`)
 
 ### GET /api/v1/settings
@@ -7337,6 +7368,7 @@ WireGuard 키페어 생성 (`wg genkey` + `wg pubkey`).
 | POST | `/api/v1/auth/2fa/recovery` | O | 2FA 복구 코드 생성 (v0.34.0+) |
 | GET | `/api/v1/auth/2fa/recovery/status` | O | 복구 코드 존재/잔여 수 조회 (v0.34.0+) |
 | POST | `/api/v1/auth/change-password` | O | 비밀번호 변경 |
+| POST | `/api/v1/auth/reset-password` | O (CLI만) | 현재 비밀번호 없이 재설정 — `sudo sfpanel reset-password` (v0.93.1+) |
 | POST | `/api/v1/auth/ws-ticket` | O | WebSocket 단발성 ticket 발급 (v0.13.2+) |
 | GET | `/api/v1/settings` | O | 설정 조회 |
 | PUT | `/api/v1/settings` | O | 설정 업데이트 |

@@ -280,6 +280,7 @@ sfpanel /path/to/config.yaml      # run with a specified config file
 sfpanel version                   # version info
 sfpanel update                    # update to the latest version from GitHub
 sfpanel reset                     # reset the database (re-run the setup wizard)
+sfpanel reset-password            # set a new password when the old one is forgotten (root, on a manager)
 sfpanel help                      # help
 ```
 

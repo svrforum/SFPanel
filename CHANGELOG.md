@@ -6,6 +6,17 @@ The format is loosely based on [Keep a Changelog](https://keepachangelog.com/), 
 
 ---
 
+## [0.93.1] – 2026-11-24
+
+### Added
+
+- **`sudo sfpanel reset-password`.** A forgotten password had no way back short of `sfpanel reset`, which deletes the whole database — on a cluster member, its membership and everything else with it. Run on a manager, the command asks for a new password twice (or reads one line from stdin), and the running panel sets it where logins read it: through the leader in a cluster, so every manager has it within a few seconds. Two-factor stays as it is. `--user NAME` picks the account when there is more than one. The HTTP API still never sets a password without the current one: a browser session asking for a reset is refused and recorded. That is not a guard against a stolen session, which can open the panel's root terminal and run the command there.
+
+### Fixed
+
+- **A password longer than 72 bytes was refused as a server error.** It passed the password rules, then failed in bcrypt, which takes no more, so first-run setup and a password change answered "failed to hash" (500). It is now refused up front with the limit (400 `WEAK_PASSWORD`). Note that 72 bytes is fewer characters in Korean: about 24 Hangul syllables.
+- **First-run setup accepted `sfpanel-cli` as a username**, the name the `sfpanel` command signs its own requests with. It is now refused as reserved.
+
 ## [0.93.0] – 2026-11-23
 
 A rack view. Draw your racks — which server, device or thing sits at which height — and the panel fills each unit with what it knows: a server's network ports and their links, a device's name, whether the last scan found it.

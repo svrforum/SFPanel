@@ -278,6 +278,7 @@ sfpanel /path/to/config.yaml      # 지정 설정 파일로 실행
 sfpanel version                   # 버전 정보
 sfpanel update                    # GitHub에서 최신 버전으로 업데이트
 sfpanel reset                     # 데이터베이스 초기화 (셋업 위저드 재실행)
+sfpanel reset-password            # 비밀번호를 잊었을 때 새 비밀번호 설정 (root, 매니저에서)
 sfpanel help                      # 도움말
 ```
 

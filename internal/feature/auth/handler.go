@@ -823,6 +823,11 @@ func (h *Handler) SetupAdmin(c echo.Context) error {
 	if !validCredentialBounds(req.Username, req.Password, "") {
 		return response.Fail(c, http.StatusBadRequest, response.ErrInvalidRequest, "Username or password exceeds bounds")
 	}
+	// The sfpanel command signs its own requests under this name; an
+	// account carrying it would pass for the command.
+	if req.Username == auth.CLIUsername {
+		return response.Fail(c, http.StatusBadRequest, response.ErrInvalidRequest, "The username "+auth.CLIUsername+" is reserved")
+	}
 
 	if msg, ok := validatePassword(req.Password); !ok {
 		return response.Fail(c, http.StatusBadRequest, response.ErrWeakPassword, msg)

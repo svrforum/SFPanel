@@ -82,6 +82,9 @@ func main() {
 		case "reset":
 			resetPanel()
 			return
+		case "reset-password":
+			resetPasswordCommand(os.Args[2:])
+			return
 		case "update":
 			updatePanel()
 			return
@@ -919,6 +922,8 @@ func printHelp() {
 	fmt.Println("  sfpanel version          Show version info")
 	fmt.Println("  sfpanel update           Download and install latest version")
 	fmt.Println("  sfpanel reset            Delete database and reset to setup wizard")
+	fmt.Println("  sfpanel reset-password   Set a new password for an account without the old one")
+	fmt.Println("                           (--user NAME when there is more than one; runs on a manager)")
 	fmt.Println("  sfpanel cluster <cmd>    Cluster management (init/join/leave/status/token/remove)")
 	fmt.Println("  sfpanel agent join ADDR:PORT TOKEN --ca FINGERPRINT")
 	fmt.Println("                           Join a cluster as an agent ('sfpanel cluster token --agent' prints the command)")

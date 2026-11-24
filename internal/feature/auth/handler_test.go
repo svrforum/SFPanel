@@ -159,6 +159,31 @@ func TestValidatePasswordRefusesWhatBcryptCannotHash(t *testing.T) {
 	}
 }
 
+// TestSetupAdmin_RefusesTheCommandsName keeps the name the sfpanel command
+// signs as from becoming an account: its sessions would look like the
+// command, and `sfpanel reset-password` refuses to run while it exists.
+func TestSetupAdmin_RefusesTheCommandsName(t *testing.T) {
+	h := newAuthHandlerForTest(t)
+	body := strings.NewReader(`{"username":"sfpanel-cli","password":"verylongpassword12345!"}`)
+	req := httptest.NewRequest("POST", "/api/v1/auth/setup", body)
+	req.RemoteAddr = "127.0.0.1:12345"
+	req.Header.Set("Content-Type", "application/json")
+	rec := httptest.NewRecorder()
+	if err := h.SetupAdmin(echo.New().NewContext(req, rec)); err != nil {
+		t.Fatalf("SetupAdmin returned err: %v", err)
+	}
+	if rec.Code != http.StatusBadRequest || !bytes.Contains(rec.Body.Bytes(), []byte("reserved")) {
+		t.Fatalf("status=%d body=%s, want 400 saying the name is reserved", rec.Code, rec.Body.String())
+	}
+	var n int
+	if err := h.DB.QueryRow(`SELECT COUNT(*) FROM admin`).Scan(&n); err != nil {
+		t.Fatalf("count admin: %v", err)
+	}
+	if n != 0 {
+		t.Errorf("admin rows=%d, want 0", n)
+	}
+}
+
 // TestGetSetupStatus_FalseWhenClusterFSMHoldsAdmin pins the same invariant
 // on the status endpoint that the UI polls. With FSM admin present the
 // endpoint must report setup_required=false so the UI doesn't render the
