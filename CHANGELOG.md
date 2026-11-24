@@ -17,6 +17,11 @@ The format is loosely based on [Keep a Changelog](https://keepachangelog.com/), 
 - **A password longer than 72 bytes was refused as a server error.** It passed the password rules, then failed in bcrypt, which takes no more, so first-run setup and a password change answered "failed to hash" (500). It is now refused up front with the limit (400 `WEAK_PASSWORD`). Note that 72 bytes is fewer characters in Korean: about 24 Hangul syllables.
 - **First-run setup accepted `sfpanel-cli` as a username**, the name the `sfpanel` command signs its own requests with. It is now refused as reserved.
 
+### Security
+
+- OpenTelemetry (used through the Docker client) is updated to 1.47.0 for GO-2026-6974 and GO-2026-6975.
+- GO-2026-6278 in gorilla/websocket is acknowledged rather than taken: a client's frame mask key comes from a weak random source, and the fix exists only in an untagged commit that also brings back dial and proxy code the library reverted in v1.5.3. The panel is a websocket client only in the node-to-node relay, which dials the peer panel directly with no proxy in between, where masking has no intermediary to protect. CI names it on every run and fails on any other advisory with a fix.
+
 ## [0.93.0] – 2026-11-23
 
 A rack view. Draw your racks — which server, device or thing sits at which height — and the panel fills each unit with what it knows: a server's network ports and their links, a device's name, whether the last scan found it.

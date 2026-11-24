@@ -256,8 +256,22 @@ jobs:
           # Module: line ("Standard library" in its place), so it is named
           # stdlib here; it used to take the name of the module listed above it
           # and blame, say, echo for a fix that is a Go release.
+          #
+          # Advisories whose upstream fix is deliberately not taken, each with
+          # why. Take an entry out once the fix ships in a tagged release.
+          #   GO-2026-6278 gorilla/websocket: a client's frame mask key comes
+          #     from math/rand. The fix is only in an untagged 2024 commit that
+          #     also brings back the dial and proxy code v1.5.3 reverted. The
+          #     panel is a client in one place, the node-to-node WS relay
+          #     (internal/cluster/ws_relay.go), which dials the peer panel
+          #     directly with no proxy: masking guards an intermediary against
+          #     frames a hostile page shapes, and there is none to guard.
+          acknowledged="GO-2026-6278"
           echo "$out" | grep -q '^=== Symbol Results ===' || { echo "::error::govulncheck printed no Symbol Results section: the gate cannot read its output"; exit 1; }
-          fixable=$(echo "$out" | awk '/^=== (Symbol|Package) Results ===/{s=1} /^=== Module Results ===/{s=0} s && /^[[:space:]]*Module:/{m=$2} s && /^[[:space:]]*Standard library/{m="stdlib"} s && /^[[:space:]]*Fixed in:/{if ($NF != "N/A") print m}' | sort -u)
+          fixable=$(echo "$out" | awk -v ack=" $acknowledged " '/^=== (Symbol|Package) Results ===/{s=1} /^=== Module Results ===/{s=0} s && /^Vulnerability #/{id=$3} s && /^[[:space:]]*Module:/{m=$2} s && /^[[:space:]]*Standard library/{m="stdlib"} s && /^[[:space:]]*Fixed in:/{if ($NF != "N/A" && index(ack, " " id " ") == 0) print m}' | sort -u)
+          for id in $acknowledged; do
+            echo "$out" | grep -q "^Vulnerability #[0-9]*: $id\$" && echo "::notice::$id has an upstream fix that is deliberately not taken (see the gate's list)"
+          done
           if [ -n "$fixable" ]; then
             echo "::error::govulncheck found fixable vulnerabilities in: $(echo "$fixable" | tr '\n' ' ')"
             exit 1
