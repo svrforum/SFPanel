@@ -10,6 +10,7 @@ import (
 
 	"github.com/labstack/echo/v4"
 
+	"github.com/svrforum/SFPanel/internal/auth"
 	"github.com/svrforum/SFPanel/internal/cluster"
 	"github.com/svrforum/SFPanel/internal/config"
 )
@@ -129,6 +130,32 @@ func TestValidatePassword(t *testing.T) {
 		if _, ok := validatePassword(p); !ok {
 			t.Errorf("validatePassword(%q) rejected, want accepted", p)
 		}
+	}
+}
+
+// TestValidatePasswordRefusesWhatBcryptCannotHash pins the upper bound:
+// bcrypt refuses more than 72 bytes, and a password it cannot hash used to
+// pass the policy and come back as a 500 HASH_ERROR from setup, a change and a
+// reset alike, which reads as a server fault rather than "shorter, please".
+func TestValidatePasswordRefusesWhatBcryptCannotHash(t *testing.T) {
+	longest := strings.Repeat("k", 72)
+	if _, ok := validatePassword(longest); !ok {
+		t.Errorf("a 72-byte password was refused; bcrypt takes it")
+	}
+	if _, err := auth.HashPassword(longest); err != nil {
+		t.Fatalf("bcrypt refused 72 bytes: %v", err)
+	}
+	tooLong := strings.Repeat("k", 73)
+	if _, err := auth.HashPassword(tooLong); err == nil {
+		t.Fatalf("bcrypt hashed 73 bytes; the bound below is no longer bcrypt's")
+	}
+	msg, ok := validatePassword(tooLong)
+	if ok || !strings.Contains(msg, "72") {
+		t.Errorf("validatePassword(73 bytes) = %q %v, want refused naming the 72-byte limit", msg, ok)
+	}
+	// Bytes, not characters: 25 Hangul syllables are 75 bytes.
+	if _, ok := validatePassword(strings.Repeat("가", 25)); ok {
+		t.Errorf("a 75-byte password of 25 characters was accepted")
 	}
 }
 

@@ -766,6 +766,11 @@ func validatePassword(pw string) (string, bool) {
 	if len(pw) < minPasswordLen {
 		return "Password must be at least 12 characters.", false
 	}
+	// bcrypt refuses more; past this the hash fails and the caller would
+	// answer a server error for what is a password too long.
+	if len(pw) > maxHashablePasswordBytes {
+		return "Password must be at most 72 bytes.", false
+	}
 	if commonPasswords[strings.ToLower(pw)] {
 		return "Password is too common — choose something less guessable.", false
 	}
