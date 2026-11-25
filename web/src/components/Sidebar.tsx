@@ -1,3 +1,4 @@
+import { useId } from 'react'
 import { Link, useLocation } from 'react-router-dom'
 import { useTranslation } from 'react-i18next'
 import { ArrowUpCircle, ChevronDown, Coffee, LogOut, PanelLeftClose, PanelLeftOpen } from 'lucide-react'
@@ -35,6 +36,7 @@ const iconButton = 'flex h-7 w-7 shrink-0 items-center justify-center rounded-lg
 function ServerHead({ collapsed }: { collapsed: boolean }) {
   const { t } = useTranslation()
   const { clusterEnabled, nodes, current, currentId, currentName, localId } = useServerScope()
+  const descriptionId = useId()
 
   if (clusterEnabled !== true) {
     // The line is held while the name is on its way, so the menu does not move.
@@ -49,6 +51,10 @@ function ServerHead({ collapsed }: { collapsed: boolean }) {
   const attached = localId !== '' && currentId === localId
   const offline = nodes.filter((n) => n.status === 'offline').length
   const detail = [role, attached ? t('layout.server.attached') : ''].filter(Boolean).join(' · ')
+  const offlineText = offline > 0 ? t('layout.server.offline', { count: offline }) : ''
+  // What the head shows besides the name, for a screen reader: the name is
+  // only which server; collapsed, the line is not drawn at all.
+  const description = [detail, offlineText].filter(Boolean).join(' · ')
 
   return (
     <div className={collapsed ? 'px-2' : 'px-3'}>
@@ -56,6 +62,7 @@ function ServerHead({ collapsed }: { collapsed: boolean }) {
         <button
           type="button"
           aria-label={`${t('layout.server.pick')}: ${currentName}`}
+          aria-describedby={description ? descriptionId : undefined}
           title={collapsed ? currentName : undefined}
           className={cn(
             'w-full rounded-xl text-left transition-colors hover:bg-accent outline-none focus-visible:ring-2 focus-visible:ring-ring',
@@ -77,14 +84,15 @@ function ServerHead({ collapsed }: { collapsed: boolean }) {
               {/* Held while the list is on its way, so the menu does not move. */}
               <span className="mt-0.5 flex h-4 min-w-0 items-center gap-2 text-[12px] leading-4 text-muted-foreground">
                 <span className="truncate">{detail}</span>
-                {offline > 0 && (
-                  <span className="ml-auto shrink-0 font-medium text-destructive">{t('layout.server.offline', { count: offline })}</span>
+                {offlineText && (
+                  <span className="ml-auto shrink-0 font-medium text-destructive">{offlineText}</span>
                 )}
               </span>
             </>
           )}
         </button>
       </ServerSwitcher>
+      {description && <span id={descriptionId} hidden>{description}</span>}
     </div>
   )
 }

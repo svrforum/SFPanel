@@ -150,6 +150,23 @@ test('names each server with its state, the leader and the attached one', async 
   await expect(self).toHaveAttribute('aria-pressed', 'true')
 })
 
+// The head shows the server's role, whether it is the one this panel runs
+// on and how many servers are off, but the button's name said only which
+// server it was. A screen reader hears the rest as its description, collapsed
+// too, where the line is not drawn.
+test("the button's description carries the role, the attached server and the servers off", async ({ page }) => {
+  await mock(page, { list: () => nodes.map((n) => (n.id === 'agent-5' ? { ...n, status: 'offline' } : n)) })
+  await page.goto('/dashboard')
+  await expect(picker(page)).toContainText('1 offline')
+  await expect(picker(page)).toHaveAccessibleDescription('Manager · Attached · 1 offline')
+  await picker(page).click()
+  await page.getByRole('dialog').getByRole('button', { name: /^agent-1\b/ }).click()
+  await expect(picker(page)).toHaveAccessibleDescription('Agent (group web) · 1 offline')
+  await page.getByRole('button', { name: 'Collapse sidebar' }).click()
+  await expect(picker(page)).toHaveText(/^\s*ag\s*$/)
+  await expect(picker(page)).toHaveAccessibleDescription('Agent (group web) · 1 offline')
+})
+
 // Picking a node in the tree always opened its dashboard, whatever was open.
 test('switching stays on the page and replaces the address', async ({ page }) => {
   const requests = await mock(page)
