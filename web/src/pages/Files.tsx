@@ -97,6 +97,7 @@ import { FolderPickerDialog } from './files/components/FolderPickerDialog'
 import { PermissionsDialog } from './files/components/PermissionsDialog'
 import { TrashDialog } from './files/components/TrashDialog'
 import { UploadLimitDialog } from './files/components/UploadLimitDialog'
+import { limitCanRise, limitFrom, overLimit } from './files/uploadLimit'
 import type { EntryAction } from './files/entryActions'
 import { listKey } from './files/listKeys'
 
@@ -671,6 +672,28 @@ export default function Files() {
     fileInputRef.current?.click()
   }
 
+  // Files refused for size, said in one toast. Its button opens the limit
+  // dialog only when a higher limit could let one of them in: at the most a
+  // server takes, the dialog could only lower it. The dialog gives the focus
+  // back to what had it when it opened, and the toast's button is gone by
+  // then: hand it to Upload options, where the menu's way in leaves it too.
+  const tellRefused = (files: File[], limit: number | null) => {
+    const name = files.map((f) => f.name).join(', ')
+    if (!limitCanRise(limit, files.map((f) => f.size))) {
+      toast.error(t('files.uploadLimit.tooLargeCeiling', { name }))
+      return
+    }
+    toast.error(limit === null ? t('files.uploadLimit.tooLarge', { name }) : t('files.uploadLimit.tooLargeLimit', { name, limit }), {
+      action: {
+        label: t('files.uploadLimit.change'),
+        onClick: () => {
+          limitTriggerRef.current?.focus()
+          setLimitOpen(true)
+        },
+      },
+    })
+  }
+
   // Upload a batch, whether it arrived through the picker or a drop.
   //
   // The abort controller is what makes the Cancel button real: before it, the
@@ -682,8 +705,21 @@ export default function Files() {
     uploadAbortRef.current = controller
     setUploading(true)
     const pathAtStart = currentPathRef.current
+    // The limit of the server shown, read for each batch so a change in the
+    // dialog counts: a file over it is not sent. Unknown when the read fails,
+    // and the server stays the judge either way.
+    const knownLimit = await api.getSettings().then((s) => limitFrom(s.max_upload_size), () => null)
+    // Told when the batch is done: the progress dialog is modal until then,
+    // and a toast's button under it cannot be pressed.
+    const refused: File[] = []
+    let refusedLimit: number | null = null
     try {
       for (const [index, file] of list.entries()) {
+        if (overLimit(file.size, knownLimit)) {
+          refused.push(file)
+          refusedLimit = knownLimit
+          continue
+        }
         setUploadProgress({ fileName: file.name, percent: 0, index: index + 1, total: list.length })
         try {
           await api.uploadFile(pathAtStart, file, (percent) => {
@@ -719,18 +755,9 @@ export default function Files() {
           }
           if ((err as { code?: string })?.code === 'FILE_TOO_LARGE') {
             // The limit is this server's, and the dialog changes it here. The
-            // dialog gives the focus back to what had it when it opened, and
-            // the toast's button is gone by then: hand it to Upload options,
-            // where the menu's way in leaves it too.
-            toast.error(`${file.name}: ${err instanceof Error ? err.message : t('files.uploadFailed')}`, {
-              action: {
-                label: t('files.uploadLimit.change'),
-                onClick: () => {
-                  limitTriggerRef.current?.focus()
-                  setLimitOpen(true)
-                },
-              },
-            })
+            // refusal names the limit that refused it; an older server's does not.
+            refused.push(file)
+            refusedLimit = limitFrom((err as { details?: Record<string, string> }).details?.limit_mb) ?? knownLimit
             continue
           }
           toast.error(`${file.name}: ${err instanceof Error ? err.message : t('files.uploadFailed')}`)
@@ -741,6 +768,7 @@ export default function Files() {
       setUploadProgress(null)
       setUploading(false)
       if (fileInputRef.current) fileInputRef.current.value = ''
+      if (refused.length > 0) tellRefused(refused, refusedLimit)
       if (currentPathRef.current === pathAtStart) await fetchFiles()
     }
   }

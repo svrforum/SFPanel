@@ -2945,7 +2945,10 @@
       "hint": "The largest single file this server accepts: 1–1024 MB. The default, 1024 MB, is also the most, so the limit can only be lowered from it.",
       "hintNamed": "The largest single file {{name}} accepts: 1–1024 MB. The default, 1024 MB, is also the most, so the limit can only be lowered from it.",
       "invalid": "Enter a whole number from 1 to 1024",
-      "change": "Change limit"
+      "change": "Change limit",
+      "tooLarge": "{{name}}: larger than this server's upload limit",
+      "tooLargeLimit": "{{name}}: larger than this server's upload limit of {{limit}} MB",
+      "tooLargeCeiling": "{{name}}: over 1024 MB, the largest upload limit a server takes. Use another way, such as scp."
     },
     "edit": "Edit",
     "editFile": "Edit File",
