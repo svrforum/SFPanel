@@ -6,6 +6,37 @@ The format is loosely based on [Keep a Changelog](https://keepachangelog.com/), 
 
 ---
 
+## [0.96.0] – 2026-11-26
+
+The network map gets a page of its own, settings are sorted by where they are saved, and the settings that belonged to one screen move to that screen. The third of four steps that reorganise the menus.
+
+### Changed
+
+- **Network Map is its own page.** Devices (`/map`) and Rack (`/map/rack`) sit under All servers in the menu. In a cluster the map merges every server's scans; scans are started from the page as before. Running keeps Board and Canvas; if you had left it on the Network or Rack view, it opens the map once.
+- **Watch leads to the rule that makes it work.** Beside a device's Watch box, "Alert rules" opens the alert rules of the server that scans that network (in a cluster it switches to that server, since a rule made on another server would never fire), and saves an unsaved Watch tick first. Network alert rules are now named "Network map: …".
+- **Settings in six tabs, by where they are saved.** Account · Language & Theme · Updates & Backups · HTTPS Certificate · Alerts · Audit Log. The scope switch is gone: the line above the page says whether a tab is the same on every server, kept in this browser, or saved on the server shown. Old `?scope=node` addresses open the same tab. On a phone the tab a link opens is scrolled into sight, and a tab one server holds names that server in the browser title.
+- **Performance Tuning is a System tab** (`/tuning`), linked both ways with Disk › Swap.
+- **Settings that belong to one screen moved there.** The temporary shell timeout is in Terminal › Tools & accounts, and the upload limit is in Files › Upload ▾. Both say the range the server takes (0–1440 minutes; 1–1024 MB — the default 1024 MB is also the most, so it can only be lowered) and name the server they change. The old place says where they went, for this release.
+- **Disk's Partitions, LVM and RAID fold into one Setup ▾ menu**, whose button names the page it has open.
+- **A RAID array that needs attention is a line in the dashboard's Needs Attention**, and the RAID tab colours its state by the same rule.
+- **The menu has 14 entries in a cluster and 12 on a single server.** The dashboard's Needs Attention, backup and update links open the server shown.
+
+### Fixed
+
+- **Uploading onto an existing file never asked before replacing it.** The refusal's status was lost on the way to the page, so the question was never shown and the upload just failed.
+- **An upload over the limit was refused as "path is required".** It is now refused as too large (413 `FILE_TOO_LARGE`, with the limit), said in the operator's language once the batch is done, with a way to change the limit when it can still go up. When the limit is known, a file over it is not sent at all.
+- **RAID arrays the kernel lists as inactive or read-only were missing from the RAID tab** (an array is often auto-read-only right after boot). Member names with a dash and members with several flags were misread too.
+- **A degraded RAID array showed in grey** on the RAID tab.
+- **An upload that never reached the panel said "Network error" in English** whatever the language.
+
+### API
+
+- `POST /api/v1/files/upload` over the upload limit answers 413 `FILE_TOO_LARGE` with `details.limit_mb`, instead of 400 `INVALID_PATH`.
+
+### Upgrading
+
+- Old addresses keep working: `/settings?scope=node…` opens the same tab, and a running page saved on the Network or Rack view opens the map.
+
 ## [0.95.0] – 2026-11-26
 
 One menu, and the server you are looking at always in sight. The second of four steps that reorganise the menus: the sidebar is one column in both modes, the cluster tree is gone, and in a cluster every server page says which server it is on — above the page, in the address and in the tab title.
