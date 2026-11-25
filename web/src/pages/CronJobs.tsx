@@ -230,7 +230,7 @@ export default function CronJobs() {
       {/* Header */}
       <div className="flex flex-wrap items-center justify-between gap-2">
         <div>
-          <h1 className="text-[22px] font-bold tracking-tight">{t('cron.title')}</h1>
+          <h2 className="text-[17px] font-semibold">{t('cron.title')}</h2>
           <p className="text-[13px] text-muted-foreground mt-1">{t('cron.subtitle')}</p>
         </div>
         <div className="flex flex-wrap items-center gap-2">

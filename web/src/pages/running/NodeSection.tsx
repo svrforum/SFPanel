@@ -184,7 +184,7 @@ export function NodeSection({ section, folded, onToggle, query, localId, onRevea
   return (
     <section id={nodeSectionId(node.id)} aria-labelledby={headingId} className="scroll-mt-4 rounded-2xl bg-card card-shadow">
       <header className={cn('flex flex-wrap items-center gap-x-3 gap-y-1 px-4 py-2', !folded && 'border-b border-border')}>
-        <Heading level={3} id={headingId} className="min-w-0 text-[15px] font-semibold">
+        <Heading level={2} id={headingId} className="min-w-0 text-[15px] font-semibold">
           <button
             type="button"
             data-node-toggle
@@ -204,7 +204,7 @@ export function NodeSection({ section, folded, onToggle, query, localId, onRevea
       </header>
       {!folded && (
         <div id={bodyId} className="pb-1">
-          <NodeBody section={section} scope="cluster" query={query} localId={localId} groupLevel={4} onReveal={onReveal} />
+          <NodeBody section={section} scope="cluster" query={query} localId={localId} groupLevel={3} onReveal={onReveal} />
         </div>
       )}
     </section>

@@ -240,7 +240,7 @@ async function mock(page: Page, fixture: Fixture = {}) {
 
 // ---------------------------------------------------------------- helpers --
 
-/** The tab row above every cluster page. */
+/** A link in the page's main area, as the cluster page's tabs are. */
 const tab = (page: Page, name: string) => page.getByRole('main').getByRole('link', { name, exact: true })
 /** The task list: on a desktop, the left column. */
 const list = (page: Page) => page.getByRole('navigation', { name: 'Task list' })
@@ -249,17 +249,16 @@ const items = (page: Page, name: string) => section(page, name).getByRole('link'
 
 // ------------------------------------------------------------------ tests --
 
-test('the Tasks tab comes last and opens /cluster/tasks', async ({ page }) => {
+test('the cluster page keeps three tabs and group tasks is a page of its own', async ({ page }) => {
   await mock(page)
   await page.goto('/cluster/overview')
-  const tasks = tab(page, 'Group Tasks')
-  await expect(tasks).toBeVisible()
-  const row = await tasks.locator('..').getByRole('link').allInnerTexts()
-  expect(row.map((s) => s.trim())).toEqual(['Overview', 'Running', 'Nodes', 'Docker', 'Key Rotation', 'Group Tasks'])
-  await tasks.click()
-  await expect(page).toHaveURL(/\/cluster\/tasks$/)
-  await expect(tasks).toHaveAttribute('aria-current', 'page')
+  await expect(tab(page, 'Overview')).toHaveAttribute('aria-current', 'page')
+  const row = tab(page, 'Overview').locator('..').getByRole('link')
+  expect(await row.evaluateAll((a) => a.map((l) => l.getAttribute('href')))).toEqual(['/cluster/overview', '/cluster/nodes', '/cluster/security'])
+  await page.goto('/cluster/tasks')
   await expect(list(page)).toBeVisible()
+  await expect(tab(page, 'Overview')).toHaveCount(0)
+  await expect(page.getByRole('heading', { level: 1, name: 'Group Tasks' })).toBeVisible()
 })
 
 test('lists built-in, own and Git tasks apart, in English, and the search narrows them', async ({ page }) => {
@@ -342,7 +341,7 @@ test('every tasks route has its pane', async ({ page }) => {
   ]) {
     await page.goto(path)
     await expect(page.getByTestId(pane), path).toBeVisible()
-    await expect(tab(page, 'Group Tasks'), path).toHaveAttribute('aria-current', 'page')
+    await expect(page.getByRole('heading', { level: 1, name: 'Group Tasks' }), path).toBeVisible()
   }
   // The history link at the foot of the list is the chosen entry there.
   await expect(list(page).getByRole('link', { name: 'Run history' })).toHaveAttribute('href', '/cluster/tasks/runs')
@@ -361,11 +360,11 @@ test('a node outside a cluster is sent to create or join', async ({ page }) => {
 test.describe('Korean', () => {
   test.use({ locale: 'ko-KR' })
 
-  test('names the tab, the sections, the built-ins and the band in Korean', async ({ page }) => {
+  test('names the page, the sections, the built-ins and the band in Korean', async ({ page }) => {
     await page.addInitScript(() => localStorage.setItem('sfpanel_language', 'ko'))
     await mock(page, { runs: [runRecord({ id: 'r-9', status: 'running', ended_at: undefined })] })
     await page.goto('/cluster/tasks')
-    await expect(tab(page, '그룹 작업')).toHaveAttribute('aria-current', 'page')
+    await expect(page.getByRole('heading', { level: 1, name: '그룹 작업' })).toBeVisible()
     const listKo = page.getByRole('navigation', { name: '작업 목록' })
     await expect(listKo.getByRole('region', { name: '내장', exact: true }).getByRole('link')).toHaveText([
       '패키지 업데이트', '패키지 설치', '서비스 재시작', '명령 실행', '재부팅 (필요할 때만)', '에이전트 설치 (SSH)',
@@ -375,23 +374,10 @@ test.describe('Korean', () => {
   })
 })
 
-// The tab row scrolls on a phone with its scrollbar hidden; the list becomes a
-// picker at the top, as the More drawer's node picker is.
+// On a phone the list becomes a picker at the top, as the More drawer's node
+// picker is.
 test.describe('phone', () => {
   test.use({ viewport: { width: 412, height: 860 }, hasTouch: true })
-
-  test('the Tasks tab is scrolled into the row', async ({ page }) => {
-    await mock(page)
-    await page.goto('/cluster/tasks')
-    const tasks = tab(page, 'Group Tasks')
-    await expect(tasks).toHaveAttribute('aria-current', 'page')
-    const row = tasks.locator('..')
-    await expect.poll(async () => {
-      const [t, r] = await Promise.all([tasks.boundingBox(), row.boundingBox()])
-      if (!t || !r) return 'unmeasured'
-      return t.x >= r.x - 0.5 && t.x + t.width <= r.x + r.width + 0.5 ? 'inside' : `tab ${t.x}..${t.x + t.width}, row ${r.x}..${r.x + r.width}`
-    }).toBe('inside')
-  })
 
   test('the list is a picker at the top', async ({ page }) => {
     await mock(page)
@@ -1837,9 +1823,11 @@ test.describe('editor', () => {
     await page.goto('/cluster/tasks/new')
     const editor = editorPane(page)
     await editor.getByLabel('Task name').fill('Half done')
-    await tab(page, 'Overview').click()
+    // Moves inside the app, whichever menu draws the links.
+    await page.evaluate(() => { history.pushState({}, '', '/cluster/overview'); dispatchEvent(new PopStateEvent('popstate')) })
     await expect(page).toHaveURL(/\/cluster\/overview$/)
-    await tab(page, 'Group Tasks').click()
+    await page.evaluate(() => { history.pushState({}, '', '/cluster/tasks'); dispatchEvent(new PopStateEvent('popstate')) })
+    await expect(page).toHaveURL(/\/cluster\/tasks$/)
     await list(page).getByRole('link', { name: 'New task' }).click()
     await expect(editor.getByLabel('Task name')).toHaveValue('Half done')
     await expect(editor).toContainText('Your unsaved changes were kept')

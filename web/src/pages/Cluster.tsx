@@ -2,16 +2,22 @@ import { useEffect, useRef } from 'react'
 import { NavLink, Navigate, Outlet, useLocation, useOutletContext } from 'react-router-dom'
 import { useTranslation } from 'react-i18next'
 import { cn } from '@/lib/utils'
-import { CLUSTER_TAB_ITEMS } from '@/components/cluster/datacenterMenu'
+import { navOwner, navTabs } from '@/lib/navigation'
 import type { LayoutOutletContext } from '@/components/Layout'
 
 export default function Cluster() {
   const { t } = useTranslation()
   const { pathname } = useLocation()
   const ctx = useOutletContext<LayoutOutletContext | undefined>()
+  // The fleet board and group tasks sit under this address but are menu
+  // entries of their own: they carry neither the cluster's heading nor its
+  // tabs. Group tasks is headed by its menu name here; the board heads itself,
+  // with its controls beside the heading.
+  const entry = navOwner(pathname)?.entry.to ?? '/cluster'
+  const heading = entry === '/cluster' ? t('cluster.title') : entry === '/cluster/tasks' ? t('layout.nav.tasks') : null
   // The tab row, only while the shell believes this panel is in a cluster: a
   // standalone one has the form alone.
-  const tabs = ctx?.clusterEnabled === true
+  const tabs = ctx?.clusterEnabled === true && entry === '/cluster'
   const row = useRef<HTMLDivElement>(null)
 
   // The row hides its scrollbar, so a tab opened from a link or a bookmark
@@ -35,11 +41,11 @@ export default function Cluster() {
 
   return (
     <div className="space-y-6">
-      <h1 className="text-[22px] font-bold tracking-tight">{t('cluster.title')}</h1>
+      {heading && <h1 className="text-[22px] font-bold tracking-tight">{heading}</h1>}
       {/* The tabs do not fit a phone's width: the row scrolls rather than cutting the last off. */}
       {tabs && (
         <div ref={row} className="flex items-center gap-1 overflow-x-auto no-scrollbar">
-          {CLUSTER_TAB_ITEMS.map((tab) => (
+          {navTabs('/cluster').map((tab) => (
             <NavLink
               key={tab.to}
               to={tab.to}
@@ -53,7 +59,7 @@ export default function Cluster() {
               }
             >
               <tab.icon className="h-4 w-4" />
-              {t(tab.labelKey)}
+              {t(tab.label)}
             </NavLink>
           ))}
         </div>

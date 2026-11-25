@@ -11,6 +11,7 @@ import { PromptProvider } from '@/components/PromptDialog'
 // Lazy-loaded pages for code splitting
 const Login = lazy(() => import('@/pages/Login'))
 const Setup = lazy(() => import('@/pages/Setup'))
+const DashboardTabs = lazy(() => import('@/pages/DashboardTabs'))
 const Dashboard = lazy(() => import('@/pages/Dashboard'))
 const Running = lazy(() => import('@/pages/Running'))
 const Docker = lazy(() => import('@/pages/Docker'))
@@ -24,6 +25,7 @@ const CronJobs = lazy(() => import('@/pages/CronJobs'))
 const Logs = lazy(() => import('@/pages/Logs'))
 const Processes = lazy(() => import('@/pages/Processes'))
 const Services = lazy(() => import('@/pages/Services'))
+const System = lazy(() => import('@/pages/System'))
 const Network = lazy(() => import('@/pages/Network'))
 const NetworkInterfaces = lazy(() => import('@/pages/network/NetworkInterfaces'))
 const NetworkWireGuard = lazy(() => import('@/pages/network/NetworkWireGuard'))
@@ -194,16 +196,23 @@ export default function App() {
                 </ProtectedRoute>
               }>
                 <Route index element={<Navigate to="/dashboard" replace />} />
-                <Route path="dashboard" element={<Dashboard />} />
-                <Route path="running" element={<Running />} />
-                <Route path="docker" element={<Docker />}>
-                  <Route index element={<Navigate to="stacks" replace />} />
-                  <Route path="stacks" element={<DockerStacks />} />
-                  <Route path="stacks/:name" element={<DockerStacks />} />
-                  <Route path="containers" element={<DockerContainers />} />
-                  <Route path="images" element={<DockerImages />} />
-                  <Route path="volumes" element={<DockerVolumes />} />
-                  <Route path="networks" element={<DockerNetworks />} />
+                {/* Tab layouts without a path of their own: each page keeps its address. */}
+                <Route element={<DashboardTabs />}>
+                  <Route path="dashboard" element={<Dashboard />} />
+                  <Route path="running" element={<Running />} />
+                </Route>
+                <Route element={<Docker />}>
+                  <Route path="docker">
+                    <Route index element={<Navigate to="stacks" replace />} />
+                    <Route path="stacks" element={<DockerStacks />} />
+                    <Route path="stacks/:name" element={<DockerStacks />} />
+                    <Route path="containers" element={<DockerContainers />} />
+                    <Route path="images" element={<DockerImages />} />
+                    <Route path="volumes" element={<DockerVolumes />} />
+                    <Route path="networks" element={<DockerNetworks />} />
+                  </Route>
+                  <Route path="appstore" element={<AppStore />} />
+                  <Route path="appstore/:appId" element={<AppStore />} />
                 </Route>
                 <Route path="cluster" element={<Cluster />}>
                   <Route index element={<Navigate to="overview" replace />} />
@@ -222,13 +231,14 @@ export default function App() {
                   {/* The token page became the add-agent dialog; old bookmarks open it. */}
                   <Route path="tokens" element={<Navigate to="/cluster/nodes?add=agent" replace />} />
                 </Route>
-                <Route path="appstore" element={<AppStore />} />
-                <Route path="appstore/:appId" element={<AppStore />} />
                 <Route path="files" element={<Files />} />
-                <Route path="cron" element={<CronJobs />} />
                 <Route path="logs" element={<Logs />} />
-                <Route path="processes" element={<Processes />} />
-                <Route path="services" element={<Services />} />
+                <Route element={<System />}>
+                  <Route path="services" element={<Services />} />
+                  <Route path="processes" element={<Processes />} />
+                  <Route path="cron" element={<CronJobs />} />
+                  <Route path="packages" element={<Packages />} />
+                </Route>
                 <Route path="network" element={<Network />}>
                   <Route index element={<Navigate to="interfaces" replace />} />
                   <Route path="interfaces" element={<NetworkInterfaces />} />
@@ -255,7 +265,6 @@ export default function App() {
                   <Route path="docker" element={<FirewallDocker />} />
                   <Route path="logs" element={<Navigate to="/logs?source=firewall" replace />} />
                 </Route>
-                <Route path="packages" element={<Packages />} />
                 <Route path="terminal" element={<Terminal />} />
                 <Route path="ai" element={<Navigate to="/terminal" replace />} />
                 <Route path="settings" element={<Settings />} />

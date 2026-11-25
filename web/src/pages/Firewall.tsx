@@ -1,14 +1,7 @@
 import { useTranslation } from 'react-i18next'
 import { Outlet } from 'react-router-dom'
-import { ShieldCheck, Network, ShieldAlert, Container } from 'lucide-react'
 import { SubNavTabs } from '@/components/SubNavTabs'
-
-const navItems = [
-  { to: '/firewall/rules', icon: ShieldCheck, label: 'firewall.tabs.rules' },
-  { to: '/firewall/ports', icon: Network, label: 'firewall.tabs.ports' },
-  { to: '/firewall/fail2ban', icon: ShieldAlert, label: 'firewall.tabs.fail2ban' },
-  { to: '/firewall/docker', icon: Container, label: 'firewall.tabs.docker' },
-]
+import { navTabs } from '@/lib/navigation'
 
 export default function Firewall() {
   const { t } = useTranslation()
@@ -19,7 +12,7 @@ export default function Firewall() {
         <h1 className="text-[22px] font-bold tracking-tight">{t('firewall.title')}</h1>
       </div>
 
-      <SubNavTabs items={navItems} />
+      <SubNavTabs items={navTabs('/firewall')} />
 
       {/* Content */}
       <div className="min-h-[calc(100vh-220px)]">

@@ -1,13 +1,7 @@
 import { useTranslation } from 'react-i18next'
 import { Outlet } from 'react-router-dom'
-import { Cable, Shield, Globe } from 'lucide-react'
 import { SubNavTabs } from '@/components/SubNavTabs'
-
-const navItems = [
-  { to: '/network/interfaces', icon: Cable, label: 'network.sidebar.interfaces' },
-  { to: '/network/wireguard', icon: Shield, label: 'network.sidebar.wireguard' },
-  { to: '/network/tailscale', icon: Globe, label: 'network.sidebar.tailscale' },
-]
+import { navTabs } from '@/lib/navigation'
 
 export default function Network() {
   const { t } = useTranslation()
@@ -18,7 +12,7 @@ export default function Network() {
         <h1 className="text-[22px] font-bold tracking-tight">{t('network.title')}</h1>
       </div>
 
-      <SubNavTabs items={navItems} />
+      <SubNavTabs items={navTabs('/network')} />
 
       {/* Content */}
       <div className="min-h-[calc(100vh-220px)]">

@@ -22,7 +22,7 @@ export default function Packages() {
     <div className="space-y-6">
       {/* Page header */}
       <div>
-        <h1 className="text-[22px] font-bold tracking-tight">{t('packages.title')}</h1>
+        <h2 className="text-[17px] font-semibold">{t('packages.title')}</h2>
         <p className="text-[13px] text-muted-foreground mt-1">{t('packages.subtitle')}</p>
       </div>
 

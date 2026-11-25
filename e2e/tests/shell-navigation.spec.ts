@@ -21,6 +21,8 @@ async function mock(page: Page) {
     else if (path.endsWith('/alerts/history')) data = { items: [], total: 0 }
     else if (path.endsWith('/alerts/channels') || path.endsWith('/alerts/rules')) data = []
     else if (path.endsWith('/audit/logs')) data = { logs: [], total: 0 }
+    else if (path.endsWith('/appstore/categories') || path.endsWith('/appstore/apps')) data = []
+    else if (path.endsWith('/docker/compose') || path.endsWith('/docker/containers')) data = []
     await route.fulfill({ json: { success: true, data } })
   })
 }
@@ -97,4 +99,48 @@ test('the terminal keeps its waiting count, and the next page does not inherit i
   await page.getByRole('navigation').getByRole('link', { name: 'Settings', exact: true }).click()
   await expect(page.getByRole('heading', { name: 'Settings', level: 1 })).toBeVisible()
   await expect(page).toHaveTitle('Settings · SFPanel')
+})
+
+// Services, processes, scheduled tasks and packages are one menu entry's tabs,
+// the app store is Docker's last and the running board the dashboard's second,
+// each at the address it always had.
+test('system groups four pages as tabs at their old addresses', async ({ page }) => {
+  await mock(page)
+  await page.goto('/processes')
+  await expect(page.getByRole('heading', { level: 1, name: 'System' })).toBeVisible()
+  // The page's own name sits under the menu's.
+  await expect(page.getByRole('heading', { level: 2, name: 'Processes' })).toBeVisible()
+  await expect(page.getByRole('heading', { level: 1 })).toHaveCount(1)
+  const tabs = page.getByRole('navigation', { name: 'System' }).getByRole('link')
+  expect(await tabs.evaluateAll((a) => a.map((l) => l.getAttribute('href')))).toEqual(['/services', '/processes', '/cron', '/packages'])
+  await expect(tabs.filter({ hasText: 'Processes' })).toHaveAttribute('aria-current', 'page')
+  await expect(page).toHaveTitle('Processes · SFPanel')
+  const packages = tabs.filter({ hasText: 'Packages' })
+  await packages.click()
+  await expect(page).toHaveURL(/\/packages$/)
+  await expect(packages).toBeFocused()
+})
+
+test('Docker carries the app store as its last tab; the dashboard its running tab', async ({ page }) => {
+  await mock(page)
+  await page.goto('/appstore')
+  await expect(page.getByRole('heading', { level: 1, name: 'Docker' })).toBeVisible()
+  await expect(page.getByRole('heading', { level: 2, name: 'App Store' })).toBeVisible()
+  await expect(page.getByRole('heading', { level: 1 })).toHaveCount(1)
+  await expect(page.getByRole('navigation', { name: 'Docker' }).getByRole('link', { name: 'App Store' })).toHaveAttribute('aria-current', 'page')
+  await page.goto('/running')
+  await expect(page.getByRole('main').getByRole('link', { name: 'Running here' })).toHaveAttribute('aria-current', 'page')
+  await expect(page.getByRole('heading', { level: 1, name: 'Running here' })).toBeVisible()
+})
+
+// The dashboard reads the overview the shell already asked for; the tab
+// layout between them has to hand the shell's context on. Counted on a
+// production build: the dev server's strict mode runs the shell's read twice.
+test('the dashboard still reuses the shell\'s overview through its tab layout', async ({ page }) => {
+  const asked: string[] = []
+  page.on('request', (r) => { if (r.url().includes('/api/v1/system/overview')) asked.push(r.url()) })
+  await mock(page)
+  await page.goto('/dashboard')
+  await page.waitForTimeout(1500)
+  expect(asked).toHaveLength(1)
 })

@@ -280,7 +280,7 @@ test('a scanned network as a diagram: the gateway on top, the nodes with their g
   await mock(page)
   await page.goto('/cluster/running')
   const network = page.locator('[data-testid="net-network"]')
-  await expect(network.getByRole('heading', { name: NET, level: 3 })).toBeVisible()
+  await expect(network.getByRole('heading', { name: NET, level: 2 })).toBeVisible()
   await expect(network).toContainText('Devices: 28 · scanned from alpha-node')
   await expect(network).toContainText('ports checked')
   await expect(page.getByTestId('net-device')).toHaveCount(28)
@@ -526,7 +526,7 @@ test('nodes older than the scan say so, and still show their interfaces and port
 test('each server from the inside: its networks, and its ports by who can reach them', async ({ page }) => {
   await mock(page)
   await page.goto('/cluster/running')
-  await expect(page.getByRole('heading', { name: 'Networks and ports by server', level: 3 })).toBeVisible()
+  await expect(page.getByRole('heading', { name: 'Networks and ports by server', level: 2 })).toBeVisible()
   const servers = page.getByTestId('net-server')
   await expect(servers).toHaveCount(6)
   const alpha = page.locator('[data-testid="net-server"][data-node="m-1"]')
@@ -587,7 +587,7 @@ test('the port maps are read when the view opens and when the operator asks, not
 test('one server with no cluster: its own network, its own ports open on the page', async ({ page }) => {
   await mock(page, { cluster: false })
   await page.goto('/running')
-  await expect(page.getByRole('heading', { name: 'Running', level: 1 })).toBeVisible()
+  await expect(page.getByRole('heading', { name: 'Running here', level: 1 })).toBeVisible()
   await expect(page.locator('[data-testid="net-network"]').getByRole('heading', { name: NET, level: 2 })).toBeVisible()
   await expect(page.getByTestId('net-device')).toHaveCount(28)
   // Alone it knows no other node: the scan's own address is the one server.

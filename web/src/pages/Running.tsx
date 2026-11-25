@@ -13,7 +13,6 @@ import { cn } from '@/lib/utils'
 import { AttentionList } from './running/AttentionList'
 import { NetworkView } from './running/network/NetworkView'
 import { RackView } from './running/rack/RackView'
-import { Heading } from './running/Heading'
 import { Meters, NodeBody, NodeSection } from './running/NodeSection'
 import type { HeadingLevel } from './running/Heading'
 import { nodeSectionId, type Scope } from './running/targets'
@@ -150,10 +149,10 @@ function Canvas({ sections, scope, localId, query, storageKey, level }: {
   )
 }
 
-/** Title, what the page covers, when it was last heard from, the view and a refresh. */
-function BoardHeader({ board, level, subtitle, onRefresh, view, onView }: {
+/** The page's heading, what the page covers, when it was last heard from, the view and a refresh. */
+function BoardHeader({ board, title, subtitle, onRefresh, view, onView }: {
   board: BoardModel
-  level: 1 | 2
+  title: string
   subtitle: string
   onRefresh: () => void
   view: RunningView
@@ -163,7 +162,7 @@ function BoardHeader({ board, level, subtitle, onRefresh, view, onView }: {
   return (
     <header className="flex flex-wrap items-start justify-between gap-3">
       <div className="min-w-0">
-        <Heading level={level} className={level === 1 ? 'text-[22px] font-bold tracking-tight' : 'text-[17px] font-semibold'}>{t('running.title')}</Heading>
+        <h1 className="text-[22px] font-bold tracking-tight">{title}</h1>
         <div className="mt-1 flex flex-wrap items-center gap-x-2 text-[13px] text-muted-foreground">
           <p className="break-words">{subtitle}</p>
           <ResourceStatus resource={board.header} />
@@ -201,18 +200,21 @@ function ClusterRunning() {
 
   if (state.phase === 'standalone') {
     return (
-      <div className="rounded-2xl bg-card p-4 text-[13px] card-shadow">
-        <p>{t('running.notCluster.body')}</p>
-        <Link to="/running" className="mt-1 inline-flex min-h-11 items-center font-medium text-primary hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring">
-          {t('running.notCluster.link')}
-        </Link>
-      </div>
+      <Frame>
+        <h1 className="text-[22px] font-bold tracking-tight">{t('running.title')}</h1>
+        <div className="rounded-2xl bg-card p-4 text-[13px] card-shadow">
+          <p>{t('running.notCluster.body')}</p>
+          <Link to="/running" className="mt-1 inline-flex min-h-11 items-center font-medium text-primary hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring">
+            {t('running.notCluster.link')}
+          </Link>
+        </div>
+      </Frame>
     )
   }
   if (state.phase !== 'ready') {
     return (
       <Frame>
-        <Heading level={2} className="text-[17px] font-semibold">{t('running.title')}</Heading>
+        <h1 className="text-[22px] font-bold tracking-tight">{t('running.title')}</h1>
         <ListLoadState loading={state.phase === 'loading'} error={state.phase === 'error' ? state.error : null} errorTitle={t('running.overviewError')} onRetry={refresh} skeletonCount={3} />
       </Frame>
     )
@@ -235,35 +237,35 @@ function ClusterRunning() {
   if (view === 'rack') {
     return (
       <Frame wide>
-        <BoardHeader board={board} level={2} subtitle={t('running.subtitleCluster')} onRefresh={() => { refresh(); setNetRound((r) => r + 1) }} view={view} onView={setView} />
-        <RackView sections={board.sections} round={netRound} level={3} />
+        <BoardHeader board={board} title={t('running.title')} subtitle={t('running.subtitleCluster')} onRefresh={() => { refresh(); setNetRound((r) => r + 1) }} view={view} onView={setView} />
+        <RackView sections={board.sections} round={netRound} level={2} />
       </Frame>
     )
   }
   if (view === 'network') {
     return (
       <Frame>
-        <BoardHeader board={board} level={2} subtitle={t('running.subtitleCluster')} onRefresh={() => { refresh(); setNetRound((r) => r + 1) }} view={view} onView={setView} />
+        <BoardHeader board={board} title={t('running.title')} subtitle={t('running.subtitleCluster')} onRefresh={() => { refresh(); setNetRound((r) => r + 1) }} view={view} onView={setView} />
         <SearchField value={query} onChange={setQuery} network />
-        <NetworkView sections={board.sections} scope="cluster" localId={board.localId} query={query} round={netRound} level={3} onClearQuery={() => setQuery('')} />
+        <NetworkView sections={board.sections} scope="cluster" localId={board.localId} query={query} round={netRound} level={2} onClearQuery={() => setQuery('')} />
       </Frame>
     )
   }
   if (view === 'canvas') {
     return (
       <Frame wide>
-        <BoardHeader board={board} level={2} subtitle={t('running.subtitleCluster')} onRefresh={refresh} view={view} onView={setView} />
+        <BoardHeader board={board} title={t('running.title')} subtitle={t('running.subtitleCluster')} onRefresh={refresh} view={view} onView={setView} />
         <SearchField value={query} onChange={setQuery} />
         {noMatch && <NoMatch query={query} onClear={() => setQuery('')} />}
-        <Canvas sections={board.sections} scope="cluster" localId={board.localId} query={query} storageKey="sfpanel-running-canvas:cluster" level={3} />
+        <Canvas sections={board.sections} scope="cluster" localId={board.localId} query={query} storageKey="sfpanel-running-canvas:cluster" level={2} />
       </Frame>
     )
   }
   return (
     <Frame>
-      <BoardHeader board={board} level={2} subtitle={t('running.subtitleCluster')} onRefresh={refresh} view={view} onView={setView} />
+      <BoardHeader board={board} title={t('running.title')} subtitle={t('running.subtitleCluster')} onRefresh={refresh} view={view} onView={setView} />
       <TotalsRow totals={board.totals} showNodes loaded={board.sections.some((s) => s.node.contents)} />
-      <AttentionList items={board.items} scope="cluster" localId={board.localId} level={3} />
+      <AttentionList items={board.items} scope="cluster" localId={board.localId} level={2} />
       <SearchField value={query} onChange={setQuery} />
       {noMatch && <NoMatch query={query} onClear={() => setQuery('')} />}
       {board.sections
@@ -303,7 +305,7 @@ function NodeRunning() {
   if (view === 'rack') {
     return (
       <Frame wide>
-        <BoardHeader board={board} level={1} subtitle={subtitle} onRefresh={() => { refresh(); setNetRound((r) => r + 1) }} view={view} onView={setView} />
+        <BoardHeader board={board} title={t('layout.tabs.runningHere')} subtitle={subtitle} onRefresh={() => { refresh(); setNetRound((r) => r + 1) }} view={view} onView={setView} />
         <RackView sections={board.sections} round={netRound} level={2} />
       </Frame>
     )
@@ -311,7 +313,7 @@ function NodeRunning() {
   if (view === 'network') {
     return (
       <Frame>
-        <BoardHeader board={board} level={1} subtitle={subtitle} onRefresh={() => { refresh(); setNetRound((r) => r + 1) }} view={view} onView={setView} />
+        <BoardHeader board={board} title={t('layout.tabs.runningHere')} subtitle={subtitle} onRefresh={() => { refresh(); setNetRound((r) => r + 1) }} view={view} onView={setView} />
         <SearchField value={query} onChange={setQuery} network />
         <NetworkView sections={board.sections} scope="node" localId={board.localId} query={query} round={netRound} level={2} onClearQuery={() => setQuery('')} />
       </Frame>
@@ -320,7 +322,7 @@ function NodeRunning() {
   if (view === 'canvas') {
     return (
       <Frame wide>
-        <BoardHeader board={board} level={1} subtitle={subtitle} onRefresh={refresh} view={view} onView={setView} />
+        <BoardHeader board={board} title={t('layout.tabs.runningHere')} subtitle={subtitle} onRefresh={refresh} view={view} onView={setView} />
         <SearchField value={query} onChange={setQuery} />
         {noMatch && <NoMatch query={query} onClear={() => setQuery('')} />}
         <Canvas sections={boxed} scope="node" localId={board.localId} query={query} storageKey={`sfpanel-running-canvas:node:${section.node.id}`} level={2} />
@@ -329,7 +331,7 @@ function NodeRunning() {
   }
   return (
     <Frame>
-      <BoardHeader board={board} level={1} subtitle={subtitle} onRefresh={refresh} view={view} onView={setView} />
+      <BoardHeader board={board} title={t('layout.tabs.runningHere')} subtitle={subtitle} onRefresh={refresh} view={view} onView={setView} />
       {metrics && <Meters metrics={{ cpu: metrics.cpu, memory: metrics.mem_percent, disk: metrics.disk_percent }} />}
       <TotalsRow totals={board.totals} showNodes={false} loaded={!!section.node.contents} />
       <AttentionList items={board.items} scope="node" localId="" level={2} />

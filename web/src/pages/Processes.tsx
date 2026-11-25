@@ -399,10 +399,10 @@ export default function Processes() {
     <div className="space-y-4">
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-[22px] font-bold tracking-tight flex items-center gap-2">
+          <h2 className="text-[17px] font-semibold flex items-center gap-2">
             <Activity className="h-5 w-5" />
             {t('processes.title')}
-          </h1>
+          </h2>
           <p className="text-[13px] text-muted-foreground mt-1">{t('processes.subtitle')}</p>
         </div>
         <span className="inline-flex items-center px-3 py-1 rounded-full text-[13px] font-semibold bg-primary/10 text-primary">

@@ -150,7 +150,7 @@ test('a rack is made with a name and a height, and written to every node with on
   await form.getByRole('button', { name: 'Create' }).click()
 
   await expect(racks(page)).toHaveCount(1)
-  await expect(racks(page).getByRole('heading', { name: 'Main rack', level: 3 })).toBeVisible()
+  await expect(racks(page).getByRole('heading', { name: 'Main rack', level: 2 })).toBeVisible()
   await expect(racks(page)).toContainText('8U · 0 in it')
   // Eight free units, numbered from the top down.
   await expect(page.getByTestId('rack-free')).toHaveCount(8)

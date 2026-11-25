@@ -158,7 +158,7 @@ const region = (page: Page, name: string) => page.getByRole('region', { name, ex
 test('datacenter scope: totals, what needs attention in order, and links that lead somewhere', async ({ page }) => {
   await mock(page)
   await page.goto('/cluster/running')
-  await expect(page.getByRole('heading', { name: 'Running', level: 2 })).toBeVisible()
+  await expect(page.getByRole('heading', { name: 'Running', level: 1 })).toBeVisible()
 
   await expect(page.getByTestId('total-nodes')).toContainText('2 / 3')
   await expect(page.getByTestId('total-stacks')).toContainText('4')
@@ -187,8 +187,8 @@ test('datacenter scope: totals, what needs attention in order, and links that le
   const alphaRegion = region(page, 'alpha-node')
   await expect(alphaRegion).toContainText('Leader')
   await expect(alphaRegion).toContainText('CPU23%')
-  await expect(alphaRegion.getByRole('heading', { name: 'Stacks 4', level: 4 })).toBeVisible()
-  await expect(alphaRegion.getByRole('heading', { name: 'Standalone containers 3', level: 4 })).toBeVisible()
+  await expect(alphaRegion.getByRole('heading', { name: 'Stacks 4', level: 3 })).toBeVisible()
+  await expect(alphaRegion.getByRole('heading', { name: 'Standalone containers 3', level: 3 })).toBeVisible()
   await expect(alphaRegion.getByText('Partly running 3/4')).toBeVisible()
   await expect(alphaRegion.getByText('ml Restarting')).toBeVisible()
   await expect(alphaRegion.getByText('Stopped 0/2')).toBeVisible()
@@ -262,7 +262,7 @@ test('a first load that fails is said to have failed, in the header too', async 
   await page.goto('/running')
   const main = page.getByRole('main')
   await expect(main.getByRole('alert')).toContainText('docker: daemon timed out')
-  const header = main.locator('div').filter({ has: page.getByRole('heading', { name: 'Running', level: 1 }) }).last()
+  const header = main.locator('div').filter({ has: page.getByRole('heading', { name: 'Running here', level: 1 }) }).last()
   await expect(header.getByRole('status')).toContainText('Unable to load data')
   await expect(header).not.toContainText('Loading…')
   // Its retry asks again, and then it says when it was read.
@@ -296,7 +296,7 @@ test('a node list that answers after the page was left asks no node', async ({ p
 test('node scope on a single server: no node header, the same tiles', async ({ page }) => {
   await mock(page, { cluster: false })
   await page.goto('/running')
-  await expect(page.getByRole('heading', { name: 'Running', level: 1 })).toBeVisible()
+  await expect(page.getByRole('heading', { name: 'Running here', level: 1 })).toBeVisible()
   await expect(page.getByText('What runs on solo-server right now')).toBeVisible()
   await expect(page.getByTestId('total-nodes')).toHaveCount(0)
   await expect(page.getByTestId('total-stacks')).toContainText('4')
@@ -343,7 +343,7 @@ test('a Proxmox host lists its guests, and a VM that is one of the nodes leads t
   const state = await mock(page, { pve: true })
   await page.goto('/cluster/running')
   const pveRegion = region(page, 'pve-host')
-  await expect(pveRegion.getByRole('heading', { name: 'VMs and LXC containers 3', level: 4 })).toBeVisible()
+  await expect(pveRegion.getByRole('heading', { name: 'VMs and LXC containers 3', level: 3 })).toBeVisible()
   // The guests come above what Docker would have to say, which here is that it is not there.
   await expect(pveRegion).toContainText('Docker is not installed here, or not running.')
 
@@ -389,7 +389,7 @@ test('guests that could not be listed say so beside the stacks, and an older nod
   const state = await mock(page, { guestsFail: 'm-1' })
   await page.goto('/cluster/running')
   const alphaRegion = region(page, 'alpha-node')
-  await expect(alphaRegion.getByRole('heading', { name: 'VMs and LXC containers', exact: true, level: 4 })).toBeVisible()
+  await expect(alphaRegion.getByRole('heading', { name: 'VMs and LXC containers', exact: true, level: 3 })).toBeVisible()
   const line = alphaRegion.getByRole('alert')
   await expect(line).toContainText('Could not load the list.')
   await expect(line).toContainText('pvesh failed: ipcc_send_rec[1] failed: Connection refused')
@@ -449,7 +449,7 @@ test('a node section folds, and stays folded on the next visit', async ({ page }
   await page.reload()
   // A reload fetches the app and the lazy page again, which a dev server on a
   // busy host can take longer than one assertion's wait for.
-  await expect(page.getByRole('heading', { name: 'Running', level: 2 })).toBeVisible({ timeout: 20_000 })
+  await expect(page.getByRole('heading', { name: 'Running', level: 1 })).toBeVisible({ timeout: 20_000 })
   await expect(region(page, 'alpha-node').getByRole('button', { name: 'alpha-node' })).toHaveAttribute('aria-expanded', 'false')
 })
 
@@ -469,11 +469,14 @@ test('the host listeners are asked for only when opened', async ({ page }) => {
 test('both routes are titled by the screen', async ({ page }) => {
   await mock(page, { language: 'ko' })
   await page.goto('/cluster/running')
-  await expect(page.getByRole('heading', { name: '실행 현황', level: 2 })).toBeVisible()
-  await expect(page).toHaveTitle('실행 현황 · SFPanel')
-  await page.goto('/running')
   await expect(page.getByRole('heading', { name: '실행 현황', level: 1 })).toBeVisible()
-  await expect(page).toHaveTitle('실행 현황 · alpha-node · SFPanel')
+  await expect(page).toHaveTitle('실행 현황 · SFPanel')
+  // The board heads its page: the cluster page's heading is not drawn above it.
+  await expect(page.getByRole('heading', { level: 1 })).toHaveCount(1)
+  await page.goto('/running')
+  await expect(page.getByRole('heading', { name: '실행 중인 항목', level: 1 })).toBeVisible()
+  await expect(page).toHaveTitle('실행 중인 항목 · alpha-node · SFPanel')
+  await expect(page.getByRole('heading', { level: 1 })).toHaveCount(1)
 })
 
 for (const width of [360, 320]) {
