@@ -3,6 +3,7 @@ import { Trans, useTranslation } from 'react-i18next'
 import { Plus, Trash2, Shield, HardDrive, PlusCircle, MinusCircle, Loader2 } from 'lucide-react'
 import { api, type ApiError } from '@/lib/api'
 import { formatBytes } from '@/lib/utils'
+import { raidTone, type RaidTone } from '@/lib/raid'
 import { useApiAction } from '@/hooks/useApiAction'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -44,21 +45,16 @@ function memberStateColor(state: string): string {
   }
 }
 
+const ARRAY_TONE: Record<RaidTone, string> = {
+  ok: 'bg-success/10 text-success',
+  warn: 'bg-warning/10 text-warning',
+  bad: 'bg-destructive/10 text-destructive',
+  other: 'bg-secondary text-muted-foreground',
+}
+
 function arrayStateBadge(state: string) {
   const base = 'inline-flex items-center px-2 py-0.5 rounded-full text-[12px] font-medium'
-  switch (state.toLowerCase()) {
-    case 'active':
-    case 'clean':
-      return <span className={`${base} bg-success/10 text-success`}>{state}</span>
-    case 'degraded':
-    case 'rebuilding':
-      return <span className={`${base} bg-warning/10 text-warning`}>{state}</span>
-    case 'inactive':
-    case 'failed':
-      return <span className={`${base} bg-destructive/10 text-destructive`}>{state}</span>
-    default:
-      return <span className={`${base} bg-secondary text-muted-foreground`}>{state}</span>
-  }
+  return <span className={`${base} ${ARRAY_TONE[raidTone(state)]}`}>{state}</span>
 }
 
 export default function DiskRAID() {

@@ -148,7 +148,7 @@ const DockerStacks = lazy(() => import('@/pages/docker/DockerStacks'))
 - **기능**: 노드 단위 시스템 현황 대시보드 (클러스터 Layout 내에서 선택 노드 범위로 렌더)
   - 제목(`<h1>`): 클러스터 모드에서는 서버 목록에 있는 서버 이름(Layout의 `serverName`)이고, 호스트명이 그와 다르면 바로 아래 "호스트명 · <hostname>" 한 줄. 단일 서버이거나 노드 목록을 아직(또는 못) 받았으면 호스트명
   - 호스트 정보 (hostname, OS, platform+version, kernel, uptime, CPU 코어, **주 IP**)
-  - **확인 필요** (문제가 있을 때만, 맨 위): 확인이 필요한 컨테이너 → `/docker/containers`, 80% 이상 찬 디스크(가장 찬 실제 파일시스템) → 무엇이 채우는지 보이는 그 디스크의 사용량 탭 `/disk/usage?path=<마운트 지점>`, 마지막 백업 실패 → `/settings?tab=system`. 자원 카드의 디스크는 그대로 `/disk/filesystems`
+  - **확인 필요** (문제가 있을 때만, 맨 위): 확인이 필요한 컨테이너 → `/docker/containers`, 80% 이상 찬 디스크(가장 찬 실제 파일시스템) → 무엇이 채우는지 보이는 그 디스크의 사용량 탭 `/disk/usage?path=<마운트 지점>`, 마지막 백업 실패 → `/settings?tab=system`, 이상 있는 RAID 배열(한 줄, 배열 이름들) → RAID 탭 `/disk/raid`(클러스터에서는 보고 있는 서버의 `?node=`를 단다). RAID 판정은 `web/src/lib/raid.ts`(순수 함수, `raid.test.ts`): `mdadm --detail`의 상태는 `clean, degraded`처럼 쉼표로 이어지므로 낱말마다 읽는다. `raidNeedsAttention`은 `degraded`·`failed`·`inactive`이거나 실패한 구성원(`failed > 0`)이 있는 배열이고, 재동기화만 하는 `clean, resyncing`은 아니다. RAID 탭의 상태 색도 같은 `raidTone`을 쓴다. mdadm이 없는 서버(`TOOL_NOT_INSTALLED`)는 배열이 없는 것으로 보고, 그 밖의 읽기 실패만 "N개 항목을 갱신하지 못했습니다"에 센다. 자원 카드의 디스크는 그대로 `/disk/filesystems`
   - 실시간 메트릭 카드 4개 (CPU / 메모리+Swap / 디스크 / 네트워크)
   - CPU/메모리 히스토리 차트 (**1/4/12/24h** 범위 토글)
   - Docker 컨테이너 요약 (실행/중지/전체 카운트 + 최근 컨테이너 목록, "전체 보기" → /docker)

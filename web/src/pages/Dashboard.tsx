@@ -2,7 +2,7 @@ import { useState, useCallback, useMemo, useRef } from 'react'
 import { Link, useOutletContext } from 'react-router-dom'
 import { useTranslation } from 'react-i18next'
 import { Cpu, MemoryStick, HardDrive, Network, Server, AlertTriangle, ArrowUpRight, ChevronDown } from 'lucide-react'
-import { api } from '@/lib/api'
+import { api, type ApiError } from '@/lib/api'
 import { useWebSocket } from '@/hooks/useWebSocket'
 import { useVisibleInterval } from '@/hooks/useVisibleInterval'
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
@@ -16,6 +16,8 @@ import type { Metrics } from '@/types/api'
 import { worstFilesystem, rootFilesystem } from '@/lib/filesystems'
 import { containerHealth, compareForSummary, needsAttention, type ContainerHealth } from '@/lib/containerState'
 import { usePolledResource } from '@/hooks/usePolledResource'
+import { useServerScope } from '@/hooks/useServerScope'
+import { raidNeedsAttention } from '@/lib/raid'
 import ResourceStatus from '@/components/ResourceStatus'
 import DashboardSection from './dashboard/DashboardSection'
 import QuickActions from './dashboard/QuickActions'
@@ -36,6 +38,16 @@ const loadBackup = async () => (await api.getBackupSchedule())?.schedule ?? null
 const loadProcesses = async () => (await api.getTopProcesses()) ?? []
 const loadInterfaces = async () => (await api.getNetworkInterfaces()) ?? []
 const loadSystemLogs = async () => (await api.readLog('syslog', 8)).lines ?? []
+// A server without mdadm has no arrays to report, which is not a failed read.
+const loadRaid = async () => {
+  try {
+    const list = await api.getRAIDArrays()
+    return Array.isArray(list) ? list : []
+  } catch (e) {
+    if ((e as ApiError).code === 'TOOL_NOT_INSTALLED') return []
+    throw e
+  }
+}
 const linkClass = 'inline-flex min-h-11 items-center gap-1 rounded-md px-2 text-xs font-medium text-primary hover:underline focus-visible:outline-2 focus-visible:outline-ring'
 
 function SegmentedControl<T extends string>({ options, value, onChange, label }: {
@@ -56,6 +68,7 @@ export default function Dashboard() {
   // In a cluster the heading is the name the node list gives, and the host's own
   // name goes under it.
   const serverName = outletCtx?.serverName ?? null
+  const { href } = useServerScope()
   const loadOverview = useCallback(() => {
     const shared = sharedOverview?.data && sharedOverview.node === api.currentNode && Date.now() - sharedOverview.at < OVERVIEW_REUSE_MS
       ? sharedOverview.data : null
@@ -68,6 +81,7 @@ export default function Dashboard() {
   const processes = usePolledResource(loadProcesses, 10000)
   const interfaces = usePolledResource(loadInterfaces, 60000)
   const systemLogs = usePolledResource(loadSystemLogs, 30000)
+  const raid = usePolledResource(loadRaid, 60000)
   const [logTab, setLogTab] = useState<'firewall' | 'syslog'>('firewall')
   const logTabDecided = useRef(false)
   const loadFirewallLogs = useCallback(async () => {
@@ -130,12 +144,14 @@ export default function Dashboard() {
   const backupLabel = !backupConfig ? '—' : !backupConfig.enabled ? t('dashboard.backupDisabled') : backupConfig.last_status === 'error' ? t('dashboard.backupFailed') : backupConfig.last_run ? formatDate(backupConfig.last_run) : t('dashboard.backupNever')
   const backupFailed = backupConfig?.enabled && backupConfig.last_status === 'error'
   const diskPercent = worstFs?.use_percent ?? metrics?.disk_percent
+  const brokenArrays = (raid.data ?? []).filter(raidNeedsAttention).map((a) => a.name)
   const issues = [
     ...(attentionCount ? [{ key: 'containers', to: '/docker/containers', text: t('dashboard.attentionContainers', { count: attentionCount }), stale: containers.error }] : []),
     ...(diskPercent != null && diskPercent >= 80 ? [{ key: 'disk', to: `/disk/usage?path=${encodeURIComponent(worstFs?.mount_point ?? '/')}`, text: t('dashboard.attentionDisk', { mount: worstFs?.mount_point ?? '/', percent: diskPercent.toFixed(0) }), stale: worstFs ? filesystems.error : !liveFresh }] : []),
     ...(backupFailed ? [{ key: 'backup', to: '/settings?tab=system', text: t('dashboard.attentionBackup'), stale: backup.error }] : []),
+    ...(brokenArrays.length ? [{ key: 'raid', to: href('/disk/raid'), text: t('dashboard.attentionRaid', { count: brokenArrays.length, names: brokenArrays.join(', ') }), stale: raid.error }] : []),
   ]
-  const failedSources = [overview, containers, filesystems, backup, processes, interfaces, history, systemLogs, firewallLogs].filter((resource) => resource.error).length
+  const failedSources = [overview, containers, filesystems, backup, processes, interfaces, history, systemLogs, firewallLogs, raid].filter((resource) => resource.error).length
   const diskDescription = worstFs ? `${worstFs.mount_point} · ${formatBytes(worstFs.used)} / ${formatBytes(worstFs.size)}` : metrics ? `/ · ${formatBytes(metrics.disk_used)} / ${formatBytes(metrics.disk_total)}` : undefined
 
   return (

@@ -42,6 +42,7 @@ async function fixture(page: Page, override?: (route: Route, url: URL) => Promis
     else if (path.endsWith('/inspect')) data = { state: 'exited', hostname: 'api-container', image: 'api:latest', ports: [], mounts: [], networks: [], env: [] }
     else if (path === '/logs/read') data = { lines: url.searchParams.get('source') === 'syslog' ? ['Sep 23 09:00:00 demo-server service started'] : [] }
     else if (/batch|history|events/.test(path)) data = []
+    else if (path === '/raid') data = []
     await route.fulfill({ json: { success: true, data } })
   })
   return { sockets }
@@ -339,21 +340,65 @@ test('Korean mobile separates live metrics from failed sources and retries each 
   await page.screenshot({ path: '/tmp/sfpanel-dashboard-mobile-ko-recovered.png' })
 })
 
+// Answers the three sources the default fixture raises an alarm from as
+// healthy: one container stopped on purpose, a roomy disk, backups off.
+async function healthy(route: Route, url: URL) {
+  const path = url.pathname.replace('/api/v1', '')
+  let data: unknown
+  if (path === '/docker/containers') data = [{ ...containers[0], State: 'exited', Status: 'Exited (0) 2 hours ago' }]
+  else if (path === '/filesystems') data = [filesystem('/', 40)]
+  else if (path === '/system/backup/schedule') data = { schedule: { enabled: false, last_status: 'error' } }
+  else return false
+  await route.fulfill({ json: { success: true, data } })
+  return true
+}
+
 test('healthy resources and intentionally stopped containers do not raise an alarm', async ({ page }) => {
-  await fixture(page, async (route, url) => {
-    const path = url.pathname.replace('/api/v1', '')
-    let data: unknown
-    if (path === '/docker/containers') data = [{ ...containers[0], State: 'exited', Status: 'Exited (0) 2 hours ago' }]
-    else if (path === '/filesystems') data = [filesystem('/', 40)]
-    else if (path === '/system/backup/schedule') data = { schedule: { enabled: false, last_status: 'error' } }
-    else return false
-    await route.fulfill({ json: { success: true, data } })
-    return true
-  })
+  await fixture(page, healthy)
   await page.goto('/dashboard')
   await expect(panel(page).getByText('worker')).toBeVisible()
   await expect(page.getByRole('region', { name: 'Backup', exact: true })).toContainText('off')
   await expect(page.getByRole('region', { name: 'Needs Attention', exact: true })).toHaveCount(0)
+})
+
+// mdadm --detail joins its state words with commas, so the dashboard and the
+// RAID tab read the state word by word.
+const md0 = { name: 'md0', level: 'raid1', state: 'clean, degraded', size: 1e12, devices: [{ device: 'sda1', state: 'active' }, { device: 'sdb1', state: 'faulty' }], active: 1, total: 2, failed: 1, spare: 0 }
+
+test('a degraded RAID array is one line that opens the RAID tab', async ({ page }) => {
+  await fixture(page, async (route, url) => url.pathname.endsWith('/raid') ? (await route.fulfill({ json: { success: true, data: [md0] } }), true) : false)
+  await page.goto('/dashboard')
+  const line = page.getByRole('region', { name: 'Needs Attention', exact: true }).getByRole('link', { name: /RAID array degraded · md0/ })
+  await line.click()
+  await expect(page).toHaveURL(/\/disk\/raid/)
+  // The tab colours the state by the same reading.
+  await expect(page.getByText('clean, degraded', { exact: true })).toHaveClass(/text-warning/)
+})
+
+// A server without mdadm has no arrays: nothing broken, nothing unread.
+test('a host without mdadm raises nothing', async ({ page }) => {
+  await fixture(page, async (route, url) => url.pathname.endsWith('/raid')
+    ? (await route.fulfill({ status: 503, json: { success: false, error: { code: 'TOOL_NOT_INSTALLED', message: 'mdadm is not installed' } } }), true)
+    : healthy(route, url))
+  const refused = page.waitForResponse((response) => new URL(response.url()).pathname === '/api/v1/raid')
+  await page.goto('/dashboard')
+  await refused
+  await expect(panel(page).getByText('worker')).toBeVisible()
+  await expect(page.getByRole('region', { name: 'Backup', exact: true })).toContainText('off')
+  // Read once, after the refusal has had time to land: a retrying count of
+  // zero would pass before the dashboard knew anything.
+  await page.waitForTimeout(300)
+  expect(await page.getByRole('region', { name: 'Needs Attention', exact: true }).count()).toBe(0)
+})
+
+test('a RAID read that fails is a source not refreshed, not a broken array', async ({ page }) => {
+  await fixture(page, async (route, url) => url.pathname.endsWith('/raid')
+    ? (await route.fulfill({ status: 500, json: { success: false, error: { code: 'RAID_ERROR', message: 'failed to list RAID arrays' } } }), true)
+    : healthy(route, url))
+  await page.goto('/dashboard')
+  const region = page.getByRole('region', { name: 'Needs Attention', exact: true })
+  await expect(region.getByText(/Could not refresh 1 sources/)).toBeVisible()
+  await expect(region.getByRole('link', { name: /RAID/ })).toHaveCount(0)
 })
 
 test('charts support exact keyboard readouts, series selection, data tables, resizing and themes', async ({ page }) => {

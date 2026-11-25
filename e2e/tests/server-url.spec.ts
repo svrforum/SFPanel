@@ -414,6 +414,18 @@ test('the disk Setup menu names the server shown, like the tabs', async ({ page 
   await expect(page.getByRole('menuitem', { name: 'RAID' })).toHaveAttribute('href', '/disk/raid?node=m-1')
 })
 
+// The dashboard's RAID line opens the arrays of the server it read them from,
+// in this tab or a new one.
+test('the dashboard RAID line names the server shown', async ({ page }) => {
+  await mock(page, { storage: CLUSTER })
+  await page.route((url) => url.pathname === '/api/v1/raid', (route) => route.fulfill({ json: { success: true, data: [
+    { name: 'md0', level: 'raid1', state: 'clean, degraded', size: 1e12, devices: [], active: 1, total: 2, failed: 1, spare: 0 },
+  ] } }))
+  await page.goto('/dashboard?node=agent-1')
+  const line = page.getByRole('region', { name: 'Needs Attention', exact: true }).getByRole('link', { name: /RAID array degraded · md0/ })
+  await expect(line).toHaveAttribute('href', '/disk/raid?node=agent-1')
+})
+
 test('pressing the open entry or tab again adds no history', async ({ page }) => {
   await mock(page, { storage: CLUSTER })
   await page.goto('/services?node=m-1')

@@ -287,6 +287,8 @@
     "attentionContainers": "{{count}} containers need attention",
     "attentionDisk": "Disk {{mount}} · {{percent}}% used",
     "attentionBackup": "Last backup failed",
+    "attentionRaid_one": "RAID array degraded · {{names}}",
+    "attentionRaid_other": "{{count}} RAID arrays degraded · {{names}}",
     "lastKnown": "last known state",
     "incompleteData": "Could not refresh {{count}} sources. Check the status in each section and retry.",
     "resources": "Resources",

@@ -287,6 +287,7 @@
     "attentionContainers": "컨테이너 이상 {{count}}개",
     "attentionDisk": "디스크 {{mount}} · {{percent}}% 사용",
     "attentionBackup": "최근 백업 실패",
+    "attentionRaid": "RAID 이상 · {{names}}",
     "lastKnown": "마지막 확인 기준",
     "incompleteData": "{{count}}개 항목을 갱신하지 못했습니다. 각 영역에서 상태를 확인하고 다시 시도하세요.",
     "resources": "자원 상태",
