@@ -426,7 +426,7 @@ AuditMiddleware는 **비-GET/HEAD/OPTIONS** 요청만 기록합니다. `/api/v1/
 ## 설정 API (`/api/v1/settings`)
 
 ### GET /api/v1/settings
-전체 설정 조회. 기본값과 DB에 저장된 값을 병합하여 반환.
+전체 설정 조회. 기본값과 DB에 저장된 값을 병합하여 반환. 서버마다의 값이다(복제되지 않음) — 클러스터에서는 `?node=`의 서버가 답한다.
 
 - **인증 필요**: 예
 
@@ -435,15 +435,22 @@ AuditMiddleware는 **비-GET/HEAD/OPTIONS** 요청만 기록합니다. `/api/v1/
 {
   "success": true,
   "data": {
-    "terminal_timeout": "30"
+    "terminal_timeout": "30",
+    "max_upload_size": "1024"
   }
 }
 ```
 
-설정 기본값:
-| 키 | 기본값 | 설명 |
-|----|--------|------|
-| `terminal_timeout` | `"30"` | 터미널 세션 타임아웃 (분). `"0"`이면 무제한 |
+설정 키 (PUT으로 쓸 수 있는 것은 이 둘뿐):
+| 키 | 기본값 | 허용 범위 | 설명 |
+|----|--------|-----------|------|
+| `terminal_timeout` | `"30"` | 정수 0–1440 | 유휴 임시 셸(PTY)을 닫는 시간 (분). `"0"`이면 닫지 않음. tmux 세션에는 쓰이지 않음 |
+| `max_upload_size` | `"1024"` | 정수 1–1024 | `POST /files/upload`가 받는 본문 상한 (MB, MiB 단위로 셈). 기본값이 최댓값 |
+
+에러 응답:
+| 코드 | HTTP 상태 | 조건 |
+|------|-----------|------|
+| `DB_ERROR` | 500 | 설정을 읽지 못함 |
 
 ---
 
@@ -471,10 +478,13 @@ AuditMiddleware는 **비-GET/HEAD/OPTIONS** 요청만 기록합니다. `/api/v1/
 }
 ```
 
-**에러 응답:**
+**에러 응답:** 키를 모두 검사한 뒤에 쓰며, 하나라도 거절되면 아무것도 쓰지 않는다(한 트랜잭션).
 | 코드 | HTTP 상태 | 조건 |
 |------|-----------|------|
+| `INVALID_REQUEST` | 400 | 본문을 읽을 수 없음, 쓸 수 없는 키(`terminal_timeout`·`max_upload_size` 밖), 또는 값이 1000바이트 초과 |
 | `EMPTY_SETTINGS` | 400 | settings 객체가 비어있음 |
+| `INVALID_VALUE` | 400 | 정수가 아님("must be an integer"), 또는 범위 밖 — `terminal_timeout` 0–1440 ("must be 0 (never) or 1..1440 minutes"), `max_upload_size` 1–1024 ("must be 1..1024 MB") |
+| `DB_ERROR` | 500 | 저장 실패 (롤백됨) |
 
 ---
 
@@ -1296,7 +1306,7 @@ systemd 서비스 목록. `systemctl`이 없으면 빈 목록(200)입니다. 각
 | `MISSING_FILE` | 400 | 'file' 필드에 파일 없음 |
 | `INVALID_FILENAME` | 400 | 유효하지 않은 파일명 |
 | `DESTINATION_EXISTS` | 409 | 같은 이름의 파일이 이미 있고 `overwrite`가 `true`가 아님 |
-| `FILE_TOO_LARGE` | 413 | 본문이 `max_upload_size`를 넘음 ("File exceeds the upload limit of N MB") |
+| `FILE_TOO_LARGE` | 413 | 본문(multipart 틀 포함)이 `max_upload_size`를 넘음 ("File exceeds the upload limit of N MB", `details.limit_mb` = 거절한 한도 N) |
 
 ---
 
