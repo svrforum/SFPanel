@@ -136,6 +136,60 @@ test('going up to / from an opened folder asks before scanning it', async ({ pag
   expect([...new Set(usage)]).toEqual(['/data'])
 })
 
+// Answers each Disk › Usage scan after the delay given for its folder, with
+// one child named after the folder. `answered` lists the folders answered so far.
+async function slowUsageScans(page: Page, delays: Record<string, number>) {
+  const answered: string[] = []
+  await fixture(page, async (route, url) => {
+    if (url.pathname !== '/api/v1/disks/usage') return false
+    const { path } = route.request().postDataJSON() as { path: string }
+    await new Promise((r) => setTimeout(r, delays[path] ?? 0))
+    const child = { path: `${path}/inside-${path.split('/').pop()}`, size: 1024 ** 3, children: [] }
+    await route.fulfill({ json: { success: true, data: { path, size: 1024 ** 3, children: [child] } } }).catch(() => {})
+    answered.push(path)
+    return true
+  })
+  return { answered }
+}
+
+// A scan answered after the operator has moved on belongs to a folder no
+// longer on screen: its listing must not stand under the path that is.
+test('a late scan does not show its folder under / after the path moved there', async ({ page }) => {
+  const { answered } = await slowUsageScans(page, { '/data': 1500 })
+  await page.goto('/disk/usage?path=%2Fdata')
+  const pathBox = page.getByRole('textbox', { name: 'Path' })
+  await expect(pathBox).toHaveValue('/data')
+  await pathBox.fill('/')
+  await pathBox.press('Enter')
+  await expect(page.getByRole('button', { name: 'Scan / now' })).toBeVisible()
+  await expect.poll(() => answered.includes('/data'), { timeout: 5000 }).toBe(true)
+  await page.waitForTimeout(300)
+  await expect(pathBox).toHaveValue('/')
+  await expect(page.getByRole('button', { name: 'Scan / now' })).toBeVisible()
+  expect(await page.getByRole('button', { name: /inside-data/ }).count()).toBe(0)
+  // Nothing is loading for /, so Refresh is not left spinning.
+  await expect(page.getByRole('button', { name: 'Refresh', exact: true })).toBeEnabled()
+})
+
+test("a late scan does not replace the next folder's listing, nor stop its spinner", async ({ page }) => {
+  const { answered } = await slowUsageScans(page, { '/data': 1500, '/srv': 3000 })
+  await page.goto('/disk/usage?path=%2Fdata')
+  const pathBox = page.getByRole('textbox', { name: 'Path' })
+  await expect(pathBox).toHaveValue('/data')
+  await pathBox.fill('/srv')
+  await pathBox.press('Enter')
+  await expect.poll(() => answered.includes('/data'), { timeout: 5000 }).toBe(true)
+  await page.waitForTimeout(300)
+  // Read once, now: a retrying assertion would wait for /srv's answer to
+  // replace a stale listing and pass for that reason.
+  expect(answered).not.toContain('/srv')
+  expect(await page.getByRole('button', { name: /inside-data/ }).count()).toBe(0)
+  expect(await page.getByRole('button', { name: 'Refresh', exact: true }).isDisabled()).toBe(true)
+  await expect(page.getByRole('button', { name: /inside-srv/ })).toBeVisible({ timeout: 5000 })
+  await expect(page.getByRole('button', { name: /inside-data/ })).toHaveCount(0)
+  await expect(page.getByRole('button', { name: 'Refresh', exact: true })).toBeEnabled()
+})
+
 for (const width of [360, 390, 768]) {
   test(`mobile ${width}px: no page overflow, accessible shortcuts and expandable details`, async ({ page }) => {
     await page.setViewportSize({ width, height: 844 })

@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, useMemo } from 'react'
+import { useState, useEffect, useCallback, useMemo, useRef } from 'react'
 import { useSearchParams } from 'react-router-dom'
 import { useTranslation } from 'react-i18next'
 import { RefreshCw, ArrowUp, Folder, Loader2, AlertCircle } from 'lucide-react'
@@ -22,17 +22,26 @@ export default function DiskUsage() {
   // A path not starting with / was ignored without a word.
   const [pathInvalid, setPathInvalid] = useState(false)
 
+  // The folder the screen is waiting on. A scan can take long enough for the
+  // operator to type another path; its answer then belongs to a folder no
+  // longer shown, and is dropped rather than listed under the new path — nor
+  // does it stop the spinner of the scan that is still running for that path.
+  const wanted = useRef(path)
+
   const load = useCallback(async (p: string) => {
+    wanted.current = p
     setLoading(true)
     setError(null)
     try {
       const res = await api.getDiskUsage(p, 1)
+      if (wanted.current !== p) return
       setData(res)
     } catch (e) {
+      if (wanted.current !== p) return
       setError(e instanceof Error ? e.message : t('common.error'))
       setData(null)
     } finally {
-      setLoading(false)
+      if (wanted.current === p) setLoading(false)
     }
   }, [t])
 
@@ -49,6 +58,10 @@ export default function DiskUsage() {
     // Root is scanned when asked for; subdirectories load as before. Going up
     // to / drops the folder's listing, which would otherwise stand under /.
     if (path === '/' && !rootRequested) {
+      // Nothing is scanned for /, so a scan still out for the folder left
+      // behind is no longer waited on.
+      wanted.current = path
+      setLoading(false)
       setData(null)
       return
     }
