@@ -28,8 +28,9 @@ export interface PortRuleTarget {
 }
 
 /** A ufw rule for one listening port: its action, an optional source and a
- * comment. Open while `target` is set. */
-export function AddPortRuleDialog({ target, onClose }: { target: PortRuleTarget | null; onClose: () => void }) {
+ * comment. Open while `target` is set; `onAdded` follows a rule the server
+ * took, forced or not. */
+export function AddPortRuleDialog({ target, onClose, onAdded }: { target: PortRuleTarget | null; onClose: () => void; onAdded?: () => void }) {
   const { t } = useTranslation()
   const [ruleAction, setRuleAction] = useState<string>('allow')
   const [ruleFrom, setRuleFrom] = useState<string>('')
@@ -80,6 +81,7 @@ export function AddPortRuleDialog({ target, onClose }: { target: PortRuleTarget 
         comment: ruleComment.trim() || '',
       }, force)
       toast.success(`${t('firewall.ports.addRule')} — ${target.port}/${target.proto.toUpperCase()}`)
+      onAdded?.()
       onClose()
       clearLockout()
     } catch (err: unknown) {

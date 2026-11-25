@@ -17,8 +17,12 @@ const ROWS = [
 const UFW = { active: true, default_incoming: 'deny', default_outgoing: 'allow', installed: true, manager: 'ufw' }
 const PVE = { active: false, default_incoming: '', default_outgoing: '', installed: false, manager: 'pve-firewall' }
 
-async function open(page: Page, status: unknown, at = '/firewall/ports') {
+// `afterRule` is what the port map says once a rule has been posted. `reads`
+// records each read of the port map, true for one after a post: in dev,
+// StrictMode reads it twice on mount, so only the reads after count.
+async function open(page: Page, status: unknown, at = '/firewall/ports', afterRule = ROWS) {
   const posts: unknown[] = []
+  const reads: boolean[] = []
   await page.addInitScript(() => {
     sessionStorage.setItem('token', 'fixture-token')
     localStorage.setItem('i18nextLng', 'en')
@@ -35,14 +39,17 @@ async function open(page: Page, status: unknown, at = '/firewall/ports') {
     let data: unknown = {}
     if (path === '/auth/setup-status') data = { setup_required: false }
     else if (path === '/cluster/status') data = { enabled: false }
-    else if (path === '/system/portmap') data = ROWS
+    else if (path === '/system/portmap') {
+      reads.push(posts.length > 0)
+      data = posts.length > 0 ? afterRule : ROWS
+    }
     else if (path === '/firewall/status') data = status
     else if (path === '/docker/containers') data = []
     await route.fulfill({ json: { success: true, data } })
   })
   await page.routeWebSocket(/\/ws\//, () => {})
   await page.goto(at)
-  return posts
+  return { posts, reads }
 }
 
 const ruleButtons = (page: Page) => page.getByRole('button', { name: /^Add rule for/ })
@@ -61,10 +68,26 @@ test('a ufw host offers a rule where something listens', async ({ page }) => {
 })
 
 test("a rule from a row posts that row's port and protocol", async ({ page }) => {
-  const posts = await open(page, UFW)
+  const { posts } = await open(page, UFW)
   await page.getByRole('button', { name: 'Add rule for 53/UDP' }).click()
   await page.getByRole('dialog', { name: 'Add rule for 53/UDP' }).getByRole('button', { name: 'Add Rule' }).click()
   await expect.poll(() => posts).toEqual([expect.objectContaining({ port: '53', protocol: 'udp', action: 'allow' })])
+})
+
+// The firewall column showed the old rule until Refresh was pressed.
+test('an added rule shows in its row at once', async ({ page }) => {
+  const added = { action: 'ALLOW', scope: '198.51.100.0/24', rule_id: 2, source: 'ufw' }
+  const { posts, reads } = await open(page, UFW, '/firewall/ports', ROWS.map((r) => (r.port === 53 ? { ...r, firewall: added } : r)))
+  const row = page.getByRole('row', { name: /\b53\b/ })
+  await expect(row.getByText('Anywhere')).toBeVisible()
+  await page.getByRole('button', { name: 'Add rule for 53/UDP' }).click()
+  const dialog = page.getByRole('dialog', { name: 'Add rule for 53/UDP' })
+  await dialog.getByLabel('Source IP').fill('198.51.100.0/24')
+  await dialog.getByRole('button', { name: 'Add Rule' }).click()
+  await expect.poll(() => posts).toEqual([expect.objectContaining({ port: '53', protocol: 'udp', from: '198.51.100.0/24' })])
+  await expect.poll(() => reads.filter((afterPost) => afterPost).length).toBe(1)
+  await expect(row.getByText('198.51.100.0/24')).toBeVisible()
+  await expect(row.getByText('Anywhere')).toHaveCount(0)
 })
 
 test("an older node's row has no address", async ({ page }) => {

@@ -111,8 +111,10 @@ function addressText(r: PortMapRow): string {
 /** Every port on this host — listening or published by Docker — with what
  * governs it. `rowAction` draws a control at the end of a row (the desktop
  * table's last column, the bottom of a phone card); it may return null for a
- * row that has none. */
-export function PortMapTable({ rowAction }: { rowAction?: (row: PortMapRow) => ReactNode }) {
+ * row that has none. A new `reloadKey` reads the port map again, in place —
+ * after a rule is added, say, whose firewall column would otherwise stay old
+ * until Refresh. */
+export function PortMapTable({ rowAction, reloadKey }: { rowAction?: (row: PortMapRow) => ReactNode; reloadKey?: number }) {
   const { t } = useTranslation()
   const [rows, setRows] = useState<PortMapRow[]>([])
   const [loading, setLoading] = useState(true)
@@ -141,7 +143,7 @@ export function PortMapTable({ rowAction }: { rowAction?: (row: PortMapRow) => R
 
   useEffect(() => {
     void load()
-  }, [load])
+  }, [load, reloadKey])
 
   const shown = filterPortRows(rows, search, proto)
   const clearFilters = () => {

@@ -11,6 +11,8 @@ import { AddPortRuleDialog, type PortRuleTarget } from './AddPortRuleDialog'
 export default function FirewallPorts() {
   const { t } = useTranslation()
   const [target, setTarget] = useState<PortRuleTarget | null>(null)
+  // Bumped by an added rule, so the table reads the port map again.
+  const [reloadKey, setReloadKey] = useState(0)
   // Whether ufw is what manages this host's firewall. Not on a Proxmox host,
   // which refuses ufw changes, nor where ufw is not installed. Older nodes do
   // not say, and always managed ufw.
@@ -43,8 +45,8 @@ export default function FirewallPorts() {
 
   return (
     <>
-      <PortMapTable rowAction={ufwManaged ? addRule : undefined} />
-      <AddPortRuleDialog target={target} onClose={() => setTarget(null)} />
+      <PortMapTable rowAction={ufwManaged ? addRule : undefined} reloadKey={reloadKey} />
+      <AddPortRuleDialog target={target} onClose={() => setTarget(null)} onAdded={() => setReloadKey((k) => k + 1)} />
     </>
   )
 }
