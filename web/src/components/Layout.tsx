@@ -7,7 +7,7 @@ import { cn } from '@/lib/utils'
 import { documentTitle, isTerminalRoute, navOwner, pageTitleKey } from '@/lib/navigation'
 import { selectedNodeName } from '@/lib/clusterNodes'
 import { bridgeServer, buildBridge, publishBridge } from '@/lib/panelBridge'
-import { CLUSTER_MODE_KEY, LOCAL_ID_KEY } from '@/lib/serverScope'
+import { carriesNode, CLUSTER_MODE_KEY, LOCAL_ID_KEY } from '@/lib/serverScope'
 import { keepTitlePrefix } from '@/lib/aiSessions'
 import { useTerminalCompact, useTerminalFocus } from '@/lib/terminalLayout'
 import { NODE_CHANGED } from '@/lib/nodeSelection'
@@ -96,12 +96,13 @@ export default function Layout() {
   const titleKey = pageTitleKey(location.pathname)
   const pageLabel = titleKey ? t(titleKey) : location.pathname === '/' ? null : t('layout.notFound.title')
   // In a cluster, a server page also names the server it acts on: the one
-  // picked, else the one this panel runs on. The pages about all servers and
-  // settings act on no one server, and a server whose name the list has not
-  // given is left out: the picker's stand-in name (the hostname, the id) is
-  // not the cluster's.
+  // picked, else the one this panel runs on — the screens whose address names
+  // it, settings tabs one server holds included. The pages about all servers,
+  // the account and the language and theme act on no one server, and a server
+  // whose name the list has not given is left out: the picker's stand-in name
+  // (the hostname, the id) is not the cluster's.
   const serverName = clusterEnabled === true ? selectedNodeName(scope.nodes, scope.selected, scope.localId) : null
-  const serverInTitle = owner?.entry.scope === 'server'
+  const serverInTitle = carriesNode(location.pathname, location.search)
   const pageTitle = documentTitle(pageLabel, serverInTitle ? serverName : null)
 
   // The server the pages act on and the menu, for the Android app's title and

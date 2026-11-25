@@ -94,13 +94,25 @@ test('the attached server is named when no other is chosen', async ({ page }) =>
   await expect(page).toHaveTitle('Logs · node-a · SFPanel')
 })
 
-test('cluster and settings screens carry no server', async ({ page }) => {
+test('cluster screens and the settings no server holds carry no server', async ({ page }) => {
   await mock(page)
-  for (const [path, title] of [['/cluster/overview', 'Cluster · SFPanel'], ['/cluster/running', 'Running · SFPanel'], ['/settings', 'Settings · SFPanel']]) {
+  for (const [path, title] of [['/cluster/overview', 'Cluster · SFPanel'], ['/cluster/running', 'Running · SFPanel'], ['/settings', 'Settings · SFPanel'], ['/settings?tab=browser', 'Settings · SFPanel']]) {
     await page.goto(path)
     await listed(page)
     await expect(page).toHaveTitle(title)
   }
+})
+
+// Updates and backups, HTTPS, alerts and the audit log are one server's, and
+// their address names it: the tab title does as on any server page.
+test('a settings tab one server holds names that server', async ({ page }) => {
+  await mock(page)
+  await page.goto('/settings?tab=alerts&node=n-2')
+  await expect(page).toHaveTitle('Settings · node-b · SFPanel')
+  await page.getByRole('tab', { name: 'Language & Theme' }).click()
+  await expect(page).toHaveTitle('Settings · SFPanel')
+  await page.getByRole('tab', { name: 'Audit Log' }).click()
+  await expect(page).toHaveTitle('Settings · node-b · SFPanel')
 })
 
 test('a node list that fails leaves the hostname', async ({ page }) => {
