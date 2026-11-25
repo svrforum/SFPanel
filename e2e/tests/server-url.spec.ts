@@ -395,6 +395,29 @@ test('a folder the server does not have opens the root; a forbidden one does not
 test.describe('phone', () => {
   test.use({ viewport: { width: 412, height: 860 }, hasTouch: true })
 
+  // A pick on a page about all servers opens the server's dashboard; More
+  // stayed open over it. On a server page the pick stays where it is, and so
+  // does More, its menu now under the new server's name.
+  test('a pick that opens a dashboard closes More; one that stays keeps it', async ({ page }) => {
+    await mock(page, { storage: CLUSTER })
+    await page.goto('/cluster/overview')
+    await page.getByRole('button', { name: 'More' }).tap()
+    const drawer = page.getByRole('dialog')
+    await drawer.getByRole('button', { name: /^m-1/ }).tap()
+    await drawer.getByRole('button', { name: /^agent-1/ }).tap()
+    await expect(page).toHaveURL(/\/dashboard\?node=agent-1$/)
+    await expect(drawer).toHaveCount(0)
+
+    await page.getByRole('button', { name: 'More' }).tap()
+    await drawer.getByRole('button', { name: /^agent-1/ }).tap()
+    await drawer.getByRole('button', { name: /^m-2/ }).tap()
+    await expect(page).toHaveURL(/\/dashboard\?node=m-2$/)
+    // Past the drawer's closing slide: a drawer on its way out still shows.
+    await page.waitForTimeout(1000)
+    await expect(drawer).toHaveAttribute('data-state', 'open')
+    await expect(drawer.getByRole('heading', { name: 'm-2' })).toBeVisible()
+  })
+
   test("the bottom bar's open tab, tapped again, adds no history; More names the server", async ({ page }) => {
     await mock(page, { storage: CLUSTER })
     await page.goto('/dashboard?node=m-1')

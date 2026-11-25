@@ -42,8 +42,10 @@ export default function MoreMenu({ open, onOpenChange, fromTerminal }: MoreMenuP
 
   const close = () => onOpenChange(false)
 
+  // A pick on a page about all servers opens the server's dashboard: More
+  // closes onto it. Elsewhere the page stays, and More with it.
   const pick = (id: string) => {
-    switchTo(id)
+    if (switchTo(id)) close()
     setListOpen(false)
   }
 

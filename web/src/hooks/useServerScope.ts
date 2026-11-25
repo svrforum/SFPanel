@@ -27,8 +27,8 @@ export interface ServerScope {
   currentName: string
   /** The server the address or the store named that the node list does not have; the attached one is shown instead. Kept until a pick or an address names another server. */
   missing: { id: string; name: string } | null
-  /** Act on another server: the page stays and its address names the server, except on an all-servers page, which opens the server's dashboard. */
-  switchTo: (id: string) => void
+  /** Act on another server: the page stays and its address names the server, except on an all-servers page, which opens the server's dashboard. True when it opened that dashboard. */
+  switchTo: (id: string) => boolean
   /** Ask for the node list now. */
   reloadNodes: () => void
   /** Where a menu or tab link to a registry address leads: in a cluster a server page's names the server shown. */
@@ -48,7 +48,7 @@ export const ServerScopeContext = createContext<ServerScope>({
   current: undefined,
   currentName: '',
   missing: null,
-  switchTo: noop,
+  switchTo: () => false,
   reloadNodes: noop,
   href: (to) => to,
 })
@@ -199,7 +199,7 @@ export function useServerScopeState({ clusterEnabled, status, hostname }: {
       const to = hrefWithNode('/dashboard', id)
       written.current = to
       navigate(to)
-      return
+      return true
     }
     if (changed) select(target)
     if (carriesNode(location.pathname, location.search)) {
@@ -207,6 +207,7 @@ export function useServerScopeState({ clusterEnabled, status, hostname }: {
       written.current = location.pathname + search
       navigate({ pathname: location.pathname, search, hash: location.hash }, { replace: true, state: location.state })
     }
+    return false
   }, [localId, location, navigate, select])
 
   const currentId = selected ?? localId
