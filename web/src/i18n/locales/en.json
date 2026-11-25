@@ -2659,8 +2659,9 @@
       "timeout": {
         "label": "Temporary shell timeout",
         "unit": "minutes",
-        "hint": "A temporary shell (outside tmux) left without input is closed after this long. 0 keeps it open. tmux sessions are never closed by this.",
-        "invalid": "Enter a whole number, 0 or more"
+        "hint": "A temporary shell (outside tmux) on this server left without input is closed after this long: 0–1440 minutes (24 hours), and 0 keeps it open. tmux sessions are never closed by this.",
+        "hintNamed": "A temporary shell (outside tmux) on {{name}} left without input is closed after this long: 0–1440 minutes (24 hours), and 0 keeps it open. tmux sessions are never closed by this.",
+        "invalid": "Enter a whole number from 0 to 1440"
       },
       "loadFailed": "Could not load the tool status.",
       "retry": "Retry"
@@ -2941,8 +2942,9 @@
       "menu": "Upload limit…",
       "title": "Upload limit",
       "label": "Largest file",
-      "hint": "The largest single file this server accepts. Default 1024 MB.",
-      "invalid": "Enter a whole number, 1 or more",
+      "hint": "The largest single file this server accepts: 1–1024 MB. The default, 1024 MB, is also the most, so the limit can only be lowered from it.",
+      "hintNamed": "The largest single file {{name}} accepts: 1–1024 MB. The default, 1024 MB, is also the most, so the limit can only be lowered from it.",
+      "invalid": "Enter a whole number from 1 to 1024",
       "change": "Change limit"
     },
     "edit": "Edit",

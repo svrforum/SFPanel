@@ -15,6 +15,8 @@ export interface NodeSettingFieldProps {
   unit: string
   hint: string
   min: number
+  /** The largest value the server takes; above it the field refuses before sending. */
+  max?: number
   invalid: string
 }
 
@@ -29,7 +31,7 @@ export interface NodeSettingFieldProps {
  * value refused before saving is said beside the field (noValidate: the
  * browser's bubble came first, in the browser's language) and sends nothing.
  */
-export function NodeSettingField({ settingKey, id, label, unit, hint, min, invalid }: NodeSettingFieldProps) {
+export function NodeSettingField({ settingKey, id, label, unit, hint, min, max, invalid }: NodeSettingFieldProps) {
   const { t } = useTranslation()
   const inputRef = useRef<HTMLInputElement>(null)
   const [value, setValue] = useState('')
@@ -53,7 +55,7 @@ export function NodeSettingField({ settingKey, id, label, unit, hint, min, inval
 
   async function handleSubmit(e: FormEvent) {
     e.preventDefault()
-    const parsed = parseSettingNumber(value, min)
+    const parsed = parseSettingNumber(value, min, max)
     if (parsed === null) {
       setRefused(true)
       inputRef.current?.focus()
@@ -82,6 +84,7 @@ export function NodeSettingField({ settingKey, id, label, unit, hint, min, inval
             id={id}
             type="number"
             min={min}
+            max={max}
             value={value}
             onChange={(e) => setValue(e.target.value)}
             disabled={!loaded}

@@ -2,14 +2,18 @@ import { useRef } from 'react'
 import { useTranslation } from 'react-i18next'
 import { NodeSettingField } from '@/components/NodeSettingField'
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog'
+import { useServerScope } from '@/hooks/useServerScope'
+import { UPLOAD_LIMIT_MAX_MB } from '../uploadLimit'
 
 /**
  * The largest file this server accepts, set where uploads happen. The field
  * mounts with the dialog, so the value is read when it opens, from the server
- * the page is showing.
+ * the page is showing. The server takes 1–1024 MB; the hint says so and names
+ * the server, since the dialog covers the line above the page that does.
  */
 export function UploadLimitDialog({ open, onOpenChange }: { open: boolean; onOpenChange: (open: boolean) => void }) {
   const { t } = useTranslation()
+  const { currentName } = useServerScope()
   // Radix hands the focus back to a DialogTrigger, and this dialog has none:
   // it opens from the Upload button's menu. Closing it returns the focus to
   // what had it when it opened, while that is still on the page.
@@ -37,8 +41,9 @@ export function UploadLimitDialog({ open, onOpenChange }: { open: boolean; onOpe
           id="max-upload-size"
           label={t('files.uploadLimit.label')}
           unit="MB"
-          hint={t('files.uploadLimit.hint')}
+          hint={currentName ? t('files.uploadLimit.hintNamed', { name: currentName }) : t('files.uploadLimit.hint')}
           min={1}
+          max={UPLOAD_LIMIT_MAX_MB}
           invalid={t('files.uploadLimit.invalid')}
         />
       </DialogContent>

@@ -5,7 +5,7 @@ import { test, expect, type Page } from '@playwright/test'
 // the upload limit behind the file manager's Upload ▾. Each is still saved on
 // the server the address names, and is read only when its sheet or dialog
 // opens. The settings page says where they went. Mocked API: GET /settings
-// answers 45 minutes and 2048 MB, or 500 while `settingsDown`; `saved`
+// answers 45 minutes and 512 MB, or 500 while `settingsDown`; `saved`
 // records each PUT with the node it went to. In a cluster, node-a (attached)
 // and agent-1, with the node list answering late as a leader does.
 test.use({ viewport: { width: 1280, height: 800 }, locale: 'en-US' })
@@ -68,7 +68,7 @@ async function mock(page: Page, opts: MockOptions = {}): Promise<Mock> {
     }
     else if (path === '/cluster/overview') data = { name: 'lab', node_count: 2, leader_id: 'node-a', nodes, metrics: [] }
     else if (path === '/cluster/events') data = { events: [] }
-    else if (path === '/settings' && req.method() === 'GET') data = { terminal_timeout: '45', max_upload_size: '2048' }
+    else if (path === '/settings' && req.method() === 'GET') data = { terminal_timeout: '45', max_upload_size: '512' }
     else if (path === '/settings') {
       m.saved.push({ node: url.searchParams.get('node'), body: req.postDataJSON() })
       data = { message: 'Settings updated' }
@@ -91,14 +91,20 @@ async function mock(page: Page, opts: MockOptions = {}): Promise<Mock> {
   return m
 }
 
-test("the tools sheet holds the temporary shell's timeout, refused below zero beside its field", async ({ page }) => {
+// The server takes 0–1440 minutes and 1–1024 MB and refuses any other value
+// with 400 INVALID_VALUE; the fields say the range and refuse what is outside
+// it beside themselves, sending nothing.
+test("the tools sheet holds the temporary shell's timeout, refused outside 0–1440 beside its field", async ({ page }) => {
   const m = await mock(page); await page.goto('/terminal')
   await page.getByRole('button', { name: 'Tools & accounts' }).first().click()
   const field = page.getByRole('dialog', { name: 'Tools & accounts' }).getByLabel('Temporary shell timeout')
   await expect(field).toHaveValue('45')
-  await field.fill('-5'); await field.press('Enter')
-  await expect(field).toHaveAttribute('aria-invalid', 'true')
-  await expect(field).toHaveAccessibleDescription(/Enter a whole number, 0 or more/)
+  await expect(field).toHaveAccessibleDescription(/on this server .*0–1440 minutes \(24 hours\)/)
+  for (const refused of ['-5', '1441']) {
+    await field.fill(refused); await field.press('Enter')
+    await expect(field).toHaveAttribute('aria-invalid', 'true')
+    await expect(field).toHaveAccessibleDescription(/Enter a whole number from 0 to 1440/)
+  }
   expect(m.saved).toEqual([])
   await field.fill('10'); await field.press('Enter')
   await expect.poll(() => m.saved.map((s) => s.body)).toEqual([{ settings: { terminal_timeout: '10' } }])
@@ -119,11 +125,15 @@ test("the file manager's upload menu holds the upload limit", async ({ page }) =
   await page.getByRole('button', { name: 'Upload options' }).click()
   await page.getByRole('menuitem', { name: 'Upload limit…' }).click()
   const dialog = page.getByRole('dialog', { name: 'Upload limit' })
-  const field = dialog.getByLabel('Largest file'); await expect(field).toHaveValue('2048')
-  await field.fill('0'); await field.press('Enter')
-  await expect(field).toHaveAccessibleDescription(/Enter a whole number, 1 or more/); expect(m.saved).toEqual([])
-  await field.fill('4096'); await field.press('Enter')
-  await expect.poll(() => m.saved.map((s) => s.body)).toEqual([{ settings: { max_upload_size: '4096' } }])
+  const field = dialog.getByLabel('Largest file'); await expect(field).toHaveValue('512')
+  await expect(field).toHaveAccessibleDescription(/this server accepts: 1–1024 MB/)
+  for (const refused of ['0', '1025']) {
+    await field.fill(refused); await field.press('Enter')
+    await expect(field).toHaveAccessibleDescription(/Enter a whole number from 1 to 1024/)
+  }
+  expect(m.saved).toEqual([])
+  await field.fill('256'); await field.press('Enter')
+  await expect.poll(() => m.saved.map((s) => s.body)).toEqual([{ settings: { max_upload_size: '256' } }])
   // Closing it gives the keyboard back to the button that opened the menu.
   await page.keyboard.press('Escape')
   await expect(dialog).toBeHidden()
@@ -134,10 +144,22 @@ test("on another server the limit is that server's", async ({ page }) => {
   const m = await mock(page, { cluster: true, current: 'agent-1' }); await page.goto('/files?path=%2Fsrv&node=agent-1')
   await page.getByRole('button', { name: 'Upload options' }).click(); await page.getByRole('menuitem', { name: 'Upload limit…' }).click()
   const field = page.getByRole('dialog', { name: 'Upload limit' }).getByLabel('Largest file')
-  await expect(field).toHaveValue('2048'); await field.fill('512'); await field.press('Enter')
-  await expect.poll(() => m.saved).toEqual([{ node: 'agent-1', body: { settings: { max_upload_size: '512' } } }])
+  // The hint names the server whose limit this is: the dialog covers the line above the page that does.
+  await expect(field).toHaveAccessibleDescription(/agent-1 accepts: 1–1024 MB/)
+  await expect(field).toHaveValue('512'); await field.fill('256'); await field.press('Enter')
+  await expect.poll(() => m.saved).toEqual([{ node: 'agent-1', body: { settings: { max_upload_size: '256' } } }])
   // The value shown was agent-1's too: every read of it asked agent-1.
   expect(new Set(m.reads)).toEqual(new Set(['agent-1']))
+})
+
+// The terminal draws no line above it naming the server, so the field does.
+test("on another server the timeout is that server's, and its hint names it", async ({ page }) => {
+  const m = await mock(page, { cluster: true, current: 'agent-1' }); await page.goto('/terminal?node=agent-1')
+  await page.getByRole('button', { name: 'Tools & accounts' }).first().click()
+  const field = page.getByRole('dialog', { name: 'Tools & accounts' }).getByLabel('Temporary shell timeout')
+  await expect(field).toHaveAccessibleDescription(/on agent-1 left without input/)
+  await expect(field).toHaveValue('45'); await field.fill('30'); await field.press('Enter')
+  await expect.poll(() => m.saved).toEqual([{ node: 'agent-1', body: { settings: { terminal_timeout: '30' } } }])
 })
 
 test('the old place says where they went, for one release', async ({ page }) => {

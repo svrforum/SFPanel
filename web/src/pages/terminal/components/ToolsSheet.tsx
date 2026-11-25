@@ -12,6 +12,7 @@ import { streamErrorMessage, StreamReportedError, type SSEOutput } from '@/compo
 import { ProfilePanel } from '@/pages/terminal/components/ProfilePanel'
 import { TmuxBanner } from '@/pages/terminal/components/TmuxBanner'
 import { NodeSettingField } from '@/components/NodeSettingField'
+import { useServerScope } from '@/hooks/useServerScope'
 
 type CliTool = 'claude' | 'codex' | 'gemini'
 const CLI_TOOLS: CliTool[] = ['claude', 'codex', 'gemini']
@@ -39,6 +40,7 @@ export interface ToolsSheetProps {
  */
 export function ToolsSheet({ open, onOpenChange, tools, toolsError, account, onAccountChange, onChanged, onSessionsChanged, output, onOpenTemporaryShell }: ToolsSheetProps) {
   const { t } = useTranslation()
+  const { currentName } = useServerScope()
   const [busy, setBusy] = useState<CliTool | null>(null)
   // Before GET /ai/tools resolves the account may be '' — Radix throws on an
   // empty SelectItem value, so an empty account is never an item.
@@ -167,15 +169,18 @@ export function ToolsSheet({ open, onOpenChange, tools, toolsError, account, onA
             </button>
             <p className="text-[12px] text-muted-foreground mt-0.5">{t('terminal.tools.temporaryShellHint')}</p>
             {/* terminal_timeout closes idle temporary shells (PTY) only, so it
-                sits by their door; tmux sessions are not its to close. */}
+                sits by their door; tmux sessions are not its to close. The
+                server takes 0–1440 minutes. The terminal draws no line naming
+                the server, so the hint does. */}
             <div className="mt-4">
               <NodeSettingField
                 settingKey="terminal_timeout"
                 id="terminal-timeout"
                 label={t('terminal.tools.timeout.label')}
                 unit={t('terminal.tools.timeout.unit')}
-                hint={t('terminal.tools.timeout.hint')}
+                hint={currentName ? t('terminal.tools.timeout.hintNamed', { name: currentName }) : t('terminal.tools.timeout.hint')}
                 min={0}
+                max={1440}
                 invalid={t('terminal.tools.timeout.invalid')}
               />
             </div>
