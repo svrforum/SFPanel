@@ -79,7 +79,13 @@ async function mock(page: Page, opts: MockOptions = {}) {
     }
     else if (path === '/cluster/overview') data = { name: 'lab', node_count: 4, leader_id: 'm-1', nodes, metrics: [] }
     else if (path === '/cluster/events') data = { events: [] }
-    else if (path === '/system/overview') data = { version: '0.94.0', host: { hostname: 'm-1-host' } }
+    // Whole enough for the dashboard to draw rather than its error screen.
+    else if (path === '/system/overview') data = {
+      version: '0.94.0', host: { hostname: 'm-1-host', os: 'linux', platform: 'debian', platform_version: '13', kernel: '6.12', uptime: 3600, num_cpu: 4 },
+      metrics: { cpu: 12, mem_total: 8 * 1024 ** 3, mem_used: 2 * 1024 ** 3, mem_percent: 25, swap_total: 0, swap_used: 0, swap_percent: 0, disk_total: 100 * 1024 ** 3, disk_used: 30 * 1024 ** 3, disk_percent: 30, net_bytes_sent: 0, net_bytes_recv: 0, timestamp: 0 },
+      metrics_history: [],
+    }
+    else if (/^\/(system\/processes|system\/portmap|filesystems|network\/interfaces|cron|appstore\/categories|appstore\/apps|disks\/overview|disks\/iostat|docker\/volumes)$/.test(path) || /history/.test(path) && path !== '/alerts/history') data = []
     else if (path === '/system/services') data = { services: [], total: 0 }
     else if (path === '/files/trash') data = { entries: [], retentionDays: 7 }
     else if (path === '/files' && opts.files?.[url.searchParams.get('path') ?? '']) {
@@ -100,6 +106,12 @@ async function mock(page: Page, opts: MockOptions = {}) {
     else if (/^\/docker\/compose\/[^/]+\/env$/.test(path)) data = { content: '' }
     else if (/^\/docker\/compose\/[^/]+\/services$/.test(path) || path === '/docker/containers') data = []
     else if (path === '/alerts/history') data = { items: [], total: 0 }
+    // The terminal's own reads, so it draws instead of the error screen.
+    else if (path === '/ai/sessions') data = []
+    else if (path === '/ai/tools') data = { tmux: { installed: true, supported: true, version: '3.4', min_version: '3.2' }, systemd_run: true, accounts: ['tester'], panel_account: 'tester', account: 'tester', tools: {} }
+    else if (path === '/terminal/info') data = { shell_user: 'tester', is_root: false, hostname: 'fixture' }
+    else if (path === '/terminal/sessions') data = { sessions: [] }
+    else if (path === '/auth/ws-ticket') data = { ticket: 'fixture-ticket' }
     else if (path === '/alerts/channels' || path === '/alerts/rules') data = []
     await route.fulfill({ json: { success: true, data } })
   })
@@ -229,6 +241,84 @@ test('an old cluster stack address opens the stack screen on its server through 
   await expect(page).toHaveURL(/\/cluster\/overview$/)
   // Leaving does not put the server back: it is the one chosen now.
   expect(await stored(page)).toBe('agent-1')
+})
+
+// An entry's own address (/docker, /network, /firewall, /disk) and some old
+// ones redirect to a tab inside the page. The redirect moves the address in
+// the same commit as the shell's own check of it: the shell must not write the
+// address it no longer shows back over the redirect, or the page draws its
+// heading and tab row with no tab and nothing under them.
+const CLUSTER = { 'sfpanel-cluster-mode': 'true', 'sfpanel-cluster-local-id': 'm-1' }
+// The way the Android app moves, old and new: a new entry, then the router reads it.
+const moveTo = (page: Page, to: string) => page.evaluate((path) => { history.pushState({}, '', path); dispatchEvent(new PopStateEvent('popstate')) }, to)
+const tab = (page: Page, name: string) => page.getByRole('main').getByRole('link', { name, exact: true })
+
+test("the menu's Docker opens its first tab with the server", async ({ page }) => {
+  await mock(page, { storage: CLUSTER })
+  await page.goto('/services?node=m-1')
+  await page.getByRole('navigation', { name: 'Main menu' }).getByRole('link', { name: 'Docker' }).click()
+  await expect(page).toHaveURL(/\/docker\/stacks\?node=m-1$/)
+  await expect(tab(page, 'Stacks')).toHaveAttribute('aria-current', 'page')
+})
+
+test('an entry or an old address opened cold lands on its tab with the server', async ({ page }) => {
+  await mock(page, { storage: CLUSTER })
+  await page.goto('/disk')
+  await expect(page).toHaveURL(/\/disk\/overview\?node=m-1$/)
+  await expect(tab(page, 'Overview')).toHaveAttribute('aria-current', 'page')
+  await page.goto('/firewall/portmap')
+  await expect(page).toHaveURL(/\/firewall\/ports\?node=m-1$/)
+  await expect(tab(page, 'Open Ports')).toHaveAttribute('aria-current', 'page')
+})
+
+test("the app's move to an entry lands on its tab with the server", async ({ page }) => {
+  await mock(page, { storage: CLUSTER })
+  await page.goto('/services?node=m-1')
+  await expect(page.getByRole('heading', { level: 1, name: 'System' })).toBeVisible()
+  await moveTo(page, '/network')
+  await expect(page).toHaveURL(/\/network\/interfaces\?node=m-1$/)
+  await expect(tab(page, 'Interfaces')).toHaveAttribute('aria-current', 'page')
+})
+
+// The fifteen paths the first Android app's feature sheet opens, each still a
+// drawn page: the address it lands on, the page's own heading rather than the
+// error screen's (the terminal's is for screen readers: its chrome is what
+// shows), and on a page with a tab row, one tab open.
+const OLD_APP: { path: string; lands: RegExp; heading: string | RegExp; tabbed?: boolean }[] = [
+  { path: '/dashboard', lands: /\/dashboard\?node=m-1$/, heading: /^m-1/, tabbed: true },
+  { path: '/terminal', lands: /\/terminal\?node=m-1$/, heading: 'Terminal' },
+  { path: '/files', lands: /\/files\?node=m-1$/, heading: 'Files' },
+  { path: '/docker', lands: /\/docker\/stacks\?node=m-1$/, heading: 'Docker', tabbed: true },
+  { path: '/appstore', lands: /\/appstore\?node=m-1$/, heading: 'Docker', tabbed: true },
+  { path: '/services', lands: /\/services\?node=m-1$/, heading: 'System', tabbed: true },
+  { path: '/processes', lands: /\/processes\?node=m-1$/, heading: 'System', tabbed: true },
+  { path: '/cron', lands: /\/cron\?node=m-1$/, heading: 'System', tabbed: true },
+  { path: '/logs', lands: /\/logs\?(.+&)?node=m-1(&.+)?$/, heading: 'Logs' },
+  { path: '/network', lands: /\/network\/interfaces\?node=m-1$/, heading: 'Network / VPN', tabbed: true },
+  { path: '/firewall', lands: /\/firewall\/rules\?node=m-1$/, heading: 'Firewall', tabbed: true },
+  { path: '/disk', lands: /\/disk\/overview\?node=m-1$/, heading: 'Disks', tabbed: true },
+  { path: '/packages', lands: /\/packages\?node=m-1$/, heading: 'System', tabbed: true },
+  { path: '/cluster', lands: /\/cluster\/overview$/, heading: 'Cluster', tabbed: true },
+  { path: '/settings', lands: /\/settings(\?tab=[a-z]+)?$/, heading: 'Settings' },
+]
+
+test("the first app's fifteen paths each open a drawn page", async ({ page }) => {
+  test.setTimeout(90000)
+  await mock(page, { storage: CLUSTER })
+  for (const { path, lands, heading, tabbed } of OLD_APP) {
+    // From a page about all servers each time: a page that broke would keep
+    // its error screen through the next move and hide whether that one drew.
+    await page.goto('/cluster/overview')
+    await expect(page.getByRole('heading', { level: 1, name: 'Cluster' })).toBeVisible()
+    await moveTo(page, path)
+    // Soft: one path that fails does not hide the others.
+    await expect.soft(page, path).toHaveURL(lands)
+    const main = page.getByRole('main')
+    await expect.soft(main.getByRole('heading', { level: 1, name: heading }), path).toBeAttached()
+    if (path === '/terminal') await expect.soft(page.locator('[data-ai-workspace]'), path).toBeVisible()
+    else await expect.soft(main.getByRole('heading', { level: 1 }), path).toBeVisible()
+    if (tabbed) await expect.soft(main.locator('a[aria-current="page"]'), path).toHaveCount(1)
+  }
 })
 
 test('the old cluster Docker opens the running board', async ({ page }) => {

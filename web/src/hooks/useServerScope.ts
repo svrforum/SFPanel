@@ -169,9 +169,14 @@ export function useServerScopeState({ clusterEnabled, status, hostname }: {
 
   // Store → address: a server page whose address does not name the stored
   // server (an old bookmark, a menu link, a redirect) gets it back by replace.
-  // Nothing else writes the address.
+  // Nothing else writes the address. An address that already moved on in this
+  // commit is left alone: a page's redirect (/docker to its first tab) runs
+  // its effect before this one, and writing the location the router still
+  // shows would put the old address back over it, leaving a page with no tab
+  // open. The router shows the new one next, and this runs again for it.
   useEffect(() => {
     if (clusterEnabled !== true || !localId) return
+    if (window.location.pathname !== location.pathname || window.location.search !== location.search) return
     if (!carriesNode(location.pathname, location.search)) return
     const want = urlValue(api.currentNode, localId)
     if (nodeParam(location.search) === want) return
