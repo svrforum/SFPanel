@@ -1,6 +1,6 @@
-import { createContext, useCallback, useContext, useId, useLayoutEffect, useRef, useState, type CSSProperties, type FormEvent } from 'react'
+import { createContext, useCallback, useContext, useId, useLayoutEffect, useRef, useState, type CSSProperties, type FormEvent, type MouseEvent } from 'react'
 import { useTranslation } from 'react-i18next'
-import { Link } from 'react-router-dom'
+import { Link, useNavigate } from 'react-router-dom'
 import { AlertTriangle, ArrowUpRight, ChevronDown, Eye, Globe, Power, StickyNote } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { addressParts, columnsFor, DEVICE_KINDS, deviceName, rowsOf, type DeviceLabel, type MapDevice, type MapPort, type Segment } from '@/lib/netmap'
@@ -104,12 +104,27 @@ function LabelForm({ device, actions }: { device: MapDevice; actions: DeviceActi
   const run = async (what: () => Promise<string | null>) => {
     setBusy(true)
     setProblem(null)
-    setProblem(await what())
+    const failed = await what()
+    setProblem(failed)
     setBusy(false)
+    return failed
   }
+  const save = () => run(() => actions.save(device.mac, { name: namable ? name.trim() : device.label?.name ?? '', kind: namable ? kind : device.label?.kind ?? '', note: note.trim(), watch }))
   const submit = (e: FormEvent) => {
     e.preventDefault()
-    void run(() => actions.save(device.mac, { name: namable ? name.trim() : device.label?.name ?? '', kind: namable ? kind : device.label?.kind ?? '', note: note.trim(), watch }))
+    void save()
+  }
+  // The rules link sits between Watch and Save, and what is ticked is kept
+  // only on saving: with something unsaved it saves first and opens the rules
+  // only once that worked, else it stays with the error. A link opened in a
+  // new tab leaves this page, and what is on it, as it is.
+  const navigate = useNavigate()
+  const openRules = (e: MouseEvent<HTMLAnchorElement>) => {
+    const to = actions.rules?.to
+    if (!to || !changed || e.button !== 0 || e.metaKey || e.ctrlKey || e.shiftKey || e.altKey) return
+    e.preventDefault()
+    if (busy) return
+    void save().then((failed) => { if (failed === null) navigate(to) })
   }
   const wake = async () => {
     setBusy(true)
@@ -150,7 +165,7 @@ function LabelForm({ device, actions }: { device: MapDevice; actions: DeviceActi
       </label>
       {actions.rules && (
         <p className="pl-[22px] text-xs">
-          <Link to={actions.rules.to} className="inline-flex min-h-9 items-center rounded-sm font-medium text-primary hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring">
+          <Link to={actions.rules.to} onClick={openRules} className="inline-flex min-h-9 items-center rounded-sm font-medium text-primary hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring">
             {actions.rules.serverName ? t('running.network.edit.rulesOn', { node: actions.rules.serverName }) : t('running.network.edit.rules')}
           </Link>
         </p>

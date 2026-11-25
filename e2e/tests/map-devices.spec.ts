@@ -125,6 +125,8 @@ interface Opts {
   hostsOnly?: boolean
   /** How the cluster's overview answers: a status to fail with, or null for the usual answer. */
   overview?: () => number | null
+  /** Every node refuses to write a label. */
+  labelFails?: boolean
 }
 
 async function mock(page: Page, opts: Opts = {}) {
@@ -199,6 +201,7 @@ async function mock(page: Page, opts: Opts = {}) {
       if (method === 'PUT') {
         const body = request.postDataJSON() as { name: string; note: string; kind: string; watch: boolean; labelled_at: string }
         state.labels.push({ node, mac: key, body })
+        if (opts.labelFails) return fail(500, 'DB_ERROR', 'Cannot store the label')
         const was = book.get(key) ?? known(0, { mac: key, network: '', ip: '', first_seen: '', last_seen: '' })
         book.set(key, { ...was, name: body.name, note: body.note, kind: body.kind, watch: body.watch, labelled_at: body.labelled_at })
         data = book.get(key)
@@ -1031,6 +1034,45 @@ test('watching links to the alert rules of the server that scans by itself', asy
   await expect.poll(() => state.alertReads.length).toBeGreaterThan(0)
   // Every read is of m-2's alerts: a rule made here lands on the server whose scans judge the device.
   expect(state.alertReads.every((n) => n === 'm-2')).toBe(true)
+  // Nothing was changed, so nothing was written on the way.
+  expect(state.labels).toEqual([])
+})
+
+// The link sits between the Watch box and Save, and the tick is kept only on
+// saving: following the link to make the rule its hint asks for lost the tick,
+// and the device was never watched. With something unsaved, the link saves
+// first and opens the rules only once that worked.
+test('a Watch tick not saved yet is saved before the alert rules open', async ({ page }) => {
+  const state = await mock(page, { schedules: { 'm-2': { interval_minutes: 60, ports_daily: false } } })
+  await page.goto('/map')
+  const nas = device(page, 15)
+  await nas.locator('summary').click()
+  const form = nas.getByTestId('net-label-form')
+  await form.getByRole('checkbox', { name: 'Watch' }).check()
+  await form.getByRole('link', { name: 'Alert rules on delta-node' }).click()
+  await expect(page).toHaveURL(/\/settings\?tab=alerts&node=m-2$/)
+  // Written to every node of the network before the page changed, with the tick.
+  expect(state.labels.length).toBe(6)
+  for (const l of state.labels) expect(l.body).toMatchObject({ watch: true, name: '', note: '' })
+  await expect(page.getByRole('tab', { name: 'Alerts' })).toHaveAttribute('aria-selected', 'true')
+  await expect.poll(() => state.alertReads.length).toBeGreaterThan(0)
+  expect(state.alertReads.every((n) => n === 'm-2')).toBe(true)
+})
+
+test('a Watch tick that cannot be saved keeps the page and says why', async ({ page }) => {
+  const state = await mock(page, { schedules: { 'm-2': { interval_minutes: 60, ports_daily: false } }, labelFails: true })
+  await page.goto('/map')
+  const nas = device(page, 15)
+  await nas.locator('summary').click()
+  const form = nas.getByTestId('net-label-form')
+  await form.getByRole('checkbox', { name: 'Watch' }).check()
+  await form.getByRole('link', { name: 'Alert rules on delta-node' }).click()
+  await expect(form.getByRole('alert')).toHaveText('Could not save. Cannot store the label')
+  expect(state.labels.length).toBe(6)
+  expect(new URL(page.url()).pathname).toBe('/map')
+  expect(state.alertReads).toEqual([])
+  // The tick is still there to save again.
+  await expect(form.getByRole('checkbox', { name: 'Watch' })).toBeChecked()
 })
 
 test('without a schedule the rules are those of the server that scanned last', async ({ page }) => {
