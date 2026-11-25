@@ -321,6 +321,39 @@ test("the first app's fifteen paths each open a drawn page", async ({ page }) =>
   }
 })
 
+// A menu link that left the server out led to an address the page did not
+// show: pressing the open entry or tab again added a history entry each time
+// (Back seemed to do nothing), and a link opened in a new tab took whichever
+// server any tab stored last. In a cluster a server page's link names the
+// server shown; the pages about all servers and settings keep their own.
+test('the menu and the tabs name the server shown', async ({ page }) => {
+  await mock(page, { storage: CLUSTER })
+  await page.goto('/services?node=m-1')
+  const menu = page.getByRole('navigation', { name: 'Main menu' })
+  await expect(menu.getByRole('link', { name: 'Files' })).toHaveAttribute('href', '/files?node=m-1')
+  await expect(page.getByRole('navigation', { name: 'System' }).getByRole('link', { name: 'Processes' })).toHaveAttribute('href', '/processes?node=m-1')
+  await expect(menu.getByRole('link', { name: 'Cluster' })).toHaveAttribute('href', '/cluster')
+  await expect(menu.getByRole('link', { name: 'Settings' })).toHaveAttribute('href', '/settings')
+  await page.getByRole('button', { name: /Choose a server/ }).click()
+  await page.getByRole('dialog').getByRole('button', { name: /^agent-1\b/ }).click()
+  await expect(page).toHaveURL(/\/services\?node=agent-1$/)
+  await expect(menu.getByRole('link', { name: 'Files' })).toHaveAttribute('href', '/files?node=agent-1')
+})
+
+test('pressing the open entry or tab again adds no history', async ({ page }) => {
+  await mock(page, { storage: CLUSTER })
+  await page.goto('/services?node=m-1')
+  await expect(page.getByRole('heading', { level: 1, name: 'System' })).toBeVisible()
+  const before = await page.evaluate(() => history.length)
+  const system = page.getByRole('navigation', { name: 'Main menu' }).getByRole('link', { name: 'System' })
+  await system.click()
+  await system.click()
+  await page.getByRole('navigation', { name: 'System' }).getByRole('link', { name: 'Services' }).click()
+  await expect(page).toHaveURL(/\/services\?node=m-1$/)
+  expect(await page.evaluate(() => history.length)).toBe(before)
+  expect((await historyUrls(page)).filter((u) => u.startsWith('push'))).toEqual([])
+})
+
 test('the old cluster Docker opens the running board', async ({ page }) => {
   await mock(page)
   await page.goto('/cluster/stacks')
@@ -361,6 +394,22 @@ test('a folder the server does not have opens the root; a forbidden one does not
 
 test.describe('phone', () => {
   test.use({ viewport: { width: 412, height: 860 }, hasTouch: true })
+
+  test("the bottom bar's open tab, tapped again, adds no history; More names the server", async ({ page }) => {
+    await mock(page, { storage: CLUSTER })
+    await page.goto('/dashboard?node=m-1')
+    const bar = page.getByRole('navigation').filter({ has: page.getByRole('button', { name: 'More' }) })
+    const dashboard = bar.getByRole('link', { name: 'Dashboard' })
+    await expect(dashboard).toHaveAttribute('href', '/dashboard?node=m-1')
+    const before = await page.evaluate(() => history.length)
+    await dashboard.tap()
+    await dashboard.tap()
+    expect(await page.evaluate(() => history.length)).toBe(before)
+    await page.getByRole('button', { name: 'More' }).tap()
+    const drawer = page.getByRole('dialog')
+    await expect(drawer.getByRole('link', { name: 'Files' })).toHaveAttribute('href', '/files?node=m-1')
+    await expect(drawer.getByRole('link', { name: 'Cluster' })).toHaveAttribute('href', '/cluster')
+  })
 
   test('a switch stays on the page and replaces the address', async ({ page }) => {
     const requests = await mock(page)

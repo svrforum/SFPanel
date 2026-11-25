@@ -2,6 +2,7 @@ import { useEffect, useRef, type ReactNode } from 'react'
 import { useTranslation } from 'react-i18next'
 import { NavLink, useLocation } from 'react-router-dom'
 import { type LucideIcon } from 'lucide-react'
+import { useServerScope } from '@/hooks/useServerScope'
 
 export interface SubNavItem {
   to: string
@@ -19,6 +20,7 @@ export interface SubNavItem {
 export function SubNavTabs({ items, label, children }: { items: SubNavItem[]; label?: string; children?: ReactNode }) {
   const { t } = useTranslation()
   const { pathname } = useLocation()
+  const { href } = useServerScope()
   const row = useRef<HTMLDivElement>(null)
 
   // The strip hides its scrollbar, so a tab opened from a link or a bookmark
@@ -33,7 +35,7 @@ export function SubNavTabs({ items, label, children }: { items: SubNavItem[]; la
       {items.map(({ to, icon: Icon, label: key }) => (
         <NavLink
           key={to}
-          to={to}
+          to={href(to)}
           className={({ isActive }) =>
             `flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-[13px] font-medium transition duration-200 whitespace-nowrap shrink-0 outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring ${
               isActive

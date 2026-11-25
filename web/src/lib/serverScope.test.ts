@@ -6,6 +6,7 @@ import {
   adoptUrlNode,
   carriesNode,
   hrefWithNode,
+  menuHref,
   nodeParam,
   scopeKind,
   searchWithNode,
@@ -67,6 +68,16 @@ it('says which screens carry the server', () => {
   expect(scopeKind('/no-such-page', '')).toBeNull()
   expect([carriesNode('/logs', ''), carriesNode('/settings', '?scope=node'), carriesNode('/settings', ''), carriesNode('/cluster/overview', '')])
     .toEqual([true, true, false, false])
+})
+
+it('names the server shown in a server link, in a cluster only', () => {
+  expect(menuHref('/services', true, 'agent-1')).toBe('/services?node=agent-1')
+  expect(menuHref('/settings?scope=node&tab=system', true, 'm-1')).toBe('/settings?scope=node&tab=system&node=m-1')
+  // The pages about all servers and account settings name no server.
+  expect([menuHref('/cluster', true, 'm-1'), menuHref('/cluster/overview', true, 'm-1'), menuHref('/settings', true, 'm-1')])
+    .toEqual(['/cluster', '/cluster/overview', '/settings'])
+  // A single server, or an attached server whose id is not known yet.
+  expect([menuHref('/services', false, 'm-1'), menuHref('/services', true, '')]).toEqual(['/services', '/services'])
 })
 
 describe('adoptUrlNode', () => {

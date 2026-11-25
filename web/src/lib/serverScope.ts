@@ -76,6 +76,19 @@ export function carriesNode(pathname: string, search: string): boolean {
 }
 
 /**
+ * Where a menu or tab link to `to` leads. In a cluster a screen that names its
+ * server names the one shown (id), so pressing the open entry again replaces
+ * the address instead of adding to history, and a link opened in a new tab
+ * opens the same server. The pages about all servers, account settings, a
+ * single server and a server whose id is not known yet keep the address as it is.
+ */
+export function menuHref(to: string, cluster: boolean, id: string): string {
+  if (!cluster || !id) return to
+  const at = to.indexOf('?')
+  return carriesNode(at < 0 ? to : to.slice(0, at), at < 0 ? '' : to.slice(at)) ? hrefWithNode(to, id) : to
+}
+
+/**
  * Before the first paint: a server named in the address is the one the page
  * asks, over the one stored from an earlier visit, so a bookmark or a new tab
  * opens the server it names from the first request. A panel known to be a

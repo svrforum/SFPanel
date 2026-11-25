@@ -2,6 +2,7 @@ import { NavLink, useLocation } from 'react-router-dom'
 import { useTranslation } from 'react-i18next'
 import { Menu } from 'lucide-react'
 import { cn } from '@/lib/utils'
+import { useServerScope } from '@/hooks/useServerScope'
 import { BOTTOM_NAV_ITEMS, isTerminalRoute } from '@/lib/navigation'
 
 interface BottomNavProps {
@@ -11,6 +12,7 @@ interface BottomNavProps {
 export default function BottomNav({ onMorePress }: BottomNavProps) {
   const { t } = useTranslation()
   const location = useLocation()
+  const { href } = useServerScope()
 
   // The terminal pages have their own mobile key bar — hide the bottom nav
   // there rather than stacking the two.
@@ -30,7 +32,7 @@ export default function BottomNav({ onMorePress }: BottomNavProps) {
         {navItems.map((tab) => (
           <NavLink
             key={tab.to}
-            to={tab.to}
+            to={href(tab.to)}
             className={({ isActive }) =>
               cn(
                 'relative flex flex-col items-center justify-center gap-0.5 flex-1 h-full active:opacity-70 transition-colors outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring',

@@ -4,6 +4,7 @@ import { NavLink, Outlet, useOutletContext } from 'react-router-dom'
 import { Trash2 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import DockerPrune from '@/components/docker/DockerPrune'
+import { useServerScope } from '@/hooks/useServerScope'
 import { navTabs } from '@/lib/navigation'
 
 /**
@@ -14,6 +15,7 @@ import { navTabs } from '@/lib/navigation'
 export default function Docker() {
   const { t } = useTranslation()
   const [pruneOpen, setPruneOpen] = useState(false)
+  const { href } = useServerScope()
 
   return (
     <div className="space-y-4 docker-workspace">
@@ -26,7 +28,7 @@ export default function Docker() {
       </div>
 
       <nav aria-label={t('docker.title')} className="grid grid-cols-3 gap-1 rounded-xl bg-secondary/30 p-1 sm:flex sm:flex-wrap">
-        {navTabs('/docker').map(({ to, icon: Icon, label }) => <NavLink key={to} to={to} className={({ isActive }) => `flex min-h-11 items-center justify-center gap-2 rounded-lg px-2 text-sm ${isActive ? 'bg-card text-primary shadow-sm' : 'text-muted-foreground'}`}><Icon className="h-4 w-4 shrink-0" />{t(label)}</NavLink>)}
+        {navTabs('/docker').map(({ to, icon: Icon, label }) => <NavLink key={to} to={href(to)} className={({ isActive }) => `flex min-h-11 items-center justify-center gap-2 rounded-lg px-2 text-sm ${isActive ? 'bg-card text-primary shadow-sm' : 'text-muted-foreground'}`}><Icon className="h-4 w-4 shrink-0" />{t(label)}</NavLink>)}
       </nav>
 
       {/* Content */}

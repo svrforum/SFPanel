@@ -29,7 +29,7 @@ export default function MoreMenu({ open, onOpenChange, fromTerminal }: MoreMenuP
   const navigate = useNavigate()
   const { pathname } = useLocation()
   const { t } = useTranslation()
-  const { clusterEnabled, current, currentName, switchTo, reloadNodes } = useServerScope()
+  const { clusterEnabled, current, currentName, switchTo, reloadNodes, href } = useServerScope()
   const cluster = clusterEnabled === true
   const [listOpen, setListOpen] = useState(false)
   const idBase = useId()
@@ -61,7 +61,7 @@ export default function MoreMenu({ open, onOpenChange, fromTerminal }: MoreMenuP
     return (
       <Link
         key={entry.to}
-        to={entry.to}
+        to={href(entry.to)}
         onClick={close}
         aria-current={active ? 'page' : undefined}
         className={cn(

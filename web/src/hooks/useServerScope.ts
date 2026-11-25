@@ -2,7 +2,7 @@ import { createContext, useCallback, useContext, useEffect, useLayoutEffect, use
 import { useLocation, useNavigate } from 'react-router-dom'
 import { api } from '@/lib/api'
 import { NODE_CHANGED, type NodeChangedDetail } from '@/lib/nodeSelection'
-import { carriesNode, hrefWithNode, LOCAL_ID_KEY, nodeParam, scopeKind, searchWithNode, storeValue, urlValue } from '@/lib/serverScope'
+import { carriesNode, hrefWithNode, LOCAL_ID_KEY, menuHref, nodeParam, scopeKind, searchWithNode, storeValue, urlValue } from '@/lib/serverScope'
 import { useVisibleInterval } from '@/hooks/useVisibleInterval'
 import type { ClusterNode, ClusterStatus } from '@/types/api'
 
@@ -31,6 +31,8 @@ export interface ServerScope {
   switchTo: (id: string) => void
   /** Ask for the node list now. */
   reloadNodes: () => void
+  /** Where a menu or tab link to a registry address leads: in a cluster a server page's names the server shown. */
+  href: (to: string) => string
 }
 
 const noop = () => {}
@@ -48,6 +50,7 @@ export const ServerScopeContext = createContext<ServerScope>({
   missing: null,
   switchTo: noop,
   reloadNodes: noop,
+  href: (to) => to,
 })
 
 export function useServerScope(): ServerScope {
@@ -209,6 +212,7 @@ export function useServerScopeState({ clusterEnabled, status, hostname }: {
   const currentId = selected ?? localId
   const current = nodes.find((n) => n.id === currentId)
   const currentName = current?.name || (selected === null ? hostname : selected) || ''
+  const href = useCallback((to: string) => menuHref(to, clusterEnabled === true, urlValue(selected, localId)), [clusterEnabled, selected, localId])
 
   return useMemo<ServerScope>(() => ({
     clusterEnabled,
@@ -223,5 +227,6 @@ export function useServerScopeState({ clusterEnabled, status, hostname }: {
     missing,
     switchTo,
     reloadNodes: loadNodes,
-  }), [clusterEnabled, status, nodes, nodesError, localId, selected, currentId, current, currentName, missing, switchTo, loadNodes])
+    href,
+  }), [clusterEnabled, status, nodes, nodesError, localId, selected, currentId, current, currentName, missing, switchTo, loadNodes, href])
 }

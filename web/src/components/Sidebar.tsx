@@ -91,13 +91,14 @@ function ServerHead({ collapsed }: { collapsed: boolean }) {
 
 /**
  * The one menu, the same in both modes: the chosen server's pages, then the
- * pages about all servers, then settings — in registry order. Links go to the
- * registry's address as it is; the shell puts the server into it.
+ * pages about all servers, then settings — in registry order. In a cluster a
+ * server page's link names the server shown (useServerScope's href).
  */
 export default function Sidebar({ collapsed, onToggleCollapsed, version, update, versionTo, onLogout }: SidebarProps) {
   const { t } = useTranslation()
   const { pathname } = useLocation()
-  const cluster = useServerScope().clusterEnabled === true
+  const { clusterEnabled, href } = useServerScope()
+  const cluster = clusterEnabled === true
   const owner = navOwner(pathname)
   const items = navFor(cluster)
   const byGroup = (group: NavEntry['group']) => items.filter((e) => e.group === group)
@@ -109,7 +110,7 @@ export default function Sidebar({ collapsed, onToggleCollapsed, version, update,
     return (
       <Link
         key={item.to}
-        to={item.to}
+        to={href(item.to)}
         aria-current={active ? 'page' : undefined}
         aria-label={collapsed ? label : undefined}
         title={collapsed ? label : undefined}
@@ -136,7 +137,7 @@ export default function Sidebar({ collapsed, onToggleCollapsed, version, update,
       collapsed ? 'w-[68px]' : 'w-60',
     )}>
       <div className={cn('flex shrink-0 items-center', collapsed ? 'justify-center px-3 pt-5 pb-3' : 'px-4 pt-4 pb-3')}>
-        <Link to="/dashboard" aria-label="SFPanel" className={cn('rounded-lg focus:outline-none focus-visible:ring-2 focus-visible:ring-ring', !collapsed && 'block w-full')}>
+        <Link to={href('/dashboard')} aria-label="SFPanel" className={cn('rounded-lg focus:outline-none focus-visible:ring-2 focus-visible:ring-ring', !collapsed && 'block w-full')}>
           {collapsed ? <LogoMark className="h-8 w-8" /> : <Logo />}
         </Link>
       </div>
@@ -165,7 +166,7 @@ export default function Sidebar({ collapsed, onToggleCollapsed, version, update,
       {collapsed ? (
         <div className="flex shrink-0 flex-col items-center gap-1 border-t border-border px-2 py-2">
           <Link
-            to={update?.to ?? versionTo}
+            to={href(update?.to ?? versionTo)}
             aria-label={versionName}
             title={versionName}
             className="flex w-full flex-col items-center gap-0.5 rounded-lg py-1 outline-none focus-visible:ring-2 focus-visible:ring-ring"
@@ -193,7 +194,7 @@ export default function Sidebar({ collapsed, onToggleCollapsed, version, update,
       ) : (
         <div className="flex shrink-0 items-center gap-0.5 border-t border-border px-2 py-2">
           <Link
-            to={update?.to ?? versionTo}
+            to={href(update?.to ?? versionTo)}
             aria-label={versionName}
             title={versionName}
             className="flex min-w-0 flex-1 items-center gap-1.5 rounded-lg px-1.5 py-1 outline-none hover:bg-accent focus-visible:ring-2 focus-visible:ring-ring"
