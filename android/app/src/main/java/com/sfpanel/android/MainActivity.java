@@ -104,7 +104,12 @@ public final class MainActivity extends Activity {
     private TextView panelTitle;
     // What the page publishes on window.__sfpanel; null on a panel that
     // publishes nothing the app reads, which keeps the app's own list.
+    // bridgeJson is the answer it was read from.
     private PanelNav panelNav;
+    private String bridgeJson;
+    // The page's path as the last address callback gave it: the title and the
+    // terminal bar follow the same one.
+    private String addressPath;
 
     @Override public void onCreate(Bundle state) {
         super.onCreate(state);
@@ -426,7 +431,7 @@ public final class MainActivity extends Activity {
 
     @SuppressLint("SetJavaScriptEnabled")
     private void openPanel(ServerStore.Server server) {
-        closeWeb(); current = server; panelNav = null; setRoot();
+        closeWeb(); current = server; panelNav = null; bridgeJson = null; addressPath = null; setRoot();
         // The toolbar and its progress strip travel together: one wrapper is one
         // thing for the keyboard to push off the screen.
         panelChrome = column(); root.addView(panelChrome); applyChrome();
@@ -701,9 +706,11 @@ public final class MainActivity extends Activity {
         ScrollView scroll = new ScrollView(this); LinearLayout entries = column(); scroll.addView(entries); body.addView(scroll, new LinearLayout.LayoutParams(-1, 0, 1));
         AlertDialog dialog = new AlertDialog.Builder(this).setTitle(R.string.all_features).setView(body).setNegativeButton(R.string.close, null).create();
         // The panel's own menu when it publishes one; the paths above on a panel
-        // that publishes none.
-        PanelNav nav = panelNav;
+        // that publishes none. drawn is the bridge answer the sheet shows.
+        String[] drawn = {null};
         Runnable render = () -> {
+            PanelNav nav = panelNav;
+            drawn[0] = bridgeJson;
             entries.removeAllViews();
             String query = search.getText().toString().trim().toLowerCase(java.util.Locale.ROOT);
             String pagePath = web == null || web.getUrl() == null ? null : Uri.parse(web.getUrl()).getPath();
@@ -759,6 +766,9 @@ public final class MainActivity extends Activity {
             dialog.getWindow().setSoftInputMode(android.view.WindowManager.LayoutParams.SOFT_INPUT_STATE_ALWAYS_HIDDEN | android.view.WindowManager.LayoutParams.SOFT_INPUT_ADJUST_RESIZE);
         });
         dialog.show();
+        // A server picked where neither the address nor the title changes (the
+        // settings) is only in the bridge: read it now, and redraw if it moved.
+        readBridge(() -> { if (dialog.isShowing() && !java.util.Objects.equals(drawn[0], bridgeJson)) render.run(); });
     }
     private TextView featureHeading(String title) {
         TextView heading = text(title, 13, MUTED, true);
@@ -778,20 +788,23 @@ public final class MainActivity extends Activity {
     }
     // Read on every address and title change: the page renames its tab when the
     // server it shows changes, and a full load or a sign-out takes the bridge away.
-    private void readBridge() {
+    // Also when the feature sheet opens, which then runs after the answer.
+    private void readBridge() { readBridge(null); }
+    private void readBridge(Runnable then) {
         WebView from = web;
         evaluate("const s=window.__sfpanel;return s&&typeof s==='object'?s:null;", result -> {
             if (web != from) return;
-            panelNav = PanelNav.parse(result); updateTitle();
+            bridgeJson = result; panelNav = PanelNav.parse(result); updateTitle();
+            if (then != null) then.run();
         });
     }
     private void updateTitle() {
         if (panelTitle == null || current == null) return;
-        String path = web == null || web.getUrl() == null ? null : Uri.parse(web.getUrl()).getPath();
-        panelTitle.setText(PanelNav.title(panelNav == null ? null : panelNav.serverName, current.name(), "/terminal".equals(path), getString(R.string.terminal)));
+        panelTitle.setText(PanelNav.title(panelNav == null ? null : panelNav.serverName, current.name(), "/terminal".equals(addressPath), getString(R.string.terminal)));
     }
     private void updateTerminalBar(String url) {
         String path = Uri.parse(url).getPath();
+        addressPath = path;
         updateTitle();
         // No bar of the app's own where the page brings its keys.
         if (terminalBar == null) return;
