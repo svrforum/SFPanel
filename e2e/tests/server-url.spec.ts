@@ -403,6 +403,17 @@ test('the menu and the tabs name the server shown', async ({ page }) => {
   await expect(menu.getByRole('link', { name: 'Files' })).toHaveAttribute('href', '/files?node=agent-1')
 })
 
+// The disk's Setup menu holds tabs folded out of the strip, so its pages name
+// the server shown like the tabs beside it.
+test('the disk Setup menu names the server shown, like the tabs', async ({ page }) => {
+  await mock(page, { storage: CLUSTER })
+  await page.goto('/disk/overview?node=m-1')
+  const strip = page.getByRole('navigation', { name: 'Disks' })
+  await expect(strip.getByRole('link', { name: 'Usage' })).toHaveAttribute('href', '/disk/usage?node=m-1')
+  await strip.getByRole('button', { name: 'Setup', exact: true }).click()
+  await expect(page.getByRole('menuitem', { name: 'RAID' })).toHaveAttribute('href', '/disk/raid?node=m-1')
+})
+
 test('pressing the open entry or tab again adds no history', async ({ page }) => {
   await mock(page, { storage: CLUSTER })
   await page.goto('/services?node=m-1')

@@ -79,7 +79,9 @@
     },
     "tabs": {
       "summary": "Summary",
-      "runningHere": "Running here"
+      "runningHere": "Running here",
+      "setup": "Setup",
+      "setupCurrent": "Setup: {{tab}}"
     },
     "logout": "Logout",
     "collapse": "Collapse sidebar",

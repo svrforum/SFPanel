@@ -12,7 +12,7 @@ export default function Disk() {
         <h1 className="text-[22px] font-bold tracking-tight">{t('disk.title')}</h1>
       </div>
 
-      <SubNavTabs items={navTabs('/disk')} />
+      <SubNavTabs items={navTabs('/disk')} label={t('disk.title')} />
 
       {/* Content */}
       <div className="min-h-[calc(100vh-220px)]">

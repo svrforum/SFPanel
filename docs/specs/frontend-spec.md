@@ -439,15 +439,17 @@ const DockerStacks = lazy(() => import('@/pages/docker/DockerStacks'))
 
 ### Disk
 - **파일**: `web/src/pages/Disk.tsx`
-- **기능**: 디스크 및 스토리지 관리 — 위쪽 탭 줄(`SubNavTabs`) + `<Outlet/>` 서브라우트 (Docker/Network와 동일 패턴)
+- **기능**: 디스크 및 스토리지 관리 — 위쪽 탭 줄(`SubNavTabs`, `navTabs('/disk')`, 이름이 `디스크`인 navigation) + `<Outlet/>` 서브라우트 (Docker/Network와 동일 패턴)
+- **탭 순서**: `개요 · 사용량 · 파일시스템 · 스왑 · 네트워크 드라이브 · 구성 ▾`. 파티션 · LVM · RAID는 레지스트리에서 `fold: 'setup'`인 탭이라 탭 줄에는 `구성` 메뉴 하나로 모인다(주소는 그대로). 그중 하나가 열려 있으면 메뉴 버튼이 `구성: RAID`처럼 그 이름을 달고 켜진다(`aria-current="page"`). 안드로이드 브리지는 `fold`를 보지 않고 여덟 탭을 이 순서대로 받는다
 - **서브라우트 구성**:
   - `/disk/overview` (기본값) -> DiskOverview
   - `/disk/usage` -> DiskUsage
-  - `/disk/partitions` -> DiskPartitions
   - `/disk/filesystems` -> DiskFilesystems
-  - `/disk/lvm` -> DiskLVM
-  - `/disk/raid` -> DiskRAID
   - `/disk/swap` -> DiskSwap
+  - `/disk/network-shares` -> DiskNetworkShares
+  - `/disk/partitions` -> DiskPartitions (`구성` 메뉴)
+  - `/disk/lvm` -> DiskLVM (`구성` 메뉴)
+  - `/disk/raid` -> DiskRAID (`구성` 메뉴)
 - **사용 컴포넌트**: NavLink (react-router-dom), Lucide 아이콘
 - **서브 컴포넌트 파일**:
   - `web/src/pages/disk/DiskOverview.tsx` — 디스크 개요 (블록 디바이스, SMART, I/O 통계, 디스크 사용량). **(v0.27.0)** SMART **셀프 테스트 실행 UI**(short/long, smartctl ETA 토스트) + 드라이브 **셀프 테스트 로그**(유형/상태/통과·실패/실행 시 power-on hours) 표시.
@@ -602,6 +604,7 @@ const DockerStacks = lazy(() => import('@/pages/docker/DockerStacks'))
 | ServerSwitcher | `web/src/components/server/ServerSwitcher.tsx` | 감싼 요소(트리거)로 서버 목록을 연다 — 데스크톱은 팝오버(`ui/popover`), 폰(`useIsMobile`)은 vaul 시트(제목 `서버 고르기`). 열 때마다 노드 목록을 다시 받고(`reloadNodes`), 고르면 `switchTo`(보던 화면에 머물고 주소를 replace, `모든 서버` 화면에서만 `/dashboard?node=`) 후 닫는다. |
 | ServerList | `web/src/components/server/ServerList.tsx` | 서버 고르기 목록. 검색창은 늘 보이고(`서버 검색`), `treeSections`로 매니저 → 에이전트 그룹 이름순 → 그룹 없음, 에이전트가 있을 때만 구역 머리. 행은 `aria-pressed` 버튼: 상태 표시, 이름, 상태 낱말(온라인은 화면 낭독기에만), 2대 이상이면 `리더`, 접속 중인 서버는 `접속 중`. 목록이 비었으면 가져오는 중(`로딩 중…`) 또는 못 가져옴(`서버 목록을 가져올 수 없음`), 검색에 맞는 서버가 없을 때만 `일치하는 서버가 없습니다.`; 목록을 못 받은 동안 마지막 목록 위에도 같은 경고를 둔다. |
 | ScopeBar | `web/src/components/server/ScopeBar.tsx` | 클러스터 모드에서 화면 위 한 줄(`data-scope-bar`). 그 화면이 무엇에 작동하는지(`scopeKind`)를 쓴다 — 서버 화면: `ServerSwitcher`를 여는 버튼 `서버 {이름} · {역할} ▾`(역할은 사이드바 머리와 같은 `serverRole`), 접속 중인 서버가 아니면 주황 테두리(`data-remote="true"`). 모든 서버 화면: `모든 서버 · n대 중 m대 온라인`(목록 전에는 `모든 서버`). 설정: 열린 탭이 저장되는 곳(`settingsTabScope`) — 계정 `모든 서버 공통`, 언어·테마 `이 브라우저에만 저장됩니다`, 나머지 넷 `{이름}에만 저장됩니다`. 노드 목록에 없는 서버로 열렸으면(`missing`) 늘 자리에 있는 `role="status"` 안에 `찾을 수 없는 서버 · {이름}`을 쓰고, 다른 서버를 고르거나 다른 서버를 가리키는 주소가 오면 지운다. 단일 서버·`/terminal`·메뉴 항목이 없는 주소에는 그리지 않고, 안드로이드 앱 안에서는 그린다. 메인의 안쪽 여백을 음수 여백으로 덮어 가장자리까지 닿고, 데스크톱(md 이상)에서만 sticky다 — sticky는 스크롤 상자의 안쪽 여백 안에서 붙으므로 위치는 `top-0`이 아니라 `-top-8`. |
+| SubNavTabs | `web/src/components/SubNavTabs.tsx` | 화면 위쪽 알약 모양 탭 줄(Network·Firewall·Disk·System·구성도·대시보드). 항목은 보통 `navTabs(<메뉴 주소>)`이고, 링크는 사이드바와 같이 `href`로 지금 서버를 단다. `label`을 주면 그 이름의 `<nav>`가 된다. 다른 탭 주소의 앞부분인 탭(`/map`)은 자기 주소에서만 켜진다(`NavLink end`). `fold: 'setup'`인 항목은 첫 항목 자리에 버튼 하나(`구성` + `▾`)로 모이고, 누르면 그 항목들이 메뉴(radix `DropdownMenu`, 항목은 `NavLink`)로 열린다. 그중 하나가 열린 화면이면 버튼이 `구성: {탭}`(`layout.tabs.setupCurrent`)으로 켜지고 `aria-current="page"`를 단다. 탭 줄은 스크롤 막대를 숨기므로, 주소가 바뀔 때 `aria-current="page"`인 탭(접힌 메뉴 버튼 포함)을 화면 안으로 스크롤한다 |
 | MetricsCard | `web/src/components/MetricsCard.tsx` | 메트릭 표시 카드. 아이콘 + 제목 + 값 + 프로그레스 바(80% 초과 빨강, 60% 초과 노랑, 그 외 파랑). |
 | MetricsChart | `web/src/components/MetricsChart.tsx` | CPU/메모리 시계열 차트. uPlot 사용. CPU(파랑) + Memory(초록) 이중 라인. Y축 0-100%. |
 | ContainerShell | `web/src/components/ContainerShell.tsx` | Docker 컨테이너 셸 접속. xterm.js + WebSocket(`/ws/docker/containers/{id}/exec`). 키 입력 전송, 리사이즈 이벤트 전송. |

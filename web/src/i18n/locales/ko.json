@@ -79,7 +79,9 @@
     },
     "tabs": {
       "summary": "요약",
-      "runningHere": "실행 중인 항목"
+      "runningHere": "실행 중인 항목",
+      "setup": "구성",
+      "setupCurrent": "구성: {{tab}}"
     },
     "logout": "로그아웃",
     "collapse": "사이드바 접기",

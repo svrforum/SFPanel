@@ -24,6 +24,7 @@ const KO: Record<string, string> = {
   'settings.tabBrowser': '언어·테마', 'settings.tabSystem': '업데이트·백업', 'settings.tabHttps': 'HTTPS 인증서',
   'layout.scope.savedBrowser': '이 브라우저에만 저장됩니다',
   'layout.nav.tuning': '성능 튜닝',
+  'layout.tabs.setup': '구성',
 }
 // A page's <h1> is its menu label.
 const H1: [string, string][] = [

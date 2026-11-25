@@ -227,7 +227,8 @@ jobs:
             tests/panel-bridge.spec.ts \
             tests/tuning.spec.ts \
             tests/moved-settings.spec.ts \
-            tests/files-upload.spec.ts
+            tests/files-upload.spec.ts \
+            tests/disk-tabs.spec.ts
       - name: Dump panel log on failure
         if: failure()
         run: cat "$E2E_DIR/panel.log" || true

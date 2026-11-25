@@ -48,6 +48,12 @@ export interface NavTab {
    * tab carries the tab's name, and a dashboard shortcut can point at it.
    */
   ownTitle?: boolean
+  /**
+   * Drawn in the tab strip inside its one Setup menu, which stands where the
+   * first such tab would; its address is its own. Lists that are not the
+   * strip (the Android app's) show it as a tab.
+   */
+  fold?: 'setup'
 }
 
 export interface NavEntry {
@@ -125,12 +131,12 @@ export const NAV_ITEMS: NavEntry[] = [
     tabs: [
       { to: '/disk/overview', labelKey: 'disk.tabs.overview', icon: LayoutGrid },
       { to: '/disk/usage', labelKey: 'disk.tabs.usage', icon: PieChart },
-      { to: '/disk/partitions', labelKey: 'disk.tabs.partitions', icon: HardDrive },
       { to: '/disk/filesystems', labelKey: 'disk.tabs.filesystems', icon: Database },
-      { to: '/disk/lvm', labelKey: 'disk.tabs.lvm', icon: Layers },
-      { to: '/disk/raid', labelKey: 'disk.tabs.raid', icon: Server },
       { to: '/disk/swap', labelKey: 'disk.tabs.swap', icon: MemoryStick },
       { to: '/disk/network-shares', labelKey: 'disk.tabs.shares', icon: Network },
+      { to: '/disk/partitions', labelKey: 'disk.tabs.partitions', icon: HardDrive, fold: 'setup' },
+      { to: '/disk/lvm', labelKey: 'disk.tabs.lvm', icon: Layers, fold: 'setup' },
+      { to: '/disk/raid', labelKey: 'disk.tabs.raid', icon: Server, fold: 'setup' },
     ],
   },
   { to: '/cluster/running', labelKey: 'layout.nav.running', icon: Boxes, group: 'fleet', scope: 'fleet', clusterOnly: true },
@@ -200,9 +206,9 @@ export function pageTitleKey(pathname: string): string | null {
 }
 
 /** An entry's tab strip, in the shape SubNavTabs draws (label is the i18n key). */
-export function navTabs(entryTo: string): { to: string; icon: LucideIcon; label: string }[] {
+export function navTabs(entryTo: string): { to: string; icon: LucideIcon; label: string; fold?: 'setup' }[] {
   const entry = NAV_ITEMS.find((e) => e.to === entryTo)
-  return (entry?.tabs ?? []).map((tab) => ({ to: tab.to, icon: tab.icon, label: tab.labelKey }))
+  return (entry?.tabs ?? []).map((tab) => ({ to: tab.to, icon: tab.icon, label: tab.labelKey, fold: tab.fold }))
 }
 
 /**

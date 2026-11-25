@@ -39,6 +39,12 @@ describe('the menu', () => {
     expect(navTabs('/docker')).toHaveLength(6)
   })
 
+  it('puts the disk setup work last, folded', () => {
+    const tabs = navTabs('/disk')
+    expect(tabs.map((t) => t.to)).toEqual(['/disk/overview', '/disk/usage', '/disk/filesystems', '/disk/swap', '/disk/network-shares', '/disk/partitions', '/disk/lvm', '/disk/raid'])
+    expect(tabs.filter((t) => t.fold === 'setup').map((t) => t.to)).toEqual(['/disk/partitions', '/disk/lvm', '/disk/raid'])
+  })
+
   it('finds the owner by the longest match', () => {
     expect(navOwner('/processes')).toMatchObject({ entry: { to: '/services' }, tab: { to: '/processes' } })
     expect(navOwner('/cluster/running')?.entry.to).toBe('/cluster/running')
