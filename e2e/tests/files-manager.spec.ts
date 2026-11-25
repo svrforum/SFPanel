@@ -20,7 +20,8 @@ const LISTINGS: Record<string, unknown[]> = {
   '/srv/web': [entry('/srv/web', 'compose.yml')],
 }
 
-async function openFiles(page: Page, path = '/srv') {
+/** `slow` holds the listings that answer late, with the delay in ms. */
+async function openFiles(page: Page, path = '/srv', slow: Record<string, number> = {}) {
   const deleted: string[] = []
   await page.addInitScript(() => {
     sessionStorage.setItem('token', 'fixture-token')
@@ -40,6 +41,8 @@ async function openFiles(page: Page, path = '/srv') {
       // The trash is on another filesystem than this one.
       data = { path: target, trashed: !target.endsWith('mounted.txt') }
     } else if (p === '/files') {
+      const delay = slow[url.searchParams.get('path') ?? '/']
+      if (delay) await new Promise((resolve) => setTimeout(resolve, delay))
       const listing = LISTINGS[url.searchParams.get('path') ?? '/']
       if (!listing) {
         await route.fulfill({ status: 403, json: { success: false, error: { code: 'PERMISSION_DENIED', message: 'permission denied' } } })
@@ -120,6 +123,24 @@ test('a folder that cannot be listed says why, with a retry, not that it is empt
   await expect(page.getByText('Could not load this folder')).toBeVisible()
   await expect(page.getByRole('button', { name: 'Retry' })).toBeVisible()
   await expect(page.getByText('This folder is empty')).toHaveCount(0)
+})
+
+// A listing that answers after the folder changed belongs to the folder left
+// behind: leaving a folder still loading showed its entries under /srv.
+test('a listing that answers after the folder changed is dropped', async ({ page }) => {
+  const f = await openFiles(page, '/srv', { '/srv/data': 1500 })
+  const crumbs = page.getByRole('navigation', { name: 'Current path' })
+  const here = crumbs.locator('[aria-current="page"]')
+  const late = page.waitForResponse((r) => new URL(r.url()).searchParams.get('path') === '/srv/data')
+  await f.nameOf(0).click()
+  await expect(here).toHaveText('data')
+  await crumbs.getByRole('button', { name: 'srv', exact: true }).click()
+  await expect(here).toHaveText('srv')
+  await expect(f.nameOf(0)).toHaveText('data')
+  await late
+  await page.waitForTimeout(500)
+  await expect(f.nameOf(0)).toHaveText('data')
+  await expect(page.getByText('inside.txt')).toHaveCount(0)
 })
 
 test('a link to a directory is a folder: no editor, and a click goes into it', async ({ page }) => {

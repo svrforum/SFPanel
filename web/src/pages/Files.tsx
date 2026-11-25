@@ -212,12 +212,17 @@ export default function Files() {
   const fetchFiles = useCallback(async () => {
     const first = !pathChecked.current
     pathChecked.current = true
+    // An answer that lands after the folder changed is the folder left behind:
+    // leaving a folder still loading showed its entries under the new path.
+    const current = () => currentPathRef.current === currentPath
     try {
       setLoading(true)
       setLoadError(null)
       const data = await api.listFiles(currentPath)
+      if (!current()) return
       setFiles(data || [])
     } catch (err: unknown) {
+      if (!current()) return
       if (first && currentPath !== '/' && (err as ApiError).code === 'NOT_FOUND') {
         setSearchParamsRef.current((prev) => { prev.delete('path'); return prev }, { replace: true })
         setCurrentPath('/')
@@ -226,7 +231,7 @@ export default function Files() {
       setLoadError(err instanceof Error ? err.message : t('files.fetchFailed'))
       setFiles([])
     } finally {
-      setLoading(false)
+      if (current()) setLoading(false)
     }
   }, [currentPath, t])
 
