@@ -78,6 +78,8 @@
     "expand": "Expand sidebar",
     "updateAvailable": "Update",
     "upToDate": "Latest",
+    "updateCount_one": "{{count}} to update",
+    "updateCount_other": "{{count}} to update",
     "cluster": {
       "localNode": "This node",
       "selectNode": "Select node",

@@ -78,6 +78,8 @@
     "expand": "사이드바 펼치기",
     "updateAvailable": "업데이트",
     "upToDate": "최신",
+    "updateCount_one": "업데이트 {{count}}대",
+    "updateCount_other": "업데이트 {{count}}대",
     "cluster": {
       "localNode": "이 노드",
       "selectNode": "노드 선택",

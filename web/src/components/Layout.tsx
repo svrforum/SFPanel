@@ -13,6 +13,7 @@ import { CLUSTER_TAB_ITEMS } from '@/components/cluster/datacenterMenu'
 import { useTerminalCompact, useTerminalFocus } from '@/lib/terminalLayout'
 import { NODE_CHANGED, type NodeChangedDetail } from '@/lib/nodeSelection'
 import { useVisibleInterval } from '@/hooks/useVisibleInterval'
+import { useClusterUpdateCount } from '@/hooks/useClusterUpdateCount'
 import { ErrorBoundary } from '@/components/ErrorBoundary'
 import ClusterSidebar from '@/components/cluster/ClusterSidebar'
 import SidebarSkeleton from '@/components/SidebarSkeleton'
@@ -64,6 +65,8 @@ export default function Layout() {
   const [clusterStatus, setClusterStatus] = useState<ClusterStatus | null>(null)
   // The tree's node list, for the name of the server the pages act on.
   const [clusterNodes, setClusterNodes] = useState<ClusterNode[]>([])
+  // The cluster's counterpart of the standalone sidebar's update badge.
+  const updateCount = useClusterUpdateCount(clusterEnabled === true)
   const location = useLocation()
   const isTerminal = isTerminalRoute(location.pathname)
   // The terminal has the window to itself on a touch device, and on a desktop
@@ -253,6 +256,7 @@ export default function Layout() {
             onLogout={handleLogout}
             onNodeChanged={handleNodeChanged}
             onNodes={setClusterNodes}
+            updateCount={updateCount}
           />
         </div>
       )}

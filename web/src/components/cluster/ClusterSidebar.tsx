@@ -23,9 +23,11 @@ interface ClusterSidebarProps {
   onNodeChanged: (nodeId: string | null) => void
   /** Each node list that comes back; Layout names the server from it. Keep it stable: it is in the poll's dependencies. */
   onNodes?: (nodes: ClusterNode[]) => void
+  /** Online servers behind the cluster's version (useClusterUpdateCount, polled by Layout). */
+  updateCount: number
 }
 
-export default function ClusterSidebar({ status, panelVersion, onLogout, onNodeChanged, onNodes }: ClusterSidebarProps) {
+export default function ClusterSidebar({ status, panelVersion, onLogout, onNodeChanged, onNodes, updateCount }: ClusterSidebarProps) {
   const navigate = useNavigate()
   const { t } = useTranslation()
   const [nodes, setNodes] = useState<ClusterNode[]>([])
@@ -187,6 +189,7 @@ export default function ClusterSidebar({ status, panelVersion, onLogout, onNodeC
         collapsed={treeCollapsed}
         onToggleCollapse={() => setTreeCollapsed(!treeCollapsed)}
         panelVersion={panelVersion}
+        updateCount={updateCount}
         onLogout={onLogout}
       />
       <ContextMenu

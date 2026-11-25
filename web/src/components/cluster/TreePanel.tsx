@@ -1,6 +1,6 @@
 import { useMemo, useState } from 'react'
 import { Link } from 'react-router-dom'
-import { Crown, ChevronDown, ChevronRight, Server, LogOut, PanelLeftClose, PanelLeftOpen, Coffee, AlertTriangle, Search } from 'lucide-react'
+import { Crown, ChevronDown, ChevronRight, Server, LogOut, PanelLeftClose, PanelLeftOpen, Coffee, AlertTriangle, Search, ArrowUpCircle } from 'lucide-react'
 import { useTranslation } from 'react-i18next'
 import GithubIcon from '@/components/GithubIcon'
 import Logo from '@/components/Logo'
@@ -40,6 +40,8 @@ interface TreePanelProps {
   collapsed: boolean
   onToggleCollapse: () => void
   panelVersion: string
+  /** Online servers behind the cluster's version; nothing is shown at 0. */
+  updateCount: number
   onLogout: () => void
 }
 
@@ -53,6 +55,7 @@ export default function TreePanel({
   collapsed,
   onToggleCollapse,
   panelVersion,
+  updateCount,
   onLogout,
 }: TreePanelProps) {
   const { t } = useTranslation()
@@ -75,6 +78,8 @@ export default function TreePanel({
   // A node's name with its state in words: the mark beside it is no more
   // than a shape, and in the rail it is all there is.
   const nodeLabel = (node: ClusterNode) => `${node.name} · ${t(`cluster.status.${node.status}`, { defaultValue: node.status })}`
+  // Both of its links go to the overview, whose banner counts the same servers and whose buttons update them.
+  const updateLabel = t('layout.updateCount', { count: updateCount })
 
   const toggleFolded = (key: string) => {
     const next = folded.includes(key) ? folded.filter((k) => k !== key) : [...folded, key]
@@ -173,6 +178,16 @@ export default function TreePanel({
         </div>
 
         <div className="shrink-0 border-t border-border py-2 flex flex-col items-center gap-1">
+          {updateCount > 0 && (
+            <Link
+              to="/cluster/overview"
+              className="w-9 h-9 rounded-lg flex items-center justify-center text-primary hover:bg-accent transition-colors outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-0"
+              title={updateLabel}
+              aria-label={updateLabel}
+            >
+              <ArrowUpCircle className="h-4 w-4" />
+            </Link>
+          )}
           <button onClick={onLogout} className="w-9 h-9 rounded-lg flex items-center justify-center text-muted-foreground hover:bg-accent transition-colors outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-0" title={t('layout.logout')} aria-label={t('layout.logout')}>
             <LogOut className="h-4 w-4" />
           </button>
@@ -277,10 +292,21 @@ export default function TreePanel({
 
       {/* Bottom */}
       <div className="shrink-0 border-t border-border px-3 py-2 space-y-1.5">
-        <div className="flex items-center justify-between">
-          <span className="text-[12px] text-muted-foreground">
-            {panelVersion ? `v${panelVersion}` : '...'}
-          </span>
+        <div className="flex items-center justify-between gap-1">
+          <div className="flex items-center gap-1 min-w-0">
+            {/* Beside a two-digit count a long version is cut short: the title keeps it whole. */}
+            <span className="text-[12px] text-muted-foreground truncate" title={panelVersion ? `v${panelVersion}` : undefined}>
+              {panelVersion ? `v${panelVersion}` : '...'}
+            </span>
+            {updateCount > 0 && (
+              <Link
+                to="/cluster/overview"
+                className="shrink-0 inline-flex items-center px-2 py-0.5 rounded-full text-[12px] font-semibold whitespace-nowrap bg-primary/10 text-primary hover:bg-primary/15 transition-colors outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-0"
+              >
+                {updateLabel}
+              </Link>
+            )}
+          </div>
           <button
             onClick={onLogout}
             className="text-[12px] text-muted-foreground hover:text-foreground transition-colors rounded-sm outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-0"
