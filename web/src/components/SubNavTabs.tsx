@@ -1,7 +1,7 @@
 import { useEffect, useRef, type ReactNode } from 'react'
 import { useTranslation } from 'react-i18next'
 import { NavLink, matchPath, useLocation } from 'react-router-dom'
-import { ChevronDown, type LucideIcon } from 'lucide-react'
+import { Check, ChevronDown, type LucideIcon } from 'lucide-react'
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from '@/components/ui/dropdown-menu'
 import { useServerScope } from '@/hooks/useServerScope'
 
@@ -61,12 +61,14 @@ export function SubNavTabs({ items, label, children }: { items: SubNavItem[]; la
                   <ChevronDown aria-hidden="true" className="h-3.5 w-3.5 shrink-0" />
                 </button>
               </DropdownMenuTrigger>
+              {/* The open page's item says so by sight too (aria-current is NavLink's). */}
               <DropdownMenuContent align="start">
                 {folded.map(({ to: itemTo, icon: ItemIcon, label: itemKey }) => (
-                  <DropdownMenuItem key={itemTo} asChild>
+                  <DropdownMenuItem key={itemTo} asChild className={itemTo === openFolded?.to ? 'font-semibold text-foreground' : undefined}>
                     <NavLink to={href(itemTo)} end={end(itemTo)}>
                       <ItemIcon />
                       {t(itemKey)}
+                      {itemTo === openFolded?.to && <Check aria-hidden="true" className="ml-auto" />}
                     </NavLink>
                   </DropdownMenuItem>
                 ))}

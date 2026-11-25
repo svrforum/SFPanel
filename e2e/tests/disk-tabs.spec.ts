@@ -43,6 +43,17 @@ test('the disk tabs keep the everyday five and fold the setup work into one menu
 test('a setup page opened by its address names itself on the menu', async ({ page }) => {
   await open(page, '/disk/lvm')
   await expect(strip(page).getByRole('button', { name: 'Setup: LVM' })).toHaveAttribute('aria-current', 'page')
+  // Inside the open menu the page that is open is told apart by sight too,
+  // not only to a screen reader: heavier, with a check.
+  await strip(page).getByRole('button', { name: 'Setup: LVM' }).click()
+  const lvm = page.getByRole('menuitem', { name: 'LVM' })
+  const raid = page.getByRole('menuitem', { name: 'RAID' })
+  await expect(lvm).toHaveAttribute('aria-current', 'page')
+  await expect(lvm).toHaveCSS('font-weight', '600')
+  await expect(lvm.locator('svg')).toHaveCount(2)
+  await expect(raid).not.toHaveAttribute('aria-current', 'page')
+  await expect(raid).not.toHaveCSS('font-weight', '600')
+  await expect(raid.locator('svg')).toHaveCount(1)
 })
 
 test('the keyboard opens the menu, picks a page and leaves focus on the menu button', async ({ page }) => {
