@@ -15,8 +15,10 @@ export default function FirewallPorts() {
   const [reloadKey, setReloadKey] = useState(0)
   // Whether ufw is what manages this host's firewall. Not on a Proxmox host,
   // which refuses ufw changes, nor where ufw is not installed. Older nodes do
-  // not say, and always managed ufw.
-  const [ufwManaged, setUfwManaged] = useState(true)
+  // not say, and always managed ufw. Null until the status answers: a rule is
+  // offered only once ufw is known to be the manager, so a Proxmox host that
+  // answers late shows no button it would refuse.
+  const [ufwManaged, setUfwManaged] = useState<boolean | null>(null)
 
   useEffect(() => {
     api.getFirewallStatus()
@@ -45,7 +47,7 @@ export default function FirewallPorts() {
 
   return (
     <>
-      <PortMapTable rowAction={ufwManaged ? addRule : undefined} reloadKey={reloadKey} />
+      <PortMapTable rowAction={ufwManaged === true ? addRule : undefined} reloadKey={reloadKey} />
       <AddPortRuleDialog target={target} onClose={() => setTarget(null)} onAdded={() => setReloadKey((k) => k + 1)} />
     </>
   )

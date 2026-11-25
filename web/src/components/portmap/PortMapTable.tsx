@@ -56,7 +56,7 @@ function FirewallCell({
 }) {
   if (!firewall) return <span className="text-muted-foreground">—</span>
   return (
-    <span className={`inline-flex items-center gap-1 ${className ?? ''}`}>
+    <span className={`inline-flex flex-wrap items-center gap-x-1 ${className ?? ''}`}>
       <span
         className={
           firewall.action === 'DENY' || firewall.action === 'REJECT'
@@ -90,7 +90,7 @@ function ContainerLinks({
         <Link
           key={c.id}
           to={`/docker/containers?container=${encodeURIComponent(c.id)}`}
-          className="inline-flex min-h-6 items-center gap-1 hover:text-primary outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-0"
+          className={`inline-flex min-h-6 flex-wrap items-center gap-x-1 ${align === 'end' ? 'justify-end' : ''} hover:text-primary outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-0`}
         >
           <span className="font-medium">{c.name}</span>
           {c.stack && (
@@ -241,7 +241,12 @@ export function PortMapTable({ rowAction, reloadKey }: { rowAction?: (row: PortM
                 <TableHead className="w-20">{t('firewall.portmap.port')}</TableHead>
                 <TableHead className="w-16">{t('firewall.portmap.protocol')}</TableHead>
                 <TableHead className="w-24">{t('firewall.portmap.state')}</TableHead>
-                <TableHead>{t('firewall.portmap.address')}</TableHead>
+                {/* Below 1280 px the address gives way, so that beside an
+                    open sidebar the row's rule button stays on screen; the
+                    search still finds an address, and a phone card shows it.
+                    For the same reason a container's stack and a process's
+                    PID drop beneath the name when the row is short of room. */}
+                <TableHead className="hidden xl:table-cell">{t('firewall.portmap.address')}</TableHead>
                 <TableHead>{t('firewall.portmap.firewall')}</TableHead>
                 <TableHead>{t('firewall.portmap.container')}</TableHead>
                 <TableHead>{t('firewall.portmap.process')}</TableHead>
@@ -272,21 +277,21 @@ export function PortMapTable({ rowAction, reloadKey }: { rowAction?: (row: PortM
                       {stateLabel(r.state)}
                     </Badge>
                   </TableCell>
-                  <TableCell className="font-mono text-[12px] whitespace-normal">{addressText(r)}</TableCell>
+                  <TableCell className="hidden xl:table-cell font-mono text-[12px] whitespace-normal">{addressText(r)}</TableCell>
                   <TableCell className="whitespace-normal">
                     <div className="flex flex-wrap items-center gap-1.5">
                       <FirewallCell firewall={r.firewall} className="text-[12px]" />
                       <RiskBadge risk={rowRisk(r)} />
                     </div>
                   </TableCell>
-                  <TableCell className="text-[12px]">
+                  <TableCell className="text-[12px] whitespace-normal">
                     <ContainerLinks containers={r.containers} />
                   </TableCell>
-                  <TableCell className="text-[12px]">
+                  <TableCell className="text-[12px] whitespace-normal">
                     {r.process ? (
                       <span className="font-mono">
-                        {r.process.name}
-                        {r.process.pid > 0 && ` (${r.process.pid})`}
+                        <span className="whitespace-nowrap">{r.process.name}</span>
+                        {r.process.pid > 0 && <> <span className="whitespace-nowrap">({r.process.pid})</span></>}
                       </span>
                     ) : (
                       <span className="text-muted-foreground">—</span>
