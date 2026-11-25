@@ -3,6 +3,7 @@ import type { LanDevice, LanScanHost, LanScanNetwork, LanScanResult, LanScanStat
 import {
   addressParts,
   addressValue,
+  alertRulesLink,
   columnsFor,
   defaultScanner,
   deviceName,
@@ -15,11 +16,15 @@ import {
   mapPort,
   networkEntries,
   rowsOf,
+  rulesNode,
   serverInterfaces,
   serverPorts,
   shownCount,
   wakeNodes,
   type MapNode,
+  type NetworkEntry,
+  type Scanner,
+  type ScanSchedule,
   writeTime,
 } from './netmap'
 
@@ -817,4 +822,33 @@ describe('the time a write carries', () => {
     // And so is the change after it, made from what the first one wrote.
     expect(writeTime(writeTime(9_000, 5_000), 5_010)).toBe(9_002)
   })
+})
+
+/** A network with only what says who scans it. */
+function entry({ schedules = [], scannedBy, scanners = [] }: { schedules?: ScanSchedule[]; scannedBy?: [string, string]; scanners?: Scanner[] }): NetworkEntry {
+  return {
+    key: NET, cidr: NET, running: null, schedules, scanners,
+    segment: scannedBy ? { scannedBy: { id: scannedBy[0], name: scannedBy[1] } } : null,
+  } as NetworkEntry
+}
+const sched = (id: string, name: string): ScanSchedule => ({ nodeId: id, nodeName: name, intervalMinutes: 60, portsDaily: false, nextRun: 0, pausedReason: '' })
+const scanner = (id: string, name: string): Scanner => ({ nodeId: id, nodeName: name, network: NET, installed: true, scannable: true, reason: '', online: true, registry: true })
+
+describe('rulesNode', () => {
+  it('is the server that scans the network by itself', () =>
+    expect(rulesNode(entry({ schedules: [sched('m-2', 'delta-node')], scannedBy: ['m-1', 'alpha-node'] }))).toEqual({ id: 'm-2', name: 'delta-node' }))
+  it('else the server that scanned it last', () =>
+    expect(rulesNode(entry({ schedules: [], scannedBy: ['m-1', 'alpha-node'] }))).toEqual({ id: 'm-1', name: 'alpha-node' }))
+  it('else the server a scan would be asked of', () =>
+    expect(rulesNode(entry({ scanners: [scanner('a-1', 'bravo-agent')] }))).toEqual({ id: 'a-1', name: 'bravo-agent' }))
+  it('is nobody where no server scans', () => expect(rulesNode(entry({}))).toBeNull())
+})
+
+describe('alertRulesLink', () => {
+  it("leads to the scanning server's alerts in a cluster", () =>
+    expect(alertRulesLink(entry({ schedules: [sched('m-2', 'delta-node')] }), true)).toEqual({ to: '/settings?tab=alerts&node=m-2', serverName: 'delta-node' }))
+  it('escapes the id', () => expect(alertRulesLink(entry({ schedules: [sched('a b', 'x')] }), true)?.to).toBe('/settings?tab=alerts&node=a%20b'))
+  it("leads to this server's alerts with no cluster", () =>
+    expect(alertRulesLink(entry({ scannedBy: ['self', 'host'] }), false)).toEqual({ to: '/settings?tab=alerts', serverName: null }))
+  it('leads nowhere in a cluster where nobody scans', () => expect(alertRulesLink(entry({}), true)).toBeNull())
 })

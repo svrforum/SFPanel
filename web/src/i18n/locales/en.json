@@ -2405,9 +2405,9 @@
         "containerOom": "Container OOM Kill",
         "containerRestartLoop": "Container Restart Loop",
         "containerUnhealthy": "Container Healthcheck Failure",
-        "lanNewDevice": "Network: new device",
-        "lanAddressConflict": "Network: address conflict",
-        "lanDeviceDown": "Network: watched device gone"
+        "lanNewDevice": "Network map: new device",
+        "lanAddressConflict": "Network map: address conflict",
+        "lanDeviceDown": "Network map: watched device gone"
       },
       "channels": {
         "title": "Channels",
@@ -2489,7 +2489,7 @@
         "notEvaluatedBadge": "Not alerting",
         "notEvaluatedNotice": "The panel does not evaluate {{type}} rules, so this one has never sent an alert and never will. Delete it.",
         "typeNotEvaluated": "The panel does not evaluate {{type}} rules, so such a rule would never send an alert.",
-        "lanHint": "Judged when a scan of a network ends (Running → Network). With automatic scans on, it checks by itself.",
+        "lanHint": "Judged when a scan of a network ends (Network Map › Devices). With automatic scans on, it checks by itself.",
         "lanDownHint": "Says so when a device marked “Watch” on its card is not found by two scans in a row, and once when it is back. Needs automatic scans on that network."
       },
       "history": {
@@ -4829,7 +4829,9 @@
         "failed": "Could not save.",
         "noRegistry": "No server on this network keeps a device registry. Update the panel to save this.",
         "watch": "Watch",
-        "watchHint": "Says so when two scans in a row do not find it. Needs a “Watched device gone” rule in Settings → Alerts, and automatic scans.",
+        "watchHint": "Says so when two scans in a row do not find it. Needs a “Network map: watched device gone” rule in the scanning server's alerts, and automatic scans.",
+        "rules": "Alert rules",
+        "rulesOn": "Alert rules on {{node}}",
         "wake": "Wake",
         "woken": "Magic packet sent. The device wakes only if Wake-on-LAN is on in it."
       },

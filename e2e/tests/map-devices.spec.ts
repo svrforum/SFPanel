@@ -1010,6 +1010,32 @@ test('a device can be watched, and its card says it is', async ({ page }) => {
   await expect(nas.getByTestId('net-watch')).toHaveCount(0)
 })
 
+test('watching links to the alert rules of the server that scans by itself', async ({ page }) => {
+  await mock(page, { schedules: { 'm-2': { interval_minutes: 60, ports_daily: false } } })
+  await page.goto('/map')
+  const nas = device(page, 15)
+  await nas.locator('summary').click()
+  const rules = nas.getByTestId('net-label-form').getByRole('link', { name: 'Alert rules on delta-node' })
+  // The rule has to be made on m-2: it is m-2's scans that judge the device, not this server's.
+  await expect(rules).toHaveAttribute('href', '/settings?tab=alerts&node=m-2')
+})
+
+test('without a schedule the rules are those of the server that scanned last', async ({ page }) => {
+  await mock(page)
+  await page.goto('/map')
+  const nas = device(page, 15)
+  await nas.locator('summary').click()
+  await expect(nas.getByRole('link', { name: 'Alert rules on alpha-node' })).toHaveAttribute('href', '/settings?tab=alerts&node=m-1')
+})
+
+test('one server: its own alert rules', async ({ page }) => {
+  await mock(page, { cluster: false })
+  await page.goto('/map')
+  const nas = device(page, 15)
+  await nas.locator('summary').click()
+  await expect(nas.getByRole('link', { name: 'Alert rules', exact: true })).toHaveAttribute('href', '/settings?tab=alerts')
+})
+
 test('a device a node knows can be woken: asked of that node, on its own network', async ({ page }) => {
   const state = await mock(page, { devices: [known(70, { name: 'Garage NAS', kind: 'nas', ...LABELLED, last_seen: '2026-11-20T02:13:08Z' }), known(37)] })
   await page.clock.install({ time: new Date('2026-11-22T02:20:00Z') })

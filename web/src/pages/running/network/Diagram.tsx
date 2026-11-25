@@ -1,5 +1,6 @@
 import { createContext, useCallback, useContext, useId, useLayoutEffect, useRef, useState, type CSSProperties, type FormEvent } from 'react'
 import { useTranslation } from 'react-i18next'
+import { Link } from 'react-router-dom'
 import { AlertTriangle, ArrowUpRight, ChevronDown, Eye, Globe, Power, StickyNote } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { addressParts, columnsFor, DEVICE_KINDS, deviceName, rowsOf, type DeviceLabel, type MapDevice, type MapPort, type Segment } from '@/lib/netmap'
@@ -44,6 +45,11 @@ export interface DeviceActions {
   forget: (mac: string) => Promise<string | null>
   /** Has a node send the device a Wake-on-LAN packet. */
   wake: (mac: string) => Promise<string | null>
+  /**
+   * Where the alert rules that judge this network's scans are edited, and on
+   * which server when that is named; null when no server scans the network.
+   */
+  rules: { to: string; serverName: string | null } | null
 }
 const Actions = createContext<DeviceActions | null>(null)
 
@@ -142,6 +148,13 @@ function LabelForm({ device, actions }: { device: MapDevice; actions: DeviceActi
           <span id={`${id}-watch-hint`} className="block text-muted-foreground">{t('running.network.edit.watchHint')}</span>
         </span>
       </label>
+      {actions.rules && (
+        <p className="pl-[22px] text-xs">
+          <Link to={actions.rules.to} className="inline-flex min-h-9 items-center rounded-sm font-medium text-primary hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring">
+            {actions.rules.serverName ? t('running.network.edit.rulesOn', { node: actions.rules.serverName }) : t('running.network.edit.rules')}
+          </Link>
+        </p>
+      )}
       <div className="flex flex-wrap items-center gap-1.5">
         <Button type="submit" size="sm" className="rounded-lg" disabled={busy || !changed}>{t('running.network.edit.save')}</Button>
         {device.fresh && (

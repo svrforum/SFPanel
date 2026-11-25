@@ -1,6 +1,6 @@
 import { useTranslation } from 'react-i18next'
 import { AlertTriangle, X } from 'lucide-react'
-import { deviceName, filterSegment, labelTargets, shownCount, type NetworkEntry } from '@/lib/netmap'
+import { alertRulesLink, deviceName, filterSegment, labelTargets, shownCount, type NetworkEntry } from '@/lib/netmap'
 import { Heading, type HeadingLevel } from '../Heading'
 import type { Scope } from '../targets'
 import type { BoardSection } from '../useRunningBoard'
@@ -89,6 +89,7 @@ function Network({ entry, model, scope, query, level, onClear }: {
             ack: (mac) => model.ackDevice(entry, mac),
             forget: (mac) => model.forgetDevice(entry, mac),
             wake: (mac) => model.wakeDevice(entry, mac),
+            rules: alertRulesLink(entry, scope === 'cluster'),
           }}
         />
       ))}

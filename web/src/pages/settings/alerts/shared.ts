@@ -23,7 +23,7 @@ export const RULE_TYPES: { value: string; i18nKey: string }[] = [
 ]
 
 /**
- * Rules judged when a scan of a network ends (Running → Network): they have
+ * Rules judged when a scan of a network ends (Network Map › Devices): they have
  * nothing to set but whom to tell.
  */
 export const LAN_RULE_TYPES: ReadonlySet<string> = new Set(['lan_new_device', 'lan_address_conflict', 'lan_device_down'])

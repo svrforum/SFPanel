@@ -199,13 +199,13 @@ test('a rule on what a network scan finds has nothing to set, and says what make
   await page.getByRole('button', { name: 'Add Rule', exact: true }).click()
   await page.getByPlaceholder('e.g. CPU Overload Warning').fill('strangers')
   await page.getByRole('combobox').first().click()
-  await page.getByRole('option', { name: 'Network: new device' }).click()
+  await page.getByRole('option', { name: 'Network map: new device' }).click()
   // No percentage and no container pattern: a scan decides.
   await expect(page.getByRole('spinbutton', { name: /Threshold/ })).toHaveCount(0)
-  await expect(page.getByTestId('rule-lan-hint')).toHaveText('Judged when a scan of a network ends (Running → Network). With automatic scans on, it checks by itself.')
+  await expect(page.getByTestId('rule-lan-hint')).toHaveText('Judged when a scan of a network ends (Network Map › Devices). With automatic scans on, it checks by itself.')
 
   await page.getByRole('combobox').first().click()
-  await page.getByRole('option', { name: 'Network: watched device gone' }).click()
+  await page.getByRole('option', { name: 'Network map: watched device gone' }).click()
   await expect(page.getByTestId('rule-lan-hint')).toContainText('a device marked “Watch” on its card is not found by two scans in a row')
 
   await page.getByRole('checkbox', { name: channel.name }).click()

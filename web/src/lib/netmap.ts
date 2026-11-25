@@ -849,3 +849,27 @@ export function serverInterfaces(list: readonly NetworkInterfaceInfo[]): { shown
   shown.sort((a, b) => Number(b.isDefault) - Number(a.isDefault) || a.name.localeCompare(b.name, undefined, { numeric: true }))
   return { shown, inner }
 }
+
+/**
+ * The server whose alerts judge this network's scans: one that scans it by
+ * itself, else the one that scanned it last, else the one a scan would be
+ * asked of.
+ */
+export function rulesNode(entry: NetworkEntry): { id: string; name: string } | null {
+  const own = entry.schedules[0]
+  if (own) return { id: own.nodeId, name: own.nodeName }
+  const last = entry.segment?.scannedBy
+  if (last) return { id: last.id, name: last.name }
+  const next = defaultScanner(entry)
+  return next ? { id: next.nodeId, name: next.nodeName } : null
+}
+
+/**
+ * Where those rules are edited: that server's Settings › Alerts in a cluster
+ * (null when no server scans the network), this server's alone.
+ */
+export function alertRulesLink(entry: NetworkEntry, cluster: boolean): { to: string; serverName: string | null } | null {
+  if (!cluster) return { to: '/settings?tab=alerts', serverName: null }
+  const node = rulesNode(entry)
+  return node ? { to: `/settings?tab=alerts&node=${encodeURIComponent(node.id)}`, serverName: node.name } : null
+}

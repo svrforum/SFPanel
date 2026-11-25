@@ -20,6 +20,7 @@ const KO: Record<string, string> = {
   'layout.scope.savedFleet': '모든 서버 공통', 'layout.scope.savedServer': '{{name}}에만 저장됩니다', 'layout.scope.notFound': '찾을 수 없는 서버',
   'layout.mobileNav.menu': '메뉴',
   'layout.nav.map': '구성도', 'map.tabs.devices': '기기', 'map.tabs.rack': '랙',
+  'settings.alerts.ruleType.lanNewDevice': '구성도: 새 기기',
 }
 // A page's <h1> is its menu label.
 const H1: [string, string][] = [
