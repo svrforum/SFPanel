@@ -102,6 +102,9 @@ public final class MainActivity extends Activity {
     private boolean shift, ctrl, alt;
     private Button shiftButton, ctrlButton, altButton, moreKeysButton;
     private TextView panelTitle;
+    // What the page publishes on window.__sfpanel; null on a panel that
+    // publishes nothing the app reads, which keeps the app's own list.
+    private PanelNav panelNav;
 
     @Override public void onCreate(Bundle state) {
         super.onCreate(state);
@@ -423,7 +426,7 @@ public final class MainActivity extends Activity {
 
     @SuppressLint("SetJavaScriptEnabled")
     private void openPanel(ServerStore.Server server) {
-        closeWeb(); current = server; setRoot();
+        closeWeb(); current = server; panelNav = null; setRoot();
         // The toolbar and its progress strip travel together: one wrapper is one
         // thing for the keyboard to push off the screen.
         panelChrome = column(); root.addView(panelChrome); applyChrome();
@@ -463,9 +466,11 @@ public final class MainActivity extends Activity {
                 if (!pageFailed) status.setVisibility(View.GONE);
                 installEnhancements();
                 updateTerminalBar(url);
+                readBridge();
             }
             @Override public void doUpdateVisitedHistory(WebView view, String url, boolean reload) {
                 updateTerminalBar(url);
+                readBridge();
                 String path = Uri.parse(url).getPath();
                 if ("/login".equals(path) || "/setup".equals(path)) awaitingLogin = true;
                 else if (awaitingLogin && "/dashboard".equals(path)) {
@@ -492,6 +497,8 @@ public final class MainActivity extends Activity {
         });
         web.setWebChromeClient(new WebChromeClient() {
             @Override public void onProgressChanged(WebView view, int value) { if (web == view) progress.setProgress(value); }
+            // The page renames its tab when the server it shows changes.
+            @Override public void onReceivedTitle(WebView view, String title) { if (web == view) readBridge(); }
             @Override public boolean onShowFileChooser(WebView view, ValueCallback<Uri[]> callback, FileChooserParams params) {
                 if (fileCallback != null) fileCallback.onReceiveValue(null);
                 fileCallback = callback;
@@ -693,32 +700,46 @@ public final class MainActivity extends Activity {
         EditText search = new EditText(this); search.setSingleLine(true); search.setHint(R.string.find_feature); search.setContentDescription(getString(R.string.find_feature)); search.setMinHeight(dp(48)); body.addView(search);
         ScrollView scroll = new ScrollView(this); LinearLayout entries = column(); scroll.addView(entries); body.addView(scroll, new LinearLayout.LayoutParams(-1, 0, 1));
         AlertDialog dialog = new AlertDialog.Builder(this).setTitle(R.string.all_features).setView(body).setNegativeButton(R.string.close, null).create();
+        // The panel's own menu when it publishes one; the paths above on a panel
+        // that publishes none.
+        PanelNav nav = panelNav;
         Runnable render = () -> {
             entries.removeAllViews();
             String query = search.getText().toString().trim().toLowerCase(java.util.Locale.ROOT);
             String pagePath = web == null || web.getUrl() == null ? null : Uri.parse(web.getUrl()).getPath();
-            int[] headings = {R.string.nav_work, R.string.nav_services, R.string.nav_system};
-            int[] starts = {0, 3, 9, paths.length};
             int matches = 0;
-            for (int group = 0; group < headings.length; group++) {
-                LinearLayout row = null;
-                int count = 0;
-                for (int i = starts[group]; i < starts[group + 1]; i++) {
-                    if (!(names[i] + " " + paths[i]).toLowerCase(java.util.Locale.ROOT).contains(query)) continue;
-                    if (count == 0) {
-                        TextView heading = text(getString(headings[group]), 13, MUTED, true);
-                        heading.setPadding(dp(4), dp(16), dp(4), dp(6));
-                        if (android.os.Build.VERSION.SDK_INT >= 28) heading.setAccessibilityHeading(true); entries.addView(heading);
+            if (nav != null) {
+                java.util.List<java.util.List<PanelNav.Hit>> found = nav.search(query);
+                for (int group = 0; group < found.size(); group++) {
+                    java.util.List<PanelNav.Hit> hits = found.get(group);
+                    if (hits.isEmpty()) continue;
+                    String title = nav.groups.get(group).title;
+                    if (!title.isEmpty()) entries.addView(featureHeading(title));
+                    else if (entries.getChildCount() > 0) entries.addView(new View(this), new LinearLayout.LayoutParams(-1, dp(12)));
+                    LinearLayout row = null;
+                    for (int i = 0; i < hits.size(); i++) {
+                        PanelNav.Hit hit = hits.get(i);
+                        if (i % 2 == 0) { row = new LinearLayout(this); entries.addView(row); }
+                        boolean selected = hit.tab ? PanelNav.selected(hit.path, pagePath) : nav.itemSelected(hit.item, pagePath);
+                        row.addView(featureButton(hit.label, hit.path, selected, dialog), featureCell()); matches++;
                     }
-                    if (count % 2 == 0) { row = new LinearLayout(this); entries.addView(row); }
-                    String path = paths[i]; Button item = compactButton(names[i], () -> { dialog.dismiss(); navigate(path); });
-                    item.setGravity(Gravity.START | Gravity.CENTER_VERTICAL); item.setMaxLines(2);
-                    boolean selected = path.equals(pagePath) || (pagePath != null && pagePath.startsWith(path + "/"));
-                    item.setSelected(selected); item.setBackground(surface(selected ? ACCENT : BG, 10)); item.setTextColor(selected ? Color.WHITE : INK);
-                    LinearLayout.LayoutParams cell = new LinearLayout.LayoutParams(0, dp(52), 1); cell.setMargins(dp(2), dp(2), dp(2), dp(2));
-                    row.addView(item, cell); count++; matches++;
+                    if (hits.size() % 2 == 1) row.addView(new View(this), featureCell());
                 }
-                if (count % 2 == 1) row.addView(new View(this), new LinearLayout.LayoutParams(0, dp(52), 1));
+            } else {
+                int[] headings = {R.string.nav_work, R.string.nav_services, R.string.nav_system};
+                int[] starts = {0, 3, 9, paths.length};
+                for (int group = 0; group < headings.length; group++) {
+                    LinearLayout row = null;
+                    int count = 0;
+                    for (int i = starts[group]; i < starts[group + 1]; i++) {
+                        if (!(names[i] + " " + paths[i]).toLowerCase(java.util.Locale.ROOT).contains(query)) continue;
+                        if (count == 0) entries.addView(featureHeading(getString(headings[group])));
+                        if (count % 2 == 0) { row = new LinearLayout(this); entries.addView(row); }
+                        String path = paths[i];
+                        row.addView(featureButton(names[i], path, PanelNav.selected(path, pagePath), dialog), featureCell()); count++; matches++;
+                    }
+                    if (count % 2 == 1) row.addView(new View(this), featureCell());
+                }
             }
             if (matches == 0) entries.addView(text(getString(R.string.no_features), 15, MUTED, false));
         };
@@ -739,9 +760,38 @@ public final class MainActivity extends Activity {
         });
         dialog.show();
     }
+    private TextView featureHeading(String title) {
+        TextView heading = text(title, 13, MUTED, true);
+        heading.setPadding(dp(4), dp(16), dp(4), dp(6));
+        if (android.os.Build.VERSION.SDK_INT >= 28) heading.setAccessibilityHeading(true);
+        return heading;
+    }
+    private Button featureButton(String label, String path, boolean selected, AlertDialog dialog) {
+        Button item = compactButton(label, () -> { dialog.dismiss(); navigate(path); });
+        item.setGravity(Gravity.START | Gravity.CENTER_VERTICAL); item.setMaxLines(2);
+        item.setSelected(selected); item.setBackground(surface(selected ? ACCENT : BG, 10)); item.setTextColor(selected ? Color.WHITE : INK);
+        return item;
+    }
+    private LinearLayout.LayoutParams featureCell() {
+        LinearLayout.LayoutParams cell = new LinearLayout.LayoutParams(0, dp(52), 1); cell.setMargins(dp(2), dp(2), dp(2), dp(2)); return cell;
+    }
+    // Read on every address and title change: the page renames its tab when the
+    // server it shows changes, and a full load or a sign-out takes the bridge away.
+    private void readBridge() {
+        WebView from = web;
+        evaluate("const s=window.__sfpanel;return s&&typeof s==='object'?s:null;", result -> {
+            if (web != from) return;
+            panelNav = PanelNav.parse(result); updateTitle();
+        });
+    }
+    private void updateTitle() {
+        if (panelTitle == null || current == null) return;
+        String path = web == null || web.getUrl() == null ? null : Uri.parse(web.getUrl()).getPath();
+        panelTitle.setText(PanelNav.title(panelNav == null ? null : panelNav.serverName, current.name(), "/terminal".equals(path), getString(R.string.terminal)));
+    }
     private void updateTerminalBar(String url) {
         String path = Uri.parse(url).getPath();
-        if (panelTitle != null && current != null) panelTitle.setText(current.name() + ("/terminal".equals(path) ? " · " + getString(R.string.terminal) : ""));
+        updateTitle();
         // No bar of the app's own where the page brings its keys.
         if (terminalBar == null) return;
         terminalBar.setVisibility("/terminal".equals(path) ? View.VISIBLE : View.GONE);

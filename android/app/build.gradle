@@ -8,8 +8,8 @@ android {
         applicationId 'com.sfpanel.android'
         minSdk 26
         targetSdk 36
-        versionCode Integer.parseInt(System.getenv('ANDROID_VERSION_CODE') ?: '1005')
-        versionName System.getenv('ANDROID_VERSION_NAME') ?: '0.1.4'
+        versionCode Integer.parseInt(System.getenv('ANDROID_VERSION_CODE') ?: '2001')
+        versionName System.getenv('ANDROID_VERSION_NAME') ?: '0.2.0'
         testInstrumentationRunner 'android.test.InstrumentationTestRunner'
     }
     compileOptions {
@@ -38,4 +38,5 @@ android {
 dependencies {
     implementation 'androidx.webkit:webkit:1.14.0'
     testImplementation 'junit:junit:4.13.2'
+    testImplementation 'org.json:json:20250517'
 }

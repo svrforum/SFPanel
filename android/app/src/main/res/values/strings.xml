@@ -24,7 +24,7 @@
     <string name="connection_failed">Could not connect. Check the address, port, network and server status, then try again.</string>
     <string name="certificate_failed">The certificate could not be verified. Reconnect to review a private certificate. Expired certificates must be renewed.</string>
     <string name="not_sfpanel">This address did not return a healthy SFPanel response. Check the address and server database status.</string>
-    <string name="servers">Servers</string>
+    <string name="servers">Connections</string>
     <string name="options">Options</string>
     <string name="reload">Reload page</string>
     <string name="reading_size">Reading size</string>

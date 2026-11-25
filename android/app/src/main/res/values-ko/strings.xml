@@ -24,7 +24,7 @@
     <string name="connection_failed">연결하지 못했어요. 주소, 포트, 네트워크와 서버 상태를 확인한 뒤 다시 시도하세요.</string>
     <string name="certificate_failed">인증서를 확인할 수 없어요. 다시 연결해 사설 인증서를 확인하세요. 만료된 인증서는 서버에서 갱신해야 해요.</string>
     <string name="not_sfpanel">정상적인 SFPanel 응답이 아니에요. 서버 주소와 데이터베이스 상태를 확인하세요.</string>
-    <string name="servers">내 서버</string>
+    <string name="servers">연결 목록</string>
     <string name="options">보기 설정</string>
     <string name="reload">페이지 새로고침</string>
     <string name="reading_size">글자 크기</string>
