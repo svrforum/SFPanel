@@ -11,6 +11,7 @@ import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle } from '
 import { streamErrorMessage, StreamReportedError, type SSEOutput } from '@/components/OutputDialog'
 import { ProfilePanel } from '@/pages/terminal/components/ProfilePanel'
 import { TmuxBanner } from '@/pages/terminal/components/TmuxBanner'
+import { NodeSettingField } from '@/components/NodeSettingField'
 
 type CliTool = 'claude' | 'codex' | 'gemini'
 const CLI_TOOLS: CliTool[] = ['claude', 'codex', 'gemini']
@@ -32,8 +33,9 @@ export interface ToolsSheetProps {
 /**
  * The 도구·계정 panel: which account the tools are probed for, tmux's state,
  * one card per CLI (version, update/install, login state, profiles), and at
- * the bottom the emergency door to the PTY engine. Install and update stream
- * into the shared OutputDialog exactly as the packages page does.
+ * the bottom the emergency door to the PTY engine, with the server's timeout
+ * for those shells left idle. Install and update stream into the shared
+ * OutputDialog exactly as the packages page does.
  */
 export function ToolsSheet({ open, onOpenChange, tools, toolsError, account, onAccountChange, onChanged, onSessionsChanged, output, onOpenTemporaryShell }: ToolsSheetProps) {
   const { t } = useTranslation()
@@ -164,6 +166,19 @@ export function ToolsSheet({ open, onOpenChange, tools, toolsError, account, onA
               {t('terminal.tools.temporaryShell')}
             </button>
             <p className="text-[12px] text-muted-foreground mt-0.5">{t('terminal.tools.temporaryShellHint')}</p>
+            {/* terminal_timeout closes idle temporary shells (PTY) only, so it
+                sits by their door; tmux sessions are not its to close. */}
+            <div className="mt-4">
+              <NodeSettingField
+                settingKey="terminal_timeout"
+                id="terminal-timeout"
+                label={t('terminal.tools.timeout.label')}
+                unit={t('terminal.tools.timeout.unit')}
+                hint={t('terminal.tools.timeout.hint')}
+                min={0}
+                invalid={t('terminal.tools.timeout.invalid')}
+              />
+            </div>
           </div>
         </div>
       </SheetContent>

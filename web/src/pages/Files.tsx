@@ -30,6 +30,7 @@ import {
   PackageOpen,
   Eye,
   EyeOff,
+  ChevronDown,
 } from 'lucide-react'
 import { toast } from 'sonner'
 import { api, type ApiError } from '@/lib/api'
@@ -95,6 +96,7 @@ import { FileCardList } from './files/components/FileCardList'
 import { FolderPickerDialog } from './files/components/FolderPickerDialog'
 import { PermissionsDialog } from './files/components/PermissionsDialog'
 import { TrashDialog } from './files/components/TrashDialog'
+import { UploadLimitDialog } from './files/components/UploadLimitDialog'
 import type { EntryAction } from './files/entryActions'
 import { listKey } from './files/listKeys'
 
@@ -171,6 +173,10 @@ export default function Files() {
     { fileName: string; percent: number; index: number; total: number } | null
   >(null)
   const uploadAbortRef = useRef<AbortController | null>(null)
+  // The server's upload limit, behind the Upload button's menu.
+  const [limitOpen, setLimitOpen] = useState(false)
+  const limitTriggerRef = useRef<HTMLButtonElement>(null)
+  const limitAsked = useRef(false)
   // Drop-target depth. dragenter/dragleave fire for every child element the
   // pointer crosses, so a boolean flickers the overlay off the moment the
   // cursor moves over a row; counting keeps it stable.
@@ -1310,18 +1316,51 @@ export default function Files() {
             <FolderPlus />
             {t('files.newFolder')}
           </Button>
-          <Button
-            size="sm"
-            onClick={handleUploadClick}
-            disabled={uploading}
-          >
-            {uploading ? (
-              <Loader2 className="animate-spin" />
-            ) : (
-              <Upload />
-            )}
-            {t('files.upload')}
-          </Button>
+          <div className="flex">
+            <Button
+              size="sm"
+              className="rounded-r-none"
+              onClick={handleUploadClick}
+              disabled={uploading}
+            >
+              {uploading ? (
+                <Loader2 className="animate-spin" />
+              ) : (
+                <Upload />
+              )}
+              {t('files.upload')}
+            </Button>
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <Button
+                  ref={limitTriggerRef}
+                  size="icon-sm"
+                  className="rounded-l-none border-l border-primary-foreground/25"
+                  aria-label={t('files.uploadOptions')}
+                  title={t('files.uploadOptions')}
+                >
+                  <ChevronDown />
+                </Button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent
+                align="end"
+                onCloseAutoFocus={(e) => {
+                  // The dialog opens once the menu has let go, from its button:
+                  // opened from the item, it handed the focus back to an item
+                  // already gone, and closing it left the keyboard on the page.
+                  if (!limitAsked.current) return
+                  limitAsked.current = false
+                  e.preventDefault()
+                  limitTriggerRef.current?.focus()
+                  setLimitOpen(true)
+                }}
+              >
+                <DropdownMenuItem onSelect={() => { limitAsked.current = true }}>
+                  {t('files.uploadLimit.menu')}
+                </DropdownMenuItem>
+              </DropdownMenuContent>
+            </DropdownMenu>
+          </div>
           <input
             ref={fileInputRef}
             type="file"
@@ -1756,6 +1795,8 @@ export default function Files() {
         onOpenChange={setTrashOpen}
         onRestored={fetchFiles}
       />
+
+      <UploadLimitDialog open={limitOpen} onOpenChange={setLimitOpen} />
 
       <PermissionsDialog
         entry={permissionsTarget}

@@ -342,6 +342,7 @@ const DockerStacks = lazy(() => import('@/pages/docker/DockerStacks'))
   - 숨김 파일 토글, 화살표 키 이동, 드래그 앤 드롭 업로드
   - 파일 클릭 시 Monaco 에디터로 편집 (언어 자동 감지: 30+ 확장자 지원). 이미지는 미리보기, 그 밖의 바이너리는 다운로드로 안내 — 텍스트가 아닌 파일은 읽기 엔드포인트가 415로 거부합니다
   - 새 파일(기본 `untitled.txt`, 확장자 없으면 `.txt` 부여, 생성 후 편집기 열림), 새 폴더, 업로드(XHR + FormData, 진행률), 다운로드
+  - **업로드 ▾**: `업로드` 버튼 오른쪽의 아이콘 버튼(`files.uploadOptions`) → 메뉴 `업로드 한도…` → `UploadLimitDialog`(`pages/files/components/`). 대화상자는 메뉴가 포커스를 버튼에 돌려준 뒤에 열리고, 닫으면 포커스가 그 버튼으로 돌아간다(Radix는 `DialogTrigger`에만 돌려주므로 대화상자가 열릴 때 포커스를 가졌던 요소를 기억한다). 이 서버가 받는 파일 하나의 최대 크기(`max_upload_size`, MB, 1 이상)를 `NodeSettingField`(`components/NodeSettingField.tsx`)로 읽고 저장한다 — 대화상자를 열 때 읽고(닫혀 있으면 마운트되지 않는다), 읽기와 저장 모두 `?node=`의 서버로 간다. 읽기 전에는 칸과 저장 버튼이 닫혀 있고, 읽기 실패는 `ListLoadState`(다시 시도)로 말한다. 저장 전에 `lib/settingValue.ts`의 `parseSettingNumber`가 정수가 아니거나 하한보다 작은 값을 거절하면 칸 옆에 이유를 달고(`aria-invalid`·`aria-describedby`) 요청을 보내지 않는다. 예전에는 설정 › 시스템 탭에 있었다
   - 이동 · 복사 대상은 폴더 브라우저로 고르고, 이름 변경 · 업로드 · 복사 모두 기존 파일을 덮어쓰지 않고 409로 거부합니다
   - 권한(chmod)과 소유자(chown) 편집, 선택 항목 압축(`.tar.gz` / `.zip`)과 제자리 해제
   - 삭제는 휴지통을 거치며(7일) 되돌릴 수 있고, 다중 삭제는 진행률·실제 취소·실패 항목 명시를 제공합니다
@@ -512,7 +513,7 @@ const DockerStacks = lazy(() => import('@/pages/docker/DockerStacks'))
 - **첨부**(`GET /ai/tools`의 `session_uploads`가 `true`인 tmux 세션에서만): 파일을 세션이 도는 노드에 올리고(`api.uploadAISessionFile` → `POST /ai/sessions/:id/upload`) 돌아온 **절대 경로**를 글로 넣는다 — 터미널은 글만 나르므로, 클립보드의 스크린샷은 다른 기계의 CLI에 붙여넣을 수 없다. 끝난(`ended`) 세션에는 내놓지 않는다 — 경로를 받을 프로그램이 없다. 길은 넷: `+` 시트의 "사진·파일 첨부"(`[data-terminal-attach]`, 여러 개), 작성창에 이미지 붙여넣기, 터미널에 이미지 붙여넣기(`onPasteCapture` — xterm의 붙여넣기보다 먼저), 터미널에 파일 끌어놓기(`[data-terminal-drop]` 표시). 앞의 둘은 초안에, 뒤의 둘은 터미널에 바로 `term.paste()`로 들어가고 Enter는 보내지 않는다. `lib/terminalAttach.ts`: `carriedFiles`는 **글이 함께 실린 붙여넣기는 건드리지 않는다**(스프레드시트에서 복사한 칸은 자기 그림과 함께 온다 — 그건 글 붙여넣기다). 끌어놓기는 다르다: 글이 함께 실려도 파일은 모두 올린다(리눅스 파일 관리자는 경로를 글로도 넘긴다), `attachedText`는 경로마다 뒤에 공백을, 앞 단어에 붙지 않게 필요하면 앞에도 공백을 둔다. 경로는 올린 세션의 것이다: 올리는 사이 다른 세션으로 옮겼으면 원래 세션의 초안에 넣거나(작성창), 알림으로 경로를 보여 준다(터미널). 거절(`FILE_TOO_LARGE` 등)은 파일 이름과 함께 알리고 초안은 그대로 둔다.
 - **스니펫·키 구성**(`hooks/useTerminalPrefs.ts` — `GET /ai/prefs`, 항상 `local: true`로 **접속한 노드**에 묻는다. 받기 전이나 실패하면 스니펫 없음·기본 키. 저장은 값 전체를 바꾸므로 **패널이 가진 값에서 출발**한다: 패널이 한 번 응답하기 전에는 아무것도 저장하지 않고(패널이 재시작하는 사이 열린 페이지의 빈 목록에 하나를 더해 저장하면 나머지가 지워진다 — 저장 전에 다시 묻고, 못 물으면 저장을 거절한다), 변경은 한 번에 하나씩 앞 응답을 받아 이어서 한다(`changeSnippets(list => next)` — 응답 전에 두 번 누른 삭제가 서로를 되돌리지 않게). 불러오지 못한 동안 시트는 그 사실을 말하고, 키 편집은 열리지 않는다): 스니펫은 세션 종류(`agent`·`shell`)별로 보이고, `+` 시트에서 "지금 쓴 글 저장" 또는 최근 목록 옆의 저장 버튼으로 넣는다(`lib/terminalPrefs.ts`의 `snippetBody`가 줄바꿈을 정리하고 `snippetRefusal`이 패널과 같은 한도 — 100개, 2000자, 중복 — 를 미리 본다). 누르면 초안에 들어가고(`[data-snippet]`), 지우면 **시트 안에** "되돌리기"(마지막에 지운 하나를 제자리에)가 남는다 — 시트가 열린 동안 시트 밖(알림창의 버튼 포함)은 누를 수 없다. 키 구성은 `KeysEditor`(`[data-keys-editor]`, `+` 시트의 "키 편집"): AI 도구·셸 탭, 쪽마다 7칸, 키를 누르면 앞으로/뒤로(쪽 끝에서는 옆 쪽으로)/삭제, `+` 칸이 고르기 영역(`[data-keys-picker]` — 카탈로그 `KEY_CATALOG`: 기본·이동·조합키·Ctrl+문자 26개, 그리고 "직접 만들기": 입력할 글 + 키에 보일 글자 + 입력 뒤 Enter)을 연다. 저장할 때만 `PUT /ai/prefs/keysets`; 기본과 같은 구성은 **아무것도 저장하지 않는다**(나중 버전의 더 나은 기본이 닿도록). 저장 형식은 `StoredKey = {id} | {label, text, enter?}`이고 `barKey()`가 그리는 키로 바꾼다 — 모르는 id는 `null`(나중 패널이 저장한 키는 빼고 그린다), `ctrl-<글자>`는 `^X`. 운영자 키는 한 글자면 여느 키처럼(조합키 적용) 가고, 더 길거나 Enter가 붙으면 작성창과 같은 길(`onSubmit`: 최신 화면 → 붙여넣기 → Enter)로 간다. 4자를 넘는 이름은 작은 글씨로 두 줄(`LONG_LABEL`), 7키가 안 되는 쪽은 빈 칸을 두어 쪽 전환 칸이 늘 끝에 있다.
 - **새 세션 대화상자**(`NewSessionDialog`): 실행 계정 → **시작할 것**(셸 · Claude · Codex · Gemini, 셸이 첫 항목·첫 사용 기본값, 이후는 `sfpanel_ai_last:<node>` 프리필) → 프로파일(Claude·Codex) → 실행 옵션(Claude·Codex) → 작업 디렉터리 → 이름. 어느 필드에서든 Enter로 제출("세션 열기"). 미설치 도구는 비활성 + "도구·계정에서 설치" 링크.
-- **도구·계정 패널**(`ToolsSheet`, 오른쪽 Sheet): 실행 계정 선택, tmux 상태(정상/설치/너무 오래됨/systemd 없음 — `TmuxBanner`), 도구별 카드(버전·최신·설치/업데이트 SSE·로그인 상태·`ProfilePanel`), 맨 아래 임시 셸 링크. 레일 하단 버튼, 대화상자의 설치 링크, `<html data-ai-tools-open>`(Android)으로 열리며 속성과 상태는 `MutationObserver`로 양방향 동기화.
+- **도구·계정 패널**(`ToolsSheet`, 오른쪽 Sheet): 실행 계정 선택, tmux 상태(정상/설치/너무 오래됨/systemd 없음 — `TmuxBanner`), 도구별 카드(버전·최신·설치/업데이트 SSE·로그인 상태·`ProfilePanel`), 맨 아래 임시 셸 링크와 그 아래 **임시 셸 자동 종료**(`terminal_timeout`, 분, 0 = 닫지 않음 — `NodeSettingField`, 시트를 열 때 `?node=`의 서버에서 읽고 그 서버에 저장한다. 이 값이 거두는 것은 임시 셸(PTY)뿐이고 tmux 세션은 아니어서 임시 셸 옆에 있다; 예전에는 설정 › 시스템 탭에 있었다). 레일 하단 버튼, 대화상자의 설치 링크, `<html data-ai-tools-open>`(Android)으로 열리며 속성과 상태는 `MutationObserver`로 양방향 동기화.
 - **폴백 모드**(`tools.tmux.supported === false`): 패널 위 배너(브라우저에만 남는다는 문장 + tmux 설치 버튼), 레일에는 임시 그룹만, "새 임시 세션"이 PTY 탭(`usePtyTabs`, `term-N` — 저장하지 않는다)을 연다. 이 모드에서는 탭 목록을 `GET /terminal/sessions`에서 **유도한다**: 처음 성공한 목록을 탭으로 받아들여(`usePtyTabs`의 `adopt`) 새로고침 후에도 운영자의 셸이 그대로 돌아온다. 처음 한 번만이다 — 탭을 닫아도 서버 PTY는 5분간 살아있어서 이후 목록에 계속 나오는데, 다시 받아들이면 방금 닫은 탭이 되살아나 '다시 연결' 대신 탭으로 돌아온다. 목록 조회가 실패하면 탭을 그대로 둔다(만들지도, 지우지도 않는다). 설치가 끝나면 재조회로 tmux 모드로 돌아온다.
 - **디자인**: 레일·헤더·패널 프레임은 터미널 자체 팔레트 토큰(`--console*`, Tokyo Night Day/Night — `TerminalSession`의 xterm 테마와 같은 값)으로 칠해 콘솔 하나로 읽힌다. 도구색은 글리프와 활성 바에만.
 - **사용 API**: `api.getAITools/getAIDirs/getAISessions/createAISession/renameAISession/rerunAISession/restartAISession/deleteAISession`, `api.getAIProfiles/createAIProfile/deleteAIProfile`, `api.uploadAISessionFile`, `api.getTerminalPrefs/putTerminalSnippets/putTerminalKeysets`, `/ai/tools/:tool/{install,update}-stream`(fetch SSE), `api.installPackage('tmux')`, `api.getTerminalSessions/getTerminalInfo`, `api.buildWsUrl('/ws/ai/attach' | '/ws/terminal', {session_id})`
@@ -527,7 +528,7 @@ const DockerStacks = lazy(() => import('@/pages/docker/DockerStacks'))
 > |---|---|---|---|---|
 > | `account` (생략) | 계정 / Account | `settings/Security.tsx` | `fleet` — FSM 복제 admin 행 | `모든 서버 공통` |
 > | `browser` | 언어·테마 / Language & Theme | `settings/General.tsx` | `browser` — 이 브라우저 | `이 브라우저에만 저장됩니다` |
-> | `system` | 업데이트·백업 / Updates & Backups | `settings/Maintenance.tsx`(`clusterEnabled`) + `settings/Performance.tsx` | `server` | `{이름}에만 저장됩니다` |
+> | `system` | 업데이트·백업 / Updates & Backups | `settings/Maintenance.tsx`(`clusterEnabled`) + `settings/MovedSettings.tsx` | `server` | `{이름}에만 저장됩니다` |
 > | `https` | HTTPS 인증서 / HTTPS Certificate | `settings/TLSCertificate.tsx` | `server` | 〃 |
 > | `alerts` | 알림 / Alerts | `settings/AlertSettings.tsx` | `server` — 규칙·채널은 복제되지 않는 로컬 표 | 〃 |
 > | `audit` | 감사 로그 / Audit Log | `settings/Audit.tsx` | `server` | 〃 |
@@ -538,7 +539,7 @@ const DockerStacks = lazy(() => import('@/pages/docker/DockerStacks'))
 > - **General** (`settings/General.tsx`, browser 탭): 언어 변경(i18n.changeLanguage), **(v0.53.0) 테마 선택**(라이트/다크/시스템 — `lib/theme.ts` `setThemePref`), Tauri면 연결된 서버 해제.
 > - **Security** (`settings/Security.tsx`, account 탭): 비밀번호 변경, 2FA 설정(QR `QRCodeSVG` from `qrcode.react`)·검증·비활성화(비활성화 시 `usePrompt`로 **비밀번호 + 현재 TOTP 코드** 입력 — `api.disable2FA(password, totpCode)`), **2FA 복구 코드** 생성/재생성·잔여 개수 표시(`api.get2FARecoveryStatus()`, `api.regenerate2FARecoveryCodes()`). (v0.34.0/v0.36.0/v0.38.0)
 > - **Maintenance** (`settings/Maintenance.tsx`, system 탭 상단): 시스템 정보, 패널 업데이트(SSE — 클러스터 모드면 제목·확인 창에 업데이트할 노드 이름, 스트림 전 거부는 코드로 번역(`CLUSTER_QUORUM`은 서버 이유를 함께), `200 {status:'up_to_date'}`는 최신 안내, `complete`도 `error`도 없이 끝난 스트림과 중계의 `event: error`는 오류로, 완료 뒤 `lib/restart.ts`의 `waitForNodeBack`이 고른 노드가 다른 버전으로 답할 때까지 기다림), 백업 다운로드/복원(클러스터 모드면 `getClusterNodes()`로 고른 노드의 종류를 판정 — 에이전트는 `restoreAgentNote` 안내만 보이고 Raft 확인·매니저 백업 경고는 묻지 않음; 업로드 복원과 예약 백업 복원이 같은 클러스터 확인을 묻고 `waitForNodeBack`으로 고른 노드를 기다림; 업로드 복원 거부는 `errorFromResponse`로 코드 번역), **예약 백업 스케줄 폼 + 즉시 실행 + 아카이브 목록(다운로드/삭제)** (v0.26.0). `clusterEnabled` prop 수신.
-> - **Performance** (`settings/Performance.tsx`, system 탭 하단): 터미널 타임아웃·업로드 한도 설정. 커널 튜닝은 시스템 › 성능 튜닝(`/tuning`)으로 옮겼다.
+> - **MovedSettings** (`settings/MovedSettings.tsx`, system 탭 하단, 한 릴리스 동안만): `옮긴 설정` 구역(`<section aria-labelledby>`)에 문장 셋, 각 문장이 그곳으로 가는 링크 — 성능 튜닝 → `/tuning`, 터미널 자동 종료 시간 → `/terminal`(도구·계정), 파일 업로드 한도 → `/files`(업로드 ▾). 이 탭에 있던 `Performance` 패널은 없어졌다.
 > - **TLSCertificate** (`settings/TLSCertificate.tsx`, https 탭): 패널 HTTPS 상태와 CA 인증서 내려받기(`?node=`의 서버 것).
 > - **Alerts** (`settings/AlertSettings.tsx`, alerts 탭): 알림 채널/규칙/히스토리 (아래 별도 섹션).
 > - **Audit** (`settings/Audit.tsx`, audit 탭): 감사 로그 뷰어(데스크톱 테이블 + **모바일 카드 폴백**, v0.35.0).
@@ -547,8 +548,6 @@ const DockerStacks = lazy(() => import('@/pages/docker/DockerStacks'))
 - **파일**: `web/src/pages/Settings.tsx`
 - **기능**: 계정 및 시스템 설정
   - 언어 변경 (English / 한국어) - i18n.changeLanguage()
-  - 터미널 타임아웃 설정 (분 단위, 0 = 무제한)
-  - 파일 업로드 최대 크기 설정 (MB 단위)
   - 비밀번호 변경 (현재 비밀번호 + 새 비밀번호 + 확인)
   - 2FA 관리: 설정 시작 -> QR 코드(qrcode.react 클라이언트 렌더링) + 시크릿 키 표시 -> 6자리 코드 인증 -> 활성화/비활성화(비밀번호 재확인)
   - 시스템 정보 표시 (버전, 호스트명, OS, 커널, 가동시간)
@@ -1240,7 +1239,7 @@ interface InstalledApp {
 | `docker.prune` | Docker 정리 | title, containers, images, volumes, networks, success 등 |
 | `network` | 네트워크 관리 | title, subtitle, interfaces, dnsServers, routes, bonding, configure, up, down, speed, bondMode 등 |
 | `disk` | 디스크 관리 | title, tabs.overview/partitions/filesystems/lvm/raid/swap 등 |
-| `settings` | 설정 페이지 | title, subtitle, language, languageDescription, changePassword, currentPassword, newPassword, confirmNewPassword, twoFA, twoFAEnabled/NotConfigured, enable2FA, scanQR, secretKey, verificationCode, systemInfo, version, terminal, terminalTimeout, fileUpload, maxUploadSize, updateErrors.inProgress/downgrade, restoreErrors.managerBackupOnAgent/agentBackupOnManager |
+| `settings` | 설정 페이지 | title, subtitle, language, languageDescription, changePassword, currentPassword, newPassword, confirmNewPassword, twoFA, twoFAEnabled/NotConfigured, enable2FA, scanQR, secretKey, verificationCode, systemInfo, version, moved.title/tuning/terminal/upload, updateErrors.inProgress/downgrade, restoreErrors.managerBackupOnAgent/agentBackupOnManager |
 | `cluster` | 클러스터 | title, nav, notEnabled, notRunning, stacks, init, join, overview, events, nodes, tokens, leave, tree, status, role, errors.routeNotOnAgent/agentAuthFailed/agentPanelInsecure/tokenKind/maxAgents/caRotating/quorum, warnings.leaveUnacknowledged/agentsNotReached/managerBackups |
 | `terminal` | 터미널 | connectingLogs, connectingShell, connected, wsError, connectionClosed, notAuthenticated, newTab, noTabs, fontSmaller, fontLarger, search, searchPlaceholder, prev, next |
 | `files` | 파일 관리자 | title, count, name, size, modified, permissions, empty, loading, newFile, newFolder, upload, edit, editFile, download, rename, renameTitle, deleteTitle, deleteConfirm |

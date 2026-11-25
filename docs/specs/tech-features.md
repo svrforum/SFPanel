@@ -448,7 +448,7 @@
     - **2FA 복구 코드**(v0.34.0): 인증기를 분실해도 로그인할 수 있는 1회용 코드 세트 생성(`POST /auth/2fa/recovery`, 2FA 활성 상태 필수; 평문은 생성 시 1회만 표시). 로그인 화면에서 "복구 코드로 로그인" 시 TOTP 필드가 복구 코드 필드로 전환되고 유효 코드는 사용 시 소비됨. 코드는 **SHA-256 해시**로 저장(고엔트로피라 bcrypt 불필요, 로그인 경로 빠른 비교)되고, 클러스터 어드민의 경우 **Raft FSM으로 복제**(마이그레이션 35 + `CmdSetRecoveryCodes`) — 계정 레코드와 분리되어 비밀번호/TOTP 변경이 복구 코드를 지우지 않음. 로컬 계정은 `admin.recovery_codes` 컬럼에 저장. 클러스터 어드민 코드 소비는 리더 쓰기이며, 팔로워에서의 복구 로그인은 재사용 가능 코드를 위험에 빠뜨리지 않도록 "리더 노드 사용" 힌트와 함께 거부
   - **시스템**: 패널 업데이트(체크 + SSE 스트리밍 실행), 백업 다운로드/복원·**예약 백업**(§18), 시스템 정보(버전/호스트/OS/커널/업타임)
     - **업데이트 무결성 검증**: 릴리즈의 `checksums.txt`를 **Cosign keyless(Sigstore) 서명**으로 먼저 검증(인증서가 정식 레포의 `release.yml` 워크플로우/태그에 핀)한 뒤, 거기서 파싱한 **SHA-256** 해시로 다운로드 아카이브를 대조. `SignatureRequiredSince` 컷오프 이후 릴리즈는 `.sig`/`.pem` 자산이 없으면 업데이트를 거부(공격자가 서명 자산을 삭제해 SHA-only로 다운그레이드하는 공급망 공격 방지). 컷오프 이전 구버전은 1회성 업그레이드 경로를 위해 SHA-256 단독 검증으로 폴백
-  - **튜닝**: 터미널 유휴 타임아웃(분), 최대 업로드 크기(MB) — per-node `settings`. sysctl 튜닝은 시스템 › 성능 튜닝(`/tuning`, §16)으로 옮겼다
+  - **옮긴 설정**: 터미널 유휴 타임아웃(분)은 터미널 › 도구·계정으로, 최대 업로드 크기(MB)는 파일 관리 › 업로드 ▾로 옮겼다 — 여전히 per-node `settings`이고 `?node=`를 따른다. sysctl 튜닝은 시스템 › 성능 튜닝(`/tuning`, §16)으로 옮겼다. 업데이트·백업 탭 아래에 한 릴리스 동안 옮긴 곳으로 가는 링크가 남는다
   - **알림**: 채널(Discord/Telegram/Webhook) CRUD + 테스트, 규칙 CRUD, 이력 조회/삭제
   - **감사**: 감사 로그 조회/삭제 (§17)
   - **탭과 저장 범위**: 두 모드 모두 6탭 — 계정 · 언어·테마 · 업데이트·백업 · HTTPS 인증서 · 알림 · 감사 로그. 계정(비밀번호/2FA)은 FSM 복제 admin 행, 언어·테마는 브라우저, 나머지 넷은 서버마다(`?node=`). 클러스터 모드에서는 화면 위 범위 줄이 탭마다 저장되는 곳을 말한다. 옛 `?scope=node` 주소는 같은 탭으로 replace된다(`?scope=node` → `?tab=system`)
@@ -895,7 +895,7 @@ SQLite (WAL 모드, busy_timeout 5000ms, `SetMaxOpenConns(4)`, 추가 프래그�
 | Firewall | `web/src/pages/Firewall.tsx` | 방화벽 관리 (탭: Rules, Ports, Portmap, Fail2ban, Docker, Logs) |
 | Packages | `web/src/pages/Packages.tsx` | 패키지 관리 + Docker 설치 |
 | Settings | `web/src/pages/Settings.tsx` | 설정 — 4-탭 허브 (계정/시스템/알림/감사, v0.41.0) |
-| 설정 서브패널 | `web/src/pages/settings/Security·General·Maintenance·Performance·AlertSettings·Audit.tsx` | 코드 분할된 탭 패널 6종 |
+| 설정 서브패널 | `web/src/pages/settings/Security·General·Maintenance·MovedSettings·AlertSettings·Audit.tsx` | 코드 분할된 탭 패널 6종 |
 
 ### 다국어 지원
 

@@ -11,7 +11,7 @@ import { ListLoadState } from '@/components/ListLoadState'
 const General = lazy(() => import('@/pages/settings/General'))
 const Security = lazy(() => import('@/pages/settings/Security'))
 const Maintenance = lazy(() => import('@/pages/settings/Maintenance'))
-const Performance = lazy(() => import('@/pages/settings/Performance'))
+const MovedSettings = lazy(() => import('@/pages/settings/MovedSettings'))
 const TLSCertificate = lazy(() => import('@/pages/settings/TLSCertificate'))
 const AlertSettings = lazy(() => import('@/pages/settings/AlertSettings'))
 const Audit = lazy(() => import('@/pages/settings/Audit'))
@@ -100,7 +100,7 @@ export default function Settings() {
           <Suspense fallback={fallback}>{tab === 'browser' && <General />}</Suspense>
         </TabsContent>
         <TabsContent value="system">
-          <Suspense fallback={fallback}>{tab === 'system' && (<><Maintenance clusterEnabled={clusterEnabled} /><Performance /></>)}</Suspense>
+          <Suspense fallback={fallback}>{tab === 'system' && (<><Maintenance clusterEnabled={clusterEnabled} /><MovedSettings /></>)}</Suspense>
         </TabsContent>
         <TabsContent value="https">
           <Suspense fallback={fallback}>{tab === 'https' && <TLSCertificate />}</Suspense>

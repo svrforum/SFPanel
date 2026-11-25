@@ -2,9 +2,10 @@ import { api } from '@/lib/api'
 import { toast } from 'sonner'
 
 /**
- * saveSetting — single-key wrapper over api.updateSettings used by the
- * Performance tab (terminal timeout, max upload size). Both fields share
- * the same toast/error shape, so handlers don't need to repeat it.
+ * saveSetting — single-key wrapper over api.updateSettings used by
+ * NodeSettingField in its two places: the terminal's Tools & accounts sheet
+ * (terminal timeout) and the file manager's upload limit dialog (max upload
+ * size). Both share the same toast/error shape, so callers don't repeat it.
  *
  * Validation stays in the caller (caller knows what counts as valid for
  * its specific field). This helper only handles the HTTP call + toast.
