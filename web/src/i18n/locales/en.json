@@ -98,6 +98,13 @@
       "offline": "{{count}} offline",
       "agentGroup": "Agent (group {{group}})"
     },
+    "scope": {
+      "server": "Server {{name}}",
+      "fleet": "All servers · {{online}} of {{total}} online",
+      "savedFleet": "Same on every server",
+      "savedServer": "Saved on {{name}} only",
+      "notFound": "Server not found"
+    },
     "cluster": {
       "localNode": "This node",
       "selectNode": "Select node",

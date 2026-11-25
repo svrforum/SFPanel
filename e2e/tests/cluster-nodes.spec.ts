@@ -132,7 +132,7 @@ test('filters by kind, status and group, and searches', async ({ page }) => {
 
   await kind.getByRole('button', { name: 'Agents' }).click()
   await expect(bodyRows(page)).toHaveCount(40)
-  await expect(page.getByText('40 of 43')).toBeVisible()
+  await expect(page.getByText('40 of 43', { exact: true })).toBeVisible()
   await kind.getByRole('button', { name: 'Managers' }).click()
   await expect(bodyRows(page)).toHaveCount(3)
   await kind.getByRole('button', { name: 'All' }).click()
@@ -160,7 +160,7 @@ test('filters by kind, status and group, and searches', async ({ page }) => {
   await page.getByRole('option', { name: 'All' }).click()
   await page.getByRole('textbox', { name: 'Search name, address or label' }).fill('agent-37')
   await expect(bodyRows(page)).toHaveCount(1)
-  await expect(page.getByText('1 of 43')).toBeVisible()
+  await expect(page.getByText('1 of 43', { exact: true })).toBeVisible()
 
   await page.getByRole('textbox', { name: 'Search name, address or label' }).fill('nothing-like-this')
   await expect(page.getByText('No node matches these filters.')).toBeVisible()

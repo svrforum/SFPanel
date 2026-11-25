@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback, useLayoutEffect, useMemo, useRef } from 'react'
 import { Outlet, useNavigate, useLocation } from 'react-router-dom'
 import { useTranslation } from 'react-i18next'
+import { toast } from 'sonner'
 import { api } from '@/lib/api'
 import { cn } from '@/lib/utils'
 import { documentTitle, isTerminalRoute, navOwner, pageTitleKey } from '@/lib/navigation'
@@ -17,6 +18,7 @@ import Sidebar from '@/components/Sidebar'
 import SidebarSkeleton from '@/components/SidebarSkeleton'
 import BottomNav from '@/components/BottomNav'
 import MoreMenu from '@/components/MoreMenu'
+import { ScopeBar } from '@/components/server/ScopeBar'
 import type { ClusterStatus, DashboardOverview } from '@/types/api'
 
 const SIDEBAR_KEY = 'sfpanel-sidebar-collapsed'
@@ -70,6 +72,16 @@ export default function Layout() {
   const terminalCompact = useTerminalCompact()
   const [terminalFocus] = useTerminalFocus()
   const sidebarHidden = isTerminal && (terminalCompact || terminalFocus)
+
+  // A server the cluster does not have was replaced by the attached one. The
+  // line above the page says so; the terminal draws no such line, so there it
+  // is said once, when it happens.
+  const shownMissing = useRef(scope.missing)
+  useEffect(() => {
+    if (scope.missing === shownMissing.current) return
+    shownMissing.current = scope.missing
+    if (scope.missing && isTerminal) toast.warning(`${t('layout.scope.notFound')} · ${scope.missing.name}`)
+  }, [scope.missing, isTerminal, t])
 
   // The page's own name in the tab and the history list: it said "SFPanel" on
   // every route. A menu entry's pages carry the entry's name, except a tab
@@ -271,6 +283,7 @@ export default function Layout() {
         "flex-1 min-h-0 min-w-0 outline-none",
         isTerminal ? "p-0 overflow-hidden" : "overflow-y-auto overflow-x-hidden px-5 py-4 pb-bottom-nav md:p-8 md:pb-8"
       )}>
+        <ScopeBar />
         {/* The nodeKey key moved from <Outlet> to the boundary: remounting the
             boundary remounts the outlet tree identically, and also clears any
             caught error when the user switches nodes. The boundary itself keeps

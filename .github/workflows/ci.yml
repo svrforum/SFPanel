@@ -222,7 +222,8 @@ jobs:
             tests/server-name.spec.ts \
             tests/update-badge.spec.ts \
             tests/cluster-standalone.spec.ts \
-            tests/server-url.spec.ts
+            tests/server-url.spec.ts \
+            tests/scope-bar.spec.ts
       - name: Dump panel log on failure
         if: failure()
         run: cat "$E2E_DIR/panel.log" || true

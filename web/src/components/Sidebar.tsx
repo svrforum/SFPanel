@@ -5,8 +5,8 @@ import GithubIcon from '@/components/GithubIcon'
 import Logo, { LogoMark } from '@/components/Logo'
 import { NodeStatusMark } from '@/components/cluster/NodeStatusMark'
 import { ServerSwitcher } from '@/components/server/ServerSwitcher'
+import { serverRole } from '@/components/server/serverRole'
 import { useServerScope } from '@/hooks/useServerScope'
-import { isAgent, nodeGroup } from '@/lib/clusterNodes'
 import { navFor, navOwner, type NavEntry } from '@/lib/navigation'
 import { cn } from '@/lib/utils'
 
@@ -45,8 +45,7 @@ function ServerHead({ collapsed }: { collapsed: boolean }) {
     )
   }
 
-  const group = current ? nodeGroup(current) : ''
-  const role = !current ? '' : !isAgent(current) ? t('cluster.kind.manager') : group ? t('layout.server.agentGroup', { group }) : t('cluster.kind.agent')
+  const role = serverRole(current, t)
   const attached = localId !== '' && currentId === localId
   const offline = nodes.filter((n) => n.status === 'offline').length
   const detail = [role, attached ? t('layout.server.attached') : ''].filter(Boolean).join(' · ')

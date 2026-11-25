@@ -25,7 +25,7 @@ export interface ServerScope {
   current: ClusterNode | undefined
   /** Its name in the node list, else the hostname for the attached server, else the id. */
   currentName: string
-  /** The server the address or the store named that the node list does not have; the attached one is shown instead. */
+  /** The server the address or the store named that the node list does not have; the attached one is shown instead. Kept until a pick or an address names another server. */
   missing: { id: string; name: string } | null
   /** Act on another server: the page stays and its address names the server, except on an all-servers page, which opens the server's dashboard. */
   switchTo: (id: string) => void
@@ -160,8 +160,11 @@ export function useServerScopeState({ clusterEnabled, status, hostname }: {
     const id = nodeParam(location.search)
     if (id === null) return
     const target = storeValue(id, localId || null)
+    if (target === api.currentNode) return
+    // A server the cluster lacked was the last address's; this one names another.
     // eslint-disable-next-line react-hooks/set-state-in-effect
-    if (target !== api.currentNode) select(target)
+    setMissing(null)
+    select(target)
   }, [location, localId]) // eslint-disable-line react-hooks/exhaustive-deps
 
   // Store → address: a server page whose address does not name the stored
