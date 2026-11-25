@@ -68,22 +68,7 @@ func (h *Handler) parseAllRAIDArrays(ctx context.Context) ([]RAIDArray, error) {
 			if err != nil || detail == nil {
 				return
 			}
-			if detail.Level != "" {
-				arrays[i].Level = detail.Level
-			}
-			if detail.State != "" {
-				arrays[i].State = detail.State
-			}
-			if detail.Size > 0 {
-				arrays[i].Size = detail.Size
-			}
-			if len(detail.Devices) > 0 {
-				arrays[i].Devices = detail.Devices
-			}
-			arrays[i].Active = detail.Active
-			arrays[i].Total = detail.Total
-			arrays[i].Failed = detail.Failed
-			arrays[i].Spare = detail.Spare
+			mergeMdadmDetail(&arrays[i], detail)
 		}(i)
 	}
 	wg.Wait()
@@ -91,41 +76,89 @@ func (h *Handler) parseAllRAIDArrays(ctx context.Context) ([]RAIDArray, error) {
 	return arrays, nil
 }
 
+// mergeMdadmDetail lays what mdadm --detail says of an array over what the
+// kernel's line said. mdadm does not say an array is read-only (of a mirror
+// it says "clean"), so the kernel's flag stays a word of the state, unless
+// mdadm's state already says it (a striped array's "read-auto").
+func mergeMdadmDetail(a *RAIDArray, detail *RAIDArray) {
+	if detail.Level != "" {
+		a.Level = detail.Level
+	}
+	if detail.State != "" {
+		_, flags, flagged := strings.Cut(a.State, ", ")
+		a.State = detail.State
+		if flagged && !strings.Contains(strings.ToLower(detail.State), "read") {
+			a.State += ", " + flags
+		}
+	}
+	if detail.Size > 0 {
+		a.Size = detail.Size
+	}
+	if len(detail.Devices) > 0 {
+		a.Devices = detail.Devices
+	}
+	a.Active = detail.Active
+	a.Total = detail.Total
+	a.Failed = detail.Failed
+	a.Spare = detail.Spare
+}
+
+// Each array's first line in /proc/mdstat, as the kernel writes it
+// (drivers/md/md.c, md_seq_show):
+//
+//	md0 : active raid1 sdb1[1] sda1[0]
+//	md0 : active (auto-read-only) raid1 sdb1[1] sda1[0]
+//	md127 : inactive sdb1[1](S) sdc1[0](S)
+//
+// A read-only flag follows the state in parentheses, and an inactive array
+// has no personality, so no level: what follows the state is its members.
+var (
+	mdstatArrayRe  = regexp.MustCompile(`^(md\d+)\s*:\s*(\w+)((?:\s+\([\w-]+\))*)\s*(.*)$`)
+	mdstatFlagRe   = regexp.MustCompile(`\(([\w-]+)\)`)
+	mdstatMemberRe = regexp.MustCompile(`([\w.-]+)\[(\d+)\]((?:\([A-Z]\))*)`)
+)
+
 // parseMdstat parses /proc/mdstat to extract RAID array names and basic info.
+// A read-only flag is kept as a word of the state, the way mdadm --detail
+// joins its own: "active, auto-read-only".
 func parseMdstat(data string) []RAIDArray {
 	arrays := []RAIDArray{}
-	lines := strings.Split(data, "\n")
 
-	// Match lines like: "md0 : active raid1 sda1[0] sdb1[1]"
-	mdRe := regexp.MustCompile(`^(md\d+)\s*:\s*(\w+)\s+(\w+)\s+(.*)$`)
-
-	for _, line := range lines {
-		matches := mdRe.FindStringSubmatch(line)
+	for _, line := range strings.Split(data, "\n") {
+		matches := mdstatArrayRe.FindStringSubmatch(line)
 		if matches == nil {
 			continue
 		}
 
+		state := matches[2]
+		for _, flag := range mdstatFlagRe.FindAllStringSubmatch(matches[3], -1) {
+			state += ", " + flag[1]
+		}
+		// The level only when the word is not a member: "sdb1[1]".
+		rest := strings.TrimSpace(matches[4])
+		level := ""
+		if first, after, _ := strings.Cut(rest, " "); first != "" && !strings.Contains(first, "[") {
+			level, rest = first, after
+		}
+
 		array := RAIDArray{
 			Name:    matches[1],
-			State:   matches[2],
-			Level:   matches[3],
+			State:   state,
+			Level:   level,
 			Devices: []RAIDDisk{},
 		}
 
-		// Parse device list: "sda1[0] sdb1[1] sdc1[2](S) sdd1[3](F)"
-		devStr := matches[4]
-		devRe := regexp.MustCompile(`(\w+)\[(\d+)\](\([A-Z]*\))?`)
-		devMatches := devRe.FindAllStringSubmatch(devStr, -1)
-		for _, dm := range devMatches {
+		// Parse device list: "sda1[0] sdb1[1] sdc1[2](S) sdd1[3](F)". A
+		// member's flags come one after another — a write-mostly member that
+		// failed is "sdb1[1](W)(F)" — and a device-mapper member is "dm-3".
+		for _, dm := range mdstatMemberRe.FindAllStringSubmatch(rest, -1) {
 			idx, _ := strconv.Atoi(dm[2])
 			state := "active"
-			if len(dm) > 3 {
-				switch dm[3] {
-				case "(S)":
-					state = "spare"
-				case "(F)":
-					state = "faulty"
-				}
+			switch {
+			case strings.Contains(dm[3], "(F)"):
+				state = "faulty"
+			case strings.Contains(dm[3], "(S)"):
+				state = "spare"
 			}
 			array.Devices = append(array.Devices, RAIDDisk{
 				Device: dm[1],

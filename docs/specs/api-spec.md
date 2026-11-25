@@ -7589,7 +7589,7 @@ WireGuard 키페어 생성 (`wg genkey` + `wg pubkey`).
 
 | 메서드 | 경로 | 인증 | 설명 |
 |--------|------|------|------|
-| GET | `/api/v1/raid` | O | RAID 어레이 목록 |
+| GET | `/api/v1/raid` | O | RAID 어레이 목록. `/proc/mdstat`의 배열마다 하나 — 비활성 배열(`inactive`, 개인성이 없어 `level`이 빌 수 있다)과 읽기 전용 배열도 든다. `state`는 `mdadm --detail`의 상태(`clean, degraded`처럼 쉼표로 이은 낱말)이고, 커널이 읽기 전용이라고 하면 그 낱말을 덧붙인다(`clean, auto-read-only`, `clean, read-only`). mdadm이 없으면 503 `TOOL_NOT_INSTALLED` |
 | GET | `/api/v1/raid/:name` | O | RAID 어레이 상세 |
 | POST | `/api/v1/raid` | O | RAID 어레이 생성. 멤버가 게스트 볼륨이면 409 `DISK_GUEST_VOLUME`, 부팅 파티션(이 든 디스크)이면 409 `DISK_BOOT_PARTITION` (v0.78.14+) |
 | DELETE | `/api/v1/raid/:name` | O | RAID 어레이 삭제 |
