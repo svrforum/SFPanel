@@ -56,6 +56,7 @@
     "nav": {
       "dashboard": "대시보드",
       "running": "실행 현황",
+      "map": "구성도",
       "docker": "Docker",
       "files": "파일 관리",
       "cron": "예약 작업",
@@ -4530,6 +4531,15 @@
     "lanDeviceNotFound": "이 서버의 대장에 없는 기기입니다.",
     "lanScheduleInvalid": "자동 스캔 설정이 올바르지 않습니다. ({{serverMessage}})",
     "lanRackInvalid": "랙을 저장할 수 없습니다. ({{serverMessage}})"
+  },
+  "map": {
+    "title": "구성도",
+    "subtitleCluster": "모든 서버가 스캔한 것을 하나로 보여 줍니다. 스캔할 서버는 네트워크마다 고릅니다.",
+    "subtitleServer": "이 서버가 스캔한 네트워크와 랙입니다.",
+    "tabs": {
+      "devices": "기기",
+      "rack": "랙"
+    }
   },
   "running": {
     "title": "실행 현황",

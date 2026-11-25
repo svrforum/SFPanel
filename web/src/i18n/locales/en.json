@@ -56,6 +56,7 @@
     "nav": {
       "dashboard": "Dashboard",
       "running": "Running",
+      "map": "Network Map",
       "docker": "Docker",
       "files": "Files",
       "cron": "Scheduled Tasks",
@@ -4549,6 +4550,15 @@
     "lanDeviceNotFound": "This server's registry does not know that device.",
     "lanScheduleInvalid": "The automatic scan setting is not valid. ({{serverMessage}})",
     "lanRackInvalid": "The rack could not be saved. ({{serverMessage}})"
+  },
+  "map": {
+    "title": "Network Map",
+    "subtitleCluster": "What every server has scanned, as one. Pick the server that scans each network.",
+    "subtitleServer": "The networks this server has scanned, and its racks.",
+    "tabs": {
+      "devices": "Devices",
+      "rack": "Rack"
+    }
   },
   "running": {
     "title": "Running",

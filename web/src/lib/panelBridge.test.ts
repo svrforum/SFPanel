@@ -26,7 +26,7 @@ describe('the menu the app draws', () => {
     const b = buildBridge(false, null, t)
     expect(b.server).toBeNull()
     expect(b.nav.map((g) => g.title)).toEqual(['', '', ''])
-    expect(b.nav.flatMap((g) => g.items).map((i) => i.path)).toHaveLength(11)
+    expect(b.nav.flatMap((g) => g.items).map((i) => i.path)).toHaveLength(12)
     expect(b.nav.flatMap((g) => g.items).map((i) => i.path)).not.toContain('/cluster/running')
   })
 

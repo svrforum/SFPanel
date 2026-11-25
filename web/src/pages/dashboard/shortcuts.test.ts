@@ -26,6 +26,11 @@ describe('readShortcuts', () => {
     expect(readShortcuts(store({ [SHORTCUTS_KEY]: '{bad' }), true)).toEqual(DEFAULT_SHORTCUTS)
   })
 
+  it('keeps a saved map shortcut in both modes', () => {
+    for (const cluster of [true, false])
+      expect(readShortcuts(store({ [SHORTCUTS_KEY]: '["/map"]' }), cluster)).toEqual(['/map'])
+  })
+
   it('offers the cluster-only pages only in a cluster', () => {
     expect(readShortcuts(store({ [SHORTCUTS_KEY]: '["/cluster/tasks"]' }), true)).toEqual(['/cluster/tasks'])
     expect(readShortcuts(store({ [SHORTCUTS_KEY]: '["/cluster/tasks"]' }), false)).toEqual(DEFAULT_SHORTCUTS)

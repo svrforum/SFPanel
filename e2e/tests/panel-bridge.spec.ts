@@ -90,7 +90,7 @@ test('a server page publishes its server and the menu', async ({ page }) => {
   expect(b.v).toBe(1)
   expect(b.nav.map((g) => g.title)).toEqual(['agent-1', 'All servers', ''])
   expect(b.nav.flatMap((g) => g.items.map((i) => i.path)))
-    .toEqual(['/terminal', '/dashboard', '/docker', '/files', '/logs', '/services', '/network', '/firewall', '/disk', '/cluster/running', '/cluster/tasks', '/cluster', '/settings'])
+    .toEqual(['/terminal', '/dashboard', '/docker', '/files', '/logs', '/services', '/network', '/firewall', '/disk', '/cluster/running', '/map', '/cluster/tasks', '/cluster', '/settings'])
   expect(b.nav[0].items.find((i) => i.path === '/services')!.tabs).toEqual([
     { label: 'Services', path: '/services' },
     { label: 'Processes', path: '/processes' },
@@ -167,7 +167,7 @@ test('a single server publishes no server', async ({ page }) => {
   const b = (await bridge(page))!
   expect(b.server).toBeNull()
   expect(b.nav.map((g) => g.title)).toEqual(['', '', ''])
-  expect(b.nav.flatMap((g) => g.items)).toHaveLength(11)
+  expect(b.nav.flatMap((g) => g.items)).toHaveLength(12)
 })
 
 test('labels follow the interface language', async ({ page }) => {

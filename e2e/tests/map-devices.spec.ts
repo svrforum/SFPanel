@@ -1,6 +1,6 @@
 import { test, expect, type Page } from '@playwright/test'
 
-// The running page's network view: each network the nodes are on as a diagram
+// The network map's devices tab: each network the servers are on as a diagram
 // of what nmap found there, and each node from the inside. Mocked API only,
 // and in the shape and size of a real home network: a /24 with 28 hosts up —
 // a gateway, a server on metal that made the scan, a Proxmox host with twelve
@@ -123,7 +123,8 @@ interface Opts {
   schedules?: Record<string, { interval_minutes: number; ports_daily: boolean; paused_reason?: string }>
   /** The last scan looked for devices only; ports are from the day before. */
   hostsOnly?: boolean
-  view?: string
+  /** How the cluster's overview answers: a status to fail with, or null for the usual answer. */
+  overview?: () => number | null
 }
 
 async function mock(page: Page, opts: Opts = {}) {
@@ -151,11 +152,10 @@ async function mock(page: Page, opts: Opts = {}) {
     /** Reads of the scanning node's status left before the scan ends. */
     left: 0,
   }
-  await page.addInitScript(({ view }) => {
+  await page.addInitScript(() => {
     sessionStorage.setItem('token', 'fixture-token')
     localStorage.setItem('sfpanel_language', 'en')
-    if (!localStorage.getItem('sfpanel-running-view')) localStorage.setItem('sfpanel-running-view', view)
-  }, { view: opts.view ?? 'network' })
+  })
   let turn = 0
   await page.route('**/api/v1/**', async (route) => {
     const request = route.request()
@@ -172,6 +172,8 @@ async function mock(page: Page, opts: Opts = {}) {
       : { enabled: false }
     else if (path === '/cluster/nodes') data = { nodes: NODES, local_id: 'm-1', is_leader: true }
     else if (path === '/cluster/overview') {
+      const down = opts.overview?.() ?? null
+      if (down !== null) return fail(down, 'CLUSTER_NOT_LEADER', 'leader unreachable')
       state.overviews++
       data = { name: 'lab', node_count: NODES.length, leader_id: 'm-1', nodes: NODES, metrics: [] }
     }
@@ -278,7 +280,7 @@ const device = (page: Page, n: number) => page.locator(`[data-testid="net-device
 
 test('a scanned network as a diagram: the gateway on top, the nodes with their guests inside their host, the rest by address', async ({ page }) => {
   await mock(page)
-  await page.goto('/cluster/running')
+  await page.goto('/map')
   const network = page.locator('[data-testid="net-network"]')
   await expect(network.getByRole('heading', { name: NET, level: 2 })).toBeVisible()
   await expect(network).toContainText('Devices: 28 · scanned from alpha-node')
@@ -336,7 +338,7 @@ test('a scanned network as a diagram: the gateway on top, the nodes with their g
 
 test('the lines of the diagram: one trunk that ends at the last row, rows whose cards stand level', async ({ page }) => {
   await mock(page)
-  await page.goto('/cluster/running')
+  await page.goto('/map')
   await expect(device(page, 42)).toBeVisible()
 
   // The trunk is drawn piece by piece, by each block for its own height; the
@@ -373,7 +375,7 @@ test('the lines of the diagram: one trunk that ends at the last row, rows whose 
 
 test('ports: a link where a browser may get an answer, words otherwise, and the whole list on opening the card', async ({ page }) => {
   await mock(page)
-  await page.goto('/cluster/running')
+  await page.goto('/map')
   const nas = device(page, 15)
   await expect(nas.getByRole('link', { name: /^80/ })).toHaveAttribute('href', `http://${ip(15)}/`)
   await expect(nas.getByRole('link', { name: /^443/ })).toHaveAttribute('href', `https://${ip(15)}/`)
@@ -400,7 +402,7 @@ test('ports: a link where a browser may get an answer, words otherwise, and the 
 
 test('searching keeps what matches and the gateway, and says when nothing does', async ({ page }) => {
   await mock(page)
-  await page.goto('/cluster/running')
+  await page.goto('/map')
   await expect(page.getByTestId('net-device')).toHaveCount(28)
   const search = page.getByRole('searchbox', { name: 'Find a device by address, name, maker, MAC or port' })
   await search.fill('printer')
@@ -426,7 +428,7 @@ test('searching keeps what matches and the gateway, and says when nothing does',
 
 test('scanning again: asked of the node that scanned last, watched until it is done, and the new result drawn', async ({ page }) => {
   const state = await mock(page)
-  await page.goto('/cluster/running')
+  await page.goto('/map')
   await expect(page.getByTestId('net-device')).toHaveCount(28)
   await expect(page.getByText('alpha-node checks the 1000 most used ports of every device it finds. About a minute.')).toBeVisible()
   await page.getByRole('button', { name: 'Scan again' }).click()
@@ -444,7 +446,7 @@ test('scanning again: asked of the node that scanned last, watched until it is d
 
 test('a scan for devices only says so, and is remembered as the choice', async ({ page }) => {
   const state = await mock(page)
-  await page.goto('/cluster/running')
+  await page.goto('/map')
   await page.getByRole('checkbox', { name: 'Check open ports too' }).uncheck()
   await expect(page.getByText('alpha-node asks every address of this network to answer. About ten seconds.')).toBeVisible()
   await page.getByRole('button', { name: 'Scan again' }).click()
@@ -457,7 +459,7 @@ test('a scan for devices only says so, and is remembered as the choice', async (
 
 test('the node that scans can be chosen where more than one can', async ({ page }) => {
   const state = await mock(page)
-  await page.goto('/cluster/running')
+  await page.goto('/map')
   const from = page.getByRole('combobox', { name: 'Scan from' })
   // Only the nodes that have nmap, the one that scanned last first.
   await expect(from.getByRole('option')).toHaveText(['alpha-node', 'delta-node'])
@@ -470,7 +472,7 @@ test('the node that scans can be chosen where more than one can', async ({ page 
 
 test('a running scan can be stopped, and the page says it was', async ({ page }) => {
   const state = await mock(page)
-  await page.goto('/cluster/running')
+  await page.goto('/map')
   await page.getByRole('button', { name: 'Scan again' }).click()
   await page.getByRole('button', { name: 'Stop' }).click()
   await expect(page.getByRole('alert')).toHaveText(/The scan of 10\.20\.30\.0\/24 from alpha-node was stopped\./)
@@ -483,7 +485,7 @@ test('a running scan can be stopped, and the page says it was', async ({ page })
 
 test('a scan that fails leaves the earlier result and says so', async ({ page }) => {
   await mock(page, { ends: 'failed' })
-  await page.goto('/cluster/running')
+  await page.goto('/map')
   await page.getByRole('button', { name: 'Scan again' }).click()
   await expect(page.getByRole('alert')).toHaveText(/The scan of 10\.20\.30\.0\/24 from alpha-node failed\. The earlier result is still shown\./, { timeout: 15_000 })
   await expect(page.getByTestId('net-device')).toHaveCount(28)
@@ -492,7 +494,7 @@ test('a scan that fails leaves the earlier result and says so', async ({ page })
 
 test('a network not scanned yet is listed with the nodes on it and a way to scan it', async ({ page }) => {
   const state = await mock(page, { unscanned: true })
-  await page.goto('/cluster/running')
+  await page.goto('/map')
   const network = page.locator('[data-testid="net-network"]')
   await expect(network).toHaveCount(1)
   await expect(network).toContainText('Not scanned yet. Servers on this network: alpha-node, delta-node, bravo-agent, echo-agent, foxtrot-agent, pve-host')
@@ -506,7 +508,7 @@ test('a network not scanned yet is listed with the nodes on it and a way to scan
 
 test('without nmap on any node the page says which node lacks it and leads to its packages', async ({ page }) => {
   await mock(page, { unscanned: true, noTool: true })
-  await page.goto('/cluster/running')
+  await page.goto('/map')
   const network = page.locator('[data-testid="net-network"]')
   await expect(network).toContainText('nmap is not installed on alpha-node.')
   await expect(network.getByRole('button', { name: /^Scan/ })).toHaveCount(0)
@@ -517,7 +519,7 @@ test('without nmap on any node the page says which node lacks it and leads to it
 
 test('nodes older than the scan say so, and still show their interfaces and ports', async ({ page }) => {
   await mock(page, { old: true })
-  await page.goto('/cluster/running')
+  await page.goto('/map')
   await expect(page.getByText("This server's panel version has no network scan. Update it to use this.")).toBeVisible()
   await expect(page.locator('[data-testid="net-network"]')).toHaveCount(0)
   await expect(page.getByTestId('net-server')).toHaveCount(6)
@@ -525,7 +527,7 @@ test('nodes older than the scan say so, and still show their interfaces and port
 
 test('each server from the inside: its networks, and its ports by who can reach them', async ({ page }) => {
   await mock(page)
-  await page.goto('/cluster/running')
+  await page.goto('/map')
   await expect(page.getByRole('heading', { name: 'Networks and ports by server', level: 2 })).toBeVisible()
   const servers = page.getByTestId('net-server')
   await expect(servers).toHaveCount(6)
@@ -570,7 +572,7 @@ test('the port maps are read when the view opens and when the operator asks, not
   // fifteen seconds; this view's own reads do not ride on that.
   await page.clock.install()
   const state = await mock(page)
-  await page.goto('/cluster/running')
+  await page.goto('/map')
   await expect(page.getByTestId('net-device')).toHaveCount(28)
   await expect.poll(() => new Set(state.portmap).size).toBe(6)
   const asked = state.portmap.length
@@ -586,8 +588,8 @@ test('the port maps are read when the view opens and when the operator asks, not
 
 test('one server with no cluster: its own network, its own ports open on the page', async ({ page }) => {
   await mock(page, { cluster: false })
-  await page.goto('/running')
-  await expect(page.getByRole('heading', { name: 'Running here', level: 1 })).toBeVisible()
+  await page.goto('/map')
+  await expect(page.getByRole('heading', { name: 'Network Map', level: 1 })).toBeVisible()
   await expect(page.locator('[data-testid="net-network"]').getByRole('heading', { name: NET, level: 2 })).toBeVisible()
   await expect(page.getByTestId('net-device')).toHaveCount(28)
   // Alone it knows no other node: the scan's own address is the one server.
@@ -600,24 +602,54 @@ test('one server with no cluster: its own network, its own ports open on the pag
   await expect(page.getByTestId('net-port').first()).toBeVisible()
 })
 
-test('the view is one of the four, and the choice is kept', async ({ page }) => {
-  await mock(page, { view: 'board' })
-  await page.goto('/cluster/running')
-  const views = page.getByRole('group', { name: 'View' })
-  await expect(views.getByRole('button')).toHaveText(['Board', 'Canvas', 'Network', 'Rack'])
-  await expect(views.getByRole('button', { name: 'Board' })).toHaveAttribute('aria-pressed', 'true')
-  await expect(page.getByTestId('net-view')).toHaveCount(0)
-  await views.getByRole('button', { name: 'Network' }).click()
-  await expect(views.getByRole('button', { name: 'Network' })).toHaveAttribute('aria-pressed', 'true')
+test('the map is a page of its own, with devices and rack as tabs', async ({ page }) => {
+  await mock(page)
+  await page.goto('/map')
+  await expect(page.getByRole('heading', { level: 1, name: 'Network Map' })).toBeVisible()
+  // A page about every server: the tab's title names none.
+  await expect(page).toHaveTitle('Network Map · SFPanel')
+  const tabs = page.getByRole('navigation', { name: 'Network Map' }).getByRole('link')
+  expect(await tabs.evaluateAll((a) => a.map((l) => l.getAttribute('href')))).toEqual(['/map', '/map/rack'])
+  await expect(tabs.filter({ hasText: 'Devices' })).toHaveAttribute('aria-current', 'page')
+  await tabs.filter({ hasText: 'Rack' }).click()
+  await expect(page).toHaveURL(/\/map\/rack$/)
+  await expect(page.getByTestId('rack-view')).toBeVisible()
+  await expect(tabs.filter({ hasText: 'Rack' })).toHaveAttribute('aria-current', 'page')
+  // The devices tab is the map's own address: it is lit there only, not on every page below it.
+  await expect(tabs.filter({ hasText: 'Devices' })).not.toHaveAttribute('aria-current', 'page')
+})
+
+test('in a cluster every online server is read, whichever server is chosen', async ({ page }) => {
+  const asked: string[] = []
+  page.on('request', (r) => {
+    const u = new URL(r.url())
+    if (u.pathname === '/api/v1/network/scan') asked.push(u.searchParams.get('node') ?? '')
+  })
+  await page.addInitScript(() => localStorage.setItem('sfpanel_current_node', 'a-1'))
+  await mock(page)
+  await page.goto('/map')
+  // Not only the server the picker holds: the map reads every one, three at a time.
+  await expect.poll(() => [...new Set(asked)].sort()).toEqual(NODES.map((n) => n.id).sort())
   await expect(page.getByTestId('net-device')).toHaveCount(28)
-  await page.reload()
+  // The map of a cluster is about no one server, and its address names none.
+  expect(page.url()).not.toContain('node=')
+})
+
+test('an overview the leader cannot give says so, with a retry', async ({ page }) => {
+  let down = true
+  await mock(page, { overview: () => (down ? 503 : null) })
+  await page.goto('/map')
+  await expect(page.getByText("Could not load the cluster's nodes")).toBeVisible()
+  await expect(page.getByRole('navigation', { name: 'Network Map' })).toBeVisible()
+  down = false
+  await page.getByRole('button', { name: 'Retry' }).click()
   await expect(page.getByTestId('net-device')).toHaveCount(28)
 })
 
 test('on a phone the diagram is one column that fits the screen', async ({ page }) => {
   await page.setViewportSize({ width: 360, height: 800 })
   await mock(page)
-  await page.goto('/cluster/running')
+  await page.goto('/map')
   await expect(device(page, 42)).toBeVisible()
   const main = page.getByRole('main')
   expect(await main.evaluate((el) => el.scrollWidth - el.clientWidth)).toBeLessThanOrEqual(0)
@@ -630,7 +662,7 @@ test('on a phone the diagram is one column that fits the screen', async ({ page 
 
 test('answers that arrive late and out of order end in the same diagram', async ({ page }) => {
   await mock(page, { slow: true })
-  await page.goto('/cluster/running')
+  await page.goto('/map')
   await expect(page.getByTestId('net-device')).toHaveCount(28, { timeout: 30_000 })
   // The nodes are known for nodes only once their interfaces and the host's
   // guests have been read, whichever comes last.
@@ -644,14 +676,14 @@ test('a LAN whose servers go out two ways is one network, with both gateways on 
   // guest of the Proxmox host. Listed by network and gateway they were two
   // networks until the first scan.
   await mock(page, { twoGateways: true, unscanned: true })
-  await page.goto('/cluster/running')
+  await page.goto('/map')
   await expect(page.locator('[data-testid="net-network"]')).toHaveCount(1)
   await expect(page.locator('[data-testid="net-network"]')).toContainText('alpha-node, delta-node, bravo-agent, echo-agent, foxtrot-agent, pve-host')
 })
 
 test('every device a server goes out through is a gateway, and says whose', async ({ page }) => {
   await mock(page, { twoGateways: true })
-  await page.goto('/cluster/running')
+  await page.goto('/map')
   await expect(page.getByTestId('net-device')).toHaveCount(28)
   const top = page.locator('.nm-gateway').getByTestId('net-device')
   await expect(top).toHaveCount(2)
@@ -681,7 +713,7 @@ test('an address two devices use is said on top of the network and on the device
   // on, a smart plug held a server's address, and the page drew it as one
   // more device with nothing said.
   await mock(page, { conflict: true })
-  await page.goto('/cluster/running')
+  await page.goto('/map')
   await expect(page.getByTestId('net-device')).toHaveCount(28)
   const alert = page.getByTestId('net-conflict')
   await expect(alert).toHaveCount(1)
@@ -709,7 +741,7 @@ test('an address two devices use is said on top of the network and on the device
 
 test('no address conflict is said of a network where every server answers for itself', async ({ page }) => {
   await mock(page)
-  await page.goto('/cluster/running')
+  await page.goto('/map')
   await expect(page.locator('[data-testid="net-device"][data-kind="server"]')).toHaveCount(6)
   await expect(page.getByTestId('net-conflict')).toHaveCount(0)
   await expect(page.locator('[data-testid="net-device"][data-conflict="true"]')).toHaveCount(0)
@@ -721,7 +753,7 @@ const LABELLED = { labelled_at: '2026-11-21T00:00:00Z' }
 
 test('a name, a kind and a note are written to every node of the network, with one time, and drawn', async ({ page }) => {
   const state = await mock(page)
-  await page.goto('/cluster/running')
+  await page.goto('/map')
   const plug = device(page, 37)
   await expect(plug).toContainText('No name')
   await plug.locator('summary').click()
@@ -760,7 +792,7 @@ test('a label is written later than the one it replaces, whatever this clock say
   // alone would be the older, and dropped without a word.
   const AHEAD = '2099-01-01T00:00:00.000Z'
   const state = await mock(page, { devices: [known(37, { name: 'Old name', labelled_at: AHEAD })] })
-  await page.goto('/cluster/running')
+  await page.goto('/map')
   const plug = device(page, 37)
   await expect(plug.locator('summary')).toContainText('Old name')
   await plug.locator('summary').click()
@@ -774,7 +806,7 @@ test('a label is written later than the one it replaces, whatever this clock say
 
 test('a node and a guest have their own names: they take a note', async ({ page }) => {
   const state = await mock(page)
-  await page.goto('/cluster/running')
+  await page.goto('/map')
   const nas = device(page, 15)
   await nas.locator('summary').click()
   const form = nas.getByTestId('net-label-form')
@@ -792,7 +824,7 @@ test('a node and a guest have their own names: they take a note', async ({ page 
 
 test('what the operator called a switch or an access point stands in a row of its own, under the gateway', async ({ page }) => {
   await mock(page, { devices: [known(41, { name: 'Core switch', kind: 'switch', ...LABELLED }), known(42, { name: 'Upstairs AP', kind: 'ap', ...LABELLED }), known(36, { kind: 'tv', ...LABELLED })] })
-  await page.goto('/cluster/running')
+  await page.goto('/map')
   await expect(page.getByText('Network equipment 2', { exact: true })).toBeVisible()
   await expect(page.getByText('Other devices 11', { exact: true })).toBeVisible()
   await expect(device(page, 41)).toHaveAttribute('data-kind', 'switch')
@@ -822,7 +854,7 @@ test('a device the scan did not find stays, said to be unseen, and can be forgot
     ],
   })
   await page.clock.install({ time: new Date('2026-11-22T02:20:00Z') })
-  await page.goto('/cluster/running')
+  await page.goto('/map')
   await expect(page.locator('[data-testid="net-network"]')).toContainText('Devices: 28')
   await expect(page.locator('[data-testid="net-network"]')).toContainText('not seen 2')
   const printer = device(page, 70)
@@ -852,7 +884,7 @@ test('a device the scan did not find stays, said to be unseen, and can be forgot
 test('a device that appeared after the first scan is marked new until looked at', async ({ page }) => {
   const state = await mock(page, { devices: [...HOSTS.filter((h) => h.mac !== mac(42)).map((h) => known(Number(h.ip.split('.')[3]))), known(42, { first_seen: SCANNED })] })
   await page.clock.install({ time: new Date('2026-11-22T02:20:00Z') })
-  await page.goto('/cluster/running')
+  await page.goto('/map')
   await expect(page.locator('[data-testid="net-device"][data-fresh="true"]')).toHaveCount(1)
   const fresh = device(page, 42)
   await expect(fresh).toHaveAttribute('data-fresh', 'true')
@@ -869,7 +901,7 @@ test('a device that appeared after the first scan is marked new until looked at'
 
 test('nodes that keep no registry offer nothing to write, and nothing to schedule', async ({ page }) => {
   await mock(page, { noRegistry: true })
-  await page.goto('/cluster/running')
+  await page.goto('/map')
   await expect(page.getByTestId('net-device')).toHaveCount(28)
   await device(page, 37).locator('summary').click()
   await expect(device(page, 37).getByText(mac(37), { exact: true }).last()).toBeVisible()
@@ -880,7 +912,7 @@ test('nodes that keep no registry offer nothing to write, and nothing to schedul
 
 test('an automatic scan is set on the node that scans, with what it needs to stop by itself on a conflict', async ({ page }) => {
   const state = await mock(page, { schedules: { 'm-2': { interval_minutes: 15, ports_daily: false } } })
-  await page.goto('/cluster/running')
+  await page.goto('/map')
   const schedule = page.getByTestId('net-schedule')
   const every = schedule.getByRole('combobox', { name: 'Automatic scan (alpha-node)' })
   await expect(every.getByRole('option')).toHaveText(['Off', 'Every 15 minutes', 'Every hour', 'Every 6 hours', 'Every day'])
@@ -916,7 +948,7 @@ test('an automatic scan is set on the node that scans, with what it needs to sto
 
 test('a schedule stopped for an address conflict says so, and a scan by hand is cautioned, not refused', async ({ page }) => {
   await mock(page, { conflict: true, schedules: { 'm-1': { interval_minutes: 60, ports_daily: false, paused_reason: 'conflict' } } })
-  await page.goto('/cluster/running')
+  await page.goto('/map')
   await expect(page.getByTestId('net-conflict')).toHaveCount(1)
   await expect(page.getByTestId('net-schedule').getByRole('status')).toHaveText('Automatic scans are stopped: an address is in conflict. They resume once it is resolved.')
   await expect(page.getByTestId('net-schedule')).not.toContainText('Next scan')
@@ -926,7 +958,7 @@ test('a schedule stopped for an address conflict says so, and a scan by hand is 
 
 test('no caution is said of a network without a conflict', async ({ page }) => {
   await mock(page)
-  await page.goto('/cluster/running')
+  await page.goto('/map')
   await expect(page.getByRole('button', { name: 'Scan again' })).toBeVisible()
   await expect(page.getByTestId('net-scan-caution')).toHaveCount(0)
   await expect(page.getByTestId('net-suspect')).toHaveCount(0)
@@ -934,7 +966,7 @@ test('no caution is said of a network without a conflict', async ({ page }) => {
 
 test('an address two MACs held at the same time is said as a suspicion', async ({ page }) => {
   await mock(page, { suspects: [{ network: NET, ip: ip(34), macs: [mac(34), mac(88)] }] })
-  await page.goto('/cluster/running')
+  await page.goto('/map')
   const suspect = page.getByTestId('net-suspect')
   await expect(suspect).toHaveCount(1)
   await expect(suspect).toContainText(`Suspected address conflict at ${ip(34)}`)
@@ -946,7 +978,7 @@ test('an address two MACs held at the same time is said as a suspicion', async (
 
 test('a scan for devices only keeps the ports found before, and says from when', async ({ page }) => {
   await mock(page, { hostsOnly: true })
-  await page.goto('/cluster/running')
+  await page.goto('/map')
   await expect(page.locator('[data-testid="net-network"]')).toContainText(/ports checked Nov 21/)
   await expect(page.locator('[data-testid="net-network"]')).not.toContainText('devices only')
   await expect(device(page, 15).getByRole('link', { name: /^443/ })).toBeVisible()
@@ -956,7 +988,7 @@ test('a scan for devices only keeps the ports found before, and says from when',
 
 test('a device can be watched, and its card says it is', async ({ page }) => {
   const state = await mock(page)
-  await page.goto('/cluster/running')
+  await page.goto('/map')
   const nas = device(page, 15)
   await expect(nas.getByTestId('net-watch')).toHaveCount(0)
   await nas.locator('summary').click()
@@ -981,7 +1013,7 @@ test('a device can be watched, and its card says it is', async ({ page }) => {
 test('a device a node knows can be woken: asked of that node, on its own network', async ({ page }) => {
   const state = await mock(page, { devices: [known(70, { name: 'Garage NAS', kind: 'nas', ...LABELLED, last_seen: '2026-11-20T02:13:08Z' }), known(37)] })
   await page.clock.install({ time: new Date('2026-11-22T02:20:00Z') })
-  await page.goto('/cluster/running')
+  await page.goto('/map')
   const nas = device(page, 70)
   await expect(nas).toHaveAttribute('data-absent', 'true')
   await nas.locator('summary').click()

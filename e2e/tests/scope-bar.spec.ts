@@ -107,6 +107,13 @@ test('an all-servers page counts them', async ({ page }) => {
   await expect(bar(page)).toHaveText(/All servers · 3 of 4 online/)
 })
 
+test('the map counts every server and carries none', async ({ page }) => {
+  await mock(page)
+  await page.goto('/map')
+  await expect(bar(page)).toHaveText(/All servers · 3 of 4 online/)
+  expect(page.url()).not.toContain('node=')
+})
+
 test('settings say where they are saved', async ({ page }) => {
   await mock(page, { storage: { sfpanel_current_node: 'agent-1' } })
   await page.goto('/settings')

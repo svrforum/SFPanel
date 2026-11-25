@@ -50,6 +50,9 @@ const ClusterOverview = lazy(() => import('@/pages/cluster/ClusterOverview'))
 const ClusterNodes = lazy(() => import('@/pages/cluster/ClusterNodes'))
 const ClusterSecurity = lazy(() => import('@/pages/cluster/ClusterSecurity'))
 const ClusterTasks = lazy(() => import('@/pages/cluster/ClusterTasks'))
+const MapPage = lazy(() => import('@/pages/Map'))
+const MapDevices = lazy(() => import('@/pages/map/MapDevices'))
+const MapRack = lazy(() => import('@/pages/map/MapRack'))
 const AppStore = lazy(() => import('@/pages/AppStore'))
 const Packages = lazy(() => import('@/pages/Packages'))
 const Settings = lazy(() => import('@/pages/Settings'))
@@ -240,6 +243,10 @@ export default function App() {
                   <Route path="tasks/:taskId/edit" element={<ClusterTasks />} />
                   {/* The token page became the add-agent dialog; old bookmarks open it. */}
                   <Route path="tokens" element={<Navigate to="/cluster/nodes?add=agent" replace />} />
+                </Route>
+                <Route path="map" element={<MapPage />}>
+                  <Route index element={<MapDevices />} />
+                  <Route path="rack" element={<MapRack />} />
                 </Route>
                 <Route path="files" element={<Files />} />
                 <Route path="logs" element={<Logs />} />

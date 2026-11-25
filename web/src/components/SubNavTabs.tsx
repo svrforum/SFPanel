@@ -15,7 +15,8 @@ export interface SubNavItem {
  * Pill-style sub-navigation tab strip shared by the section shells
  * (Network, Firewall, …). `children` renders after the tabs, for shells
  * that append trailing actions to the strip. With a `label` the strip is a
- * navigation landmark of that name.
+ * navigation landmark of that name. A tab whose address begins another
+ * tab's (the map's /map, before /map/rack) is lit at its own address only.
  */
 export function SubNavTabs({ items, label, children }: { items: SubNavItem[]; label?: string; children?: ReactNode }) {
   const { t } = useTranslation()
@@ -36,6 +37,7 @@ export function SubNavTabs({ items, label, children }: { items: SubNavItem[]; la
         <NavLink
           key={to}
           to={href(to)}
+          end={items.some((other) => other.to.startsWith(to + '/'))}
           className={({ isActive }) =>
             `flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-[13px] font-medium transition duration-200 whitespace-nowrap shrink-0 outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring ${
               isActive

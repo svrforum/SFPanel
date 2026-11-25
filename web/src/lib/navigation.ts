@@ -21,6 +21,7 @@ import {
   Network,
   Package,
   PieChart,
+  Router,
   Server,
   Settings,
   Shield,
@@ -28,6 +29,7 @@ import {
   ShieldCheck,
   Store,
   Terminal,
+  Waypoints,
   type LucideIcon,
 } from 'lucide-react'
 
@@ -130,6 +132,13 @@ export const NAV_ITEMS: NavEntry[] = [
     ],
   },
   { to: '/cluster/running', labelKey: 'layout.nav.running', icon: Boxes, group: 'fleet', scope: 'fleet', clusterOnly: true },
+  {
+    to: '/map', labelKey: 'layout.nav.map', icon: Waypoints, group: 'fleet', scope: 'fleet',
+    tabs: [
+      { to: '/map', labelKey: 'map.tabs.devices', icon: Router },
+      { to: '/map/rack', labelKey: 'map.tabs.rack', icon: Server },
+    ],
+  },
   { to: '/cluster/tasks', labelKey: 'layout.nav.tasks', icon: ListChecks, group: 'fleet', scope: 'fleet', clusterOnly: true },
   {
     to: '/cluster', labelKey: 'layout.nav.cluster', icon: Server, group: 'fleet', scope: 'fleet',

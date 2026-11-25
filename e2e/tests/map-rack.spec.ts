@@ -1,6 +1,6 @@
 import { test, expect, type Page } from '@playwright/test'
 
-// The running page's rack view: racks the operator draws — which server,
+// The network map's rack tab: racks the operator draws — which server,
 // device or thing sits at which height — kept by every node and read as one.
 // Mocked API only: a cluster of three nodes that answer, each with its own
 // copy of the racks. Addresses are invented (10.20.30.0/24, Docker's example
@@ -57,7 +57,6 @@ interface Opts {
   refuses?: string[]
   /** Nodes whose racks are a while in coming, until the test lets them through. */
   slow?: string[]
-  view?: string
 }
 
 async function mock(page: Page, opts: Opts = {}) {
@@ -70,11 +69,10 @@ async function mock(page: Page, opts: Opts = {}) {
     release: () => {},
   }
   const held = new Promise<void>((resolve) => { state.release = resolve })
-  await page.addInitScript(({ view }) => {
+  await page.addInitScript(() => {
     sessionStorage.setItem('token', 'fixture-token')
     localStorage.setItem('sfpanel_language', 'en')
-    if (!localStorage.getItem('sfpanel-running-view')) localStorage.setItem('sfpanel-running-view', view)
-  }, { view: opts.view ?? 'rack' })
+  })
   await page.route('**/api/v1/**', async (route) => {
     const request = route.request()
     const url = new URL(request.url())
@@ -140,7 +138,7 @@ const everywhere = (list: Stored[]) => ({ 'm-1': list, 'p-1': list, 'm-2': list 
 
 test('a rack is made with a name and a height, and written to every node with one time', async ({ page }) => {
   const state = await mock(page)
-  await page.goto('/cluster/running')
+  await page.goto('/map/rack')
   await expect(page.getByText('No rack yet. Make one, and put the servers and devices at the height they really sit at.')).toBeVisible()
   await page.getByRole('button', { name: 'Add rack' }).click()
   const form = page.getByTestId('rack-new')
@@ -168,7 +166,7 @@ test('a rack is made with a name and a height, and written to every node with on
 
 test('a server put on a unit shows its ports, lit where the link is up', async ({ page }) => {
   const state = await mock(page, { racks: everywhere([rack('main', 'Main rack', EARLIER)]) })
-  await page.goto('/cluster/running')
+  await page.goto('/map/rack')
   await free(page, 1).click()
   const form = page.getByTestId('rack-add-form')
   await expect(form).toContainText('Put something at U1')
@@ -208,7 +206,7 @@ test('a server put on a unit shows its ports, lit where the link is up', async (
 
 test('a port whose link is down is not lit, and is counted so in words', async ({ page }) => {
   await mock(page, { racks: everywhere([rack('main', 'Main rack', EARLIER, { items: [{ id: 'a', u: 1, height: 1, kind: 'node', node: 'm-1' }] })]) })
-  await page.goto('/cluster/running')
+  await page.goto('/map/rack')
   const unit = things(page).first()
   await expect(unit.getByRole('img', { name: '1 of 2 ports linked' })).toBeVisible()
   await unit.click()
@@ -218,7 +216,7 @@ test('a port whose link is down is not lit, and is counted so in words', async (
 
 test('a device of the registry and plain words can be put, and what is in a rack already is not offered again', async ({ page }) => {
   const state = await mock(page, { racks: everywhere([FILLED]) })
-  await page.goto('/cluster/running')
+  await page.goto('/map/rack')
   await expect(things(page)).toHaveCount(3)
   // The switch by the name it was given; the words as written.
   await expect(page.locator('[data-testid="rack-item"][data-kind="device"]')).toContainText('Core switch')
@@ -253,7 +251,7 @@ test('a device of the registry and plain words can be put, and what is in a rack
 
 test('a thing is no taller than the free units above it', async ({ page }) => {
   await mock(page, { racks: everywhere([FILLED]) })
-  await page.goto('/cluster/running')
+  await page.goto('/map/rack')
   // U3 is free, U4 is the switch: one unit of room.
   await free(page, 3).click()
   await expect(page.getByTestId('rack-add-form').getByRole('combobox', { name: 'Height' }).getByRole('option')).toHaveText(['1U'])
@@ -264,7 +262,7 @@ test('a thing is no taller than the free units above it', async ({ page }) => {
 
 test('a thing is moved a unit at a time, made taller or shorter, and taken out — never onto another', async ({ page }) => {
   const state = await mock(page, { racks: everywhere([FILLED]) })
-  await page.goto('/cluster/running')
+  await page.goto('/map/rack')
   const sw = page.locator('[data-testid="rack-item"][data-kind="device"]')
   await sw.click()
   const panel = page.getByTestId('rack-item-panel')
@@ -300,7 +298,7 @@ test('what is done with a thing is said right under it, however tall the rack', 
     { id: 'b', u: 1, height: 1, kind: 'text', text: 'UPS' },
   ] })
   await mock(page, { racks: everywhere([tall]) })
-  await page.goto('/cluster/running')
+  await page.goto('/map/rack')
   const server = page.locator('[data-testid="rack-item"][data-kind="node"]')
   await server.click()
   const panel = page.getByTestId('rack-item-panel')
@@ -340,7 +338,7 @@ test('what is done with a thing is said right under it, however tall the rack', 
 
 test('a rack is renamed and made taller, not shorter than what is in it, and deleted after asking', async ({ page }) => {
   const state = await mock(page, { racks: everywhere([FILLED]) })
-  await page.goto('/cluster/running')
+  await page.goto('/map/rack')
   await racks(page).getByRole('button', { name: 'Edit' }).click()
   const settings = page.getByTestId('rack-settings')
   await settings.getByLabel('Height (U)').fill('6')
@@ -374,7 +372,7 @@ test('of the copies the nodes keep the one written last is the rack, a deletion 
     'p-1': [rack('a', 'New name', LATER, { units: 4 }), rack('b', '', LATER, { deleted: true })],
     'm-2': [],
   } })
-  await page.goto('/cluster/running')
+  await page.goto('/map/rack')
   await expect(racks(page)).toHaveCount(2)
   await expect(racks(page).getByRole('heading')).toHaveText(['New name', 'Only here'])
   await expect(racks(page).first()).toContainText('4U · 0 in it')
@@ -386,7 +384,7 @@ test('a change is kept when the copy it changes was written by a clock ahead of 
   // would be older than what it changes, and dropped without a word.
   const AHEAD = '2099-01-01T00:00:00.000Z'
   const state = await mock(page, { racks: everywhere([rack('main', 'Main rack', AHEAD)]) })
-  await page.goto('/cluster/running')
+  await page.goto('/map/rack')
   await free(page, 1).click()
   await page.getByTestId('rack-add-form').getByRole('button', { name: 'Put' }).click()
   await expect.poll(() => state.puts.length).toBe(3)
@@ -410,7 +408,7 @@ test('nothing is changed while a server has yet to answer: what it holds may be 
     'p-1': [rack('a', 'Old name', EARLIER), rack('b', 'Deleted since', EARLIER)],
     'm-2': [rack('a', 'New name', LATER, { items: [{ id: 'x', u: 1, height: 1, kind: 'text', text: 'UPS' }] }), rack('b', '', LATER, { deleted: true })],
   } })
-  await page.goto('/cluster/running')
+  await page.goto('/map/rack')
   // What the others hold is drawn, and said to be not all there is.
   await expect(racks(page).getByRole('heading')).toHaveText(['Deleted since', 'Old name'])
   await expect(page.getByTestId('rack-settling')).toHaveText('Waiting for the other servers to answer. Racks can be changed once all have.')
@@ -434,7 +432,7 @@ test('nothing is changed while a server has yet to answer: what it holds may be 
 
 test('nodes older than the racks are not written to, and with none that keeps racks the page says so', async ({ page }) => {
   const state = await mock(page, { old: ['p-1'] })
-  await page.goto('/cluster/running')
+  await page.goto('/map/rack')
   await page.getByRole('button', { name: 'Add rack' }).click()
   await page.getByTestId('rack-new').getByLabel('Name').fill('Main rack')
   await page.getByTestId('rack-new').getByRole('button', { name: 'Create' }).click()
@@ -445,14 +443,14 @@ test('nodes older than the racks are not written to, and with none that keeps ra
 
 test('with no node that keeps racks the page says so and offers nothing to make', async ({ page }) => {
   await mock(page, { old: ['m-1', 'p-1', 'm-2'] })
-  await page.goto('/cluster/running')
+  await page.goto('/map/rack')
   await expect(page.getByText("This server's panel version cannot keep racks. Update it to use this.")).toBeVisible()
   await expect(page.getByRole('button', { name: 'Add rack' })).toHaveCount(0)
 })
 
 test('a write every node refuses is said, and one some node takes is not', async ({ page }) => {
   await mock(page, { racks: everywhere([rack('main', 'Main rack', EARLIER)]), refuses: ['m-1', 'p-1', 'm-2'] })
-  await page.goto('/cluster/running')
+  await page.goto('/map/rack')
   await free(page, 1).click()
   await page.getByTestId('rack-add-form').getByRole('button', { name: 'Put' }).click()
   await expect(racks(page).getByRole('alert')).toContainText('Could not save. The rack could not be saved. (The rack is not valid)')
@@ -462,7 +460,7 @@ test('a write every node refuses is said, and one some node takes is not', async
 
 test('a write one node refuses and the others take stands', async ({ page }) => {
   const state = await mock(page, { racks: everywhere([rack('main', 'Main rack', EARLIER)]), refuses: ['m-2'] })
-  await page.goto('/cluster/running')
+  await page.goto('/map/rack')
   await free(page, 1).click()
   const read = state.reads.length
   await page.getByTestId('rack-add-form').getByRole('button', { name: 'Put' }).click()
@@ -474,22 +472,21 @@ test('a write one node refuses and the others take stands', async ({ page }) => 
   await expect(racks(page).getByRole('alert')).toHaveCount(0)
 })
 
-test('the view is one of four, and the choice is kept', async ({ page }) => {
-  await mock(page, { view: 'board', racks: everywhere([FILLED]) })
-  await page.goto('/cluster/running')
-  const views = page.getByRole('group', { name: 'View' })
-  await expect(views.getByRole('button')).toHaveText(['Board', 'Canvas', 'Network', 'Rack'])
-  await expect(page.getByTestId('rack-view')).toHaveCount(0)
-  await views.getByRole('button', { name: 'Rack' }).click()
-  await expect(views.getByRole('button', { name: 'Rack' })).toHaveAttribute('aria-pressed', 'true')
+test("the rack is the map's second tab", async ({ page }) => {
+  await mock(page, { racks: everywhere([FILLED]) })
+  await page.goto('/map/rack')
+  const rackTab = page.getByRole('navigation', { name: 'Network Map' }).getByRole('link', { name: 'Rack' })
+  await expect(rackTab).toHaveAttribute('aria-current', 'page')
   await expect(things(page)).toHaveCount(3)
   await page.reload()
+  await expect(page).toHaveURL(/\/map\/rack$/)
+  await expect(page.getByTestId('rack-view')).toBeVisible()
   await expect(things(page)).toHaveCount(3)
 })
 
 test('the rack is a list read from the top down, each thing a button that says where it is', async ({ page }) => {
   await mock(page, { racks: everywhere([FILLED]) })
-  await page.goto('/cluster/running')
+  await page.goto('/map/rack')
   const list = page.getByRole('list', { name: 'Rack Main rack, from the top down' })
   await expect(list).toBeVisible()
   // The patch panel at the top, then free units, the switch, a free unit, the server.
@@ -508,7 +505,7 @@ test('the rack is a list read from the top down, each thing a button that says w
 test('on a phone a rack is as wide as the screen, and nothing is cut', async ({ page }) => {
   await page.setViewportSize({ width: 360, height: 800 })
   await mock(page, { racks: everywhere([FILLED]) })
-  await page.goto('/cluster/running')
+  await page.goto('/map/rack')
   await expect(things(page)).toHaveCount(3)
   const main = page.getByRole('main')
   expect(await main.evaluate((el) => el.scrollWidth - el.clientWidth)).toBeLessThanOrEqual(0)
@@ -520,7 +517,7 @@ test('on a phone a rack is as wide as the screen, and nothing is cut', async ({ 
 
 test('one server with no cluster keeps its own racks', async ({ page }) => {
   const state = await mock(page, { cluster: false })
-  await page.goto('/running')
+  await page.goto('/map/rack')
   await page.getByRole('button', { name: 'Add rack' }).click()
   await page.getByTestId('rack-new').getByLabel('Name').fill('Shelf')
   await page.getByTestId('rack-new').getByRole('button', { name: 'Create' }).click()

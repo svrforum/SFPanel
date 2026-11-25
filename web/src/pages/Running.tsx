@@ -2,11 +2,10 @@ import { lazy, Suspense, useMemo, useState, type ReactNode } from 'react'
 import { flushSync } from 'react-dom'
 import { useTranslation } from 'react-i18next'
 import { Link } from 'react-router-dom'
-import { RefreshCw, Search } from 'lucide-react'
+import { RefreshCw } from 'lucide-react'
 import ResourceStatus from '@/components/ResourceStatus'
 import { ListLoadState } from '@/components/ListLoadState'
 import { Button } from '@/components/ui/button'
-import { Input } from '@/components/ui/input'
 import { useVisibleInterval } from '@/hooks/useVisibleInterval'
 import { filterContents, filterGuests, type Totals } from '@/lib/running'
 import { cn } from '@/lib/utils'
@@ -14,6 +13,7 @@ import { AttentionList } from './running/AttentionList'
 import { NetworkView } from './running/network/NetworkView'
 import { RackView } from './running/rack/RackView'
 import { Meters, NodeBody, NodeSection } from './running/NodeSection'
+import { SearchField } from './running/SearchField'
 import type { HeadingLevel } from './running/Heading'
 import { nodeSectionId, type Scope } from './running/targets'
 import { useClusterBoard, useFolded, useNodeBoard, useRunningView, type BoardModel, type BoardSection, type RunningView } from './running/useRunningBoard'
@@ -54,23 +54,6 @@ function TotalsRow({ totals, showNodes, loaded }: { totals: Totals; showNodes: b
         <Stat testId="total-attention" label={t('running.totals.attention')} value={String(totals.attention)} tone={totals.attention > 0 ? 'text-destructive' : undefined} />
       </dl>
       {totals.failed > 0 && <p className="text-xs text-muted-foreground">{t('running.totals.failed', { count: totals.failed })}</p>}
-    </div>
-  )
-}
-
-function SearchField({ value, onChange, network }: { value: string; onChange: (value: string) => void; network?: boolean }) {
-  const { t } = useTranslation()
-  return (
-    <div className="relative sm:max-w-xs">
-      <Search className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" aria-hidden="true" />
-      <Input
-        type="search"
-        aria-label={t(network ? 'running.network.search.label' : 'running.search.label')}
-        placeholder={t(network ? 'running.network.search.placeholder' : 'running.search.placeholder')}
-        value={value}
-        onChange={(e) => onChange(e.target.value)}
-        className="h-9 rounded-xl border-0 bg-secondary/50 pl-9 text-base md:text-[13px]"
-      />
     </div>
   )
 }

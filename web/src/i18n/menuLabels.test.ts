@@ -19,6 +19,7 @@ const KO: Record<string, string> = {
   'layout.scope.server': '서버 {{name}}', 'layout.scope.fleet': '모든 서버 · {{total}}대 중 {{online}}대 온라인',
   'layout.scope.savedFleet': '모든 서버 공통', 'layout.scope.savedServer': '{{name}}에만 저장됩니다', 'layout.scope.notFound': '찾을 수 없는 서버',
   'layout.mobileNav.menu': '메뉴',
+  'layout.nav.map': '구성도', 'map.tabs.devices': '기기', 'map.tabs.rack': '랙',
 }
 // A page's <h1> is its menu label.
 const H1: [string, string][] = [
@@ -26,7 +27,7 @@ const H1: [string, string][] = [
   ['packages.title', 'layout.nav.packages'], ['disk.title', 'layout.nav.disk'], ['cron.title', 'layout.nav.cron'],
   ['appStore.title', 'layout.nav.appstore'], ['services.title', 'layout.nav.services'], ['network.title', 'layout.nav.networkVpn'],
   ['firewall.title', 'layout.nav.firewall'], ['docker.title', 'layout.nav.docker'], ['running.title', 'layout.nav.running'],
-  ['cluster.title', 'layout.nav.cluster'], ['settings.title', 'layout.nav.settings'],
+  ['cluster.title', 'layout.nav.cluster'], ['settings.title', 'layout.nav.settings'], ['map.title', 'layout.nav.map'],
 ]
 
 describe('menu labels', () => {
