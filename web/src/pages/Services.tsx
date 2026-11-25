@@ -1,6 +1,8 @@
 import { useState, useCallback, useMemo } from 'react'
 import { useTranslation } from 'react-i18next'
+import { Link } from 'react-router-dom'
 import { useVisibleInterval } from '@/hooks/useVisibleInterval'
+import { useFleetRunHref } from '@/hooks/useServerLinks'
 import {
   Cog,
   Search,
@@ -14,6 +16,7 @@ import {
   Lock,
   ShieldAlert,
   AlertTriangle,
+  ListChecks,
 } from 'lucide-react'
 import { toast } from 'sonner'
 import { api } from '@/lib/api'
@@ -78,6 +81,7 @@ export default function Services() {
   // A unit the host needs: the action waits for its name to be typed.
   const [typedTarget, setTypedTarget] = useState<{ name: string; action: ServiceAction } | null>(null)
   const confirm = useConfirm()
+  const fleet = useFleetRunHref()
 
   // A failed poll keeps the list it has, under a note that stays until a poll
   // answers: a toast every 15 seconds said "action failed" for a list read.
@@ -237,6 +241,14 @@ export default function Services() {
           {t('services.restart')}
           {tierIcon(svc, 'restart')}
         </DropdownMenuItem>
+        {fleet && (
+          <DropdownMenuItem asChild>
+            <Link to={fleet('builtin/service-restart', { service: svc.name })}>
+              <ListChecks className="h-4 w-4 mr-2" />
+              {t('cluster.tasks.fleet.onMany')}
+            </Link>
+          </DropdownMenuItem>
+        )}
         <DropdownMenuSeparator />
         {svc.enabled === 'enabled' ? (
           <DropdownMenuItem onClick={() => handleAction(svc, 'disable')}>

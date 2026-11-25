@@ -1,6 +1,7 @@
 import { useCallback, useState } from 'react'
 import { useTranslation } from 'react-i18next'
-import { Download, Loader2, RefreshCw } from 'lucide-react'
+import { Link } from 'react-router-dom'
+import { Download, ListChecks, Loader2, RefreshCw } from 'lucide-react'
 import { toast } from 'sonner'
 import { api } from '@/lib/api'
 import { CODE_MESSAGES } from '@/lib/codeMessages'
@@ -9,6 +10,7 @@ import type { PackageUpdate as PackageInfo } from '@/types/api'
 import { Button } from '@/components/ui/button'
 import { StatusPill } from '@/components/StatusPill'
 import { useConfirm } from '@/components/ConfirmDialog'
+import { useFleetRunHref } from '@/hooks/useServerLinks'
 import type { AptTransactions } from '@/pages/packages/useAptTransaction'
 import {
   Table,
@@ -25,6 +27,7 @@ import {
 export function SystemUpdatesCard({ tx }: { tx: AptTransactions }) {
   const { t } = useTranslation()
   const confirm = useConfirm()
+  const fleet = useFleetRunHref()
   const [updates, setUpdates] = useState<PackageInfo[]>([])
   const [lastChecked, setLastChecked] = useState<string | null>(null)
   const [selectedPackages, setSelectedPackages] = useState<Set<string>>(new Set())
@@ -169,6 +172,14 @@ export function SystemUpdatesCard({ tx }: { tx: AptTransactions }) {
             >
               <Download aria-hidden="true" />
               {t('packages.upgradeSelected', { count: selectedPackages.size })}
+            </Button>
+          )}
+          {fleet && (
+            <Button asChild variant="outline" className="rounded-xl">
+              <Link to={fleet('builtin/package-update')}>
+                <ListChecks aria-hidden="true" />
+                {t('cluster.tasks.fleet.onMany')}
+              </Link>
             </Button>
           )}
           {updates.length > 0 && (

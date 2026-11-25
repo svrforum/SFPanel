@@ -1,6 +1,7 @@
 import { useCallback, useState } from 'react'
 import { useTranslation } from 'react-i18next'
-import { Download, Loader2, Package, Search, Trash2 } from 'lucide-react'
+import { Link } from 'react-router-dom'
+import { Download, ListChecks, Loader2, Package, Search, Trash2 } from 'lucide-react'
 import { toast } from 'sonner'
 import { api } from '@/lib/api'
 import type { PackageSearchResult } from '@/types/api'
@@ -9,6 +10,7 @@ import { Input } from '@/components/ui/input'
 import { StatusPill } from '@/components/StatusPill'
 import { useConfirm } from '@/components/ConfirmDialog'
 import type { SSEOutput } from '@/components/OutputDialog'
+import { useFleetRunHref } from '@/hooks/useServerLinks'
 import type { AptTransactions } from '@/pages/packages/useAptTransaction'
 import { failure } from '@/pages/packages/failure'
 import {
@@ -27,6 +29,8 @@ import {
 export function PackageSearchCard({ output, tx }: { output: SSEOutput; tx: AptTransactions }) {
   const { t } = useTranslation()
   const confirm = useConfirm()
+  // Offered for an installed package too: another server may not have it.
+  const fleet = useFleetRunHref()
   const [searchQuery, setSearchQuery] = useState('')
   const [searchResults, setSearchResults] = useState<PackageSearchResult[]>([])
   const [hasSearched, setHasSearched] = useState(false)
@@ -166,7 +170,7 @@ export function PackageSearchCard({ output, tx }: { output: SSEOutput; tx: AptTr
                         <p className="text-[12px] text-muted-foreground mt-0.5 break-words">{pkg.description}</p>
                       )}
                     </div>
-                    <div className="shrink-0">
+                    <div className="shrink-0 flex items-center gap-1">
                       {!pkg.installed ? (
                         <Button
                           size="sm"
@@ -195,6 +199,17 @@ export function PackageSearchCard({ output, tx }: { output: SSEOutput; tx: AptTr
                           ) : (
                             <Trash2 className="h-4 w-4" aria-hidden="true" />
                           )}
+                        </Button>
+                      )}
+                      {fleet && (
+                        <Button asChild size="sm" variant="outline" className="rounded-xl">
+                          <Link
+                            to={fleet('builtin/package-install', { packages: pkg.name })}
+                            aria-label={t('cluster.tasks.fleet.onManyFor', { name: pkg.name })}
+                            title={t('cluster.tasks.fleet.onMany')}
+                          >
+                            <ListChecks className="h-4 w-4" aria-hidden="true" />
+                          </Link>
                         </Button>
                       )}
                     </div>
@@ -269,6 +284,17 @@ export function PackageSearchCard({ output, tx }: { output: SSEOutput; tx: AptTr
                                   {t('packages.remove')}
                                 </>
                               )}
+                            </Button>
+                          )}
+                          {fleet && (
+                            <Button asChild size="sm" variant="outline" className="rounded-xl">
+                              <Link
+                                to={fleet('builtin/package-install', { packages: pkg.name })}
+                                aria-label={t('cluster.tasks.fleet.onManyFor', { name: pkg.name })}
+                              >
+                                <ListChecks aria-hidden="true" />
+                                {t('cluster.tasks.fleet.onMany')}
+                              </Link>
                             </Button>
                           )}
                         </div>

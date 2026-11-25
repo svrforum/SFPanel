@@ -2144,6 +2144,12 @@
           "sessionGone": "The session that ran this install is gone: the cluster leader changed, or another install started. Nothing here can undo it: remove the node on its page, and clean the server by hand.",
           "sessionGoneKept": "The session that ran this install is gone: the cluster leader changed, or another install started. Nothing here can undo it: remove the node on its page. SFPanel was on the server before, so leave the server as it is."
         }
+      },
+      "fleet": {
+        "onMany": "On several servers…",
+        "onManyFor": "{{name}}: on several servers…",
+        "runSnippet": "Run on several servers",
+        "runSnippetFor": "Run on several servers: {{text}}"
       }
     }
   },

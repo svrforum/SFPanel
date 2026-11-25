@@ -25,6 +25,7 @@ const KO: Record<string, string> = {
   'layout.scope.savedBrowser': '이 브라우저에만 저장됩니다',
   'layout.nav.tuning': '성능 튜닝',
   'layout.tabs.setup': '구성',
+  'cluster.tasks.fleet.onMany': '여러 서버에서…', 'cluster.tasks.fleet.runSnippet': '여러 서버에서 실행',
 }
 // A page's <h1> is its menu label.
 const H1: [string, string][] = [
