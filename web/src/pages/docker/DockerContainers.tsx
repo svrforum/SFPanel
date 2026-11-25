@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from 'react'
+import React, { useState, useEffect, useCallback, useRef } from 'react'
 import { useTranslation } from 'react-i18next'
 import { useSearchParams } from 'react-router-dom'
 import { Play, Square, RotateCw, Trash2, RefreshCw, Terminal, Info, Cpu, MemoryStick, Search, ChevronRight, ChevronDown, Layers, Pause, CheckSquare, Loader2, Activity, Box, AlertCircle, ChevronsDownUp, ChevronsUpDown } from 'lucide-react'
@@ -477,8 +477,11 @@ export default function DockerContainers() {
   const linkedTab = searchParams.get('tab') === 'logs' ? 'logs' : 'inspect'
   const linkedContainer = linkedId ? containers.find((container) => container.Id.startsWith(linkedId)) : undefined
   const detailContainer = linkedContainer ?? containers.find(c => c.Id === selectedContainer?.Id) ?? selectedContainer
+  // The first list dropped a link this server lacks: the notice says so until dismissed.
+  const [linkDropped, setLinkDropped] = useState(false)
   const closeDetail = (open: boolean) => {
     setDetailOpen(open)
+    if (!open) setLinkDropped(false)
     if (!open && linkedId) {
       const next = new URLSearchParams(searchParams)
       next.delete('container')
@@ -486,6 +489,22 @@ export default function DockerContainers() {
       setSearchParams(next, { replace: true })
     }
   }
+
+  // The first list after mount says whether this server has the container the
+  // address names. Switching servers remounts the page, so a container the new
+  // server lacks drops the parameter instead of a detail that cannot open, and
+  // the notice still says why nothing opened.
+  const linkChecked = useRef(false)
+  useEffect(() => {
+    if (linkChecked.current || loading) return
+    linkChecked.current = true
+    if (error || !linkedId || linkedContainer) return
+    const next = new URLSearchParams(searchParams)
+    next.delete('container')
+    next.delete('tab')
+    setSearchParams(next, { replace: true })
+    setLinkDropped(true)
+  }, [loading, error, linkedId, linkedContainer, searchParams, setSearchParams])
 
   // The locale confirm strings carry <strong> markup (from the old Trans-based
   // dialogs); useConfirm renders a plain string, so strip the tags.
@@ -1114,7 +1133,7 @@ export default function DockerContainers() {
         onCreated={fetchContainers}
       />
 
-      {linkedId && !loading && !error && !linkedContainer && (
+      {(linkDropped || (linkedId && !loading && !error && !linkedContainer)) && (
         <p role="status" className="rounded-lg border border-warning/30 p-3 text-sm text-muted-foreground">
           {t('dashboard.containerUnavailable')}
           <button type="button" onClick={() => closeDetail(false)} className="ml-2 min-h-11 rounded-md px-2 text-primary hover:underline focus-visible:outline-2 focus-visible:outline-ring">{t('dashboard.dismiss')}</button>

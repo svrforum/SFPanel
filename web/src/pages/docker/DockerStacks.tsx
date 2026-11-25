@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback, useRef, lazy, Suspense } from 'react'
 import { useTranslation } from 'react-i18next'
-import { useParams, useNavigate, useSearchParams } from 'react-router-dom'
+import { useParams, useNavigate, useSearchParams, useLocation } from 'react-router-dom'
 import {
   Plus, Play, Square, RotateCw, RefreshCw,
   Trash2, Terminal, ScrollText, FileCode, Loader2,
@@ -173,6 +173,7 @@ export default function DockerStacks() {
   const confirm = useConfirm()
   const { name: selectedName } = useParams()
   const navigate = useNavigate()
+  const location = useLocation()
   const [searchParams, setSearchParams] = useSearchParams()
   const basePath = '/docker/stacks'
 
@@ -293,6 +294,19 @@ export default function DockerStacks() {
       if (showLoading) setLoading(false)
     }
   }, [t])
+
+  // The first list after mount says whether this server has the stack the
+  // address names. Switching servers remounts the page, so a stack the new
+  // server lacks opens the list instead of an empty detail. Only that list
+  // judges, and only when it loaded: a stack opened right after it was created
+  // is never sent back.
+  const detailChecked = useRef(false)
+  useEffect(() => {
+    if (detailChecked.current || (updatedAt === null && listError === null)) return
+    detailChecked.current = true
+    if (listError !== null || !selectedName || projects.some((p) => p.name === selectedName)) return
+    navigate({ pathname: basePath, search: location.search }, { replace: true })
+  }, [updatedAt, listError, projects, selectedName, navigate, location.search])
 
   // Tracks the latest stack the user is looking at, so that in-flight fetches for
   // a previously-selected stack don't overwrite the services list when they resolve

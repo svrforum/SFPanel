@@ -33,6 +33,10 @@ interface MockOptions {
   nodesDown?: boolean
   /** A single server: cluster status says not enabled. */
   standalone?: boolean
+  /** The stacks each server runs, by node id (agent-1 runs demo unless given). */
+  compose?: Record<string, string[]>
+  /** Folders the file listing refuses, with the status: 404 NOT_FOUND, 403 PERMISSION_DENIED. */
+  files?: Record<string, 404 | 403>
 }
 
 async function mock(page: Page, opts: MockOptions = {}) {
@@ -78,18 +82,23 @@ async function mock(page: Page, opts: MockOptions = {}) {
     else if (path === '/system/overview') data = { version: '0.94.0', host: { hostname: 'm-1-host' } }
     else if (path === '/system/services') data = { services: [], total: 0 }
     else if (path === '/files/trash') data = { entries: [], retentionDays: 7 }
+    else if (path === '/files' && opts.files?.[url.searchParams.get('path') ?? '']) {
+      const status = opts.files[url.searchParams.get('path') ?? '']
+      const code = status === 404 ? 'NOT_FOUND' : 'PERMISSION_DENIED'
+      await route.fulfill({ status, json: { success: false, error: { code, message: code } } })
+      return
+    }
     else if (path === '/files') data = url.searchParams.get('path') === '/srv'
       ? [{ name: 'app', path: '/srv/app', isDir: true, size: 4096, modTime: '2026-01-01T00:00:00Z', mode: 'drwxr-xr-x', kind: 'dir', owner }]
       : []
     else if (path === '/logs/sources') data = sources
     else if (path === '/logs/read') data = { lines: [], total_lines: 0 }
-    // agent-1 runs one stack, demo; the other servers none.
-    else if (path === '/docker/compose') data = url.searchParams.get('node') === 'agent-1'
-      ? [{ name: 'demo', compose_file: 'compose.yaml', has_env: false, path: '/opt/stacks/demo', service_count: 1, running_count: 1, real_status: 'running' }]
-      : []
-    else if (path === '/docker/compose/demo') data = { name: 'demo', yaml: 'services:\n  web:\n    image: nginx\n' }
-    else if (path === '/docker/compose/demo/env') data = { content: '' }
-    else if (path === '/docker/compose/demo/services' || path === '/docker/containers') data = []
+    // agent-1 runs one stack, demo, unless the test says otherwise; the other servers none.
+    else if (path === '/docker/compose') data = (opts.compose ?? { 'agent-1': ['demo'] })[url.searchParams.get('node') ?? '']
+      ?.map((name) => ({ name, compose_file: 'compose.yaml', has_env: false, path: `/opt/stacks/${name}`, service_count: 1, running_count: 1, real_status: 'running' })) ?? []
+    else if (/^\/docker\/compose\/[^/]+$/.test(path)) data = { name: path.split('/')[3], yaml: 'services:\n  web:\n    image: nginx\n' }
+    else if (/^\/docker\/compose\/[^/]+\/env$/.test(path)) data = { content: '' }
+    else if (/^\/docker\/compose\/[^/]+\/services$/.test(path) || path === '/docker/containers') data = []
     else if (path === '/alerts/history') data = { items: [], total: 0 }
     else if (path === '/alerts/channels' || path === '/alerts/rules') data = []
     await route.fulfill({ json: { success: true, data } })
@@ -226,6 +235,38 @@ test('the old cluster Docker opens the running board', async ({ page }) => {
   await mock(page)
   await page.goto('/cluster/stacks')
   await expect(page).toHaveURL(/\/cluster\/running$/)
+})
+
+// A page keeps its place across a switch: a detail the server has stays open,
+// one it lacks gives way to the list, judged on the first list the page loads.
+test('a stack the server does not have opens the stack list', async ({ page }) => {
+  await mock(page, { compose: { 'agent-1': [] } })
+  await page.goto('/docker/stacks/photos?node=agent-1')
+  await expect(page).toHaveURL(/\/docker\/stacks\?node=agent-1$/)
+})
+
+test('a stack the server has stays open', async ({ page }) => {
+  await mock(page, { compose: { 'agent-1': ['photos'] } })
+  await page.goto('/docker/stacks/photos?node=agent-1')
+  await page.waitForTimeout(1000)
+  await expect(page).toHaveURL(/\/docker\/stacks\/photos\?node=agent-1$/)
+})
+
+test('a container the server does not have drops the parameter', async ({ page }) => {
+  await mock(page)
+  await page.goto('/docker/containers?container=zzz&tab=logs&node=agent-1')
+  await expect(page).toHaveURL(/\/docker\/containers\?node=agent-1$/)
+  // The address let go of it; the page still says why nothing opened.
+  await expect(page.getByText(/The selected container was not found/)).toBeVisible()
+})
+
+test('a folder the server does not have opens the root; a forbidden one does not', async ({ page }) => {
+  await mock(page, { files: { '/gone': 404, '/root': 403 } })
+  await page.goto('/files?path=%2Fgone&node=agent-1')
+  await expect(page).toHaveURL(/\/files\?node=agent-1$/)
+  await page.goto('/files?path=%2Froot&node=agent-1')
+  await page.waitForTimeout(800)
+  await expect(page).toHaveURL(/path=%2Froot/)
 })
 
 test.describe('phone', () => {

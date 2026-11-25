@@ -32,7 +32,7 @@ import {
   EyeOff,
 } from 'lucide-react'
 import { toast } from 'sonner'
-import { api } from '@/lib/api'
+import { api, type ApiError } from '@/lib/api'
 import { useConfirm } from '@/components/ConfirmDialog'
 import { usePrompt } from '@/components/PromptDialog'
 import { TypeToConfirmDialog } from '@/components/TypeToConfirmDialog'
@@ -200,13 +200,29 @@ export default function Files() {
   // means "stop starting new ones".
   const bulkCancelRef = useRef(false)
 
+  // The first listing after mount says whether this server has the folder the
+  // address names. Switching servers remounts the page, so a folder the new
+  // server lacks opens the root; any other refusal stays on screen as it is.
+  // The query setter is read through a ref: React Router makes a new one with
+  // every change of the query, and the listing must not reload for that.
+  const pathChecked = useRef(false)
+  const setSearchParamsRef = useRef(setSearchParams)
+  useEffect(() => { setSearchParamsRef.current = setSearchParams }, [setSearchParams])
+
   const fetchFiles = useCallback(async () => {
+    const first = !pathChecked.current
+    pathChecked.current = true
     try {
       setLoading(true)
       setLoadError(null)
       const data = await api.listFiles(currentPath)
       setFiles(data || [])
     } catch (err: unknown) {
+      if (first && currentPath !== '/' && (err as ApiError).code === 'NOT_FOUND') {
+        setSearchParamsRef.current((prev) => { prev.delete('path'); return prev }, { replace: true })
+        setCurrentPath('/')
+        return
+      }
       setLoadError(err instanceof Error ? err.message : t('files.fetchFailed'))
       setFiles([])
     } finally {
