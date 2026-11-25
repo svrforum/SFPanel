@@ -1,13 +1,16 @@
-import { useEffect, useState, useCallback } from 'react'
+import { useEffect, useState, useCallback, type ReactNode } from 'react'
 import { useTranslation } from 'react-i18next'
 import { Link } from 'react-router-dom'
-import { AlertTriangle, ExternalLink, RefreshCw } from 'lucide-react'
+import { AlertTriangle, ExternalLink, RefreshCw, Search } from 'lucide-react'
 import { Button } from '@/components/ui/button'
+import { Input } from '@/components/ui/input'
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
 import { Badge } from '@/components/ui/badge'
 import { ListLoadState } from '@/components/ListLoadState'
 import { api } from '@/lib/api'
 import type { PortMapRow } from '@/types/api'
+import { filterPortRows, type ProtoFilter } from './portRows'
 
 // Risk shared by the desktop table and the mobile cards:
 // anywhere = firewall opens the port to Anywhere in front of a container,
@@ -86,7 +89,7 @@ function ContainerLinks({
       {unique.map((c) => (
         <Link
           key={c.id}
-          to={`/docker/containers?selected=${encodeURIComponent(c.id)}`}
+          to={`/docker/containers?container=${encodeURIComponent(c.id)}`}
           className="inline-flex min-h-6 items-center gap-1 hover:text-primary outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-0"
         >
           <span className="font-medium">{c.name}</span>
@@ -100,11 +103,22 @@ function ContainerLinks({
   )
 }
 
-export function PortMapTable() {
+// The addresses a port is open on; a node older than the field names none.
+function addressText(r: PortMapRow): string {
+  return r.addresses && r.addresses.length > 0 ? r.addresses.join(', ') : '—'
+}
+
+/** Every port on this host — listening or published by Docker — with what
+ * governs it. `rowAction` draws a control at the end of a row (the desktop
+ * table's last column, the bottom of a phone card); it may return null for a
+ * row that has none. */
+export function PortMapTable({ rowAction }: { rowAction?: (row: PortMapRow) => ReactNode }) {
   const { t } = useTranslation()
   const [rows, setRows] = useState<PortMapRow[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
+  const [search, setSearch] = useState('')
+  const [proto, setProto] = useState<ProtoFilter>('all')
 
   const load = useCallback(async () => {
     try {
@@ -129,6 +143,11 @@ export function PortMapTable() {
     void load()
   }, [load])
 
+  const shown = filterPortRows(rows, search, proto)
+  const clearFilters = () => {
+    setSearch('')
+    setProto('all')
+  }
   const riskBorder = (r: PortMapRow) => {
     const risk = rowRisk(r)
     return risk ? RISK_BORDER[risk] : ''
@@ -136,11 +155,53 @@ export function PortMapTable() {
   const stateLabel = (state: string) =>
     state === 'listening' ? t('firewall.portmap.listening') : t('firewall.portmap.bound')
   // The legend names only the risks the table shows.
-  const risks = (['anywhere', 'noRule'] as const).filter((risk) => rows.some((r) => rowRisk(r) === risk))
+  const risks = (['anywhere', 'noRule'] as const).filter((risk) => shown.some((r) => rowRisk(r) === risk))
+  const columns = rowAction ? 8 : 7
+
+  // No ports at all, or none the search and filter leave: a filter that
+  // matches nothing is not "no open ports".
+  const empty = rows.length === 0 ? (
+    <p>{t('firewall.portmap.noData')}</p>
+  ) : (
+    <div className="space-y-3">
+      <p>
+        {search.trim()
+          ? t('firewall.ports.noMatch', { q: search.trim() })
+          : t('firewall.ports.noMatchFilter')}
+      </p>
+      <Button variant="outline" size="sm" className="rounded-xl" onClick={clearFilters}>
+        {t('firewall.ports.clearFilters')}
+      </Button>
+    </div>
+  )
 
   return (
     <div className="space-y-2">
-      <div className="flex justify-end">
+      {/* The search has a row of its own on a phone, where its placeholder
+          would otherwise be cut short. */}
+      <div className="flex flex-wrap items-center gap-2">
+        <div className="relative w-full sm:w-auto sm:min-w-48 sm:flex-1">
+          <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+          <Input
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            placeholder={t('firewall.ports.search')}
+            className="pl-9 h-9 rounded-xl bg-secondary/50 border-0 text-base md:text-[13px]"
+          />
+        </div>
+        <Select value={proto} onValueChange={(v) => setProto(v as ProtoFilter)}>
+          <SelectTrigger aria-label={t('firewall.ports.protocol')} className="w-28 h-9 rounded-xl text-[13px]">
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="all">{t('firewall.ports.all')}</SelectItem>
+            <SelectItem value="tcp">TCP</SelectItem>
+            <SelectItem value="udp">UDP</SelectItem>
+          </SelectContent>
+        </Select>
+        <span className="inline-flex items-center px-3 py-1 rounded-full text-[13px] font-semibold bg-primary/10 text-primary">
+          {t('firewall.ports.count', { count: shown.length })}
+        </span>
         <Button variant="outline" size="sm" onClick={refresh} disabled={loading}>
           <RefreshCw className={`h-3.5 w-3.5 mr-1 ${loading ? 'animate-spin' : ''}`} />
           {t('common.refresh')}
@@ -178,21 +239,23 @@ export function PortMapTable() {
                 <TableHead className="w-20">{t('firewall.portmap.port')}</TableHead>
                 <TableHead className="w-16">{t('firewall.portmap.protocol')}</TableHead>
                 <TableHead className="w-24">{t('firewall.portmap.state')}</TableHead>
-                <TableHead className="w-56">{t('firewall.portmap.firewall')}</TableHead>
+                <TableHead>{t('firewall.portmap.address')}</TableHead>
+                <TableHead>{t('firewall.portmap.firewall')}</TableHead>
                 <TableHead>{t('firewall.portmap.container')}</TableHead>
-                <TableHead className="w-56">{t('firewall.portmap.process')}</TableHead>
+                <TableHead>{t('firewall.portmap.process')}</TableHead>
+                {rowAction && <TableHead className="w-32 text-right">{t('common.actions')}</TableHead>}
               </TableRow>
             </TableHeader>
             <TableBody>
-              {rows.length === 0 && !loading && (
+              {shown.length === 0 && (
                 <TableRow>
-                  <TableCell colSpan={6} className="text-center text-muted-foreground py-8">
-                    {t('firewall.portmap.noData')}
+                  <TableCell colSpan={columns} className="text-center text-muted-foreground py-8">
+                    {empty}
                   </TableCell>
                 </TableRow>
               )}
-              {rows.map((r, i) => (
-                <TableRow key={i} className={riskBorder(r)}>
+              {shown.map((r) => (
+                <TableRow key={`${r.proto}/${r.port}`} className={`group ${riskBorder(r)}`}>
                   <TableCell className="font-mono">{r.port}</TableCell>
                   <TableCell>
                     <Badge variant="outline" className="text-[12px]">
@@ -207,7 +270,8 @@ export function PortMapTable() {
                       {stateLabel(r.state)}
                     </Badge>
                   </TableCell>
-                  <TableCell>
+                  <TableCell className="font-mono text-[12px] whitespace-normal">{addressText(r)}</TableCell>
+                  <TableCell className="whitespace-normal">
                     <div className="flex flex-wrap items-center gap-1.5">
                       <FirewallCell firewall={r.firewall} className="text-[12px]" />
                       <RiskBadge risk={rowRisk(r)} />
@@ -226,17 +290,18 @@ export function PortMapTable() {
                       <span className="text-muted-foreground">—</span>
                     )}
                   </TableCell>
+                  {rowAction && <TableCell className="text-right">{rowAction(r)}</TableCell>}
                 </TableRow>
               ))}
             </TableBody>
           </Table>
           {/* Mobile cards */}
           <div className="md:hidden space-y-2">
-            {rows.length === 0 && !loading && (
-              <div className="text-center text-muted-foreground py-8 text-[13px]">{t('firewall.portmap.noData')}</div>
+            {shown.length === 0 && (
+              <div className="text-center text-muted-foreground py-8 text-[13px]">{empty}</div>
             )}
-            {rows.map((r, i) => (
-              <div key={i} className={`bg-card rounded-xl p-3 card-shadow space-y-1 ${riskBorder(r)}`}>
+            {shown.map((r) => (
+              <div key={`${r.proto}/${r.port}`} className={`bg-card rounded-xl p-3 card-shadow space-y-1 ${riskBorder(r)}`}>
                 <div className="flex justify-between text-[12px]">
                   <span className="text-muted-foreground">{t('firewall.portmap.port')}</span>
                   <span className="font-mono">{r.port}</span>
@@ -255,6 +320,10 @@ export function PortMapTable() {
                   >
                     {stateLabel(r.state)}
                   </Badge>
+                </div>
+                <div className="flex justify-between gap-2 text-[12px]">
+                  <span className="text-muted-foreground shrink-0">{t('firewall.portmap.address')}</span>
+                  <span className="font-mono text-right break-all">{addressText(r)}</span>
                 </div>
                 <div className="flex justify-between gap-2 text-[12px]">
                   <span className="text-muted-foreground shrink-0">{t('firewall.portmap.firewall')}</span>
@@ -278,6 +347,8 @@ export function PortMapTable() {
                     <span className="text-muted-foreground">—</span>
                   )}
                 </div>
+                {/* A row with no action renders nothing here, and the empty box goes. */}
+                {rowAction && <div className="flex justify-end pt-1 empty:hidden">{rowAction(r)}</div>}
               </div>
             ))}
           </div>

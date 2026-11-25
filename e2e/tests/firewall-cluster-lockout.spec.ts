@@ -10,7 +10,7 @@ import { test, expect, type Page } from '@playwright/test'
 test.use({ viewport: { width: 1280, height: 800 }, locale: 'en-US' })
 
 const rules = [{ number: 1, to: '22/tcp', action: 'ALLOW IN', from: 'Anywhere', v6: false }]
-const ports = [{ protocol: 'tcp', address: '0.0.0.0', port: 3629, pid: 901, process: 'sfpanel' }]
+const ports = [{ port: 3629, proto: 'tcp', state: 'listening', firewall: null, containers: [], process: { pid: 901, name: 'sfpanel' }, addresses: ['0.0.0.0'] }]
 
 const lockout = (message: string, clusterPorts: string) => ({
   status: 409,
@@ -48,7 +48,7 @@ async function open(page: Page, at: '/firewall/rules' | '/firewall/ports', activ
     else if (path === '/cluster/status') data = { enabled: false }
     else if (path === '/firewall/status') data = { active, default_incoming: 'deny', default_outgoing: 'allow', installed: true, manager: 'ufw' }
     else if (path === '/firewall/rules') data = { rules: shown, total: shown.length }
-    else if (path === '/firewall/ports') data = { ports, total: ports.length }
+    else if (path === '/system/portmap') data = ports
     await route.fulfill({ json: { success: true, data } })
   })
   await page.routeWebSocket(/\/ws\//, () => {})
@@ -98,8 +98,8 @@ test('enabling ufw without the cluster ports names them all', async ({ page }) =
 
 test('the ports page words the same refusal and can go ahead', async ({ page }) => {
   const posts = await open(page, '/firewall/ports', true)
-  await page.getByRole('row', { name: /sfpanel/ }).getByRole('button', { name: 'Add UFW Rule' }).click()
-  await deny(page, 'Add UFW Rule')
+  await page.getByRole('row', { name: /sfpanel/ }).getByRole('button', { name: 'Add rule for 3629/TCP' }).click()
+  await deny(page, 'Add rule for 3629/TCP')
   await expectClusterLockout(page, '3629')
   await lockoutDialog(page).getByRole('button', { name: 'Proceed anyway' }).click()
   await expect.poll(() => posts).toEqual(['/firewall/rules', '/firewall/rules?force=true'])

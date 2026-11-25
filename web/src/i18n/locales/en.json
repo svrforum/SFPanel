@@ -4137,7 +4137,6 @@
     "tabs": {
       "rules": "Firewall Rules",
       "ports": "Open Ports",
-      "portmap": "Port Map",
       "fail2ban": "Access Blocking",
       "docker": "Container Port Rules"
     },
@@ -4197,25 +4196,19 @@
       "lockoutBodyCluster_other": "This would close cluster ports {{cluster_ports}}, which the other nodes use to reach this one. Allow them first, or apply it anyway only if you are sure."
     },
     "ports": {
-      "title": "Open Ports",
       "count": "{{count}} ports",
       "protocol": "Protocol",
-      "address": "Address",
-      "port": "Port",
-      "process": "Process",
-      "pid": "PID",
-      "addToUFW": "Add UFW Rule",
-      "noPorts": "No open ports",
+      "addRule": "Add Rule",
+      "addRuleFor": "Add rule for {{port}}/{{proto}}",
       "noMatch": "No ports match '{{q}}'",
       "noMatchFilter": "No ports with this protocol",
       "clearFilters": "Clear search and filter",
-      "search": "Search port, process, address…",
+      "search": "Search ports, processes, addresses, containers…",
       "sortBy": "Sort",
       "sortPort": "Port",
       "sortProcess": "Process",
       "sortProtocol": "Protocol",
-      "all": "All",
-      "fetchFailed": "Failed to load port list"
+      "all": "All"
     },
     "fail2ban": {
       "title": "Fail2ban",
@@ -4351,10 +4344,11 @@
       "notInstalled": "Docker is not installed on this host, so there are no Docker ports to filter."
     },
     "portmap": {
-      "loadFailed": "Failed to load port map.",
+      "loadFailed": "Could not load the open ports.",
       "port": "Port",
       "protocol": "Protocol",
       "state": "State",
+      "address": "Address",
       "firewall": "Firewall",
       "container": "Container",
       "process": "Process",

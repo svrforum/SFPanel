@@ -85,8 +85,8 @@
 | `/disk/network-shares` | DiskNetworkShares | O | Disk | 네트워크 드라이브(SMB/CIFS·NFS) 등록·마운트 (v0.63.0+) |
 | `/firewall` | Firewall | O | Layout | 방화벽 관리 (사이드 탭 + Outlet 구조) |
 | `/firewall/rules` | FirewallRules | O | Firewall | UFW 규칙 관리 (기본 서브라우트) |
-| `/firewall/ports` | FirewallPorts | O | Firewall | 리스닝 포트 조회 |
-| `/firewall/portmap` | FirewallPortmap | O | Firewall | 포트 맵 (UFW+Docker+프로세스 통합) |
+| `/firewall/ports` | FirewallPorts | O | Firewall | 열린 포트 — 포트 맵 표(UFW+Docker+프로세스+주소), 줄마다 규칙 추가 |
+| `/firewall/portmap` | (redirect) | O | Firewall | `/firewall/ports`로 리다이렉트 (열린 포트와 포트 맵이 표 하나로 합쳐짐, 예전 북마크용) |
 | `/firewall/fail2ban` | FirewallFail2ban | O | Firewall | Fail2ban jail 관리 |
 | `/firewall/docker` | FirewallDocker | O | Firewall | Docker 방화벽 (DOCKER-USER 체인) |
 | `/firewall/logs` | (redirect) | O | Firewall | `/logs?source=firewall`로 리다이렉트 (방화벽 › 로그 탭은 로그 화면으로 흡수, 예전 북마크용) |
@@ -459,22 +459,23 @@ const DockerStacks = lazy(() => import('@/pages/docker/DockerStacks'))
 ### Firewall
 - **파일**: `web/src/pages/Firewall.tsx`
 - **기능**: 방화벽(UFW) 및 Fail2ban 침입 방지 시스템 관리
-  - 탭 구조: 방화벽 규칙, 열린 포트, 포트 맵, 접속 차단, 컨테이너 포트 규칙 (방화벽 로그는 로그 화면의 `firewall` 소스 — `/firewall/logs`는 `/logs?source=firewall`로 리다이렉트)
+  - 탭 구조: 방화벽 규칙, 열린 포트, 접속 차단, 컨테이너 포트 규칙 (포트 맵은 열린 포트 탭 — `/firewall/portmap`은 `/firewall/ports`로 리다이렉트; 방화벽 로그는 로그 화면의 `firewall` 소스 — `/firewall/logs`는 `/logs?source=firewall`로 리다이렉트)
   - **방화벽 규칙 탭** (`FirewallRules`): UFW 활성화/비활성화 토글, 규칙 목록 테이블 (번호/대상/동작/소스/코멘트/IPv6), 규칙 추가 다이얼로그 (action/port/protocol/from/to/comment), 규칙 삭제 확인 다이얼로그. 활성화·추가·삭제·편집이 잠금 방지 가드에 거부되면 `useLockoutGuard` 확인 창(클러스터 포트면 제목도 클러스터에서 끊길 수 있다는 문구이고 SSH 접근 기준 경고 문단은 빠진다); 편집의 "그래도 진행"은 새 규칙 추가와 이전 규칙 삭제 둘 다 `?force=true`
-  - **열린 포트 탭** (`FirewallPorts`): 리스닝 TCP/UDP 포트 목록 테이블 (프로토콜/주소/포트/PID/프로세스), 선택한 포트로 UFW 규칙 직접 추가 기능 (잠금 방지 거부는 규칙 탭과 같은 `useLockoutGuard` 확인 창 — `details.cluster_ports`면 클러스터 포트 문구와 제목, 8006이면 Proxmox 문구, "그래도 진행"은 `?force=true`)
+  - **열린 포트 탭** (`FirewallPorts`): `PortMapTable` 하나 — 포트/프로토콜/상태/주소/방화벽/컨테이너/프로세스(PID), 검색(포트·프로토콜·프로세스·PID·주소·컨테이너·스택, `filterPortRows`)과 프로토콜 필터, 컨테이너 링크는 `/docker/containers?container=<id>`. 주소를 말하지 않는 옛 노드의 줄은 주소 칸이 `—`. ufw가 관리하는 호스트(`manager`가 `ufw`이거나 없음)에서만 듣는 줄(`state === 'listening'`, `canAddRule`)마다 `규칙 추가` → `AddPortRuleDialog`(동작·출발지·메모; Docker가 리스너 없이 게시한 `bound` 줄은 컨테이너 포트 규칙 탭 몫이라 없음). 열 정렬은 없다 (잠금 방지 거부는 규칙 탭과 같은 `useLockoutGuard` 확인 창 — `details.cluster_ports`면 클러스터 포트 문구와 제목, 8006이면 Proxmox 문구, "그래도 진행"은 `?force=true`)
   - **접속 차단 탭** (`FirewallFail2ban`): Fail2ban 설치 상태 확인 및 원클릭 설치, jail 템플릿에서 생성, jail 목록 테이블 (이름/활성/차단수/총차단수), jail 상세 (설정값, 차단 IP 목록), jail 활성화/비활성화, jail 설정 편집, jail 삭제, IP 차단 해제
 - **탭 구성**:
   - rules (기본값) -> FirewallRules
   - ports -> FirewallPorts
-  - portmap -> FirewallPortmap
+  - portmap -> `/firewall/ports`로 리다이렉트
   - fail2ban -> FirewallFail2ban
   - docker -> FirewallDocker
   - logs -> `/logs?source=firewall`로 리다이렉트
-- **사용 API**: `api.getFirewallStatus()`, `api.enableFirewall()`, `api.disableFirewall()`, `api.getFirewallRules()`, `api.addFirewallRule()`, `api.deleteFirewallRule()`, `api.getListeningPorts()`, `api.getFail2banStatus()`, `api.installFail2ban()`, `api.getFail2banTemplates()`, `api.createFail2banJail()`, `api.deleteFail2banJail()`, `api.getFail2banJails()`, `api.getFail2banJailDetail()`, `api.updateFail2banJailConfig()`, `api.enableFail2banJail()`, `api.disableFail2banJail()`, `api.unbanFail2banIP()`
+- **사용 API**: `api.getFirewallStatus()`, `api.enableFirewall()`, `api.disableFirewall()`, `api.getFirewallRules()`, `api.addFirewallRule()`, `api.deleteFirewallRule()`, `api.getPortMap()`, `api.getFail2banStatus()`, `api.installFail2ban()`, `api.getFail2banTemplates()`, `api.createFail2banJail()`, `api.deleteFail2banJail()`, `api.getFail2banJails()`, `api.getFail2banJailDetail()`, `api.updateFail2banJailConfig()`, `api.enableFail2banJail()`, `api.disableFail2banJail()`, `api.unbanFail2banIP()`
 - **사용 컴포넌트**: Tabs, TabsList, TabsTrigger, TabsContent, Table, Dialog, Button, Input, Select (shadcn/ui)
 - **서브 컴포넌트 파일**:
   - `web/src/pages/firewall/FirewallRules.tsx` — UFW 규칙 관리
-  - `web/src/pages/firewall/FirewallPorts.tsx` — 리스닝 포트 조회
+  - `web/src/pages/firewall/FirewallPorts.tsx` — 열린 포트 (`PortMapTable` + 줄마다 규칙 추가)
+  - `web/src/pages/firewall/AddPortRuleDialog.tsx` — 한 포트의 UFW 규칙 추가 대화상자 (`useLockoutGuard`)
   - `web/src/pages/firewall/FirewallFail2ban.tsx` — Fail2ban 관리
   - `web/src/pages/firewall/FirewallDocker.tsx` — 컨테이너 포트 규칙 (DOCKER-USER 체인) 관리
 
@@ -598,7 +599,7 @@ const DockerStacks = lazy(() => import('@/pages/docker/DockerStacks'))
 | GitImportForm | `web/src/components/compose/GitImportForm.tsx` | GitHub repo에서 compose 파일 임포트 폼 (`api.importFromGit`) |
 | DiffSheet (+DiffCategoryList/DiffServiceRow/DiffSummaryHeader) | `web/src/components/compose/DiffSheet.tsx` 외 | 스택 업데이트 변경 미리보기 슬라이드오버 (check-updates 결과 렌더) |
 | HealthcheckComposerDialog | `web/src/components/compose/HealthcheckComposerDialog.tsx` | 서비스별 healthcheck 설정 컴포저 (적용/제거/테스트) |
-| PortMapTable | `web/src/components/portmap/PortMapTable.tsx` | 포트 맵 통합 테이블 (UFW+Docker+프로세스; 모바일 카드 폴백 포함) |
+| PortMapTable | `web/src/components/portmap/PortMapTable.tsx` | 포트 맵 통합 테이블 (UFW+Docker+프로세스+주소; 검색·프로토콜 필터는 `portRows.ts`, 줄 끝 동작은 `rowAction`; 모바일 카드 폴백 포함) |
 | MigrateStackDialog | `web/src/pages/docker/components/MigrateStackDialog.tsx` | (v0.46.0) 노드 간 스택 마이그레이션 다이얼로그 — 데이터+이미지 전송, v0.50.0 사전 점검 게이트, v0.51.0 전송 속도 제한 |
 
 > **횡단 UI 패턴 (v0.33.0~v0.37.0)**
@@ -912,7 +913,6 @@ interface UseWebSocketOptions {
 | `getFirewallRules()` | GET | `/firewall/rules` | `{ rules: UFWRule[], total }` | UFW 규칙 목록 |
 | `addFirewallRule(data)` | POST | `/firewall/rules` | `{ message, output }` | UFW 규칙 추가 |
 | `deleteFirewallRule(number)` | DELETE | `/firewall/rules/{number}` | `{ message }` | UFW 규칙 삭제 |
-| `getListeningPorts()` | GET | `/firewall/ports` | `{ ports: ListeningPort[], total }` | 리스닝 포트 목록 |
 | `getPortMap(node?)` | GET | `/system/portmap` | (호스트 포트별 통합 뷰) | 포트 맵 — UFW 규칙 + Docker DNAT + 호스트 프로세스 통합 조회 |
 | `getGuests(node?)` | GET | `/system/guests` | `PveGuest[]` | Proxmox VE 노드의 가상 머신·LXC (Proxmox가 아니면 `[]`, 목록을 못 받으면 500 `PVE_GUESTS_ERROR`, 이전 버전 노드는 404) |
 

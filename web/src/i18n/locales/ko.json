@@ -4118,7 +4118,6 @@
     "tabs": {
       "rules": "방화벽 규칙",
       "ports": "열린 포트",
-      "portmap": "포트 맵",
       "fail2ban": "접속 차단",
       "docker": "컨테이너 포트 규칙"
     },
@@ -4178,25 +4177,19 @@
       "lockoutBodyCluster_other": "이렇게 하면 다른 노드가 이 노드에 접속할 때 쓰는 클러스터 포트({{cluster_ports}})가 닫힙니다. 먼저 허용하거나, 확실할 때만 그대로 적용하세요."
     },
     "ports": {
-      "title": "열린 포트",
       "count": "{{count}}개 포트",
       "protocol": "프로토콜",
-      "address": "주소",
-      "port": "포트",
-      "process": "프로세스",
-      "pid": "PID",
-      "addToUFW": "UFW 규칙 추가",
-      "noPorts": "열린 포트가 없습니다",
+      "addRule": "규칙 추가",
+      "addRuleFor": "{{port}}/{{proto}} 규칙 추가",
       "noMatch": "'{{q}}'에 맞는 포트가 없습니다",
       "noMatchFilter": "이 프로토콜의 포트가 없습니다",
       "clearFilters": "검색과 필터 지우기",
-      "search": "포트, 프로세스, 주소 검색…",
+      "search": "포트, 프로세스, 주소, 컨테이너 검색…",
       "sortBy": "정렬",
       "sortPort": "포트",
       "sortProcess": "프로세스",
       "sortProtocol": "프로토콜",
-      "all": "전체",
-      "fetchFailed": "포트 목록을 불러올 수 없습니다"
+      "all": "전체"
     },
     "fail2ban": {
       "title": "Fail2ban",
@@ -4332,10 +4325,11 @@
       "notInstalled": "이 호스트에는 Docker가 설치되어 있지 않아 걸러낼 Docker 포트가 없습니다."
     },
     "portmap": {
-      "loadFailed": "포트 맵을 불러올 수 없습니다.",
+      "loadFailed": "열린 포트를 불러올 수 없습니다.",
       "port": "포트",
       "protocol": "프로토콜",
       "state": "상태",
+      "address": "주소",
       "firewall": "방화벽",
       "container": "컨테이너",
       "process": "프로세스",

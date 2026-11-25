@@ -2481,10 +2481,6 @@ class ApiClient {
     return this.request<{ message: string }>(`/firewall/rules/${number}${force ? '?force=true' : ''}`, { method: 'DELETE' })
   }
 
-  getListeningPorts() {
-    return this.request<{ ports: Array<{ protocol: string; address: string; port: number; pid: number; process: string }>; total: number }>('/firewall/ports')
-  }
-
   // Fail2ban
   getFail2banStatus() {
     return this.request<{ installed: boolean; running: boolean; version: string }>('/fail2ban/status')

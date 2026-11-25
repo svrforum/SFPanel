@@ -480,14 +480,6 @@ export interface AddRuleRequest {
   comment: string
 }
 
-export interface ListeningPort {
-  protocol: string
-  address: string
-  port: number
-  pid: number
-  process: string
-}
-
 // Fail2ban
 export interface Fail2banStatus {
   installed: boolean

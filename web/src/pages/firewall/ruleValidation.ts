@@ -1,5 +1,5 @@
 // Shared input validation for the two UFW rule entry points
-// (FirewallRules add/edit dialogs and the FirewallPorts add-to-UFW dialog).
+// (FirewallRules add/edit dialogs and the open ports' AddPortRuleDialog).
 
 // Port validation: number, range (8000:8080), or service name — or a list of
 // numbers and ranges (80,443,8000:8080), which the field's example has always

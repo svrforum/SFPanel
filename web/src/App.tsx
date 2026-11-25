@@ -40,7 +40,6 @@ const DiskNetworkShares = lazy(() => import('@/pages/disk/DiskNetworkShares'))
 const Firewall = lazy(() => import('@/pages/Firewall'))
 const FirewallRules = lazy(() => import('@/pages/firewall/FirewallRules'))
 const FirewallPorts = lazy(() => import('@/pages/firewall/FirewallPorts'))
-const FirewallPortmap = lazy(() => import('@/pages/firewall/FirewallPortmap'))
 const FirewallFail2ban = lazy(() => import('@/pages/firewall/FirewallFail2ban'))
 const FirewallDocker = lazy(() => import('@/pages/firewall/FirewallDocker'))
 const Cluster = lazy(() => import('@/pages/Cluster'))
@@ -251,7 +250,7 @@ export default function App() {
                   <Route index element={<Navigate to="rules" replace />} />
                   <Route path="rules" element={<FirewallRules />} />
                   <Route path="ports" element={<FirewallPorts />} />
-                  <Route path="portmap" element={<FirewallPortmap />} />
+                  <Route path="portmap" element={<Navigate to="/firewall/ports" replace />} />
                   <Route path="fail2ban" element={<FirewallFail2ban />} />
                   <Route path="docker" element={<FirewallDocker />} />
                   <Route path="logs" element={<Navigate to="/logs?source=firewall" replace />} />
