@@ -368,7 +368,7 @@ const md0 = { name: 'md0', level: 'raid1', state: 'clean, degraded', size: 1e12,
 test('a degraded RAID array is one line that opens the RAID tab', async ({ page }) => {
   await fixture(page, async (route, url) => url.pathname.endsWith('/raid') ? (await route.fulfill({ json: { success: true, data: [md0] } }), true) : false)
   await page.goto('/dashboard')
-  const line = page.getByRole('region', { name: 'Needs Attention', exact: true }).getByRole('link', { name: /RAID array degraded · md0/ })
+  const line = page.getByRole('region', { name: 'Needs Attention', exact: true }).getByRole('link', { name: /RAID array needs attention · md0/ })
   await line.click()
   await expect(page).toHaveURL(/\/disk\/raid/)
   // The tab colours the state by the same reading.

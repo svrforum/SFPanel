@@ -4887,7 +4887,7 @@
       "textLabel": "이름",
       "textPlaceholder": "패치 패널, UPS…",
       "noNodes": "올릴 서버가 없습니다. 모두 랙에 있습니다.",
-      "noDevices": "올릴 기기가 없습니다. 네트워크 보기에서 스캔하면 기기가 생깁니다.",
+      "noDevices": "올릴 기기가 없습니다. 구성도 › 기기에서 스캔하면 기기가 생깁니다.",
       "height": "높이",
       "heightUnits": "{{count}}U",
       "put": "올리기",

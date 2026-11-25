@@ -422,7 +422,7 @@ test('the dashboard RAID line names the server shown', async ({ page }) => {
     { name: 'md0', level: 'raid1', state: 'clean, degraded', size: 1e12, devices: [], active: 1, total: 2, failed: 1, spare: 0 },
   ] } }))
   await page.goto('/dashboard?node=agent-1')
-  const line = page.getByRole('region', { name: 'Needs Attention', exact: true }).getByRole('link', { name: /RAID array degraded · md0/ })
+  const line = page.getByRole('region', { name: 'Needs Attention', exact: true }).getByRole('link', { name: /RAID array needs attention · md0/ })
   await expect(line).toHaveAttribute('href', '/disk/raid?node=agent-1')
 })
 
