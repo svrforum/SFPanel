@@ -37,10 +37,13 @@ interface MockOptions {
   compose?: Record<string, string[]>
   /** Folders the file listing refuses, with the status: 404 NOT_FOUND, 403 PERMISSION_DENIED. */
   files?: Record<string, 404 | 403>
+  /** The node list's answers in the order asked: how long each takes, a server it leaves out, or a 503. Later asks answer as usual. */
+  nodesAnswers?: { delay: number; without?: string; down?: boolean }[]
 }
 
 async function mock(page: Page, opts: MockOptions = {}) {
   const requests: string[] = []
+  let nodesAsked = 0
   await page.addInitScript((storage) => {
     sessionStorage.setItem('token', 'fixture-token')
     localStorage.setItem('i18nextLng', 'en')
@@ -70,12 +73,14 @@ async function mock(page: Page, opts: MockOptions = {}) {
       ? { enabled: false }
       : { enabled: true, name: 'lab', node_count: 4, leader_id: 'm-1', local_id: 'm-1', is_leader: true }
     else if (path === '/cluster/nodes') {
-      if (opts.nodesDown) {
+      const answer = opts.nodesAnswers?.[nodesAsked++]
+      if (opts.nodesDown || answer?.down) {
+        if (answer) await new Promise((resolve) => setTimeout(resolve, answer.delay))
         await route.fulfill({ status: 503, json: { success: false, error: { code: 'CLUSTER_NOT_LEADER', message: 'leader unreachable' } } })
         return
       }
-      await new Promise((resolve) => setTimeout(resolve, opts.nodesDelay ?? 600))
-      data = { nodes, local_id: 'm-1', is_leader: true }
+      await new Promise((resolve) => setTimeout(resolve, answer?.delay ?? opts.nodesDelay ?? 600))
+      data = { nodes: nodes.filter((n) => n.id !== answer?.without), local_id: 'm-1', is_leader: true }
     }
     else if (path === '/cluster/overview') data = { name: 'lab', node_count: 4, leader_id: 'm-1', nodes, metrics: [] }
     else if (path === '/cluster/events') data = { events: [] }
@@ -178,6 +183,64 @@ test('an unknown server falls back to the attached one once the list says so', a
   await expect.poll(() => requests.some((r) => r.startsWith('/system/services') && r.includes('node=gone'))).toBe(true)
   await expect(page).toHaveURL(/\/services\?node=m-1$/)
   expect(await stored(page)).toBeNull()
+})
+
+// The node list is asked for by a poll, on every open of the picker and when
+// a page changes the cluster, and the answers can land out of order. An
+// answer asked before the newest one may not know a server the newer one
+// does: it must not judge the server shown missing and switch away from it.
+const nodesAnswered = (page: Page) => {
+  const answered = { count: 0 }
+  page.on('requestfinished', (r) => { if (new URL(r.url()).pathname === '/api/v1/cluster/nodes') answered.count++ })
+  return answered
+}
+const askNodesAgain = async (page: Page, requests: string[]) => {
+  await expect.poll(() => requests.filter((r) => r === '/cluster/nodes').length).toBe(1)
+  await page.evaluate(() => window.dispatchEvent(new Event('sfpanel:cluster-changed')))
+  await expect.poll(() => requests.filter((r) => r === '/cluster/nodes').length).toBe(2)
+}
+
+test('an older node list that lands last is dropped', async ({ page }) => {
+  // The first ask, from before agent-1 joined, answers after the second.
+  const requests = await mock(page, { storage: CLUSTER, nodesAnswers: [{ delay: 2500, without: 'agent-1' }, { delay: 200 }] })
+  const answered = nodesAnswered(page)
+  await page.goto('/services?node=agent-1')
+  await askNodesAgain(page, requests)
+  await expect.poll(() => answered.count, { timeout: 5000 }).toBe(2)
+  await page.waitForTimeout(500)
+  await expect(page).toHaveURL(/\/services\?node=agent-1$/)
+  expect(await stored(page)).toBe('agent-1')
+  await expect(page.getByText('Server not found')).toHaveCount(0)
+  // The newer list is the one shown: it knows agent-1's role.
+  await expect(page.getByRole('button', { name: 'Choose a server: agent-1' })).toHaveAccessibleDescription(/^Agent \(group web\)/)
+})
+
+test('an older failure that lands last leaves the newer list', async ({ page }) => {
+  const requests = await mock(page, { storage: CLUSTER, nodesAnswers: [{ delay: 2500, down: true }, { delay: 200 }] })
+  const answered = nodesAnswered(page)
+  await page.goto('/services?node=m-1')
+  await expect.poll(() => requests.filter((r) => r === '/cluster/nodes').length).toBe(1)
+  // Opening the picker asks again.
+  await page.getByRole('button', { name: /Choose a server/ }).click()
+  const pop = page.getByRole('dialog')
+  await expect(pop.getByRole('button', { name: /^agent-1\b/ })).toBeVisible()
+  await expect.poll(() => answered.count, { timeout: 5000 }).toBe(2)
+  await page.waitForTimeout(300)
+  await expect(pop.getByText('Server list unavailable')).toHaveCount(0)
+})
+
+test('an older node list that lands while a newer one is asked judges nothing', async ({ page }) => {
+  const requests = await mock(page, { storage: CLUSTER, nodesAnswers: [{ delay: 1200, without: 'agent-1' }, { delay: 2500 }] })
+  const answered = nodesAnswered(page)
+  await page.goto('/services?node=agent-1')
+  await askNodesAgain(page, requests)
+  await expect.poll(() => answered.count, { timeout: 5000 }).toBe(1)
+  await page.waitForTimeout(500)
+  await expect(page).toHaveURL(/\/services\?node=agent-1$/)
+  expect(await stored(page)).toBe('agent-1')
+  await expect.poll(() => answered.count, { timeout: 5000 }).toBe(2)
+  await expect(page.getByRole('button', { name: 'Choose a server: agent-1' })).toBeVisible()
+  expect(await stored(page)).toBe('agent-1')
 })
 
 test('a list that cannot be had judges nothing', async ({ page }) => {

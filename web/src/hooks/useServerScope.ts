@@ -91,14 +91,27 @@ export function useServerScopeState({ clusterEnabled, status, hostname }: {
   }, [localId])
 
   const listed = clusterEnabled === true
+  // A poll, an open of the picker and a page that changed the cluster each
+  // ask, and the answers can land out of order. The latest ask, and the ask
+  // whose answer is shown.
+  const asked = useRef(0)
+  const shownAnswer = useRef(0)
   const loadNodes = useCallback(() => {
     if (!listed) return
+    const ask = ++asked.current
     api.getClusterNodes()
       .then((data) => {
+        // Older than the list shown: dropped.
+        if (ask < shownAnswer.current) return
+        shownAnswer.current = ask
         setNodes(data.nodes)
         setNodesError(false)
         const before = lastNodes.current
         lastNodes.current = data.nodes
+        // Only the latest ask judges: an older answer may predate a server
+        // the newer one knows. It is still shown, so a leader slower than the
+        // poll still refreshes the list.
+        if (ask !== asked.current) return
         // The server shown is not in the cluster (removed, or a stale
         // address): every page would be told "Node not found". Show the
         // attached one instead. An empty list says nothing about who is in it.
@@ -111,7 +124,11 @@ export function useServerScopeState({ clusterEnabled, status, hostname }: {
       // Keep the last good list: a leader that cannot be reached is not a
       // cluster without servers, and nothing is judged missing from a list
       // that did not come.
-      .catch(() => setNodesError(true))
+      .catch(() => {
+        if (ask < shownAnswer.current) return
+        shownAnswer.current = ask
+        setNodesError(true)
+      })
   }, [listed, select])
 
   useVisibleInterval(loadNodes, 15000)
