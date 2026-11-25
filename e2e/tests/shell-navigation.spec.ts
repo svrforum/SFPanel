@@ -65,9 +65,9 @@ test('a new section takes focus to its view, but a first load and a tab inside o
   expect(await activeId(page)).toBe('BODY')
 
   // A tab within the section keeps focus on the tab just pressed.
-  await page.getByRole('tab', { name: 'System' }).click()
+  await page.getByRole('tab', { name: 'Updates & Backups' }).click()
   await expect(page).toHaveURL(/tab=system/)
-  await expect(page.getByRole('tab', { name: 'System' })).toBeFocused()
+  await expect(page.getByRole('tab', { name: 'Updates & Backups' })).toBeFocused()
 
   // Another section: focus moves off the menu to the view.
   await page.getByRole('navigation').getByRole('link', { name: 'Cluster', exact: true }).click()

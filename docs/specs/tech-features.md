@@ -98,7 +98,7 @@
   - Docker 컨테이너 요약 (실행 중/중지/전체 카운트 + 최근 컨테이너 상태; "전체 보기" → `/docker`)
   - Top 프로세스 (CPU 사용률 기준, 10초 간격 자동 갱신)
   - 최근 시스템 로그 — **syslog / 방화벽 로그 탭 토글** (각 8 / 50줄; "전체 보기"는 로그 화면을 보고 있던 소스로 연다 — `/logs?source=syslog`·`/logs?source=firewall`)
-  - **업데이트 배너**: `update_info.latest_version`가 현재 버전보다 높으면 상단 배너 표시 → `/settings?scope=node&tab=system`로 이동
+  - **업데이트 배너**: `update_info.latest_version`가 현재 버전보다 높으면 상단 배너 표시 → `/settings?tab=system`로 이동
   - 사용자 지정 바로가기 (v0.78.0+)
 - **관련 엔드포인트**: `GET /system/overview`(통합), `GET /system/info`·`GET /system/metrics-history`(개별, 하위호환 유지), top 프로세스/컨테이너/로그 조회, `/ws/metrics`(클러스터 래핑 WS)
 - **관련 기술**: gopsutil v4, gorilla/websocket, uPlot, Echo WebSocket, Raft 클러스터 프록시(`?node=`)
@@ -451,7 +451,7 @@
   - **튜닝**: 터미널 유휴 타임아웃(분), 최대 업로드 크기(MB) — per-node `settings`; sysctl 튜닝(적용/확인/리셋, 60초 자동 롤백)
   - **알림**: 채널(Discord/Telegram/Webhook) CRUD + 테스트, 규칙 CRUD, 이력 조회/삭제
   - **감사**: 감사 로그 조회/삭제 (§17)
-  - **클러스터 스코프 분기**: `scope=node` 시 per-node 탭(시스템·감사)만, 그 외 클러스터 전역 탭(계정·알림)만 노출하고 스코프 배지('이 노드'/'클러스터 전체')를 표시. 보안(비밀번호/2FA)은 FSM 복제 admin 행에 반영
+  - **탭과 저장 범위**: 두 모드 모두 6탭 — 계정 · 언어·테마 · 업데이트·백업 · HTTPS 인증서 · 알림 · 감사 로그. 계정(비밀번호/2FA)은 FSM 복제 admin 행, 언어·테마는 브라우저, 나머지 넷은 서버마다(`?node=`). 클러스터 모드에서는 화면 위 범위 줄이 탭마다 저장되는 곳을 말한다. 옛 `?scope=node` 주소는 같은 탭으로 replace된다(`?scope=node` → `?tab=system`)
   - 키-값 설정 저장 (SQLite `settings` 테이블, UPSERT)
 - **관련 기술**: i18next, bcrypt, TOTP (pquerna/otp), SQLite
 

@@ -253,7 +253,7 @@ export default function Layout() {
   const update = clusterEnabled === true
     ? (updateCount > 0 ? { label: t('layout.updateCount', { count: updateCount }), to: '/cluster/overview' } : null)
     : (updateAvailable ? { label: t('layout.updateAvailable'), to: '/settings?tab=system' } : null)
-  const versionTo = clusterEnabled === true ? '/settings?scope=node&tab=system' : '/settings?tab=system'
+  const versionTo = '/settings?tab=system'
 
   const handleLogout = () => {
     // Fire-and-forget — even if the server is unreachable we still want to

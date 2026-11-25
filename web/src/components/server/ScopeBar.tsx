@@ -50,7 +50,15 @@ export function ScopeBar() {
     const online = nodes.filter((n) => n.status === 'online').length
     scope = <p>{nodes.length > 0 ? t('layout.scope.fleet', { total: nodes.length, online }) : t('layout.groups.fleet')}</p>
   } else {
-    scope = <p>{kind === 'savedFleet' ? t('layout.scope.savedFleet') : t('layout.scope.savedServer', { name: currentName })}</p>
+    scope = (
+      <p>
+        {kind === 'savedFleet'
+          ? t('layout.scope.savedFleet')
+          : kind === 'savedBrowser'
+            ? t('layout.scope.savedBrowser')
+            : t('layout.scope.savedServer', { name: currentName })}
+      </p>
+    )
   }
 
   // Edge to edge across the view's padding (Layout's <main>: px-5 py-4, md:p-8).

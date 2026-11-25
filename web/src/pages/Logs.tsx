@@ -409,7 +409,7 @@ export default function Logs() {
               {[
                 { to: '/services', label: t('layout.nav.services') },
                 { to: '/cron', label: t('layout.nav.cron') },
-                { to: '/settings?scope=node&tab=audit', label: t('settings.tabAuditLog') },
+                { to: '/settings?tab=audit', label: t('settings.tabAuditLog') },
               ].map((link) => (
                 <li key={link.to}>
                   <Link

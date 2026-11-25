@@ -21,6 +21,8 @@ const KO: Record<string, string> = {
   'layout.mobileNav.menu': '메뉴',
   'layout.nav.map': '구성도', 'map.tabs.devices': '기기', 'map.tabs.rack': '랙',
   'settings.alerts.ruleType.lanNewDevice': '구성도: 새 기기',
+  'settings.tabBrowser': '언어·테마', 'settings.tabSystem': '업데이트·백업', 'settings.tabHttps': 'HTTPS 인증서',
+  'layout.scope.savedBrowser': '이 브라우저에만 저장됩니다',
 }
 // A page's <h1> is its menu label.
 const H1: [string, string][] = [

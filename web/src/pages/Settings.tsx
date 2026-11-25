@@ -1,8 +1,8 @@
 import { useState, useEffect, lazy, Suspense } from 'react'
 import { useTranslation } from 'react-i18next'
-import { Link, useSearchParams } from 'react-router-dom'
+import { Navigate, useLocation, useSearchParams } from 'react-router-dom'
 import { api } from '@/lib/api'
-import { cn } from '@/lib/utils'
+import { SETTINGS_TABS, settingsRedirect, settingsTab, settingsTabScope, type SettingsTab } from '@/lib/settingsTabs'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { ListLoadState } from '@/components/ListLoadState'
 
@@ -16,13 +16,20 @@ const TLSCertificate = lazy(() => import('@/pages/settings/TLSCertificate'))
 const AlertSettings = lazy(() => import('@/pages/settings/AlertSettings'))
 const Audit = lazy(() => import('@/pages/settings/Audit'))
 
-// Consolidated to 4 tabs (was 6): account merges security + general(language);
-// system merges maintenance(update/backup) + performance(limits). Alerts and
-// audit stay as-is.
-const VALID_TABS = ['account', 'system', 'alerts', 'audit']
+const TAB_LABEL: Record<SettingsTab, string> = {
+  account: 'settings.tabAccount',
+  browser: 'settings.tabBrowser',
+  system: 'settings.tabSystem',
+  https: 'settings.tabHttps',
+  alerts: 'settings.tabAlerts',
+  audit: 'settings.tabAuditLog',
+}
 
+// The same six tabs in both modes. Where a tab's values are saved is said
+// once, by the scope line above the page in a cluster, not here.
 export default function Settings() {
   const { t } = useTranslation()
+  const location = useLocation()
   const [searchParams, setSearchParams] = useSearchParams()
   // Starts from the mode the shell last read (Layout keeps it under this key)
   // and keeps it when this read fails: a failure used to lay a cluster
@@ -40,53 +47,23 @@ export default function Settings() {
       .catch((err: unknown) => setStatusError(err instanceof Error ? err.message : String(err)))
   }, [statusAttempt])
 
-  // In cluster mode: filter tabs by context.
-  //   ?scope=node → per-node SQLite settings: system (update/backup + terminal
-  //                 timeout + upload limit, all node-local) and audit.
-  //   otherwise   → cluster-wide settings: account only (password/2FA hit the
-  //                 replicated FSM admin row; language is browser-local).
-  //                 Single-node deployments show all 4 (no scope split).
-  //
-  // Alerts moved to the node scope because that is where they actually live.
-  // alert_rules and alert_channels are ordinary local SQLite tables — nothing
-  // in internal/cluster replicates them — and the evaluator reads the local
-  // database every sixty seconds. Presenting them as cluster-wide meant a rule
-  // created here existed on no other node, while the rule form's node picker
-  // offered to target one of those other nodes, producing a rule that lived
-  // where it could never be evaluated and reported itself Active forever.
-  const scope = searchParams.get('scope')
-  const isNodeScope = clusterEnabled && scope === 'node'
-  const visibleTabs = clusterEnabled
-    ? (isNodeScope ? ['system', 'alerts', 'audit'] : ['account'])
-    : VALID_TABS
+  // The address is the open tab.
+  const tab = settingsTab(location.search)
+  const redirect = settingsRedirect(location.search)
 
-  const defaultTab = visibleTabs[0]
-  const requestedTab = searchParams.get('tab') || ''
-  const initialTab = visibleTabs.includes(requestedTab) ? requestedTab : defaultTab
-  const [activeTab, setActiveTab] = useState(initialTab)
-
-  // Sync active tab when visible tabs change (cluster status loaded).
-  // setState inside an effect is intentional here: this is a derived
-  // correction — when the cluster check resolves, the previously chosen
-  // activeTab may no longer be in visibleTabs, so we move it. A render-
-  // phase derivation would still need to call setState to persist the
-  // chosen tab across handleTabChange clicks.
-  useEffect(() => {
-    if (!visibleTabs.includes(activeTab)) {
-      // eslint-disable-next-line react-hooks/set-state-in-effect
-      setActiveTab(visibleTabs[0])
-    }
-  }, [visibleTabs.join(',')]) // eslint-disable-line react-hooks/exhaustive-deps
-
+  // Every other parameter stays, except the server on a tab no server holds
+  // (the account, the language and theme). On a server's tab the shell puts
+  // the shown server back.
   const handleTabChange = (value: string) => {
-    setActiveTab(value)
-    if (value === visibleTabs[0]) {
-      searchParams.delete('tab')
-    } else {
-      searchParams.set('tab', value)
-    }
-    setSearchParams(searchParams, { replace: true })
+    const next = new URLSearchParams(searchParams)
+    if (value === 'account') next.delete('tab')
+    else next.set('tab', value)
+    if (settingsTabScope(value as SettingsTab) !== 'server') next.delete('node')
+    setSearchParams(next, { replace: true })
   }
+
+  // An old ?scope= address opens the tab it meant, in its place.
+  if (redirect !== null) return <Navigate replace to={{ pathname: '/settings', search: redirect }} />
 
   const fallback = (
     <div className="p-8 text-muted-foreground text-[13px]">{t('common.loading')}</div>
@@ -97,35 +74,6 @@ export default function Settings() {
       <div>
         <h1 className="text-[22px] font-bold tracking-tight">{t('settings.title')}</h1>
         <p className="text-[13px] text-muted-foreground mt-1">{t('settings.subtitle')}</p>
-        {/* In cluster mode the page has two halves and each entry point opens
-            one of them: the desktop sidebar has a link to each, but a phone's
-            More menu and the Android app reach only one, so the account half —
-            password and 2FA — was unreachable from a phone. The page itself
-            now offers both, whichever door it was opened by. */}
-        {clusterEnabled && (
-          <nav aria-label={t('settings.scopeLabel')} className="mt-4 grid grid-cols-2 gap-1 rounded-xl bg-secondary/50 p-1 sm:inline-grid sm:min-w-[28rem]">
-            {[
-              { node: false, to: '/settings', label: t('settings.scopeCluster'), hint: t('settings.scopeClusterHint') },
-              { node: true, to: '/settings?scope=node', label: t('settings.scopeNode'), hint: t('settings.scopeNodeHint') },
-            ].map((s) => {
-              const current = s.node === isNodeScope
-              return (
-                <Link
-                  key={s.to}
-                  to={s.to}
-                  aria-current={current ? 'page' : undefined}
-                  className={cn(
-                    'rounded-lg px-3 py-2 text-left transition-colors',
-                    current ? 'bg-background shadow-sm' : 'text-muted-foreground hover:text-foreground',
-                  )}
-                >
-                  <span className="block text-[13px] font-medium">{s.label}</span>
-                  <span className="block text-[12px] text-muted-foreground">{s.hint}</span>
-                </Link>
-              )
-            })}
-          </nav>
-        )}
       </div>
 
       {statusError && (
@@ -137,26 +85,31 @@ export default function Settings() {
         />
       )}
 
-      <Tabs value={activeTab} onValueChange={handleTabChange} className="w-full">
-        {/* One tab (the cluster-wide half) is no choice: the strip is not drawn. */}
-        <TabsList className={cn('bg-secondary/50 rounded-xl p-1 h-auto', visibleTabs.length === 1 && 'hidden')}>
-          {visibleTabs.includes('account') && <TabsTrigger value="account" className="rounded-lg text-[13px] px-4 py-2">{t('settings.tabAccount')}</TabsTrigger>}
-          {visibleTabs.includes('system') && <TabsTrigger value="system" className="rounded-lg text-[13px] px-4 py-2">{t('settings.tabSystem')}</TabsTrigger>}
-          {visibleTabs.includes('alerts') && <TabsTrigger value="alerts" className="rounded-lg text-[13px] px-4 py-2">{t('settings.tabAlerts')}</TabsTrigger>}
-          {visibleTabs.includes('audit') && <TabsTrigger value="audit" className="rounded-lg text-[13px] px-4 py-2">{t('settings.tabAuditLog')}</TabsTrigger>}
+      <Tabs value={tab} onValueChange={handleTabChange} className="w-full">
+        {/* The list scrolls sideways on a phone; the tabs keep their width. */}
+        <TabsList className="bg-secondary/50 rounded-xl p-1 h-auto">
+          {SETTINGS_TABS.map((id) => (
+            <TabsTrigger key={id} value={id} className="shrink-0 rounded-lg text-[13px] px-4 py-2">{t(TAB_LABEL[id])}</TabsTrigger>
+          ))}
         </TabsList>
 
         <TabsContent value="account">
-          <Suspense fallback={fallback}>{activeTab === 'account' && (<><Security /><General /></>)}</Suspense>
+          <Suspense fallback={fallback}>{tab === 'account' && <Security />}</Suspense>
+        </TabsContent>
+        <TabsContent value="browser">
+          <Suspense fallback={fallback}>{tab === 'browser' && <General />}</Suspense>
         </TabsContent>
         <TabsContent value="system">
-          <Suspense fallback={fallback}>{activeTab === 'system' && (<><TLSCertificate /><Maintenance clusterEnabled={clusterEnabled} /><Performance /></>)}</Suspense>
+          <Suspense fallback={fallback}>{tab === 'system' && (<><Maintenance clusterEnabled={clusterEnabled} /><Performance /></>)}</Suspense>
+        </TabsContent>
+        <TabsContent value="https">
+          <Suspense fallback={fallback}>{tab === 'https' && <TLSCertificate />}</Suspense>
         </TabsContent>
         <TabsContent value="alerts">
-          <Suspense fallback={fallback}>{activeTab === 'alerts' && <AlertSettings />}</Suspense>
+          <Suspense fallback={fallback}>{tab === 'alerts' && <AlertSettings />}</Suspense>
         </TabsContent>
         <TabsContent value="audit">
-          <Suspense fallback={fallback}>{activeTab === 'audit' && <Audit />}</Suspense>
+          <Suspense fallback={fallback}>{tab === 'audit' && <Audit />}</Suspense>
         </TabsContent>
       </Tabs>
     </div>

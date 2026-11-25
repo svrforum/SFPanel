@@ -64,18 +64,25 @@ it('keeps a page\'s own parameters and their order', () => {
 it('says which screens carry the server', () => {
   expect(scopeKind('/processes', '')).toBe('server'); expect(scopeKind('/terminal', '')).toBe('server')
   expect(scopeKind('/cluster/running', '')).toBe('fleet'); expect(scopeKind('/cluster/nodes', '')).toBe('fleet')
-  expect(scopeKind('/settings', '?tab=account')).toBe('savedFleet'); expect(scopeKind('/settings', '?scope=node&tab=alerts')).toBe('savedServer')
   expect(scopeKind('/no-such-page', '')).toBeNull()
   expect([carriesNode('/logs', ''), carriesNode('/settings', '?scope=node'), carriesNode('/settings', ''), carriesNode('/cluster/overview', '')])
     .toEqual([true, true, false, false])
 })
 
+it('says where each settings tab is saved', () => {
+  expect(scopeKind('/settings', '')).toBe('savedFleet'); expect(scopeKind('/settings', '?tab=account')).toBe('savedFleet')
+  expect(scopeKind('/settings', '?tab=browser')).toBe('savedBrowser')
+  expect([scopeKind('/settings', '?tab=alerts'), scopeKind('/settings', '?tab=https'), scopeKind('/settings', '?scope=node')])
+    .toEqual(['savedServer', 'savedServer', 'savedServer'])
+  expect([carriesNode('/settings', '?tab=browser'), carriesNode('/settings', '?tab=audit')]).toEqual([false, true])
+})
+
 it('names the server shown in a server link, in a cluster only', () => {
   expect(menuHref('/services', true, 'agent-1')).toBe('/services?node=agent-1')
-  expect(menuHref('/settings?scope=node&tab=system', true, 'm-1')).toBe('/settings?scope=node&tab=system&node=m-1')
+  expect(menuHref('/settings?tab=system', true, 'm-1')).toBe('/settings?tab=system&node=m-1')
   // The pages about all servers and account settings name no server.
-  expect([menuHref('/cluster', true, 'm-1'), menuHref('/cluster/overview', true, 'm-1'), menuHref('/settings', true, 'm-1')])
-    .toEqual(['/cluster', '/cluster/overview', '/settings'])
+  expect([menuHref('/cluster', true, 'm-1'), menuHref('/cluster/overview', true, 'm-1'), menuHref('/settings', true, 'm-1'), menuHref('/settings?tab=browser', true, 'm-1')])
+    .toEqual(['/cluster', '/cluster/overview', '/settings', '/settings?tab=browser'])
   // A single server, or an attached server whose id is not known yet.
   expect([menuHref('/services', false, 'm-1'), menuHref('/services', true, '')]).toEqual(['/services', '/services'])
 })

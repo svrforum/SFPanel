@@ -151,6 +151,8 @@ async function mock(page: Page, opts: Opts = {}) {
     scheduled: [] as { node: string; body: Record<string, unknown> }[],
     /** Reads of the scanning node's status left before the scan ends. */
     left: 0,
+    /** The node= of every read of the alert settings: '' for none. */
+    alertReads: [] as string[],
   }
   await page.addInitScript(() => {
     sessionStorage.setItem('token', 'fixture-token')
@@ -267,6 +269,10 @@ async function mock(page: Page, opts: Opts = {}) {
       }
     }
     else if (path === '/docker/compose' || path === '/docker/containers') return fail(503, 'DOCKER_UNAVAILABLE', 'Docker is not available on this node')
+    else if (path === '/alerts/channels' || path === '/alerts/rules' || path === '/alerts/history') {
+      state.alertReads.push(url.searchParams.get('node') ?? '')
+      data = []
+    }
     else if (/batch|history|events|metrics/.test(path)) data = []
     await route.fulfill({ json: { success: true, data } })
   })
@@ -1011,13 +1017,20 @@ test('a device can be watched, and its card says it is', async ({ page }) => {
 })
 
 test('watching links to the alert rules of the server that scans by itself', async ({ page }) => {
-  await mock(page, { schedules: { 'm-2': { interval_minutes: 60, ports_daily: false } } })
+  const state = await mock(page, { schedules: { 'm-2': { interval_minutes: 60, ports_daily: false } } })
   await page.goto('/map')
   const nas = device(page, 15)
   await nas.locator('summary').click()
   const rules = nas.getByTestId('net-label-form').getByRole('link', { name: 'Alert rules on delta-node' })
   // The rule has to be made on m-2: it is m-2's scans that judge the device, not this server's.
   await expect(rules).toHaveAttribute('href', '/settings?tab=alerts&node=m-2')
+
+  await rules.click()
+  await expect(page).toHaveURL(/\/settings\?tab=alerts&node=m-2$/)
+  await expect(page.getByRole('tab', { name: 'Alerts' })).toHaveAttribute('aria-selected', 'true')
+  await expect.poll(() => state.alertReads.length).toBeGreaterThan(0)
+  // Every read is of m-2's alerts: a rule made here lands on the server whose scans judge the device.
+  expect(state.alertReads.every((n) => n === 'm-2')).toBe(true)
 })
 
 test('without a schedule the rules are those of the server that scanned last', async ({ page }) => {

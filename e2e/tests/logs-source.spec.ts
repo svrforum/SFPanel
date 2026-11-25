@@ -118,5 +118,5 @@ test('other records are a link away', async ({ page }) => {
   const other = page.getByRole('navigation', { name: 'Other records' })
   await expect(other.getByRole('link', { name: 'Services', exact: true })).toHaveAttribute('href', '/services')
   await expect(other.getByRole('link', { name: 'Scheduled Tasks', exact: true })).toHaveAttribute('href', '/cron')
-  await expect(other.getByRole('link', { name: 'Audit Log', exact: true })).toHaveAttribute('href', '/settings?scope=node&tab=audit')
+  await expect(other.getByRole('link', { name: 'Audit Log', exact: true })).toHaveAttribute('href', '/settings?tab=audit')
 })

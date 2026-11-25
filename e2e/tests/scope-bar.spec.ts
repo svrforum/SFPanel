@@ -118,6 +118,8 @@ test('settings say where they are saved', async ({ page }) => {
   await mock(page, { storage: { sfpanel_current_node: 'agent-1' } })
   await page.goto('/settings')
   await expect(bar(page)).toContainText('Same on every server')
+  await page.goto('/settings?tab=browser')
+  await expect(bar(page)).toContainText('Saved in this browser only')
   await page.goto('/settings?scope=node')
   await expect(bar(page)).toContainText('Saved on agent-1 only')
 })

@@ -254,8 +254,8 @@ test('a list that cannot be had judges nothing', async ({ page }) => {
 
 test("a page's own parameters survive the server in the address", async ({ page }) => {
   await mock(page, { storage: { sfpanel_current_node: 'agent-1' } })
-  await page.goto('/settings?scope=node&tab=alerts')
-  await expect(page).toHaveURL(/\/settings\?scope=node&tab=alerts&node=agent-1$/)
+  await page.goto('/settings?tab=alerts')
+  await expect(page).toHaveURL(/\/settings\?tab=alerts&node=agent-1$/)
   // The account half acts on no one server: nothing is added.
   await page.goto('/settings?tab=account')
   await page.waitForTimeout(800)

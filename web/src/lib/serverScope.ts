@@ -1,4 +1,5 @@
 import { navOwner } from '@/lib/navigation'
+import { settingsTab, settingsTabScope } from '@/lib/settingsTabs'
 
 /** The last cluster status answer to "is this panel in a cluster": 'true' or 'false'; absent before the first one. */
 export const CLUSTER_MODE_KEY = 'sfpanel-cluster-mode'
@@ -15,9 +16,9 @@ export const RETIRED_KEYS = ['sfpanel-cluster-selection', 'sfpanel-cluster-tree-
 
 /**
  * What a screen acts on: one server, all of them, or saved settings — the
- * ones every server shares, or one server's own.
+ * ones every server shares, the ones this browser keeps, or one server's own.
  */
-export type ScopeKind = 'server' | 'fleet' | 'savedFleet' | 'savedServer'
+export type ScopeKind = 'server' | 'fleet' | 'savedFleet' | 'savedBrowser' | 'savedServer'
 
 /** The server the address names; null without one or with an empty one. */
 export function nodeParam(search: string): string | null {
@@ -55,7 +56,7 @@ export function hrefWithNode(href: string, id: string): string {
   return path + searchWithNode(search, id)
 }
 
-/** What the screen at this address acts on; null for one no menu entry claims. Settings act on one server only with scope=node. */
+/** What the screen at this address acts on; null for one no menu entry claims. Settings say where the open tab's values are saved. */
 export function scopeKind(pathname: string, search: string): ScopeKind | null {
   const owner = navOwner(pathname)
   if (!owner) return null
@@ -65,7 +66,7 @@ export function scopeKind(pathname: string, search: string): ScopeKind | null {
     case 'fleet':
       return 'fleet'
     case 'mixed':
-      return new URLSearchParams(search).get('scope') === 'node' ? 'savedServer' : 'savedFleet'
+      return ({ fleet: 'savedFleet', browser: 'savedBrowser', server: 'savedServer' } as const)[settingsTabScope(settingsTab(search))]
   }
 }
 
