@@ -291,7 +291,9 @@ export default function DockerStacks() {
       setListError(msg)
       toast.error(msg)
     } finally {
-      if (showLoading) setLoading(false)
+      // Any answer ends the loading state: the first list arrives in the
+      // background, and the list starts out loading.
+      setLoading(false)
     }
   }, [t])
 

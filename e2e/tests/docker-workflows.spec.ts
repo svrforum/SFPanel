@@ -172,6 +172,17 @@ test('mobile shell sends control keys, resizes, and reconnects explicitly', asyn
  await expect.poll(()=>sockets).toBe(count+1)
 })
 
+// The first stack list loads in the background, as every later one does, and
+// it used to leave the list loading for good: Refresh stayed disabled and a
+// server without stacks never said so.
+test('the first stack list finishes loading: an empty one says so and Refresh works', async ({page,context}) => {
+ await fixture(context)
+ await page.route('**/api/v1/docker/compose', route=>route.fulfill({json:{success:true,data:[]}}))
+ await page.goto('/docker/stacks')
+ await expect(page.getByText('No stacks found').filter({visible:true})).toBeVisible()
+ await expect(page.getByRole('button',{name:'Refresh',exact:true})).toBeEnabled()
+})
+
 test('failed refresh retains the last successful resource list', async ({page,context}) => {
  await fixture(context)
  await page.goto('/docker/images')
