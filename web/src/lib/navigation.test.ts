@@ -1,73 +1,61 @@
 import { describe, expect, it } from 'vitest'
-import { BOTTOM_NAV_ITEMS, MORE_MENU_ITEMS, NAV_ITEMS, NODE_MENU_ITEMS, TERMINAL_ROUTES, documentTitle, isServerSection, isTerminalRoute } from './navigation'
+import ko from '../i18n/locales/ko.json'
+import en from '../i18n/locales/en.json'
+import { BOTTOM_NAV_ITEMS, NAV_ITEMS, TERMINAL_ROUTES, documentTitle, isTerminalRoute, navFor, navOwner, navTabs, pageTitleKey } from './navigation'
 
-describe('NAV_ITEMS registry', () => {
-  it('has a unique route per entry', () => {
-    const routes = NAV_ITEMS.map((i) => i.to)
-    expect(new Set(routes).size).toBe(routes.length)
+const at = (tree: unknown, key: string): unknown =>
+  key.split('.').reduce<unknown>((n, p) => (n && typeof n === 'object' ? (n as Record<string, unknown>)[p] : undefined), tree)
+
+const CLUSTER = ['/terminal', '/dashboard', '/docker', '/files', '/logs', '/services', '/network', '/firewall', '/disk', '/cluster/running', '/cluster/tasks', '/cluster', '/settings']
+
+describe('the menu', () => {
+  it('lists 13 entries in a cluster and 11 on a single server, in sidebar order', () => {
+    expect(navFor(true).map((e) => e.to)).toEqual(CLUSTER)
+    expect(navFor(false).map((e) => e.to)).toEqual(CLUSTER.filter((to) => to !== '/cluster/running' && to !== '/cluster/tasks'))
   })
 
-  it('gives every entry a label key and an icon', () => {
-    for (const item of NAV_ITEMS) {
-      expect(item.to.startsWith('/')).toBe(true)
-      expect(item.labelKey).toMatch(/^layout\.nav\./)
-      // lucide-react components are forwardRef objects, not plain functions.
-      expect(item.icon).toBeTruthy()
-    }
-  })
-})
-
-describe('BOTTOM_NAV_ITEMS', () => {
-  // BOTTOM_NAV_ITEMS is built by looking each route up with a non-null
-  // assertion, so a route renamed in NAV_ITEMS without updating the order list
-  // would silently produce `undefined` holes rather than a build error.
-  it('resolves every route in the explicit order list', () => {
-    expect(BOTTOM_NAV_ITEMS.every(Boolean)).toBe(true)
+  it('groups nine server entries, then all-servers, then settings', () => {
+    expect(navFor(true).map((e) => e.group)).toEqual([...Array(9).fill('server'), 'fleet', 'fleet', 'fleet', 'tail'])
   })
 
-  it('lists the four mobile tabs with terminal before logs', () => {
-    expect(BOTTOM_NAV_ITEMS.map((i) => i.to)).toEqual(['/dashboard', '/docker', '/terminal', '/logs'])
+  it('keeps the bottom bar and its order', () => {
+    expect(BOTTOM_NAV_ITEMS.map((e) => e.to)).toEqual(['/dashboard', '/docker', '/terminal', '/logs'])
   })
 
-  it('matches exactly the entries flagged bottomNav in the registry', () => {
-    const flagged = NAV_ITEMS.filter((i) => i.bottomNav).map((i) => i.to)
-    expect(new Set(BOTTOM_NAV_ITEMS.map((i) => i.to))).toEqual(new Set(flagged))
-  })
-})
-
-describe('MORE_MENU_ITEMS', () => {
-  it('is the exact complement of the bottom bar', () => {
-    const bottom = new Set(BOTTOM_NAV_ITEMS.map((i) => i.to))
-    expect(MORE_MENU_ITEMS.some((i) => bottom.has(i.to))).toBe(false)
-    expect(MORE_MENU_ITEMS.length + BOTTOM_NAV_ITEMS.length).toBe(NAV_ITEMS.length)
+  it('gives system four tabs, the cluster three, the dashboard two, Docker six ending in the app store', () => {
+    expect(navTabs('/services').map((t) => t.to)).toEqual(['/services', '/processes', '/cron', '/packages'])
+    expect(navTabs('/cluster').map((t) => t.to)).toEqual(['/cluster/overview', '/cluster/nodes', '/cluster/security'])
+    expect(navTabs('/dashboard').map((t) => t.to)).toEqual(['/dashboard', '/running'])
+    expect(navTabs('/docker').map((t) => t.to).at(-1)).toBe('/appstore')
+    expect(navTabs('/docker')).toHaveLength(6)
   })
 
-  it('preserves registry order', () => {
-    const expected = NAV_ITEMS.filter((i) => !i.bottomNav).map((i) => i.to)
-    expect(MORE_MENU_ITEMS.map((i) => i.to)).toEqual(expected)
-  })
-})
-
-describe('NODE_MENU_ITEMS', () => {
-  it('drops the cluster page', () => {
-    expect(NODE_MENU_ITEMS.map((i) => i.to)).not.toContain('/cluster')
-    expect(NODE_MENU_ITEMS.length).toBe(NAV_ITEMS.length - 1)
-  })
-
-  it('scopes settings to the node', () => {
-    const settings = NODE_MENU_ITEMS.filter((i) => i.to.startsWith('/settings'))
-    expect(settings.map((i) => i.to)).toEqual(['/settings?scope=node'])
+  it('finds the owner by the longest match', () => {
+    expect(navOwner('/processes')).toMatchObject({ entry: { to: '/services' }, tab: { to: '/processes' } })
+    expect(navOwner('/cluster/running')?.entry.to).toBe('/cluster/running')
+    expect(navOwner('/cluster/tasks/runs/7')?.entry.to).toBe('/cluster/tasks')
+    expect(navOwner('/cluster/nodes')).toMatchObject({ entry: { to: '/cluster' }, tab: { to: '/cluster/nodes' } })
+    expect(navOwner('/docker/stacks/web')?.tab?.to).toBe('/docker/stacks')
+    // An entry that leads to its own first tab: the tab, so the page is titled by it.
+    expect(navOwner('/services')).toMatchObject({ entry: { to: '/services' }, tab: { to: '/services' } })
+    expect(navOwner('/servicesx')).toBeNull()
+    expect(navOwner('/no-such-page')).toBeNull()
   })
 
-  it('keeps every other route untouched and in registry order', () => {
-    const expected = NAV_ITEMS.filter((i) => i.to !== '/cluster').map((i) =>
-      i.to === '/settings' ? '/settings?scope=node' : i.to
-    )
-    expect(NODE_MENU_ITEMS.map((i) => i.to)).toEqual(expected)
+  it('titles a page by its own tab where it has one, otherwise by its section', () => {
+    expect(pageTitleKey('/processes')).toBe('layout.nav.processes')
+    expect(pageTitleKey('/services')).toBe('layout.nav.services')
+    expect(pageTitleKey('/running')).toBe('layout.tabs.runningHere')
+    expect(pageTitleKey('/appstore/x')).toBe('layout.nav.appstore')
+    expect(pageTitleKey('/network/wireguard')).toBe('layout.nav.networkVpn')
+    expect(pageTitleKey('/dashboard')).toBe('layout.nav.dashboard')
+    expect(pageTitleKey('/cluster/running')).toBe('layout.nav.running')
+    expect(pageTitleKey('/')).toBeNull()
   })
 
-  it('does not mutate the shared registry entries', () => {
-    expect(NAV_ITEMS.find((i) => i.labelKey === 'layout.nav.settings')?.to).toBe('/settings')
+  it('resolves every label key in ko and en', () => {
+    const keys = NAV_ITEMS.flatMap((e) => [e.labelKey, ...(e.mobileLabelKey ? [e.mobileLabelKey] : []), ...(e.tabs ?? []).map((t) => t.labelKey)])
+    for (const tree of [ko, en]) expect(keys.filter((key) => typeof at(tree, key) !== 'string')).toEqual([])
   })
 })
 
@@ -97,14 +85,4 @@ describe('documentTitle', () => {
   it('names the page, the server, then the product', () => expect(documentTitle('Docker', 'node-b')).toBe('Docker · node-b · SFPanel'))
   it('leaves the server out when there is none', () => expect(documentTitle('Docker', null)).toBe('Docker · SFPanel'))
   it('is the product alone without a page', () => expect(documentTitle(null, 'node-b')).toBe('SFPanel'))
-})
-
-describe('isServerSection', () => {
-  it('is true for the pages that act on one server', () => {
-    for (const to of ['/dashboard', '/running', '/docker', '/appstore', '/terminal', '/logs', '/firewall']) expect(isServerSection(to)).toBe(true)
-  })
-  it('is false for the cluster page and settings', () => {
-    expect(isServerSection('/cluster')).toBe(false)
-    expect(isServerSection('/settings')).toBe(false)
-  })
 })

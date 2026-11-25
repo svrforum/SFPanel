@@ -13,6 +13,8 @@ const KO: Record<string, string> = {
   'cluster.overview.rollingUpdate': '패널 순차 업데이트', 'cluster.overview.simultaneousUpdate': '패널 동시 업데이트',
   'appStore.updateAvailable': '새 버전 있음', 'docker.images.checkUpdates': '새 이미지 확인',
   'settings.update': '패널 업데이트', 'running.empty.appStore': '앱스토어',
+  'layout.nav.system': '시스템', 'layout.nav.tasks': '그룹 작업', 'cluster.nav.nodes': '서버 목록',
+  'layout.tabs.summary': '요약', 'layout.tabs.runningHere': '실행 중인 항목',
 }
 // A page's <h1> is its menu label.
 const H1: [string, string][] = [

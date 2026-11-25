@@ -71,7 +71,13 @@
       "terminal": "터미널",
       "appstore": "앱스토어",
       "cluster": "클러스터",
-      "settings": "설정"
+      "settings": "설정",
+      "system": "시스템",
+      "tasks": "그룹 작업"
+    },
+    "tabs": {
+      "summary": "요약",
+      "runningHere": "실행 중인 항목"
     },
     "logout": "로그아웃",
     "collapse": "사이드바 접기",
@@ -1002,7 +1008,7 @@
     "nav": {
       "overview": "개요",
       "running": "실행 현황",
-      "nodes": "노드",
+      "nodes": "서버 목록",
       "stacks": "Docker",
       "security": "키 교체",
       "tasks": "그룹 작업"

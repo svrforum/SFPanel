@@ -1,15 +1,14 @@
 import { useState, useEffect, useCallback, useLayoutEffect, useMemo, useRef } from 'react'
-import { Link, NavLink, Outlet, useNavigate, useLocation } from 'react-router-dom'
+import { Link, Outlet, useNavigate, useLocation } from 'react-router-dom'
 import { LogOut, PanelLeftClose, PanelLeftOpen, Coffee, ArrowUpCircle } from 'lucide-react'
 
 import GithubIcon from '@/components/GithubIcon'
 import { useTranslation } from 'react-i18next'
 import { api } from '@/lib/api'
 import { cn } from '@/lib/utils'
-import { NAV_ITEMS, documentTitle, isServerSection, isTerminalRoute } from '@/lib/navigation'
+import { documentTitle, isTerminalRoute, navFor, navOwner, pageTitleKey } from '@/lib/navigation'
 import { selectedNodeName } from '@/lib/clusterNodes'
 import { keepTitlePrefix } from '@/lib/aiSessions'
-import { CLUSTER_TAB_ITEMS } from '@/components/cluster/datacenterMenu'
 import { useTerminalCompact, useTerminalFocus } from '@/lib/terminalLayout'
 import { NODE_CHANGED, type NodeChangedDetail } from '@/lib/nodeSelection'
 import { useVisibleInterval } from '@/hooks/useVisibleInterval'
@@ -22,7 +21,7 @@ import BottomNav from '@/components/BottomNav'
 import MoreMenu from '@/components/MoreMenu'
 import type { ClusterNode, ClusterStatus, DashboardOverview } from '@/types/api'
 
-const navItems = NAV_ITEMS
+const navItems = navFor(false)
 
 const SIDEBAR_KEY = 'sfpanel-sidebar-collapsed'
 const CLUSTER_MODE_KEY = 'sfpanel-cluster-mode'
@@ -77,18 +76,17 @@ export default function Layout() {
   const sidebarHidden = isTerminal && (terminalCompact || terminalFocus)
 
   // The page's own name in the tab and the history list: it said "SFPanel" on
-  // every route. A section's sub-pages carry the section's name, except a
-  // cluster tab that is a screen of its own.
-  const within = (to: string) => location.pathname === to || location.pathname.startsWith(to + '/')
-  const section = navItems.find((i) => within(i.to))
-  const ownTab = CLUSTER_TAB_ITEMS.find((i) => i.ownTitle && within(i.to))
-  const pageLabel = ownTab ? t(ownTab.labelKey) : section ? t(section.labelKey) : location.pathname === '/' ? null : t('layout.notFound.title')
+  // every route. A menu entry's pages carry the entry's name, except a tab
+  // that is a screen of its own.
+  const owner = navOwner(location.pathname)
+  const titleKey = pageTitleKey(location.pathname)
+  const pageLabel = titleKey ? t(titleKey) : location.pathname === '/' ? null : t('layout.notFound.title')
   // In a cluster, a server page also names the server it acts on: the one
   // picked, else the one this panel runs on. Read at render — a node switch
-  // re-renders through nodeKey. The cluster's own screens and settings act on
-  // no one server, and a server whose name the list has not given is left out.
+  // re-renders through nodeKey. The pages about all servers and settings act
+  // on no one server, and a server whose name the list has not given is left out.
   const serverName = clusterEnabled === true ? selectedNodeName(clusterNodes, api.currentNode, clusterStatus?.local_id ?? '') : null
-  const serverInTitle = !!section && !ownTab && isServerSection(section.to)
+  const serverInTitle = owner?.entry.scope === 'server'
   const pageTitle = documentTitle(pageLabel, serverInTitle ? serverName : null)
   // Twice, around the terminal page's own effect, which prefixes "(n) " to the
   // title it finds and takes the prefix off again on cleanup. The layout
@@ -107,11 +105,11 @@ export default function Layout() {
   // Moving to another section takes focus to the new view, as a page load
   // would: it was left on the link in the sidebar or on <body>, so a keyboard
   // or screen-reader user started from the top of the menu again. Not on the
-  // first load, not for a sub-tab or a query string within one section (the
+  // first load, not for a tab or a query string within one menu entry (the
   // tab just pressed keeps focus), and not when the page already put focus
   // somewhere inside the view itself (the terminal, an autofocused field).
   const mainRef = useRef<HTMLElement>(null)
-  const sectionKey = section?.to ?? location.pathname
+  const sectionKey = owner?.entry.to ?? location.pathname
   const shownSection = useRef(sectionKey)
   useEffect(() => {
     if (shownSection.current === sectionKey) return
@@ -280,25 +278,29 @@ export default function Layout() {
         </div>
 
         <nav className={cn('flex-1 min-h-0 overflow-y-auto no-scrollbar space-y-0.5', collapsed ? 'px-2' : 'px-3')}>
-          {navItems.map((item) => (
-            <NavLink
-              key={item.to}
-              to={item.to}
-              title={collapsed ? t(item.labelKey) : undefined}
-              className={({ isActive }) =>
-                cn(
+          {navItems.map((item) => {
+            // The entry a page belongs to, tabs included: /processes lights
+            // System, /cluster/nodes lights Cluster.
+            const active = owner?.entry === item
+            return (
+              <Link
+                key={item.to}
+                to={item.to}
+                aria-current={active ? 'page' : undefined}
+                title={collapsed ? t(item.labelKey) : undefined}
+                className={cn(
                   'relative flex items-center rounded-xl text-[13px] font-medium transition duration-200 outline-none focus-visible:ring-2 focus-visible:ring-ring',
                   collapsed ? 'justify-center px-0 py-2.5' : 'gap-3 px-3 py-2',
-                  isActive
+                  active
                     ? 'bg-primary/10 text-primary'
                     : 'text-muted-foreground hover:bg-accent hover:text-foreground'
-                )
-              }
-            >
-              <item.icon className="h-[18px] w-[18px] shrink-0" />
-              {!collapsed && t(item.labelKey)}
-            </NavLink>
-          ))}
+                )}
+              >
+                <item.icon className="h-[18px] w-[18px] shrink-0" />
+                {!collapsed && t(item.labelKey)}
+              </Link>
+            )
+          })}
         </nav>
 
         {/* Sidebar bottom (fixed, never pushed off-screen) */}

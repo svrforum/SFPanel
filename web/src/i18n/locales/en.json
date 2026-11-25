@@ -71,7 +71,13 @@
       "terminal": "Terminal",
       "appstore": "App Store",
       "cluster": "Cluster",
-      "settings": "Settings"
+      "settings": "Settings",
+      "system": "System",
+      "tasks": "Group Tasks"
+    },
+    "tabs": {
+      "summary": "Summary",
+      "runningHere": "Running here"
     },
     "logout": "Logout",
     "collapse": "Collapse sidebar",

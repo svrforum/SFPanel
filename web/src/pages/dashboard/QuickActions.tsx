@@ -2,27 +2,18 @@ import { useState } from 'react'
 import { Link } from 'react-router-dom'
 import { useTranslation } from 'react-i18next'
 import { Settings2 } from 'lucide-react'
-import { NAV_ITEMS } from '@/lib/navigation'
+import { shortcutCandidates } from '@/lib/navigation'
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from '@/components/ui/dialog'
-
-const STORAGE_KEY = 'sfpanel-dashboard-shortcuts'
-const DEFAULTS = ['/terminal', '/files', '/docker', '/logs']
-const choices = NAV_ITEMS.filter((item) => item.to !== '/dashboard')
-
-function readShortcuts(): string[] {
-  try {
-    const saved: unknown = JSON.parse(localStorage.getItem(STORAGE_KEY) || 'null')
-    if (Array.isArray(saved)) {
-      const valid = [...new Set(saved.filter((to): to is string => typeof to === 'string' && choices.some((item) => item.to === to)))].slice(0, 4)
-      if (valid.length) return valid
-    }
-  } catch { /* Restricted storage must not prevent opening the dashboard. */ }
-  return DEFAULTS
-}
+import { SHORTCUTS_KEY, readShortcuts } from './shortcuts'
 
 export default function QuickActions() {
   const { t } = useTranslation()
-  const [selected, setSelected] = useState(readShortcuts)
+  // Read once, with the shortcuts: the choices and the saved list are checked
+  // against the same menu, so a mode the shell learns later cannot leave a
+  // saved shortcut without its page.
+  const [cluster] = useState(() => localStorage.getItem('sfpanel-cluster-mode') === 'true')
+  const choices = shortcutCandidates(cluster)
+  const [selected, setSelected] = useState(() => readShortcuts(localStorage, cluster))
   const [editing, setEditing] = useState(false)
   const [storageError, setStorageError] = useState(false)
   const toggle = (to: string) => {
@@ -30,7 +21,7 @@ export default function QuickActions() {
     if (next.length < 1 || next.length > 4) return
     setSelected(next)
     try {
-      localStorage.setItem(STORAGE_KEY, JSON.stringify(next))
+      localStorage.setItem(SHORTCUTS_KEY, JSON.stringify(next))
       setStorageError(false)
     } catch { setStorageError(true) }
   }
