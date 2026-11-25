@@ -1660,7 +1660,8 @@ class ApiClient {
         reject(apiErrorFrom(xhr.status, body))
       }
 
-      xhr.onerror = () => reject(new Error('Network error'))
+      // Never reached the panel: said as request() says it, in the operator's language.
+      xhr.onerror = () => reject(new Error(translate('common.networkError', NETWORK_ERROR_FALLBACK)))
 
       const formData = new FormData()
       formData.append('path', destPath)

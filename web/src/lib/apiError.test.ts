@@ -157,3 +157,24 @@ describe('request', () => {
     expect([err?.status, err?.code, err?.message]).toEqual([502, undefined, 'HTTP 502'])
   })
 })
+
+// An upload is an XHR of its own. When it never reached the panel it read
+// "Network error" in English whatever the language, where request() says what
+// to check in the operator's.
+describe('uploadFile', () => {
+  it("says an upload that never reached the panel in request()'s words", async () => {
+    const { api, setApiTranslator } = await freshApi()
+    setApiTranslator((key) => `t:${key}`)
+    class FailingXHR {
+      upload = {}
+      onerror: (() => void) | null = null
+      open() {}
+      setRequestHeader() {}
+      send() { this.onerror?.() }
+    }
+    vi.stubGlobal('XMLHttpRequest', FailingXHR)
+    vi.stubGlobal('FormData', class { append() {} })
+    const err = await api.uploadFile('/srv', {} as File).then(() => undefined, (e: unknown) => e as Error)
+    expect(err?.message).toBe('t:common.networkError')
+  })
+})
