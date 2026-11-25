@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import ko from '../i18n/locales/ko.json'
 import en from '../i18n/locales/en.json'
-import { BOTTOM_NAV_ITEMS, NAV_ITEMS, TERMINAL_ROUTES, documentTitle, isTerminalRoute, navFor, navOwner, navTabs, pageTitleKey } from './navigation'
+import { BOTTOM_NAV_ITEMS, NAV_ITEMS, TERMINAL_ROUTES, documentTitle, isTerminalRoute, moreMenuGroups, navFor, navOwner, navTabs, pageTitleKey } from './navigation'
 
 const at = (tree: unknown, key: string): unknown =>
   key.split('.').reduce<unknown>((n, p) => (n && typeof n === 'object' ? (n as Record<string, unknown>)[p] : undefined), tree)
@@ -56,6 +56,32 @@ describe('the menu', () => {
   it('resolves every label key in ko and en', () => {
     const keys = NAV_ITEMS.flatMap((e) => [e.labelKey, ...(e.mobileLabelKey ? [e.mobileLabelKey] : []), ...(e.tabs ?? []).map((t) => t.labelKey)])
     for (const tree of [ko, en]) expect(keys.filter((key) => typeof at(tree, key) !== 'string')).toEqual([])
+  })
+})
+
+describe('moreMenuGroups', () => {
+  const view = (cluster: boolean) => moreMenuGroups(cluster).map((g) => [g.group, g.items.map((e) => e.to)])
+
+  it('groups what the bottom bar does not carry: the server pages, all servers, then settings', () => {
+    expect(view(true)).toEqual([
+      ['server', ['/files', '/services', '/network', '/firewall', '/disk']],
+      ['fleet', ['/cluster/running', '/cluster/tasks', '/cluster']],
+      ['tail', ['/settings']],
+    ])
+    expect(view(false)).toEqual([
+      ['server', ['/files', '/services', '/network', '/firewall', '/disk']],
+      ['fleet', ['/cluster']],
+      ['tail', ['/settings']],
+    ])
+  })
+
+  it('leaves out the bottom bar, and with it holds every entry once', () => {
+    for (const cluster of [true, false]) {
+      const more = moreMenuGroups(cluster).flatMap((g) => g.items.map((e) => e.to))
+      const bottom = BOTTOM_NAV_ITEMS.map((e) => e.to)
+      expect(more.filter((to) => bottom.includes(to))).toEqual([])
+      expect([...bottom, ...more].sort()).toEqual(navFor(cluster).map((e) => e.to).sort())
+    }
   })
 })
 

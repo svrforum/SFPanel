@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState, type KeyboardEvent } from 'react'
 import { useTranslation } from 'react-i18next'
 import { Link } from 'react-router-dom'
-import { AlertTriangle, ChevronsLeft, ChevronsRight, HelpCircle, History, LayoutDashboard, Plus, ShieldAlert, Wrench } from 'lucide-react'
+import { AlertTriangle, ChevronsLeft, ChevronsRight, HelpCircle, History, LayoutDashboard, Menu, Plus, ShieldAlert, Wrench } from 'lucide-react'
 import type { TerminalSession as TerminalSessionInfo } from '@/types/api'
 import { TOOL_META, dangerousFlagFor, stateDotClass } from '@/lib/aiSessions'
 import { activeKey, railNote, type RailGroup, type RailItem } from '@/lib/sessionRail'
@@ -25,6 +25,8 @@ export interface SessionRailProps {
   /** in the drawer: the way out of the terminal, which shows no app navigation
    *  in the compact layout */
   dashboardLink?: boolean
+  /** in the drawer: the app's menu over the terminal, which stays open under it */
+  onOpenMenu?: () => void
   onRename: (item: RailItem, title: string) => void
   onAction: (action: RailAction, item: RailItem) => void
 }
@@ -40,7 +42,7 @@ const ROW = 'relative flex items-center gap-2 h-10 w-full text-left select-none 
  * across the groups, and the Android app finds the active row by
  * [role=tab][aria-selected=true].
  */
-export function SessionRail({ groups, active, collapsed, fallback, reattachable, onSelect, onNew, onReattach, onOpenTools, onToggleCollapsed, dashboardLink, onRename, onAction }: SessionRailProps) {
+export function SessionRail({ groups, active, collapsed, fallback, reattachable, onSelect, onNew, onReattach, onOpenTools, onToggleCollapsed, dashboardLink, onOpenMenu, onRename, onAction }: SessionRailProps) {
   const { t } = useTranslation()
   const [editing, setEditing] = useState<string | null>(null)
   const [editingName, setEditingName] = useState('')
@@ -217,12 +219,20 @@ export function SessionRail({ groups, active, collapsed, fallback, reattachable,
       </div>
 
       <div className={cn('shrink-0 flex items-center gap-1 border-t border-console-border py-2', collapsed ? 'flex-col px-2' : 'px-2')}>
+        {/* Dashboard and Menu as wide as their words; the tools take the rest. */}
         {dashboardLink && (
           <Link to="/dashboard"
-            className="flex flex-1 items-center gap-2 h-8 px-2 rounded-lg text-[12px] text-console-muted hover:text-console-foreground hover:bg-console-foreground/5 outline-none focus-visible:ring-2 focus-visible:ring-ring">
+            className="flex shrink-0 items-center gap-2 h-8 px-2 rounded-lg text-[12px] text-console-muted hover:text-console-foreground hover:bg-console-foreground/5 outline-none focus-visible:ring-2 focus-visible:ring-ring">
             <LayoutDashboard className="h-3.5 w-3.5" aria-hidden="true" />
             {t('layout.mobileNav.dashboard')}
           </Link>
+        )}
+        {onOpenMenu && (
+          <button type="button" onClick={onOpenMenu}
+            className="flex shrink-0 items-center gap-2 h-8 px-2 rounded-lg text-[12px] text-console-muted hover:text-console-foreground hover:bg-console-foreground/5 outline-none focus-visible:ring-2 focus-visible:ring-ring">
+            <Menu className="h-3.5 w-3.5" aria-hidden="true" />
+            {t('layout.mobileNav.menu')}
+          </button>
         )}
         <button type="button" onClick={onOpenTools} title={t('terminal.rail.tools')} aria-label={t('terminal.rail.tools')}
           className={cn('flex items-center gap-2 h-8 rounded-lg text-[12px] text-console-muted hover:text-console-foreground hover:bg-console-foreground/5 outline-none focus-visible:ring-2 focus-visible:ring-ring', collapsed ? 'w-8 justify-center' : 'flex-1 px-2')}>

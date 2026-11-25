@@ -107,7 +107,6 @@
     },
     "cluster": {
       "localNode": "This node",
-      "selectNode": "Select node",
       "nodeCount": "{{count}} nodes"
     },
     "mobileNav": {
@@ -115,7 +114,8 @@
       "docker": "Docker",
       "terminal": "Terminal",
       "processes": "Processes",
-      "more": "More"
+      "more": "More",
+      "menu": "Menu"
     },
     "sponsor": "Sponsor",
     "skipToContent": "Skip to content",
@@ -1342,9 +1342,7 @@
     },
     "tree": {
       "managers": "Managers",
-      "ungrouped": "No group",
-      "search": "Search nodes",
-      "noMatch": "No matching nodes"
+      "ungrouped": "No group"
     },
     "status": {
       "online": "Online",

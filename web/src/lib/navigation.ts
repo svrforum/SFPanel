@@ -245,9 +245,6 @@ export function moreMenuGroups(cluster: boolean): MoreGroup[] {
     .filter((g) => g.items.length > 0)
 }
 
-/** @deprecated The More drawer moves to moreMenuGroups. */
-export const MORE_MENU_ITEMS = NAV_ITEMS.filter((i) => !i.bottomNav)
-
 /** The tab title: the page, the server it acts on when there is one, then the product; the product alone without a page. */
 export function documentTitle(page: string | null, server: string | null): string {
   if (!page) return 'SFPanel'

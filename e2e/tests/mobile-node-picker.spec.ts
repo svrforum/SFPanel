@@ -1,4 +1,4 @@
-import { test, expect, type Page } from '@playwright/test'
+import { test, expect, type Locator, type Page } from '@playwright/test'
 
 // A phone switches nodes from the picker at the top of the More drawer. The
 // picker asked for the node list once, when the page loaded, and kept nothing
@@ -12,7 +12,7 @@ const nodes = ['node-a', 'node-b'].map(id => ({
   joined_at: '2026-01-01T00:00:00Z', last_seen: '2026-01-01T00:00:00Z',
 }))
 
-async function mock(page: Page, leaderAnswers: () => boolean) {
+async function mock(page: Page, leaderAnswers: () => boolean, cluster = true) {
   await page.addInitScript(() => {
     sessionStorage.setItem('token', 'fixture-token')
     localStorage.setItem('i18nextLng', 'en')
@@ -25,7 +25,9 @@ async function mock(page: Page, leaderAnswers: () => boolean) {
     }
     let data: unknown = {}
     if (path.endsWith('/auth/setup-status')) data = { setup_required: false }
-    else if (path.endsWith('/cluster/status')) data = { enabled: true, name: 'lab', node_count: 2, leader_id: 'node-b', local_id: 'node-a', is_leader: false }
+    else if (path.endsWith('/cluster/status')) data = cluster
+      ? { enabled: true, name: 'lab', node_count: 2, leader_id: 'node-b', local_id: 'node-a', is_leader: false }
+      : { enabled: false }
     else if (path.endsWith('/cluster/nodes')) data = { nodes, local_id: 'node-a', is_leader: false }
     else if (path.endsWith('/cluster/overview')) data = { name: 'lab', node_count: 2, leader_id: 'node-b', nodes, metrics: [] }
     else if (path.endsWith('/cluster/events')) data = { events: [] }
@@ -47,9 +49,39 @@ test('the node picker is there once the leader answers again, without a reload',
   await expect(picker).toBeVisible()
   await picker.tap()
   // The node in use is pressed, not only tinted, and each says its state.
-  await expect(drawer.getByRole('button', { name: /node-a.*This node/ })).toHaveAttribute('aria-pressed', 'true')
+  await expect(drawer.getByRole('button', { name: /node-a.*Attached/ })).toHaveAttribute('aria-pressed', 'true')
   await expect(drawer.getByRole('button', { name: 'node-b' })).toHaveAttribute('aria-pressed', 'false')
   await expect(drawer.getByRole('button', { name: 'node-b' })).toHaveAccessibleName(/Online/)
   await drawer.getByRole('button', { name: 'node-b' }).tap()
   await expect.poll(() => page.evaluate(() => localStorage.getItem('sfpanel_current_node'))).toBe('node-b')
+})
+
+const hrefs = (links: Locator) => links.evaluateAll(els => els.map(el => el.getAttribute('href')))
+
+test('More groups the menu under the server and all servers', async ({ page }) => {
+  await mock(page, () => true)
+  await page.goto('/cluster/overview')
+  await page.getByRole('button', { name: 'More' }).tap()
+  const drawer = page.getByRole('dialog')
+  await expect(drawer.getByRole('heading', { name: 'node-a' })).toBeVisible()
+  await expect(drawer.getByRole('heading', { name: 'All servers' })).toBeVisible()
+  const server = ['/files', '/services', '/network', '/firewall', '/disk']
+  const fleet = ['/cluster/running', '/cluster/tasks', '/cluster']
+  expect(await hrefs(drawer.getByRole('region', { name: 'node-a' }).getByRole('link'))).toEqual(server)
+  expect(await hrefs(drawer.getByRole('region', { name: 'All servers' }).getByRole('link'))).toEqual(fleet)
+  // Then settings, under neither: its own page, not one server's half of it.
+  expect(await hrefs(drawer.getByRole('link'))).toEqual([...server, ...fleet, '/settings'])
+  await expect(drawer.getByRole('link').last()).toHaveAccessibleName('Settings')
+})
+
+test("a single server's More has no headings", async ({ page }) => {
+  await mock(page, () => true, false)
+  await page.goto('/cluster')
+  await page.getByRole('button', { name: 'More' }).tap()
+  const drawer = page.getByRole('dialog')
+  await expect(drawer.getByRole('link', { name: 'Files' })).toBeVisible()
+  // The drawer's own title is the only heading: no group is named.
+  await expect(drawer.getByRole('heading')).toHaveText(['More'])
+  await expect(drawer.getByRole('region')).toHaveCount(0)
+  expect(await hrefs(drawer.getByRole('link'))).toEqual(['/files', '/services', '/network', '/firewall', '/disk', '/cluster', '/settings'])
 })

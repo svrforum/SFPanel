@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, type RefObject } from 'react'
+import { useEffect, useRef, useState, type ReactNode, type RefObject } from 'react'
 import { useTranslation } from 'react-i18next'
 import { Eraser, Maximize2, Minimize2, Minus, MoreHorizontal, PanelLeft, Paperclip, Plus, Search, ShieldAlert, User as UserIcon, X } from 'lucide-react'
 import type { TerminalInfo } from '@/types/api'
@@ -48,6 +48,9 @@ export interface SessionHeaderProps {
    *  dropping a file on the terminal and pasting one, which a pointer that
    *  cannot drag had no way to (WCAG 2.5.7) */
   onAttachFiles?: (files: File[]) => void
+  /** in a cluster: the server the terminal runs on, as the control that
+   *  picks another — in this row, which costs the terminal no lines */
+  serverChip?: ReactNode
 }
 
 const ICON = 'h-7 w-7 p-0 text-console-muted hover:text-console-foreground hover:bg-console-foreground/10'
@@ -59,7 +62,7 @@ const ICON = 'h-7 w-7 p-0 text-console-muted hover:text-console-foreground hover
  * so every action exists somewhere visible, and on a phone (where the rail
  * is in a drawer) the Android app can open them through [data-session-menu].
  */
-export function SessionHeader({ item, hostInfo, fontSize, cols, onFontSize, search, onClear, onSelectText, onRename, onAction, compact, drawer, focus, onAttachFiles }: SessionHeaderProps) {
+export function SessionHeader({ item, hostInfo, fontSize, cols, onFontSize, search, onClear, onSelectText, onRename, onAction, compact, drawer, focus, onAttachFiles, serverChip }: SessionHeaderProps) {
   const { t } = useTranslation()
   const fileRef = useRef<HTMLInputElement>(null)
   // The toolbar shows from the md width up, which a tablet has: 36px there, as
@@ -114,6 +117,7 @@ export function SessionHeader({ item, hostInfo, fontSize, cols, onFontSize, sear
             )}
           </button>
         )}
+        {serverChip}
         {item && (
           <span className="h-[18px] w-[18px] rounded-md flex items-center justify-center text-[12px] font-bold shrink-0"
             style={{ backgroundColor: `${meta.color}1a`, color: meta.color }} aria-hidden="true">{meta.initial}</span>

@@ -1,217 +1,160 @@
-import { useEffect, useMemo, useState } from 'react'
-import { useNavigate, useLocation } from 'react-router-dom'
+import { useEffect, useId, useState } from 'react'
+import { Link, useNavigate, useLocation } from 'react-router-dom'
 import { useTranslation } from 'react-i18next'
 import { Drawer } from 'vaul'
-import { LogOut, Monitor, ChevronDown, Search, Check } from 'lucide-react'
-import { Input } from '@/components/ui/input'
-import { sectionLabel } from '@/components/cluster/treeSection'
-import { cn, nodeStatusColor } from '@/lib/utils'
-import { MORE_MENU_ITEMS } from '@/lib/navigation'
-import { isAgent, treeSections } from '@/lib/clusterNodes'
-import { api } from '@/lib/api'
+import { ChevronDown, LogOut } from 'lucide-react'
+import { NodeStatusMark } from '@/components/cluster/NodeStatusMark'
+import { ServerList } from '@/components/server/ServerList'
+import { serverRole } from '@/components/server/serverRole'
 import { useServerScope } from '@/hooks/useServerScope'
+import { BOTTOM_NAV_ITEMS, isTerminalRoute, moreMenuGroups, navOwner, type NavEntry } from '@/lib/navigation'
+import { cn } from '@/lib/utils'
+import { api } from '@/lib/api'
 
 interface MoreMenuProps {
   open: boolean
   onOpenChange: (open: boolean) => void
+  /** Opened from the terminal, which hides the bottom bar: its other tabs lead the drawer. */
+  fromTerminal?: boolean
 }
-
-// Derived from the single registry: everything that isn't a bottom-bar tab.
-const menuItems = MORE_MENU_ITEMS.map((i) => ({
-  path: i.to,
-  icon: i.icon,
-  label: i.labelKey,
-}))
 
 /**
- * The same list, with settings pointing at the current node's own scope.
- *
- * In cluster mode Settings splits in two: the plain page carries the
- * cluster-wide account settings (password, 2FA), and ?scope=node carries this
- * node's panel update, backup schedule, restore, TLS, tuning, alerts and audit
- * log. This menu opens the node half; the page's own scope switch reaches the
- * account half. The only
- * routes to that second half were the desktop sidebar, which is hidden below
- * the md breakpoint, and the cluster tree's right-click menu, which a phone
- * has no way to open — so on a phone in cluster mode none of it was reachable
- * at all.
- *
- * Derived from MORE_MENU_ITEMS rather than the whole registry, which would
- * put the bottom bar's own tabs into the drawer beside themselves — the
- * duplication navigation.ts says it fixed.
+ * The phone's menu beyond the bottom bar. In a cluster: the server the pages
+ * act on, which opens the list to pick another in place; the pages for that
+ * server under its name; the pages about all servers under theirs; then
+ * settings, which belongs to neither, and logging out. On a single server
+ * there is no other to tell its pages from: they share one grid, unheaded.
  */
-const nodeMenuItems = MORE_MENU_ITEMS.map((i) => ({
-  path: i.to === '/settings' ? '/settings?scope=node' : i.to,
-  icon: i.icon,
-  label: i.labelKey,
-}))
-
-// A node's state in words beside its dot, whose colour was all there was. An
-// online node, the usual case, says so to a screen reader only; one that is
-// not says it on screen too.
-function NodeState({ status }: { status: string }) {
-  const { t } = useTranslation()
-  if (!status) return null
-  const label = t(`cluster.status.${status}`, { defaultValue: status })
-  return status === 'online'
-    ? <span className="sr-only">{label}</span>
-    : <span className="shrink-0 text-[12px] text-muted-foreground">{label}</span>
-}
-
-export default function MoreMenu({ open, onOpenChange }: MoreMenuProps) {
+export default function MoreMenu({ open, onOpenChange, fromTerminal }: MoreMenuProps) {
   const navigate = useNavigate()
-  const location = useLocation()
+  const { pathname } = useLocation()
   const { t } = useTranslation()
-  const scope = useServerScope()
-  const { nodes, localId, currentId, current: currentNode, switchTo, reloadNodes } = scope
-  const [nodeOpen, setNodeOpen] = useState(false)
-  const [query, setQuery] = useState('')
-  // The tree's sections, without its folding: a drawer has no room to keep it.
-  const leaderId = scope.status?.leader_id ?? ''
-  const sections = useMemo(() => treeSections(nodes, leaderId, query), [nodes, leaderId, query])
-  const headed = nodes.some(isAgent)
+  const { clusterEnabled, current, currentName, switchTo, reloadNodes } = useServerScope()
+  const cluster = clusterEnabled === true
+  const [listOpen, setListOpen] = useState(false)
+  const idBase = useId()
+  const owner = navOwner(pathname)
 
-  // The picker shows only with a node list; ask for it again on every open.
+  // The list shows who is in the cluster now: asked for again on every open.
   useEffect(() => {
     if (open) reloadNodes()
   }, [open, reloadNodes])
 
-  const clusterEnabled = scope.clusterEnabled === true
+  const close = () => onOpenChange(false)
 
-  const handleNodeSelect = (nodeId: string) => {
-    switchTo(nodeId)
-    setNodeOpen(false)
-    setQuery('')
-  }
-
-  const handleNavigate = (path: string) => {
-    navigate(path)
-    onOpenChange(false)
+  const pick = (id: string) => {
+    switchTo(id)
+    setListOpen(false)
   }
 
   const handleLogout = () => {
     void api.logout()
-    onOpenChange(false)
+    close()
     navigate('/login')
   }
+
+  const tile = (entry: NavEntry) => {
+    // The entry a page belongs to, tabs included: /processes lights System.
+    // Marked by a bar and a heavier label as well as the tint (the colours
+    // alone differ by 1.2:1 in lightness).
+    const active = owner?.entry === entry
+    return (
+      <Link
+        key={entry.to}
+        to={entry.to}
+        onClick={close}
+        aria-current={active ? 'page' : undefined}
+        className={cn(
+          'flex flex-col items-center gap-1.5 rounded-xl py-3 px-1 transition-colors outline-none focus-visible:ring-2 focus-visible:ring-ring',
+          active ? 'bg-primary/10 text-primary' : 'text-muted-foreground active:bg-secondary/80',
+        )}
+      >
+        <entry.icon aria-hidden="true" className="h-5 w-5" />
+        <span className={cn('text-[12px] leading-tight text-center', active ? 'font-semibold' : 'font-medium')}>
+          {/* A bottom-bar tab by the bar's own name. */}
+          {t(entry.mobileLabelKey ?? entry.labelKey)}
+        </span>
+        {active && <span aria-hidden="true" className="h-0.5 w-5 rounded-full bg-primary" />}
+      </Link>
+    )
+  }
+  const grid = (entries: NavEntry[]) => <div className="grid grid-cols-4 gap-2 py-2">{entries.map(tile)}</div>
+
+  const groups = moreMenuGroups(cluster)
+  const items = (group: NavEntry['group']) => groups.find((g) => g.group === group)?.items ?? []
+  const section = (group: 'server' | 'fleet', title: string) => {
+    const headingId = `${idBase}-${group}`
+    return (
+      <section aria-labelledby={headingId} className="pt-2">
+        <h3 id={headingId} className="truncate px-1 text-[12px] font-semibold text-muted-foreground">{title}</h3>
+        {grid(items(group))}
+      </section>
+    )
+  }
+
+  const role = serverRole(current, t)
+  const state = current ? t(`cluster.status.${current.status}`, { defaultValue: current.status }) : ''
+  const listId = `${idBase}-servers`
 
   return (
     <Drawer.Root open={open} onOpenChange={onOpenChange}>
       <Drawer.Portal>
         <Drawer.Overlay className="fixed inset-0 bg-black/40 z-50" />
-        <Drawer.Content className="fixed bottom-0 left-0 right-0 z-50 bg-card rounded-t-2xl outline-none">
+        <Drawer.Content aria-describedby={undefined} className="fixed bottom-0 left-0 right-0 z-50 bg-card rounded-t-2xl outline-none">
           <div className="mx-auto w-12 h-1.5 rounded-full bg-muted-foreground/20 mt-3 mb-2" />
           <Drawer.Title className="sr-only">{t('layout.mobileNav.more')}</Drawer.Title>
 
           <div className="overflow-y-auto px-4 pb-safe" style={{ maxHeight: '70vh' }}>
-            {/* Mobile node selector */}
-            {clusterEnabled && nodes.length > 0 && (
+            {cluster && (
               <div className="pb-2 mb-2 border-b border-border">
                 <button
-                  onClick={() => setNodeOpen(!nodeOpen)}
-                  aria-expanded={nodeOpen}
-                  className="flex items-center gap-2 w-full px-3 py-2.5 rounded-xl bg-secondary/50 transition-colors outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                  type="button"
+                  onClick={() => setListOpen((o) => !o)}
+                  aria-expanded={listOpen}
+                  aria-controls={listOpen ? listId : undefined}
+                  className="flex items-center gap-2 w-full px-3 py-2.5 rounded-xl bg-secondary/50 text-left transition-colors outline-none focus-visible:ring-2 focus-visible:ring-ring"
                 >
-                  <Monitor className="h-4 w-4 text-muted-foreground shrink-0" />
-                  <span aria-hidden="true" className={cn('h-2 w-2 rounded-full shrink-0', nodeStatusColor(currentNode?.status || ''))} />
-                  <span className="text-[13px] font-medium truncate">
-                    {currentNode?.name || t('layout.cluster.selectNode')}
-                  </span>
-                  <NodeState status={currentNode?.status || ''} />
-                  <ChevronDown className={cn('h-3.5 w-3.5 text-muted-foreground ml-auto shrink-0 transition-transform', nodeOpen && 'rotate-180')} />
+                  <NodeStatusMark status={current?.status ?? ''} />
+                  <span className="truncate text-[13px] font-medium">{currentName}</span>
+                  {/* Online is the usual case: said to a screen reader only. */}
+                  {state && (
+                    <span className={current?.status === 'online' ? 'sr-only' : 'shrink-0 text-[12px] text-muted-foreground'}>{state}</span>
+                  )}
+                  {role && <span className="shrink-0 text-[12px] text-muted-foreground">· {role}</span>}
+                  <ChevronDown aria-hidden="true" className={cn('h-3.5 w-3.5 text-muted-foreground ml-auto shrink-0 transition-transform', listOpen && 'rotate-180')} />
                 </button>
-                {nodeOpen && (
-                  <div className="mt-1 rounded-xl bg-secondary/30 py-1">
-                    {nodes.length > 8 && (
-                      <div className="relative px-2 pt-1 pb-1.5">
-                        <Search className="absolute left-5 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground pointer-events-none" />
-                        <Input
-                          type="search"
-                          value={query}
-                          onChange={(e) => setQuery(e.target.value)}
-                          placeholder={t('cluster.tree.search')}
-                          aria-label={t('cluster.tree.search')}
-                          className="pl-9 h-9 rounded-xl bg-card border-0 text-base md:text-[13px]"
-                        />
-                      </div>
-                    )}
-                    {sections.map((section) => {
-                      const rows = section.nodes.map((node) => {
-                        // The chosen node has a check and says it is pressed,
-                        // not a tint alone.
-                        const chosen = node.id === currentId
-                        return (
-                          <button
-                            key={node.id}
-                            onClick={() => handleNodeSelect(node.id)}
-                            aria-pressed={chosen}
-                            className={cn(
-                              'flex items-center gap-2 w-full px-3 py-2 text-[13px] transition-colors rounded-lg outline-none focus-visible:ring-2 focus-visible:ring-ring',
-                              chosen ? 'bg-primary/10 text-primary font-medium' : 'text-foreground/80'
-                            )}
-                          >
-                            <span aria-hidden="true" className={cn('h-2 w-2 rounded-full shrink-0', nodeStatusColor(node.status))} />
-                            <span className="truncate">{node.name}</span>
-                            <NodeState status={node.status} />
-                            {node.id === localId && (
-                              <span className="text-[12px] text-muted-foreground">({t('layout.cluster.localNode')})</span>
-                            )}
-                            {chosen && <Check aria-hidden="true" className="ml-auto h-4 w-4 shrink-0" />}
-                          </button>
-                        )
-                      })
-                      // A cluster of managers alone keeps its plain list.
-                      if (!headed) return rows
-                      const label = sectionLabel(section, t)
-                      return (
-                        <section key={section.key} aria-label={label}>
-                          <p className="px-3 pt-2 pb-1 text-[12px] font-semibold text-muted-foreground">{label}</p>
-                          {rows}
-                        </section>
-                      )
-                    })}
-                    {sections.length === 0 && (
-                      <p className="px-3 py-2 text-[13px] text-muted-foreground">{t('cluster.tree.noMatch')}</p>
-                    )}
+                {listOpen && (
+                  <div id={listId} className="mt-1 flex flex-col rounded-xl bg-secondary/30">
+                    <ServerList onPick={pick} />
                   </div>
                 )}
               </div>
             )}
 
-            <div className="grid grid-cols-4 gap-2 py-2">
-              {(clusterEnabled ? nodeMenuItems : menuItems).map(({ path, icon: Icon, label }) => {
-                const isActive = location.pathname.startsWith(path.split('?')[0])
-                // The open page: named as such, and marked by a bar and a
-                // heavier label as well as the tint (the colours alone differ
-                // by 1.2:1 in lightness).
-                return (
-                  <button
-                    key={path}
-                    onClick={() => handleNavigate(path)}
-                    aria-current={isActive ? 'page' : undefined}
-                    className={cn(
-                      'flex flex-col items-center gap-1.5 rounded-xl py-3 px-1 transition-colors outline-none focus-visible:ring-2 focus-visible:ring-ring',
-                      isActive
-                        ? 'bg-primary/10 text-primary'
-                        : 'text-muted-foreground active:bg-secondary/80'
-                    )}
-                  >
-                    <Icon className="h-5 w-5" />
-                    <span className={cn('text-[12px] leading-tight text-center', isActive ? 'font-semibold' : 'font-medium')}>
-                      {t(label)}
-                    </span>
-                    {isActive && <span aria-hidden="true" className="h-0.5 w-5 rounded-full bg-primary" />}
-                  </button>
-                )
-              })}
-            </div>
+            {/* The bottom bar's other tabs, which the terminal hides. */}
+            {fromTerminal && (
+              <div className="border-b border-border">
+                {grid(BOTTOM_NAV_ITEMS.filter((e) => !isTerminalRoute(e.to)))}
+              </div>
+            )}
+
+            {cluster ? (
+              <>
+                {section('server', currentName)}
+                {section('fleet', t('layout.groups.fleet'))}
+                <div className="mt-2 border-t border-border">{grid(items('tail'))}</div>
+              </>
+            ) : (
+              grid(groups.flatMap((g) => g.items))
+            )}
 
             <div className="border-t border-border mt-2 pt-2 pb-4">
               <button
+                type="button"
                 onClick={handleLogout}
                 className="flex items-center gap-2 w-full rounded-xl py-3 px-4 text-destructive active:bg-secondary/80 transition-colors outline-none focus-visible:ring-2 focus-visible:ring-ring"
               >
-                <LogOut className="h-5 w-5" />
+                <LogOut aria-hidden="true" className="h-5 w-5" />
                 <span className="text-[13px] font-medium">{t('layout.logout')}</span>
               </button>
             </div>

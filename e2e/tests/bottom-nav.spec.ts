@@ -46,3 +46,15 @@ test('the home indicator adds to the bar instead of squeezing its icons', async 
   expect(Math.round(box.height)).toBe(56)
   expect(Math.round(box.y + box.height)).toBe(956 - 34)
 })
+
+test('the bar keeps its four tabs in order, then More', async ({ page }) => {
+  await mock(page)
+  await page.goto('/cluster')
+  const more = page.getByRole('button', { name: 'More' })
+  await expect(more).toBeVisible()
+  const bar = page.getByRole('navigation').filter({ has: more })
+  await expect(bar.getByRole('link')).toHaveText(['Dashboard', 'Docker', 'Terminal', 'Logs'])
+  // More is the last thing in the bar, after the four tabs.
+  expect(await bar.locator('a, button').evaluateAll(els => els.map(el => `${el.tagName === 'A' ? 'link' : 'button'} ${el.textContent?.trim()}`)))
+    .toEqual(['link Dashboard', 'link Docker', 'link Terminal', 'link Logs', 'button More'])
+})

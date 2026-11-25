@@ -1,5 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { useOutletContext } from 'react-router-dom'
 import { useTranslation } from 'react-i18next'
+import { ChevronDown } from 'lucide-react'
 import { toast } from 'sonner'
 import { api } from '@/lib/api'
 import type { AISession, AITools, TerminalInfo, TerminalSession as TerminalSessionInfo } from '@/types/api'
@@ -8,6 +10,9 @@ import { activeKey, buildRail, findItem, parseActiveKey, pickActive, type RailIt
 import { cn } from '@/lib/utils'
 import { OutputDialog, useSSEOutput } from '@/components/OutputDialog'
 import { useConfirm } from '@/components/ConfirmDialog'
+import type { LayoutOutletContext } from '@/components/Layout'
+import { ServerSwitcher } from '@/components/server/ServerSwitcher'
+import { useServerScope } from '@/hooks/useServerScope'
 import { keyboardDismissed, useTerminalCompact, useTerminalFocus } from '@/lib/terminalLayout'
 import { DEFAULT_FONT_SIZE, FONT_SIZE_EVENT, GRID_EVENT, MAX_FONT_SIZE, MIN_FONT_SIZE, clampFontSize } from '@/lib/terminalFont'
 import { Sheet, SheetContent, SheetTitle } from '@/components/ui/sheet'
@@ -68,6 +73,8 @@ export default function TerminalPage() {
   const [focus, setFocus] = useTerminalFocus()
   const output = useSSEOutput()
   const confirm = useConfirm()
+  const openMore = useOutletContext<LayoutOutletContext | undefined>()?.openMore
+  const { clusterEnabled, currentName } = useServerScope()
   const [account, setAccount] = useState<string>(() => readLS(accountKey()))
   const [tools, setTools] = useState<AITools | null>(null)
   const [toolsError, setToolsError] = useState(false)
@@ -494,6 +501,17 @@ export default function TerminalPage() {
     onToggle: toggleSearch, onQuery: handleSearch, onNext: handleSearchNext, onPrev: handleSearchPrev, onClose: closeSearch,
   }
   const shownAccount = account || tools?.panel_account || ''
+  // In a cluster the header names the server the sessions run on, and picks
+  // another without leaving the terminal; each server keeps its own sessions.
+  const serverChip = clusterEnabled === true ? (
+    <ServerSwitcher>
+      <button type="button" aria-label={`${t('layout.server.pick')}: ${currentName}`}
+        className="flex max-w-[40%] shrink-0 items-center gap-1 h-8 px-2 rounded-lg border border-console-border text-[12px] font-medium text-console-foreground hover:bg-console-foreground/10 outline-none focus-visible:ring-2 focus-visible:ring-ring">
+        <span className="truncate">{currentName}</span>
+        <ChevronDown className="h-3.5 w-3.5 shrink-0 text-console-muted" aria-hidden="true" />
+      </button>
+    </ServerSwitcher>
+  ) : undefined
 
   return (
     <div data-ai-workspace data-select-text className={cn('flex h-full overflow-hidden', !compact && 'p-4')}>
@@ -512,7 +530,8 @@ export default function TerminalPage() {
           compact={compact}
           drawer={compact ? { onOpen: () => setDrawerOpen(true), waiting } : undefined}
           focus={compact ? undefined : { on: focus, onToggle: () => setFocus(!focus) }}
-          onAttachFiles={!compact && canAttach ? (files) => { void attachToTerminal(files) } : undefined} />
+          onAttachFiles={!compact && canAttach ? (files) => { void attachToTerminal(files) } : undefined}
+          serverChip={serverChip} />
         {fallback && tools && (
           <div className="shrink-0 px-3 pt-3 space-y-2">
             <p className="text-[12px] text-console-muted">{t('terminal.fallback.banner')}</p>
@@ -571,7 +590,8 @@ export default function TerminalPage() {
         <Sheet open={drawerOpen} onOpenChange={setDrawerOpen}>
           <SheetContent side="left" className="w-[85vw] max-w-sm p-0 gap-0 bg-console text-console-foreground border-console-border" showCloseButton={false}>
             <SheetTitle className="sr-only">{t('terminal.rail.sessions')}</SheetTitle>
-            <SessionRail {...railProps} collapsed={false} dashboardLink />
+            <SessionRail {...railProps} collapsed={false} dashboardLink
+              onOpenMenu={openMore ? () => { setDrawerOpen(false); openMore({ fromTerminal: true }) } : undefined} />
           </SheetContent>
         </Sheet>
       )}

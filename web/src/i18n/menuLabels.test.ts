@@ -18,6 +18,7 @@ const KO: Record<string, string> = {
   'layout.groups.fleet': '모든 서버', 'layout.server.attached': '접속 중', 'layout.server.offline': '{{count}}대 꺼짐',
   'layout.scope.server': '서버 {{name}}', 'layout.scope.fleet': '모든 서버 · {{total}}대 중 {{online}}대 온라인',
   'layout.scope.savedFleet': '모든 서버 공통', 'layout.scope.savedServer': '{{name}}에만 저장됩니다', 'layout.scope.notFound': '찾을 수 없는 서버',
+  'layout.mobileNav.menu': '메뉴',
 }
 // A page's <h1> is its menu label.
 const H1: [string, string][] = [

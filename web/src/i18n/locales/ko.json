@@ -107,7 +107,6 @@
     },
     "cluster": {
       "localNode": "이 노드",
-      "selectNode": "노드 선택",
       "nodeCount": "{{count}}개 노드"
     },
     "mobileNav": {
@@ -115,7 +114,8 @@
       "docker": "Docker",
       "terminal": "터미널",
       "processes": "프로세스",
-      "more": "더보기"
+      "more": "더보기",
+      "menu": "메뉴"
     },
     "sponsor": "후원",
     "skipToContent": "본문으로 건너뛰기",
@@ -1340,9 +1340,7 @@
     },
     "tree": {
       "managers": "매니저",
-      "ungrouped": "그룹 없음",
-      "search": "노드 검색",
-      "noMatch": "일치하는 노드가 없습니다."
+      "ungrouped": "그룹 없음"
     },
     "status": {
       "online": "온라인",

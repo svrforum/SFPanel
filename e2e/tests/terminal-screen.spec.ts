@@ -5,8 +5,17 @@ import { test, expect, type Page, type WebSocketRoute } from '@playwright/test'
 
 const session = { id: 'abcdef123456', title: 'Screen test', tool: 'shell', run_as: 'tester', cwd: '/srv/app', state: 'shell', persistence: 'service', attached: true, created_at: '2026-01-01T00:00:00Z' }
 
-async function openTerminal(page: Page, path = '/terminal', onSocket?: (socket: WebSocketRoute) => void, sessions = [session]) {
+// A cluster of one manager, m-1, which this panel runs on, and one agent.
+const base = { role: 'voter', status: 'online', joined_at: '2026-01-01T00:00:00Z', last_seen: '2026-01-01T00:00:00Z' }
+const nodes = [
+  { ...base, id: 'm-1', name: 'm-1', kind: 'manager', api_address: '192.0.2.1:3628', grpc_address: '192.0.2.1:3629' },
+  { ...base, id: 'agent-1', name: 'agent-1', kind: 'agent', role: '', api_address: '198.51.100.1:3628', grpc_address: '198.51.100.1:3629' },
+]
+
+async function openTerminal(page: Page, path = '/terminal', onSocket?: (socket: WebSocketRoute) => void, sessions = [session], { cluster = false } = {}) {
   const resizes: { cols: number; rows: number }[] = []
+  // Each API path with its query, as asked.
+  const requests: string[] = []
   // What reached the session as input.
   const input: string[] = []
   await page.addInitScript(() => {
@@ -15,10 +24,15 @@ async function openTerminal(page: Page, path = '/terminal', onSocket?: (socket: 
   })
   await page.route('**/api/v1/**', async route => {
     const url = new URL(route.request().url())
+    requests.push(url.pathname.replace('/api/v1', '') + url.search)
     let data: unknown = {}
     if (url.pathname.endsWith('/auth/setup-status')) data = { setup_required: false }
     else if (url.pathname.endsWith('/auth/ws-ticket')) data = { ticket: 'fixture-ticket' }
-    else if (url.pathname.endsWith('/cluster/status')) data = { enabled: false }
+    else if (url.pathname.endsWith('/cluster/status')) data = cluster
+      ? { enabled: true, name: 'lab', node_count: 2, leader_id: 'm-1', local_id: 'm-1', is_leader: true }
+      : { enabled: false }
+    else if (url.pathname.endsWith('/cluster/nodes')) data = { nodes, local_id: 'm-1', is_leader: true }
+    else if (url.pathname.endsWith('/cluster/overview')) data = { name: 'lab', node_count: 2, leader_id: 'm-1', nodes, metrics: [] }
     else if (url.pathname.endsWith('/system/overview')) data = { version: 'test' }
     else if (url.pathname.endsWith('/ai/sessions')) data = sessions
     else if (url.pathname.endsWith('/ai/tools')) data = { tmux: { installed: true, supported: true, version: '3.4', min_version: '3.2' }, systemd_run: true, accounts: ['tester'], panel_account: 'tester', account: 'tester', tools: {} }
@@ -40,14 +54,20 @@ async function openTerminal(page: Page, path = '/terminal', onSocket?: (socket: 
   const terminal = page.locator('[data-terminal-session="active"]')
   await expect(terminal).toBeVisible()
   const cols = () => terminal.evaluate(el => (el as any).__termRef.current.cols as number)
+  const rows = () => terminal.evaluate(el => (el as any).__termRef.current.rows as number)
   // Settled: the fit is debounced, and the first one runs before the layout has.
-  const settledCols = async () => {
+  const settled = async (read: () => Promise<number>) => {
     let seen = -1
-    await expect.poll(async () => { const now = await cols(); const still = now === seen; seen = now; return still }, { intervals: [300] }).toBe(true)
+    await expect.poll(async () => { const now = await read(); const still = now === seen; seen = now; return still }, { intervals: [300] }).toBe(true)
     return seen
   }
-  return { terminal, cols, settledCols, resizes, input }
+  const settledCols = () => settled(cols)
+  const settledRows = () => settled(rows)
+  return { terminal, cols, settledCols, settledRows, resizes, input, requests }
 }
+
+// The server chip in the session header, in a cluster.
+const serverChip = (page: Page) => page.locator('header[data-terminal-chrome]').getByRole('button', { name: /^Choose a server/ })
 
 const appSidebar = (page: Page) => page.locator('aside').filter({ has: page.getByRole('link', { name: 'Docker', exact: true }) })
 const rail = (page: Page) => page.locator('[data-ai-workspace] > aside')
@@ -105,6 +125,20 @@ test.describe('a phone', () => {
     await page.getByRole('button', { name: 'Sessions' }).tap()
     await page.getByRole('dialog').getByRole('link', { name: 'Dashboard' }).tap()
     await expect(page).toHaveURL(/\/dashboard$/)
+  })
+  test('the session drawer opens the menu, with dashboard, Docker and logs on top', async ({ page }) => {
+    await openTerminal(page)
+    await page.getByRole('button', { name: 'Sessions' }).tap()
+    await page.getByRole('dialog').getByRole('button', { name: 'Menu', exact: true }).tap()
+    const more = page.getByRole('dialog', { name: 'More' })
+    const links = more.getByRole('link')
+    for (const [i, name] of ['Dashboard', 'Docker', 'Logs'].entries()) {
+      await expect(links.nth(i)).toHaveAccessibleName(name)
+      await expect(links.nth(i)).toBeVisible()
+    }
+    // The terminal stays where it was, under the menu.
+    await expect(page).toHaveURL(/\/terminal$/)
+    await expect(page.getByRole('dialog', { name: 'Sessions' })).toHaveCount(0)
   })
 })
 
@@ -256,6 +290,36 @@ test.describe('a desktop', () => {
     await openTerminal(page)
     await expect(keyBar(page)).toBeVisible()
     await expect(rail(page)).toBeHidden()
+  })
+})
+
+test.describe('a desktop in a cluster', () => {
+  test.use({ viewport: { width: 1280, height: 800 } })
+  test('the header names the server and switches it without leaving the terminal', async ({ page }) => {
+    const t = await openTerminal(page, '/terminal', undefined, [session], { cluster: true })
+    const chip = serverChip(page)
+    await expect(chip).toHaveText('m-1')
+    await chip.click()
+    await page.getByRole('dialog', { name: 'Choose a server' }).getByRole('button', { name: /^agent-1/ }).click()
+    await expect(page).toHaveURL(/\/terminal\?node=agent-1$/)
+    await expect(serverChip(page)).toHaveText('agent-1')
+    await expect.poll(() => t.requests.some(r => r.startsWith('/ai/sessions') && r.includes('node=agent-1'))).toBe(true)
+  })
+  test('the server chip costs the terminal no rows', async ({ browser }) => {
+    // The same window, once on a single server and once in a cluster.
+    const rows = async (cluster: boolean) => {
+      const context = await browser.newContext({ viewport: { width: 1280, height: 800 } })
+      const page = await context.newPage()
+      const t = await openTerminal(page, '/terminal', undefined, [session], { cluster })
+      await expect(serverChip(page)).toHaveCount(cluster ? 1 : 0)
+      if (cluster) await expect(serverChip(page)).toHaveText('m-1')
+      const settled = await t.settledRows()
+      await context.close()
+      return settled
+    }
+    const single = await rows(false)
+    expect(single).toBeGreaterThan(20)
+    expect(await rows(true)).toBe(single)
   })
 })
 

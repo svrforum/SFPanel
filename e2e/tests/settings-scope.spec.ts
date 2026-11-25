@@ -2,9 +2,10 @@ import { test, expect, type Page } from '@playwright/test'
 
 // In cluster mode Settings has two halves — cluster-wide (account: password,
 // 2FA) and this node (updates, backups, alerts, audit). A phone reaches
-// Settings only through the More drawer, which opens the node half, so the
-// password form was unreachable from a phone. The page now switches between
-// the halves itself. Mocked API, phone viewport.
+// Settings only through the More drawer, which once opened the node half
+// alone, so the password form was unreachable from a phone. The drawer now
+// opens the page itself, and the page switches between the halves. Mocked
+// API, phone viewport.
 test.use({ viewport: { width: 412, height: 860 }, hasTouch: true })
 
 const node = { id: 'node-a', name: 'node-a', role: 'voter', status: 'online', api_address: '192.168.1.x:3628', grpc_address: '192.168.1.x:3629', joined_at: '2026-01-01T00:00:00Z', last_seen: '2026-01-01T00:00:00Z' }
@@ -41,13 +42,11 @@ test('a phone in cluster mode reaches the password form from the More menu', asy
   // to the cluster overview first; a production build stays put.
   await page.goto('/cluster/overview')
   await page.getByRole('button', { name: 'More' }).tap()
-  await page.getByRole('button', { name: 'Settings' }).or(page.getByRole('link', { name: 'Settings' })).first().tap()
-  await expect(page).toHaveURL(/\/settings\?scope=node/)
+  await page.getByRole('dialog').getByRole('link', { name: 'Settings' }).tap()
+  await expect(page).toHaveURL(/\/settings$/)
 
   const scope = page.getByRole('navigation', { name: 'Settings scope' })
-  await expect(scope.getByRole('link', { name: /This node/ })).toHaveAttribute('aria-current', 'page')
-  await scope.getByRole('link', { name: /Cluster-wide/ }).tap()
-  await expect(page).toHaveURL(/\/settings$/)
+  await expect(scope.getByRole('link', { name: /Cluster-wide/ })).toHaveAttribute('aria-current', 'page')
   await expect(page.getByRole('heading', { name: 'Change Password' })).toBeVisible()
 
   await scope.getByRole('link', { name: /This node/ }).tap()

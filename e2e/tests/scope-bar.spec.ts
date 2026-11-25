@@ -121,7 +121,8 @@ test('the terminal has no bar', async ({ page }) => {
   await expect(page.locator('[data-terminal-session="active"]')).toBeVisible()
   // The shell knows it is in a cluster (the menu's head is the server picker)
   // and the node list has come: nothing the bar would wait for is on its way.
-  await expect(page.getByRole('button', { name: /^Choose a server: m-1/ })).toContainText('Manager')
+  // The menu's head, in the sidebar: the terminal's header has its own picker.
+  await expect(page.locator('aside').getByRole('button', { name: /^Choose a server: m-1/ })).toContainText('Manager')
   await expect(bar(page)).toHaveCount(0)
 })
 

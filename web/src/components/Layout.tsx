@@ -36,6 +36,8 @@ export interface LayoutOutletContext {
   clusterEnabled: boolean | null
   /** This page load's latest /cluster/status answer; null until one arrives. */
   clusterStatus: ClusterStatus | null
+  /** Open the phone's More drawer; from the terminal it leads with the bottom bar's other tabs, which the terminal hides. */
+  openMore: (opts?: { fromTerminal?: boolean }) => void
 }
 
 export default function Layout() {
@@ -48,7 +50,10 @@ export default function Layout() {
   const [panelVersion, setPanelVersion] = useState('')
   const [overview, setOverview] = useState<LayoutOutletContext['overview']>(null)
   const [nodeKey, setNodeKey] = useState(0)
-  const [moreOpen, setMoreOpen] = useState(false)
+  const [more, setMore] = useState({ open: false, fromTerminal: false })
+  const openMore = useCallback((opts?: { fromTerminal?: boolean }) => setMore({ open: true, fromTerminal: opts?.fromTerminal === true }), [])
+  // Closing keeps where it was opened from, so the drawer does not change as it slides away.
+  const setMoreOpen = useCallback((open: boolean) => setMore((m) => ({ ...m, open })), [])
   // null = mode not yet known. Seeded from the last answer so a reload draws
   // the menu for its mode at once, instead of a single server's menu that
   // turns into the cluster's when /cluster/status replies.
@@ -159,10 +164,10 @@ export default function Layout() {
       })
   }, [])
 
-  // Single source of cluster status for the shell: ClusterSidebar used to run
-  // its own copy of this call, so first paint cost two *sequential* round-trips
-  // (Layout's, then the sidebar's) before anything could render. Polling (vs
-  // the previous one-shot) keeps leader changes visible in the server picker.
+  // The shell's one source of cluster status: the menu, the server picker and
+  // the pages read this answer instead of asking again, so a first paint waits
+  // on one round-trip, not a chain of them. Polled, so a leader change shows
+  // in the server picker.
   useVisibleInterval(loadClusterStatus, 15000)
   // A change the page made itself (a new leader) shows now, not at the next poll.
   useEffect(() => {
@@ -202,8 +207,8 @@ export default function Layout() {
   }, [nodeKey])
 
   const outletContext = useMemo<LayoutOutletContext>(
-    () => ({ overview, serverName, clusterEnabled, clusterStatus }),
-    [overview, serverName, clusterEnabled, clusterStatus],
+    () => ({ overview, serverName, clusterEnabled, clusterStatus, openMore }),
+    [overview, serverName, clusterEnabled, clusterStatus, openMore],
   )
 
   // Track the visual viewport height so the app shell shrinks when the mobile
@@ -293,8 +298,8 @@ export default function Layout() {
         </ErrorBoundary>
       </main>
 
-      <BottomNav onMorePress={() => setMoreOpen(true)} />
-      <MoreMenu open={moreOpen} onOpenChange={setMoreOpen} />
+      <BottomNav onMorePress={() => openMore()} />
+      <MoreMenu open={more.open} fromTerminal={more.fromTerminal} onOpenChange={setMoreOpen} />
     </div>
     </ServerScopeContext.Provider>
   )
