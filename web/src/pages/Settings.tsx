@@ -1,4 +1,4 @@
-import { useState, useEffect, lazy, Suspense } from 'react'
+import { useState, useEffect, useRef, lazy, Suspense } from 'react'
 import { useTranslation } from 'react-i18next'
 import { Navigate, useLocation, useSearchParams } from 'react-router-dom'
 import { api } from '@/lib/api'
@@ -51,6 +51,14 @@ export default function Settings() {
   const tab = settingsTab(location.search)
   const redirect = settingsRedirect(location.search)
 
+  // The list hides its scrollbar, so on a phone a tab opened from a link (the
+  // watch link to alerts, the logs' audit link) sat cut off past the edge.
+  // Again once an old address has been replaced: the list was not drawn yet.
+  const list = useRef<HTMLDivElement>(null)
+  useEffect(() => {
+    list.current?.querySelector<HTMLElement>('[role="tab"][aria-selected="true"]')?.scrollIntoView({ block: 'nearest', inline: 'nearest' })
+  }, [tab, redirect])
+
   // Every other parameter stays, except the server on a tab no server holds
   // (the account, the language and theme). On a server's tab the shell puts
   // the shown server back.
@@ -87,7 +95,7 @@ export default function Settings() {
 
       <Tabs value={tab} onValueChange={handleTabChange} className="w-full">
         {/* The list scrolls sideways on a phone; the tabs keep their width. */}
-        <TabsList className="bg-secondary/50 rounded-xl p-1 h-auto">
+        <TabsList ref={list} className="bg-secondary/50 rounded-xl p-1 h-auto">
           {SETTINGS_TABS.map((id) => (
             <TabsTrigger key={id} value={id} className="shrink-0 rounded-lg text-[13px] px-4 py-2">{t(TAB_LABEL[id])}</TabsTrigger>
           ))}

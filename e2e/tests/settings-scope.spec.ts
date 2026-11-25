@@ -101,3 +101,19 @@ test('the six tabs fit a phone: the last is reached and the page does not scroll
   await expect(page.getByRole('tab', { name: 'Audit Log' })).toHaveAttribute('aria-selected', 'true')
   expect(await page.evaluate(() => { const m = document.querySelector('main')!; return m.scrollWidth <= m.clientWidth })).toBe(true)
 })
+
+// The tab list hides its scrollbar and opened scrolled to its start, so a link
+// to a tab past the edge (the watch link to alerts, the logs' audit link)
+// opened on a phone with the open tab out of sight. Not tapped here: a tap
+// scrolls the tab into view by itself. An old address is replaced before the
+// list is drawn, and has its tab in sight too.
+test('a link to a tab past the edge of a phone opens with that tab in sight', async ({ page }) => {
+  await page.setViewportSize({ width: 360, height: 800 })
+  await mock(page, false)
+  for (const [query, name] of [['tab=audit', 'Audit Log'], ['tab=alerts', 'Alerts'], ['scope=node&tab=audit', 'Audit Log']]) {
+    await page.goto(`/settings?${query}`)
+    const open = page.getByRole('tab', { name })
+    await expect(open, query).toHaveAttribute('aria-selected', 'true')
+    await expect(open, query).toBeInViewport({ ratio: 1 })
+  }
+})
