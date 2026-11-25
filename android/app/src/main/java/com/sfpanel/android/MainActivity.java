@@ -721,7 +721,7 @@ public final class MainActivity extends Activity {
                         PanelNav.Hit hit = hits.get(i);
                         if (i % 2 == 0) { row = new LinearLayout(this); entries.addView(row); }
                         boolean selected = hit.tab ? PanelNav.selected(hit.path, pagePath) : nav.itemSelected(hit.item, pagePath);
-                        row.addView(featureButton(hit.label, hit.path, selected, dialog), featureCell()); matches++;
+                        row.addView(featureButton(hit.label, hit.description, hit.path, selected, dialog), featureCell()); matches++;
                     }
                     if (hits.size() % 2 == 1) row.addView(new View(this), featureCell());
                 }
@@ -736,7 +736,7 @@ public final class MainActivity extends Activity {
                         if (count == 0) entries.addView(featureHeading(getString(headings[group])));
                         if (count % 2 == 0) { row = new LinearLayout(this); entries.addView(row); }
                         String path = paths[i];
-                        row.addView(featureButton(names[i], path, PanelNav.selected(path, pagePath), dialog), featureCell()); count++; matches++;
+                        row.addView(featureButton(names[i], null, path, PanelNav.selected(path, pagePath), dialog), featureCell()); count++; matches++;
                     }
                     if (count % 2 == 1) row.addView(new View(this), featureCell());
                 }
@@ -766,8 +766,9 @@ public final class MainActivity extends Activity {
         if (android.os.Build.VERSION.SDK_INT >= 28) heading.setAccessibilityHeading(true);
         return heading;
     }
-    private Button featureButton(String label, String path, boolean selected, AlertDialog dialog) {
+    private Button featureButton(String label, String description, String path, boolean selected, AlertDialog dialog) {
         Button item = compactButton(label, () -> { dialog.dismiss(); navigate(path); });
+        if (description != null) item.setContentDescription(description);
         item.setGravity(Gravity.START | Gravity.CENTER_VERTICAL); item.setMaxLines(2);
         item.setSelected(selected); item.setBackground(surface(selected ? ACCENT : BG, 10)); item.setTextColor(selected ? Color.WHITE : INK);
         return item;

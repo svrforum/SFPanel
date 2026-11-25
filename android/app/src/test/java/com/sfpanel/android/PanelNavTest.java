@@ -35,6 +35,8 @@ public class PanelNavTest {
         List<List<PanelNav.Hit>> hits = PanelNav.parse(BRIDGE).search("proc");
         assertEquals("System › Processes", hits.get(0).get(0).label);
         assertEquals("/processes", hits.get(0).get(0).path);
+        // TalkBack reads "›" out as a symbol: a tab is said as its entry, then itself.
+        assertEquals("System, Processes", hits.get(0).get(0).description);
     }
     @Test public void theCurrentPlaceIncludesTabs() {
         PanelNav n = PanelNav.parse(BRIDGE);
@@ -52,6 +54,7 @@ public class PanelNavTest {
         assertEquals(1, hits.get(0).size());
         assertEquals("System", hits.get(0).get(0).label);
         assertFalse(hits.get(0).get(0).tab);
+        assertNull(hits.get(0).get(0).description);   // an entry is said by its label
         assertEquals("Settings", hits.get(1).get(0).label);
     }
     static final String FLEET = "{\"v\":1,\"server\":null,\"nav\":[{\"group\":\"fleet\",\"title\":\"All servers\",\"items\":[" +

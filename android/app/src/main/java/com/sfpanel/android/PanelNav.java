@@ -27,12 +27,15 @@ final class PanelNav {
         final List<Item> items;
         Group(String title, List<Item> items) { this.title = title; this.items = items; }
     }
-    /** One button in the sheet. A tab reads "Item › Tab"; item is the entry it belongs to. */
+    /** One button in the sheet. A tab reads "Item › Tab" and is said "Item, Tab",
+     * as TalkBack reads "›" out as a symbol; item is the entry it belongs to. */
     static final class Hit {
         final String label, path;
+        /** What a screen reader says instead of the label; null to say the label. */
+        final String description;
         final boolean tab;
         final Item item;
-        Hit(String label, String path, boolean tab, Item item) { this.label = label; this.path = path; this.tab = tab; this.item = item; }
+        Hit(String label, String description, String path, boolean tab, Item item) { this.label = label; this.description = description; this.path = path; this.tab = tab; this.item = item; }
     }
 
     final String serverName;
@@ -136,10 +139,10 @@ final class PanelNav {
         for (Group group : groups) {
             List<Hit> hits = new ArrayList<>();
             for (Item item : group.items) {
-                if (matches(item.label, item.path, q)) hits.add(new Hit(item.label, item.path, false, item));
+                if (matches(item.label, item.path, q)) hits.add(new Hit(item.label, null, item.path, false, item));
                 if (q.isEmpty()) continue;
                 for (Link tab : item.tabs) {
-                    if (matches(tab.label, tab.path, q)) hits.add(new Hit(item.label + " › " + tab.label, tab.path, true, item));
+                    if (matches(tab.label, tab.path, q)) hits.add(new Hit(item.label + " › " + tab.label, item.label + ", " + tab.label, tab.path, true, item));
                 }
             }
             result.add(hits);
