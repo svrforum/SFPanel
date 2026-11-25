@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
-import { ArrowUp, BookmarkPlus, Keyboard, Loader2, Paperclip, PenLine, Plus, Settings2, Trash2, X } from 'lucide-react'
+import { Link } from 'react-router-dom'
+import { ArrowUp, BookmarkPlus, Keyboard, ListChecks, Loader2, Paperclip, PenLine, Plus, Settings2, Trash2, X } from 'lucide-react'
 import { toast } from 'sonner'
 import { api } from '@/lib/api'
 import { cn } from '@/lib/utils'
@@ -11,6 +12,7 @@ import { LONG_LABEL, NO_BAR_MODIFIERS, activeModifiers, afterKey, barKeyName, ke
 import { attachedText, carriedFiles } from '@/lib/terminalAttach'
 import { snippetBody, snippetRefusal } from '@/lib/terminalPrefs'
 import { useTerminalPrefs } from '@/hooks/useTerminalPrefs'
+import { useFleetRunHref } from '@/hooks/useServerLinks'
 import { KeysEditor } from '@/pages/terminal/components/KeysEditor'
 import type { TerminalSnippet } from '@/types/api'
 
@@ -100,6 +102,7 @@ export function TerminalInput({ kind, sessionKey, onSendKey, onSubmit, onAttach 
   // The key rows the editor starts from, while it is open.
   const [editingKeys, setEditingKeys] = useState<StoredKeysets | null>(null)
   const { prefs, status: prefsStatus, load: loadPrefs, changeSnippets, loadKeysets, saveKeysets } = useTerminalPrefs()
+  const fleet = useFleetRunHref()
   // Where the window is short the composer and the keys take turns.
   const [composing, setComposing] = useState(false)
 
@@ -490,6 +493,15 @@ export function TerminalInput({ kind, sessionKey, onSendKey, onSubmit, onAttach 
             {snippets.map((snippet) => (
               <div key={snippet.body} className="flex items-stretch gap-1">
                 <button type="button" data-snippet onClick={() => compose(snippet.body)} className={ROW}>{snippet.body}</button>
+                {/* A shell snippet is a command, and in a cluster the group task
+                    runs it on the servers picked, this one to start with. A
+                    prompt is words for an AI CLI, not a command. */}
+                {snippet.kind === 'shell' && fleet && (
+                  <Link to={fleet('builtin/command', { command: snippet.body })} aria-label={t('cluster.tasks.fleet.runSnippetFor', { text: gist(snippet.body) })}
+                    title={t('cluster.tasks.fleet.runSnippet')} className={ROW_ACTION}>
+                    <ListChecks className="h-4 w-4" aria-hidden="true" />
+                  </Link>
+                )}
                 <button type="button" aria-label={t('terminal.input.snippetRemove', { text: gist(snippet.body) })} onClick={() => void dropSnippet(snippet)} className={ROW_ACTION}>
                   <X className="h-4 w-4" aria-hidden="true" />
                 </button>

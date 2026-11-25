@@ -13,7 +13,28 @@ const SHELL = S('aaaaaaaaaaa2', 'shell', 'Shell')
 
 type Prefs = { snippets?: { kind: string; body: string }[]; keysets?: Record<string, unknown[][]> }
 
-async function openTerminal(page: Page, active = AGENT.id, { uploads = true, uploadFails = '', prefs = {}, prefsFail = false, prefsLoadFails = false, prefsDelay = 0, sessions = [AGENT, SHELL] }: {
+// A cluster of two: m-1 (attached, leader) and agent-1.
+const seen = '2026-01-01T00:00:00Z'
+const NODES = [
+  { id: 'm-1', name: 'node-a', kind: 'manager', role: 'voter', status: 'online', joined_at: seen, last_seen: seen, api_address: '192.0.2.1:3628', grpc_address: '192.0.2.1:3629' },
+  { id: 'agent-1', name: 'agent-01', kind: 'agent', role: '', status: 'online', joined_at: seen, last_seen: seen, api_address: '198.51.100.1:3628', grpc_address: '198.51.100.1:3629' },
+]
+// The built-in task a shell snippet leads to, as the server lists it.
+const COMMAND = { id: 'builtin/command', name: '명령 실행', source: { kind: 'builtin' }, read_only: true }
+const COMMAND_DETAIL = {
+  ...COMMAND,
+  yaml: 'name: 명령 실행\n',
+  task: {
+    name: '명령 실행',
+    inputs: [{ name: 'command', label: '실행할 명령', required: true, raw: true }],
+    targets: {},
+    batch: 1,
+    stop_on_failure: true,
+    steps: [{ kind: 'command', name: '명령 실행', command: { run: '{{ command }}', timeout: 600_000_000_000 } }],
+  },
+}
+
+async function openTerminal(page: Page, active = AGENT.id, { uploads = true, uploadFails = '', prefs = {}, prefsFail = false, prefsLoadFails = false, prefsDelay = 0, sessions = [AGENT, SHELL], cluster = false }: {
   /** the panel takes attachments (GET /ai/tools session_uploads); false: one from before them */
   uploads?: boolean
   /** the upload route answers with this error code */
@@ -28,6 +49,8 @@ async function openTerminal(page: Page, active = AGENT.id, { uploads = true, upl
   prefsDelay?: number
   /** the sessions there are */
   sessions?: ReturnType<typeof S>[]
+  /** the panel is in a cluster (NODES), whose node list answers late, as a busy cluster's does */
+  cluster?: boolean
 } = {}) {
   const panel = { loads: !prefsLoadFails }
   // The panel's side of the snippets and key rows, and every save it was sent.
@@ -48,7 +71,17 @@ async function openTerminal(page: Page, active = AGENT.id, { uploads = true, upl
     let data: unknown = {}
     if (url.pathname.endsWith('/auth/setup-status')) data = { setup_required: false }
     else if (url.pathname.endsWith('/auth/ws-ticket')) data = { ticket: 'fixture-ticket' }
-    else if (url.pathname.endsWith('/cluster/status')) data = { enabled: false }
+    else if (url.pathname.endsWith('/cluster/status')) data = cluster
+      ? { enabled: true, name: 'lab', node_count: 2, leader_id: 'm-1', local_id: 'm-1', is_leader: true }
+      : { enabled: false }
+    else if (cluster && url.pathname.endsWith('/cluster/nodes')) {
+      await new Promise(r => setTimeout(r, 800))
+      data = { nodes: NODES, local_id: 'm-1', is_leader: true }
+    }
+    else if (cluster && url.pathname.endsWith('/cluster/overview')) data = { name: 'lab', node_count: 2, leader_id: 'm-1', nodes: NODES, metrics: [] }
+    else if (cluster && url.pathname.endsWith('/cluster/tasks')) data = [COMMAND]
+    else if (cluster && url.pathname.endsWith('/cluster/task-runs')) data = []
+    else if (cluster && decodeURIComponent(url.pathname).endsWith('/cluster/tasks/builtin/command')) data = COMMAND_DETAIL
     else if (url.pathname.endsWith('/system/overview')) data = { version: 'test' }
     else if (url.pathname.endsWith('/ai/sessions')) data = sessions
     else if (url.pathname.endsWith('/ai/tools')) data = { tmux: { installed: true, supported: true, version: '3.4', min_version: '3.2' }, systemd_run: true, accounts: ['tester'], panel_account: 'tester', account: 'tester', tools: {}, attach_latest: true, ...(uploads ? { session_uploads: true } : {}) }
@@ -588,6 +621,48 @@ test('a snippet the panel does not keep says so and is not shown as kept', async
   await expect(t.sheet.locator('[data-snippet]')).toHaveCount(0)
   await page.keyboard.press('Escape')
   await expect(t.composer).toHaveValue('keep me')
+})
+
+// A shell snippet is a command, and in a cluster it can be the group task's:
+// the run setup opens with this server picked and the command filled in. A
+// prompt for an AI CLI is not a command, and a single server has nowhere else
+// to run it.
+test('in a cluster a shell snippet can run on several servers; a prompt cannot', async ({ page }) => {
+  const body = 'df -h /srv && echo "100% done"'
+  const prefs = { snippets: [{ kind: 'agent', body: 'review the diff' }, { kind: 'shell', body }] }
+  const t = await openTerminal(page, SHELL.id, { prefs, cluster: true })
+  await t.openTools()
+  const link = t.sheet.getByRole('link', { name: `Run on several servers: ${body}` })
+  await expect(link).toBeVisible()
+  const u = new URL((await link.getAttribute('href'))!, 'http://x')
+  expect(u.pathname).toBe('/cluster/tasks/builtin%2Fcommand')
+  expect(Object.fromEntries(u.searchParams)).toEqual({ nodes: 'm-1', 'input.command': body })
+  // Followed, it opens the run setup with that command to the character, on this server.
+  await link.tap()
+  const setup = page.getByTestId('task-pane-setup')
+  await expect(setup.getByLabel('Command to run')).toHaveValue(body)
+  await expect(setup.getByRole('checkbox', { name: 'node-a', exact: true })).toBeChecked()
+  const other = setup.getByRole('checkbox', { name: 'agent-01', exact: true })
+  await expect(other).not.toBeChecked()
+  // The sheet it was left from holds nothing back: the rest can be added.
+  await other.tap()
+  await expect(other).toBeChecked()
+})
+
+test('a prompt snippet has no group run', async ({ page }) => {
+  const t = await openTerminal(page, AGENT.id, { prefs: { snippets: [{ kind: 'agent', body: 'review the diff' }] }, cluster: true })
+  // The page knows the server it shows, so a link would be drawn by now.
+  await expect(page).toHaveURL(/[?&]node=m-1(&|$)/)
+  await t.openTools()
+  await expect(t.sheet.locator('[data-snippet]')).toHaveText(['review the diff'])
+  await expect(t.sheet.getByRole('link', { name: /Run on several servers/ })).toHaveCount(0)
+})
+
+test('a single server has no group run for snippets', async ({ page }) => {
+  const t = await openTerminal(page, SHELL.id, { prefs: { snippets: [{ kind: 'shell', body: 'uptime' }] } })
+  await t.openTools()
+  await expect(t.sheet.locator('[data-snippet]')).toHaveText(['uptime'])
+  await expect(t.sheet.getByRole('link', { name: /Run on several servers/ })).toHaveCount(0)
 })
 
 // A save is the whole list. Built from a list the page never received, it
