@@ -1,6 +1,6 @@
-// Shared presentation utilities for the log viewer (Logs page + FirewallLogs
-// tab). These used to be verbatim copies in both pages and had already
-// drifted (regex pre-compilation only landed on one side).
+// Shared presentation utilities for the log viewer (the Logs page). These were
+// once verbatim copies in two pages and had already drifted (regex
+// pre-compilation only landed on one side).
 
 import type { LogEntry } from '@/lib/logParsers'
 

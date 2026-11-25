@@ -67,7 +67,7 @@
 | `/docker/networks` | DockerNetworks | O | Docker | 네트워크 관리 |
 | `/files` | Files | O | Layout | 파일 관리자 |
 | `/cron` | CronJobs | O | Layout | 예약 작업(root 크론탭) 관리 |
-| `/logs` | Logs | O | Layout | 시스템 로그 뷰어 |
+| `/logs` | Logs | O | Layout | 시스템 로그 뷰어. `?source=<id>`가 그 소스를 연다 |
 | `/processes` | Processes | O | Layout | 프로세스 관리자 |
 | `/services` | Services | O | Layout | Systemd 서비스 관리 |
 | `/network` | Network | O | Layout | 네트워크/VPN 관리 (사이드 탭 + Outlet 구조) |
@@ -89,7 +89,7 @@
 | `/firewall/portmap` | FirewallPortmap | O | Firewall | 포트 맵 (UFW+Docker+프로세스 통합) |
 | `/firewall/fail2ban` | FirewallFail2ban | O | Firewall | Fail2ban jail 관리 |
 | `/firewall/docker` | FirewallDocker | O | Firewall | Docker 방화벽 (DOCKER-USER 체인) |
-| `/firewall/logs` | FirewallLogs | O | Firewall | 방화벽 로그 뷰어 |
+| `/firewall/logs` | (redirect) | O | Firewall | `/logs?source=firewall`로 리다이렉트 (방화벽 › 로그 탭은 로그 화면으로 흡수, 예전 북마크용) |
 | `/packages` | Packages | O | Layout | 시스템 패키지 관리 + Docker 설치 |
 | `/terminal` | Terminal | O | Layout | 터미널 — tmux 세션(셸·Claude·Codex·Gemini) 레일 + 큰 패널, tmux가 없으면 PTY 폴백 |
 | `/ai` | (redirect) | O | Layout | `/terminal`로 리다이렉트 (v0.76.0 이전 북마크·Android 앱용) |
@@ -150,7 +150,7 @@ const DockerStacks = lazy(() => import('@/pages/docker/DockerStacks'))
   - Docker 컨테이너 요약 (실행/중지/전체 카운트 + 최근 컨테이너 목록, "전체 보기" → /docker)
   - 네트워크 I/O 실시간 송수신 속도 및 누적량
   - Top 프로세스 테이블 (CPU 사용률 상위, 10초마다 갱신)
-  - 최근 로그 — **syslog / 방화벽 탭 토글** (각 8 / 50줄; 클릭 시 해당 로그 페이지로)
+  - 최근 로그 — **syslog / 방화벽 탭 토글** (각 8 / 50줄; "전체 보기"는 보고 있는 탭의 소스로 로그 화면을 연다: `/logs?source=syslog|firewall`)
   - **업데이트 배너** (`update_info` 기반) → `/settings?scope=node&tab=system`
   - 빠른 실행 바로가기 5개 (파일, Docker, 패키지, 크론, 로그)
   - WebSocket 연결 상태 배지 (Live / Disconnected)
@@ -364,6 +364,8 @@ const DockerStacks = lazy(() => import('@/pages/docker/DockerStacks'))
 - **파일**: `web/src/pages/Logs.tsx`
 - **기능**: 시스템/앱 로그 뷰어
   - 좌측 사이드바: 로그 소스 목록 (이름, 경로, 크기, 존재 여부, 커스텀 여부)
+  - **주소의 소스 (`?source=<id>`)**: 처음 목록을 받을 때 `pickLogSource`(`web/src/lib/logSources.ts`)가 고른다 — 요청한 소스가 이 서버에 있으면 그것, 없거나 모르는 id면 첫 번째로 존재하는 소스(존재하지 않는 소스는 읽지 않는다). 화면의 소스가 바뀌면(선택·모바일 뒤로·선택된 커스텀 소스 삭제) `source`만 `replace`로 고치고 다른 질의값은 남긴다
+  - **다른 기록** 링크 (소스 목록 아래, 목록이 비거나 실패해도 보임): 서비스(`/services`), 예약 작업(`/cron`), 감사 로그(`/settings?scope=node&tab=audit`)
   - 커스텀 로그 소스 추가/삭제 기능 (다이얼로그)
   - 줄 수 선택: 100 / 500 / 1000 / 5000
   - 실시간 스트리밍 모드 (WebSocket 직접 관리, useWebSocket 훅 미사용)
@@ -457,7 +459,7 @@ const DockerStacks = lazy(() => import('@/pages/docker/DockerStacks'))
 ### Firewall
 - **파일**: `web/src/pages/Firewall.tsx`
 - **기능**: 방화벽(UFW) 및 Fail2ban 침입 방지 시스템 관리
-  - 탭 구조: 방화벽 규칙, 열린 포트, 포트 맵, 접속 차단, 컨테이너 포트 규칙, 로그
+  - 탭 구조: 방화벽 규칙, 열린 포트, 포트 맵, 접속 차단, 컨테이너 포트 규칙 (방화벽 로그는 로그 화면의 `firewall` 소스 — `/firewall/logs`는 `/logs?source=firewall`로 리다이렉트)
   - **방화벽 규칙 탭** (`FirewallRules`): UFW 활성화/비활성화 토글, 규칙 목록 테이블 (번호/대상/동작/소스/코멘트/IPv6), 규칙 추가 다이얼로그 (action/port/protocol/from/to/comment), 규칙 삭제 확인 다이얼로그. 활성화·추가·삭제·편집이 잠금 방지 가드에 거부되면 `useLockoutGuard` 확인 창(클러스터 포트면 제목도 클러스터에서 끊길 수 있다는 문구이고 SSH 접근 기준 경고 문단은 빠진다); 편집의 "그래도 진행"은 새 규칙 추가와 이전 규칙 삭제 둘 다 `?force=true`
   - **열린 포트 탭** (`FirewallPorts`): 리스닝 TCP/UDP 포트 목록 테이블 (프로토콜/주소/포트/PID/프로세스), 선택한 포트로 UFW 규칙 직접 추가 기능 (잠금 방지 거부는 규칙 탭과 같은 `useLockoutGuard` 확인 창 — `details.cluster_ports`면 클러스터 포트 문구와 제목, 8006이면 Proxmox 문구, "그래도 진행"은 `?force=true`)
   - **접속 차단 탭** (`FirewallFail2ban`): Fail2ban 설치 상태 확인 및 원클릭 설치, jail 템플릿에서 생성, jail 목록 테이블 (이름/활성/차단수/총차단수), jail 상세 (설정값, 차단 IP 목록), jail 활성화/비활성화, jail 설정 편집, jail 삭제, IP 차단 해제
@@ -467,7 +469,7 @@ const DockerStacks = lazy(() => import('@/pages/docker/DockerStacks'))
   - portmap -> FirewallPortmap
   - fail2ban -> FirewallFail2ban
   - docker -> FirewallDocker
-  - logs -> FirewallLogs
+  - logs -> `/logs?source=firewall`로 리다이렉트
 - **사용 API**: `api.getFirewallStatus()`, `api.enableFirewall()`, `api.disableFirewall()`, `api.getFirewallRules()`, `api.addFirewallRule()`, `api.deleteFirewallRule()`, `api.getListeningPorts()`, `api.getFail2banStatus()`, `api.installFail2ban()`, `api.getFail2banTemplates()`, `api.createFail2banJail()`, `api.deleteFail2banJail()`, `api.getFail2banJails()`, `api.getFail2banJailDetail()`, `api.updateFail2banJailConfig()`, `api.enableFail2banJail()`, `api.disableFail2banJail()`, `api.unbanFail2banIP()`
 - **사용 컴포넌트**: Tabs, TabsList, TabsTrigger, TabsContent, Table, Dialog, Button, Input, Select (shadcn/ui)
 - **서브 컴포넌트 파일**:
@@ -475,7 +477,6 @@ const DockerStacks = lazy(() => import('@/pages/docker/DockerStacks'))
   - `web/src/pages/firewall/FirewallPorts.tsx` — 리스닝 포트 조회
   - `web/src/pages/firewall/FirewallFail2ban.tsx` — Fail2ban 관리
   - `web/src/pages/firewall/FirewallDocker.tsx` — 컨테이너 포트 규칙 (DOCKER-USER 체인) 관리
-  - `web/src/pages/firewall/FirewallLogs.tsx` — 방화벽 로그 뷰어
 
 ### Packages
 - **파일**: `web/src/pages/Packages.tsx`

@@ -1,6 +1,6 @@
 import { useTranslation } from 'react-i18next'
 import { Outlet } from 'react-router-dom'
-import { ShieldCheck, Network, ShieldAlert, Container, ScrollText, Map } from 'lucide-react'
+import { ShieldCheck, Network, ShieldAlert, Container, Map } from 'lucide-react'
 import { SubNavTabs } from '@/components/SubNavTabs'
 
 const navItems = [
@@ -9,7 +9,6 @@ const navItems = [
   { to: '/firewall/portmap', icon: Map, label: 'firewall.tabs.portmap' },
   { to: '/firewall/fail2ban', icon: ShieldAlert, label: 'firewall.tabs.fail2ban' },
   { to: '/firewall/docker', icon: Container, label: 'firewall.tabs.docker' },
-  { to: '/firewall/logs', icon: ScrollText, label: 'firewall.tabs.logs' },
 ]
 
 export default function Firewall() {

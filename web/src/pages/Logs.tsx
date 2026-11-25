@@ -1,13 +1,15 @@
 import { useEffect, useState, useCallback } from 'react'
 import { useTranslation } from 'react-i18next'
+import { Link, useSearchParams } from 'react-router-dom'
 import { api } from '@/lib/api'
 import { formatBytes, downloadBlob } from '@/lib/utils'
 import { toast } from 'sonner'
 import { Button } from '@/components/ui/button'
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog'
-import { FileText, RefreshCw, Radio, ArrowDown, Trash2, Eye, Search, ChevronLeft, X, Download, Plus } from 'lucide-react'
+import { FileText, RefreshCw, Radio, ArrowDown, Trash2, Eye, Search, ChevronLeft, ChevronRight, X, Download, Plus } from 'lucide-react'
 import { Input } from '@/components/ui/input'
 import { hasParsedView } from '@/lib/logParsers'
+import { pickLogSource } from '@/lib/logSources'
 import { useConfirm } from '@/components/ConfirmDialog'
 import { GuideAccordion } from '@/components/GuideAccordion'
 import { ListLoadState } from '@/components/ListLoadState'
@@ -39,6 +41,7 @@ interface LogResponse {
 export default function Logs() {
   const { t } = useTranslation()
   const confirm = useConfirm()
+  const [searchParams, setSearchParams] = useSearchParams()
 
   // Sources
   const [sources, setSources] = useState<LogSource[]>([])
@@ -88,12 +91,14 @@ export default function Logs() {
     try {
       const data = await api.getLogSources()
       setSources(data)
-      // Auto-select the first available source
-      if (data.length > 0 && !selectedSource) {
-        const firstExisting = data.find((s: LogSource) => s.exists)
-        if (firstExisting) {
-          setSelectedSource(firstExisting.id)
+      // The source the address asks for, else the first one this server has
+      if (!selectedSource) {
+        const picked = pickLogSource(data, searchParams.get('source'))
+        if (picked) {
+          setSelectedSource(picked)
+          setViewMode(hasParsedView(picked) ? 'parsed' : 'raw')
         }
+        setSourceParam(picked)
       }
     } catch (err: unknown) {
       const message = err instanceof Error ? err.message : t('logs.loadSourcesFailed')
@@ -154,10 +159,22 @@ export default function Logs() {
     setWsConnected(false)
   }, [selectedSource])
 
+  // The address says which source is open. Replaced, not pushed, and only
+  // `source`: every other parameter stays as it was.
+  function setSourceParam(id: string | null) {
+    setSearchParams((prev) => {
+      const next = new URLSearchParams(prev)
+      if (id) next.set('source', id)
+      else next.delete('source')
+      return next
+    }, { replace: true })
+  }
+
   function handleSourceSelect(sourceId: string) {
     const source = sources.find((s) => s.id === sourceId)
     if (source && !source.exists) return
     setSelectedSource(sourceId)
+    setSourceParam(sourceId)
     setViewMode(hasParsedView(sourceId) ? 'parsed' : 'raw')
   }
 
@@ -221,6 +238,7 @@ export default function Logs() {
       toast.success(t('logs.sourceDeleted'))
       if (selectedSource === source.id) {
         setSelectedSource(null)
+        setSourceParam(null)
         setLogLines([])
       }
       loadSources()
@@ -371,6 +389,30 @@ export default function Logs() {
               </div>
             ))
           )}
+
+          {/* Records kept elsewhere: shown whatever became of the list above */}
+          <nav aria-label={t('logs.otherRecords')} className="pt-4">
+            <h2 className="mb-1 text-sm font-semibold text-muted-foreground uppercase tracking-wider">
+              {t('logs.otherRecords')}
+            </h2>
+            <ul>
+              {[
+                { to: '/services', label: t('layout.nav.services') },
+                { to: '/cron', label: t('layout.nav.cron') },
+                { to: '/settings?scope=node&tab=audit', label: t('settings.tabAuditLog') },
+              ].map((link) => (
+                <li key={link.to}>
+                  <Link
+                    to={link.to}
+                    className="flex min-h-11 items-center justify-between gap-2 rounded-xl px-3 text-[13px] font-medium text-foreground hover:bg-secondary outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-0"
+                  >
+                    {link.label}
+                    <ChevronRight className="h-4 w-4 shrink-0 text-muted-foreground" />
+                  </Link>
+                </li>
+              ))}
+            </ul>
+          </nav>
         </div>
 
         {/* Main log content area — hidden on mobile when no source selected */}
@@ -382,7 +424,7 @@ export default function Logs() {
               variant="ghost"
               size="icon-sm"
               className="rounded-xl md:hidden"
-              onClick={() => setSelectedSource(null)}
+              onClick={() => { setSelectedSource(null); setSourceParam(null) }}
               aria-label={t('common.back')}
             >
               <ChevronLeft className="h-4 w-4" />

@@ -216,7 +216,8 @@ jobs:
             tests/cluster-tasks.spec.ts \
             tests/running-board.spec.ts \
             tests/running-network.spec.ts \
-            tests/running-rack.spec.ts
+            tests/running-rack.spec.ts \
+            tests/logs-source.spec.ts
       - name: Dump panel log on failure
         if: failure()
         run: cat "$E2E_DIR/panel.log" || true

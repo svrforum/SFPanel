@@ -3514,7 +3514,8 @@
     "allTime": "전체 시간",
     "lastHours": "{{n}}시간",
     "timestamps": "타임스탬프",
-    "journal": "저널"
+    "journal": "저널",
+    "otherRecords": "다른 기록"
   },
   "packages": {
     "title": "패키지",
@@ -4119,8 +4120,7 @@
       "ports": "열린 포트",
       "portmap": "포트 맵",
       "fail2ban": "접속 차단",
-      "docker": "컨테이너 포트 규칙",
-      "logs": "로그"
+      "docker": "컨테이너 포트 규칙"
     },
     "status": {
       "title": "방화벽 상태",
@@ -4330,12 +4330,6 @@
       "loadError": "Docker 방화벽 정보를 불러올 수 없습니다",
       "blockPort": "차단",
       "notInstalled": "이 호스트에는 Docker가 설치되어 있지 않아 걸러낼 Docker 포트가 없습니다."
-    },
-    "logs": {
-      "title": "방화벽 로그",
-      "description": "UFW 및 Fail2ban 로그를 실시간으로 확인합니다",
-      "sourceFirewall": "방화벽",
-      "sourceFail2ban": "Fail2ban"
     },
     "portmap": {
       "loadFailed": "포트 맵을 불러올 수 없습니다.",

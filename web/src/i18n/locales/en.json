@@ -3526,7 +3526,8 @@
     "allTime": "All time",
     "lastHours": "{{n}}h",
     "timestamps": "Timestamps",
-    "journal": "Journal"
+    "journal": "Journal",
+    "otherRecords": "Other records"
   },
   "packages": {
     "title": "Packages",
@@ -4138,8 +4139,7 @@
       "ports": "Open Ports",
       "portmap": "Port Map",
       "fail2ban": "Access Blocking",
-      "docker": "Container Port Rules",
-      "logs": "Logs"
+      "docker": "Container Port Rules"
     },
     "status": {
       "title": "Firewall Status",
@@ -4349,12 +4349,6 @@
       "loadError": "Could not load the Docker firewall",
       "blockPort": "Block",
       "notInstalled": "Docker is not installed on this host, so there are no Docker ports to filter."
-    },
-    "logs": {
-      "title": "Firewall Logs",
-      "description": "View UFW and Fail2ban logs in real-time",
-      "sourceFirewall": "Firewall",
-      "sourceFail2ban": "Fail2ban"
     },
     "portmap": {
       "loadFailed": "Failed to load port map.",

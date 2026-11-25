@@ -65,6 +65,9 @@ test('desktop prioritizes problems and shortcuts, with actionable cards and cont
   await expect(resources.getByRole('link', { name: /Disk/ })).toHaveAttribute('href', '/disk/filesystems')
   await expect(resources.getByRole('link', { name: /Network/ })).toHaveCount(1)
   await expect(resources.getByRole('link', { name: /Network/ }).getByRole('progressbar')).toHaveCount(0)
+  // No firewall entries here, so the card opens on the system log, and its
+  // link opens the Logs screen on the same source.
+  await expect(page.locator('#recent-logs').getByRole('link', { name: 'View All' })).toHaveAttribute('href', '/logs?source=syslog')
   await expect(page.locator('#server-details')).not.toHaveAttribute('open')
   await expect(page.locator('#resource-history').getByRole('img')).toBeVisible()
   await expect(panel(page).getByRole('link').nth(1)).toContainText('api-service')

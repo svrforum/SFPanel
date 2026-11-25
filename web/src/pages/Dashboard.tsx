@@ -242,7 +242,7 @@ export default function Dashboard() {
         </section>
 
         <DashboardSection id="recent-logs" title={t('dashboard.recentLogs')}
-          action={<Link to={logTab === 'firewall' ? '/firewall/logs' : '/logs'} className={linkClass}>{t('dashboard.viewAll')}</Link>}
+          action={<Link to={`/logs?source=${logTab}`} className={linkClass}>{t('dashboard.viewAll')}</Link>}
           summary={<>
             <ResourceStatus resource={activeLogs} label={t(logTab === 'firewall' ? 'dashboard.logTabFirewall' : 'dashboard.logTabSystem')} />
             {(logTab === 'firewall' ? systemLogs.error : firewallLogs.error) && <ResourceStatus resource={logTab === 'firewall' ? systemLogs : firewallLogs} label={t(logTab === 'firewall' ? 'dashboard.logTabSystem' : 'dashboard.logTabFirewall')} />}
