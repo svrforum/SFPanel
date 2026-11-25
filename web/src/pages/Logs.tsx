@@ -170,6 +170,15 @@ export default function Logs() {
     }, { replace: true })
   }
 
+  // A bare address (the menu's own Logs link while a source is open) takes the
+  // open source back. A different `source` in the address is not followed.
+  const sourceParam = searchParams.get('source')
+  useEffect(() => {
+    if (selectedSource && !sourceParam) setSourceParam(selectedSource)
+    // setSourceParam is redefined every render; the two values are what matter.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selectedSource, sourceParam])
+
   function handleSourceSelect(sourceId: string) {
     const source = sources.find((s) => s.id === sourceId)
     if (source && !source.exists) return

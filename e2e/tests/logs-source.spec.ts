@@ -85,6 +85,32 @@ test('choosing a source rewrites only that parameter', async ({ page }) => {
   expect(await page.evaluate(() => history.length)).toBe(before)
 })
 
+test('a bare logs address takes back the source on screen', async ({ page }) => {
+  const reads = await fixture(page)
+  await page.goto('/logs?source=firewall')
+  await expect.poll(() => reads).toEqual(['firewall'])
+  const before = await page.evaluate(() => history.length)
+  // The menu's own Logs link, not one in "Other records": it pushes a bare /logs.
+  await page.getByRole('complementary').getByRole('navigation').getByRole('link', { name: 'Logs', exact: true }).click()
+  await expect(page).toHaveURL(/\/logs\?source=firewall$/)
+  // The link's own push is the one new entry; the source is written back in place.
+  expect(await page.evaluate(() => history.length)).toBe(before + 1)
+  // Firewall stays on screen: nothing else is read.
+  await expect(page.getByRole('main').getByRole('button', { name: /Firewall/ })).toHaveClass(/bg-primary\/10/)
+  expect(reads).toEqual(['firewall'])
+})
+
+test('on a phone, back to the list leaves no source in the address', async ({ page }) => {
+  await page.setViewportSize({ width: 390, height: 844 })
+  const reads = await fixture(page)
+  await page.goto('/logs?source=firewall&keep=1')
+  await expect.poll(() => reads).toEqual(['firewall'])
+  await page.getByRole('main').getByRole('button', { name: 'Back', exact: true }).click()
+  await expect(page.getByRole('main').getByRole('button', { name: /System Log/ })).toBeVisible()
+  // Nothing is on screen, so the write-back above must not put a source back.
+  await expect(page).toHaveURL(/\/logs\?keep=1$/)
+})
+
 test('other records are a link away', async ({ page }) => {
   await fixture(page)
   await page.goto('/logs')
