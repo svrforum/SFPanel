@@ -252,10 +252,10 @@ const items = (page: Page, name: string) => section(page, name).getByRole('link'
 test('the Tasks tab comes last and opens /cluster/tasks', async ({ page }) => {
   await mock(page)
   await page.goto('/cluster/overview')
-  const tasks = tab(page, 'Tasks')
+  const tasks = tab(page, 'Group Tasks')
   await expect(tasks).toBeVisible()
   const row = await tasks.locator('..').getByRole('link').allInnerTexts()
-  expect(row.map((s) => s.trim())).toEqual(['Overview', 'Running', 'Nodes', 'Docker', 'Security', 'Tasks'])
+  expect(row.map((s) => s.trim())).toEqual(['Overview', 'Running', 'Nodes', 'Docker', 'Key Rotation', 'Group Tasks'])
   await tasks.click()
   await expect(page).toHaveURL(/\/cluster\/tasks$/)
   await expect(tasks).toHaveAttribute('aria-current', 'page')
@@ -342,7 +342,7 @@ test('every tasks route has its pane', async ({ page }) => {
   ]) {
     await page.goto(path)
     await expect(page.getByTestId(pane), path).toBeVisible()
-    await expect(tab(page, 'Tasks'), path).toHaveAttribute('aria-current', 'page')
+    await expect(tab(page, 'Group Tasks'), path).toHaveAttribute('aria-current', 'page')
   }
   // The history link at the foot of the list is the chosen entry there.
   await expect(list(page).getByRole('link', { name: 'Run history' })).toHaveAttribute('href', '/cluster/tasks/runs')
@@ -365,7 +365,7 @@ test.describe('Korean', () => {
     await page.addInitScript(() => localStorage.setItem('sfpanel_language', 'ko'))
     await mock(page, { runs: [runRecord({ id: 'r-9', status: 'running', ended_at: undefined })] })
     await page.goto('/cluster/tasks')
-    await expect(tab(page, '작업')).toHaveAttribute('aria-current', 'page')
+    await expect(tab(page, '그룹 작업')).toHaveAttribute('aria-current', 'page')
     const listKo = page.getByRole('navigation', { name: '작업 목록' })
     await expect(listKo.getByRole('region', { name: '내장', exact: true }).getByRole('link')).toHaveText([
       '패키지 업데이트', '패키지 설치', '서비스 재시작', '명령 실행', '재부팅 (필요할 때만)', '에이전트 설치 (SSH)',
@@ -383,7 +383,7 @@ test.describe('phone', () => {
   test('the Tasks tab is scrolled into the row', async ({ page }) => {
     await mock(page)
     await page.goto('/cluster/tasks')
-    const tasks = tab(page, 'Tasks')
+    const tasks = tab(page, 'Group Tasks')
     await expect(tasks).toHaveAttribute('aria-current', 'page')
     const row = tasks.locator('..')
     await expect.poll(async () => {
@@ -1839,7 +1839,7 @@ test.describe('editor', () => {
     await editor.getByLabel('Task name').fill('Half done')
     await tab(page, 'Overview').click()
     await expect(page).toHaveURL(/\/cluster\/overview$/)
-    await tab(page, 'Tasks').click()
+    await tab(page, 'Group Tasks').click()
     await list(page).getByRole('link', { name: 'New task' }).click()
     await expect(editor.getByLabel('Task name')).toHaveValue('Half done')
     await expect(editor).toContainText('Your unsaved changes were kept')

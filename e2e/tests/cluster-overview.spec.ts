@@ -136,14 +136,14 @@ test('sends the wave size with a rolling update', async ({ page }) => {
   const { calls } = await mock(page, { update: sse({ overall: 'started', mode: 'rolling', total_nodes: 0, waves: 0, target: 'v0.80.0' }, { overall: 'complete', updated: 0, failed: 0, leader_restarting: false }) })
   await page.goto('/cluster/overview')
   await page.getByLabel('Wave size').fill('2')
-  await page.getByRole('button', { name: 'Rolling Update' }).click()
+  await page.getByRole('button', { name: 'Rolling Panel Update' }).click()
   await expect(dialog(page)).toContainText('Agents go first in waves')
-  await dialog(page).getByRole('button', { name: 'Rolling Update' }).click()
+  await dialog(page).getByRole('button', { name: 'Rolling Panel Update' }).click()
   await expect.poll(() => calls.find((c) => c.path === '/cluster/update')?.body).toEqual({ mode: 'rolling', wave_size: 2 })
 
-  await page.getByRole('button', { name: 'Simultaneous Update' }).click()
+  await page.getByRole('button', { name: 'Simultaneous Panel Update' }).click()
   await expect(dialog(page)).toContainText('Every agent goes in one wave')
-  await dialog(page).getByRole('button', { name: 'Simultaneous Update' }).click()
+  await dialog(page).getByRole('button', { name: 'Simultaneous Panel Update' }).click()
   await expect.poll(() => calls.filter((c) => c.path === '/cluster/update').at(-1)?.body).toEqual({ mode: 'simultaneous' })
 })
 
@@ -163,8 +163,8 @@ test('shows the wave, the target and why the run stopped', async ({ page }) => {
     ),
   })
   await page.goto('/cluster/overview')
-  await page.getByRole('button', { name: 'Rolling Update' }).click()
-  await dialog(page).getByRole('button', { name: 'Rolling Update' }).click()
+  await page.getByRole('button', { name: 'Rolling Panel Update' }).click()
+  await dialog(page).getByRole('button', { name: 'Rolling Panel Update' }).click()
   const card = page.getByTestId('update-progress')
   await expect(card).toContainText('Updating to v0.80.0')
   await expect(card).toContainText('Wave 1 of 2: agent-01, agent-02')
@@ -180,14 +180,14 @@ test('says an update is already running on 409', async ({ page }) => {
   const opts: Opts = { update: replies[0] }
   await mock(page, opts)
   await page.goto('/cluster/overview')
-  await page.getByRole('button', { name: 'Rolling Update' }).click()
-  await dialog(page).getByRole('button', { name: 'Rolling Update' }).click()
+  await page.getByRole('button', { name: 'Rolling Panel Update' }).click()
+  await dialog(page).getByRole('button', { name: 'Rolling Panel Update' }).click()
   await expect(page.getByText('A cluster update is already running.')).toBeVisible()
 
   // Another conflict is not an update in progress: its own words.
   opts.update = replies[1]
-  await page.getByRole('button', { name: 'Rolling Update' }).click()
-  await dialog(page).getByRole('button', { name: 'Rolling Update' }).click()
+  await page.getByRole('button', { name: 'Rolling Panel Update' }).click()
+  await dialog(page).getByRole('button', { name: 'Rolling Panel Update' }).click()
   await expect(page.getByText('the cluster is changing its members')).toBeVisible()
   await expect(page.getByText('A cluster update is already running.')).toHaveCount(1)
 })

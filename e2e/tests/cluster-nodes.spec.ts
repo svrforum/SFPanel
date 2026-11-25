@@ -310,7 +310,7 @@ test('tells how to reset an agent it removes', async ({ page }) => {
   // A manager keeps the cluster's secrets: its removal points at rotating them.
   await choose(page, 'm-2', 'Remove node')
   await expect(page.getByText('Remove node m-2 from the cluster?')).toBeVisible()
-  await expect(page.getByRole('dialog')).toContainText('rotate them on the Security tab')
+  await expect(page.getByRole('dialog')).toContainText('rotate them on the Key Rotation tab')
   await expect(page.getByText('sudo sfpanel agent reset --yes')).toHaveCount(0)
 })
 

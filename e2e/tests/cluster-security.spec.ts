@@ -126,7 +126,7 @@ test('shows where each rotation stands', async ({ page }) => {
   await page.goto('/cluster/security')
 
   // The cluster page's tab; the sidebar's datacenter menu has the same link.
-  await expect(page.getByRole('main').getByRole('link', { name: 'Security' })).toHaveAttribute('aria-current', 'page')
+  await expect(page.getByRole('main').getByRole('link', { name: 'Key Rotation' })).toHaveAttribute('aria-current', 'page')
   await expect(page.getByText("Rotate the cluster's secrets after a manager is converted to an agent or removed")).toBeVisible()
 
   const jwt = card(page, 'jwt')
@@ -370,7 +370,7 @@ test.describe('phone', () => {
   test('the open tab is scrolled into the row', async ({ page }) => {
     await mock(page)
     await page.goto('/cluster/security')
-    const tab = page.getByRole('main').getByRole('link', { name: 'Security' })
+    const tab = page.getByRole('main').getByRole('link', { name: 'Key Rotation' })
     await expect(tab).toHaveAttribute('aria-current', 'page')
     const row = tab.locator('..')
     await expect.poll(async () => {

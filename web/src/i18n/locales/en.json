@@ -58,7 +58,7 @@
       "running": "Running",
       "docker": "Docker",
       "files": "Files",
-      "cron": "Cron Jobs",
+      "cron": "Scheduled Tasks",
       "logs": "Logs",
       "processes": "Processes",
       "services": "Services",
@@ -277,7 +277,7 @@
     "zfsCache": "ZFS cache {{size}}"
   },
   "processes": {
-    "title": "Process Manager",
+    "title": "Processes",
     "subtitle": "Monitor and manage system processes",
     "total": "{{count}} processes",
     "searchPlaceholder": "Search by name, PID, user, or command…",
@@ -513,9 +513,9 @@
       "validateSuccess": "Configuration is valid",
       "validateFailed": "Configuration validation failed",
       "configValid": "Configuration is valid",
-      "checkUpdates": "Check Updates",
+      "checkUpdates": "Check for New Images",
       "checking": "Checking…",
-      "updateAvailable": "Update Available",
+      "updateAvailable": "New image available",
       "upToDate": "Up to Date",
       "updateAll": "Update",
       "updating": "Updating…",
@@ -747,11 +747,11 @@
       "loadError": "Could not load images",
       "inUse": "In use",
       "unused": "Unused",
-      "checkUpdates": "Check Updates",
-      "updateAvailable": "Update available",
-      "updatesFound": "{{count}} update(s) available",
+      "checkUpdates": "Check for New Images",
+      "updateAvailable": "New image",
+      "updatesFound": "{{count}} new image(s)",
       "upToDate": "All images are up to date",
-      "updateCheckFailed": "Failed to check for updates",
+      "updateCheckFailed": "Failed to check for new images",
       "count": "{{count}} images"
     },
     "volumes": {
@@ -1004,8 +1004,8 @@
       "running": "Running",
       "nodes": "Nodes",
       "stacks": "Docker",
-      "security": "Security",
-      "tasks": "Tasks"
+      "security": "Key Rotation",
+      "tasks": "Group Tasks"
     },
     "notEnabled": {
       "title": "Cluster not enabled",
@@ -1069,8 +1069,8 @@
       "disbandConfirmTitle": "Disband cluster {{name}}",
       "disbandConfirmDesc": "Disbanding cluster {{name}} first removes every agent from it, then switches every manager to standalone mode and removes the cluster configuration. An agent that is offline is not told and needs sudo sfpanel agent reset --yes on its own server. This cannot be undone.",
       "disbanded": "Cluster disbanded. Restarting service.",
-      "rollingUpdate": "Rolling Update",
-      "simultaneousUpdate": "Simultaneous Update",
+      "rollingUpdate": "Rolling Panel Update",
+      "simultaneousUpdate": "Simultaneous Panel Update",
       "confirmUpdate": "Update the whole cluster?",
       "confirmUpdateTo": "Update the cluster to {{version}}?",
       "updateContinuesOnLeader": "This node restarted as part of the update, so the progress view was cut off. The update carries on at the leader.",
@@ -1131,7 +1131,7 @@
       "confirmRemove": "Remove node {{name}} from the cluster?",
       "removed": "Node {{name}} removed",
       "remove": "Remove node",
-      "removeManagerDesc": "This manager still holds the cluster's secrets, such as the JWT signing key and the CA key. After removing it, rotate them on the Security tab.",
+      "removeManagerDesc": "This manager still holds the cluster's secrets, such as the JWT signing key and the CA key. After removing it, rotate them on the Key Rotation tab.",
       "removeAgentDesc": "It stops being managed here. On that server, run sudo sfpanel agent reset --yes to turn it back into a standalone panel.",
       "editLabels": "Edit group and labels",
       "editLabelsTitle": "Edit group and labels for {{name}}",
@@ -1314,7 +1314,7 @@
     "leave": {
       "action": "Leave cluster",
       "confirm": "Leave the cluster?",
-      "confirmDesc": "This node restarts its service and becomes a standalone panel. It keeps the cluster's secrets, so rotate them on the Security tab of a remaining manager afterwards.",
+      "confirmDesc": "This node restarts its service and becomes a standalone panel. It keeps the cluster's secrets, so rotate them on the Key Rotation tab of a remaining manager afterwards.",
       "forceConfirm": "Leaving would drop the cluster below quorum. Force leave anyway? Remaining nodes may lose quorum.",
       "forceAction": "Leave anyway",
       "success": "Leaving cluster. The service will restart.",
@@ -2890,7 +2890,7 @@
     }
   },
   "files": {
-    "title": "File Manager",
+    "title": "Files",
     "count": "{{count}} items",
     "name": "Name",
     "size": "Size",
@@ -3069,7 +3069,7 @@
     "viewGrid": "Grid"
   },
   "cron": {
-    "title": "Cron Jobs",
+    "title": "Scheduled Tasks",
     "subtitle": "Manage system scheduled tasks",
     "runNow": "Run now",
     "runNowTitle": "Run this job now?",
@@ -3098,15 +3098,15 @@
     "schedule": "Schedule",
     "command": "Command",
     "type": "Type",
-    "empty": "No cron jobs found",
+    "empty": "No scheduled tasks found",
     "enabledLabel": "Enabled",
     "enabledFor": "Enabled: {{command}}",
     "typeJob": "Job",
     "typeEnv": "Env",
     "typeComment": "Comment",
-    "createTitle": "Create Cron Job",
+    "createTitle": "Create Scheduled Task",
     "createDescription": "Add a new scheduled task to the system crontab",
-    "editTitle": "Edit Cron Job",
+    "editTitle": "Edit Scheduled Task",
     "editDescription": "Modify the schedule or command",
     "scheduleHint": "Format",
     "scheduleFormat": "minute hour day month weekday",
@@ -3118,22 +3118,22 @@
     "presetDaily": "Daily",
     "presetWeekly": "Weekly",
     "presetMonthly": "Monthly",
-    "createSuccess": "Cron job created",
-    "updateSuccess": "Cron job updated",
-    "saveFailed": "Failed to save cron job",
+    "createSuccess": "Scheduled task created",
+    "updateSuccess": "Scheduled task updated",
+    "saveFailed": "Failed to save scheduled task",
     "invalidSchedule": "Invalid schedule. Use @reboot/@daily/@weekly/@hourly or 5 fields (min hour day month dow).",
     "scheduleRequired": "Enter a schedule, or pick one of the presets.",
     "commandRequired": "Enter the command to run.",
-    "fetchFailed": "Failed to load cron jobs",
-    "loadError": "Could not load cron jobs",
+    "fetchFailed": "Failed to load scheduled tasks",
+    "loadError": "Could not load scheduled tasks",
     "enabled": "Job enabled",
     "disabled": "Job disabled",
     "toggleFailed": "Failed to toggle job",
-    "deleteTitle": "Delete this cron job?",
+    "deleteTitle": "Delete this scheduled task?",
     "deleteConfirm": "Its line is taken out of the crontab. This cannot be undone.",
     "deleteAction": "Delete job",
-    "deleteSuccess": "Cron job deleted",
-    "deleteFailed": "Failed to delete cron job",
+    "deleteSuccess": "Scheduled task deleted",
+    "deleteFailed": "Failed to delete scheduled task",
     "scheduleDesc": {
       "everyMinute": "Every minute",
       "every5Minutes": "Every 5 minutes",
@@ -3445,7 +3445,7 @@
     }
   },
   "logs": {
-    "title": "Log Viewer",
+    "title": "Logs",
     "subtitle": "View and stream system and application logs",
     "sources": "Log Sources",
     "noSources": "No log sources available",
@@ -3511,7 +3511,7 @@
       "level": "Level",
       "jail": "Jail"
     },
-    "guideTitle": "How to use the Log Viewer",
+    "guideTitle": "How to read logs",
     "guideStep1Title": "Select a log source",
     "guideStep1Desc": "Choose from system logs, firewall, Fail2ban, and more in the sidebar. Use the + button to add custom log sources.",
     "guideStep2Title": "Structured view & search",
@@ -3553,7 +3553,7 @@
     "stopped": "Stopped",
     "available": "Available",
     "notAvailable": "Not Available",
-    "systemUpdates": "System Updates",
+    "systemUpdates": "Package Updates",
     "lastChecked": "Last checked: {{time}}",
     "neverChecked": "Not yet checked for updates",
     "checkForUpdates": "Check for Updates",
@@ -3663,7 +3663,7 @@
     "forwardDropWarning": "The FORWARD policy is DROP, which Docker sets when it turns forwarding on. Routed guest networks, and bridged ones while bridge-nf-call-iptables is on, lose traffic that no rule accepts: allow the guests' bridges in the DOCKER-USER chain, or run Docker in a VM or container."
   },
   "disk": {
-    "title": "Disk Management",
+    "title": "Disks",
     "deviceInUse": "This device is in use (mounted, LVM, RAID, ZFS or swap). Release it first.",
     "tabs": {
       "overview": "Overview",
@@ -4134,11 +4134,11 @@
       "proceed": "Proceed anyway"
     },
     "tabs": {
-      "rules": "UFW Rules",
+      "rules": "Firewall Rules",
       "ports": "Open Ports",
       "portmap": "Port Map",
-      "fail2ban": "Fail2ban",
-      "docker": "Docker Ports",
+      "fail2ban": "Access Blocking",
+      "docker": "Container Port Rules",
       "logs": "Logs"
     },
     "status": {
@@ -4314,7 +4314,7 @@
       "days": "d"
     },
     "docker": {
-      "title": "Docker Port Firewall",
+      "title": "Container Port Rules",
       "description": "Control external access to Docker published ports",
       "publishedPorts": "Published Ports",
       "userRules": "DOCKER-USER Rules",
@@ -4405,7 +4405,7 @@
     "noApps": "No apps found",
     "installed": "Installed",
     "installedOn": "Installed {{date}}",
-    "updateAvailable": "Update available",
+    "updateAvailable": "New version",
     "install": "Install",
     "installing": "Installing…",
     "installSuccess": "{{name}} has been installed successfully",
