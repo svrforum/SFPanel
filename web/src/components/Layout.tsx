@@ -14,6 +14,7 @@ import { useTerminalCompact, useTerminalFocus } from '@/lib/terminalLayout'
 import { NODE_CHANGED, type NodeChangedDetail } from '@/lib/nodeSelection'
 import { useVisibleInterval } from '@/hooks/useVisibleInterval'
 import { useClusterUpdateCount } from '@/hooks/useClusterUpdateCount'
+import { ServerScopeContext, useServerScopeState } from '@/hooks/useServerScope'
 import { ErrorBoundary } from '@/components/ErrorBoundary'
 import ClusterSidebar from '@/components/cluster/ClusterSidebar'
 import SidebarSkeleton from '@/components/SidebarSkeleton'
@@ -64,6 +65,11 @@ export default function Layout() {
   const [clusterStatus, setClusterStatus] = useState<ClusterStatus | null>(null)
   // The tree's node list, for the name of the server the pages act on.
   const [clusterNodes, setClusterNodes] = useState<ClusterNode[]>([])
+  // The server the pages act on, for every surface that shows or changes it,
+  // and kept in the address. The overview's hostname names the attached
+  // server while no node list does.
+  const hostname = overview?.node === api.currentNode ? overview?.data?.host?.hostname ?? '' : ''
+  const scope = useServerScopeState({ clusterEnabled, status: clusterStatus, hostname })
   // The cluster's counterpart of the standalone sidebar's update badge.
   const updateCount = useClusterUpdateCount(clusterEnabled === true)
   const location = useLocation()
@@ -236,6 +242,7 @@ export default function Layout() {
   }
 
   return (
+    <ServerScopeContext.Provider value={scope}>
     <div className="flex overflow-hidden bg-background" style={{ height: 'var(--app-h, 100dvh)' }}>
       {/* First thing a keyboard reaches: past the whole menu to the view. */}
       <a
@@ -455,5 +462,6 @@ export default function Layout() {
       <BottomNav onMorePress={() => setMoreOpen(true)} />
       <MoreMenu open={moreOpen} onOpenChange={setMoreOpen} />
     </div>
+    </ServerScopeContext.Provider>
   )
 }

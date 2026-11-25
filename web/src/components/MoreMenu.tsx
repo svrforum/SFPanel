@@ -9,7 +9,7 @@ import { cn, nodeStatusColor } from '@/lib/utils'
 import { MORE_MENU_ITEMS } from '@/lib/navigation'
 import { isAgent, treeSections } from '@/lib/clusterNodes'
 import { api } from '@/lib/api'
-import { useClusterNodes } from '@/hooks/useClusterNodes'
+import { useServerScope } from '@/hooks/useServerScope'
 
 interface MoreMenuProps {
   open: boolean
@@ -62,25 +62,24 @@ export default function MoreMenu({ open, onOpenChange }: MoreMenuProps) {
   const navigate = useNavigate()
   const location = useLocation()
   const { t } = useTranslation()
-  const { clusterStatus, nodes, localId, selectedNode, currentNode, selectNode, reload } = useClusterNodes()
+  const scope = useServerScope()
+  const { nodes, localId, currentId, current: currentNode, switchTo, reloadNodes } = scope
   const [nodeOpen, setNodeOpen] = useState(false)
   const [query, setQuery] = useState('')
   // The tree's sections, without its folding: a drawer has no room to keep it.
-  const sections = useMemo(
-    () => treeSections(nodes, clusterStatus?.leader_id ?? '', query),
-    [nodes, clusterStatus?.leader_id, query],
-  )
+  const leaderId = scope.status?.leader_id ?? ''
+  const sections = useMemo(() => treeSections(nodes, leaderId, query), [nodes, leaderId, query])
   const headed = nodes.some(isAgent)
 
   // The picker shows only with a node list; ask for it again on every open.
   useEffect(() => {
-    if (open) reload()
-  }, [open, reload])
+    if (open) reloadNodes()
+  }, [open, reloadNodes])
 
-  const clusterEnabled = clusterStatus?.enabled ?? false
+  const clusterEnabled = scope.clusterEnabled === true
 
   const handleNodeSelect = (nodeId: string) => {
-    selectNode(nodeId === localId ? null : nodeId)
+    switchTo(nodeId)
     setNodeOpen(false)
     setQuery('')
   }
@@ -140,7 +139,7 @@ export default function MoreMenu({ open, onOpenChange }: MoreMenuProps) {
                       const rows = section.nodes.map((node) => {
                         // The chosen node has a check and says it is pressed,
                         // not a tint alone.
-                        const chosen = selectedNode === node.id || (!selectedNode && node.id === localId)
+                        const chosen = node.id === currentId
                         return (
                           <button
                             key={node.id}

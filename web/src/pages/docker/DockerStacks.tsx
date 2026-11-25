@@ -385,7 +385,10 @@ export default function DockerStacks({ clusterMode = false }: { clusterMode?: bo
     // its route /cluster/stacks/NAME wouldn't match the :node/:name detail route.
     if (!clusterMode && searchParams.get('new') === '1') {
       setCreateOpen(true)
-      setSearchParams({}, { replace: true })
+      // Only `new` goes: the server the address names stays.
+      const next = new URLSearchParams(searchParams)
+      next.delete('new')
+      setSearchParams(next, { replace: true })
     }
   }, [clusterMode, searchParams, setSearchParams])
 

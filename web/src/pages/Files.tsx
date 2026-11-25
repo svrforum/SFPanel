@@ -503,10 +503,14 @@ export default function Files() {
 
   // Every navigation goes through here, so the URL and the state move
   // together. Pushing a history entry is the point: it is what makes Back step
-  // up a directory instead of leaving the page.
+  // up a directory instead of leaving the page. Only `path` changes: the
+  // address's other parameters (the server it names) stay.
   const navigateTo = (path: string) => {
     setCurrentPath(path)
-    setSearchParams(path === '/' ? {} : { path }, { replace: false })
+    const next = new URLSearchParams(searchParams)
+    if (path === '/') next.delete('path')
+    else next.set('path', path)
+    setSearchParams(next)
   }
 
   const navigateToSegment = (index: number) => {

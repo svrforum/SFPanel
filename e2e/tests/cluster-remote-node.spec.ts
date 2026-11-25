@@ -43,6 +43,19 @@ test.describe('Cluster remote-node proxy', () => {
     expect(json.data.host.hostname).not.toBe(remoteHost)
   })
 
+  // The address names the attached server by its own id too, so a request
+  // that names it has to be answered here, not proxied.
+  test('REST ?node=<its own id> answers locally', async ({ request }) => {
+    const session = await login(request, { baseURL })
+    const status = await (await request.get(`${baseURL}/api/v1/cluster/status`, { headers: session.headers })).json()
+    const localId = status.data.local_id
+    expect(localId).toBeTruthy()
+    const own = await (await request.get(`${baseURL}/api/v1/system/info?node=${localId}`, { headers: session.headers })).json()
+    const plain = await (await request.get(`${baseURL}/api/v1/system/info`, { headers: session.headers })).json()
+    expect(own.success).toBe(true)
+    expect(own.data.host.hostname).toBe(plain.data.host.hostname)
+  })
+
   test('WS /ws/metrics?node=<remote> delivers remote metrics', async ({ page, request }) => {
     test.setTimeout(20000)
     const session = await login(request, { baseURL })

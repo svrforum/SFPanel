@@ -593,7 +593,7 @@ const DockerStacks = lazy(() => import('@/pages/docker/DockerStacks'))
 | PromptDialog | `web/src/components/PromptDialog.tsx` | (v0.36.0) 네이티브 `window.prompt` 대체. `PromptProvider`(`App.tsx` 마운트) + `usePrompt()` 훅이 `prompt(opts) => Promise<string \| null>`를 반환. `PromptOptions`: `title`, `description?`, `placeholder?`, `defaultValue?`, `password?`(마스킹 입력), `confirmLabel?`, `cancelLabel?`. disable-2FA 재인증·appstore 고급 설치 재인증 등 파괴/인증 플로우에서 사용. |
 | TypeToConfirmDialog | `web/src/components/TypeToConfirmDialog.tsx` | (v0.30.0) 비가역 작업 게이트. 정확한 이름(디바이스/배열/클러스터명)을 입력해야 파괴 버튼이 활성화. Props: `open`, `onOpenChange`, `title`, `description?`, `confirmPhrase`(입력해야 할 정확한 문자열), `confirmLabel`, `loading?`, `onConfirm`. 적용: 디스크 포맷, 파티션 삭제, RAID 배열 삭제, 클러스터 disband. |
 | Skeleton | `web/src/components/ui/skeleton.tsx` | (v0.33.0) 로딩 스켈레톤 플레이스홀더. `bg-accent animate-pulse rounded-md` div 래퍼. `className` props로 형태 지정. 목록 페이지 첫 로드 시에만 표시(백그라운드 갱신 시 미표시). |
-| BottomNav / MoreMenu | `web/src/components/BottomNav.tsx`, `MoreMenu.tsx` | 모바일 셸 네비게이션 — md 미만에서 사이드바 대신 하단 탭 바 + "더보기" 서랍. 홈 표시줄 여백(`pb-safe`)은 탭이 놓인 56px 줄 아래, 막대에 더한다(줄 안에 두면 iPhone에서 아이콘이 5px로 줄었다). 클러스터 모드에서 서랍 위쪽은 노드 선택기(`useClusterNodes`, 열 때마다 목록을 다시 받음): 트리와 같은 구역 머리, 8대 초과 시 검색 |
+| BottomNav / MoreMenu | `web/src/components/BottomNav.tsx`, `MoreMenu.tsx` | 모바일 셸 네비게이션 — md 미만에서 사이드바 대신 하단 탭 바 + "더보기" 서랍. 홈 표시줄 여백(`pb-safe`)은 탭이 놓인 56px 줄 아래, 막대에 더한다(줄 안에 두면 iPhone에서 아이콘이 5px로 줄었다). 클러스터 모드에서 서랍 위쪽은 노드 선택기(`useServerScope`, 열 때마다 목록을 다시 받음): 트리와 같은 구역 머리, 8대 초과 시 검색 |
 | ErrorBoundary | `web/src/components/ErrorBoundary.tsx` | 전역 렌더 오류 경계 — 페이지 크래시를 지역화된 오류 화면으로 격리 |
 | ComposeLogs | `web/src/components/ComposeLogs.tsx` | 스택 실시간 로그 스트리밍 (`/ws/docker/compose/:project/logs`, `service` 필터) — DockerStacks/ClusterStacks에서 사용 |
 | TerminalInput | `web/src/pages/terminal/components/TerminalInput.tsx` | 컴팩트 배치의 입력 영역: 작성창과 세션 종류별 키 한 줄 (v0.53.0의 `MobileTerminalBar`를 대체). `+` 시트에 첨부·스니펫·최근·키 편집 |
@@ -1289,7 +1289,8 @@ interface InstalledApp {
 | 키 | 용도 | 관리 위치 |
 |----|------|----------|
 | `sfpanel_server_url` | Tauri 모드에서 원격 서버 URL | `Connect.tsx`, `ApiClient` |
-| `sfpanel_current_node` | 클러스터 원격 노드 ID (`?node=` 자동 주입, `/cluster/*` 제외). 클러스터를 떠난 노드면 사이드바가 지운다 | `ApiClient.setCurrentNode` — 호출: `ClusterSidebar`, `useClusterNodes`(서랍), `lib/nodeSelection.openNode`, `DockerStacks` |
+| `sfpanel_current_node` | 클러스터에서 페이지가 다루는 서버의 ID, 접속 중인 서버면 없음(`null`) — 요청에 `?node=` 자동 주입(`/cluster/*` 제외). 주소의 `?node=`가 이기고(부팅 때, 그리고 주소가 바뀔 때마다), 서버 화면 주소에 `node`가 없으면 셸이 replace로 다시 붙인다(접속 중인 서버는 자기 id로). 노드 목록을 받았는데 없는 서버면 지운다 | `ApiClient.setCurrentNode` — 호출: `useServerScopeState`(셸), `adoptUrlNode`(`main.tsx`, 첫 그리기 전) |
+| `sfpanel-cluster-local-id` | 접속 중인 서버의 클러스터 id 캐시(마지막 `/cluster/status`의 `local_id`) — 다음 로드가 답을 받기 전에 주소의 자기 id를 접속 중인 서버(`null`)로 읽는다. 선택 저장소가 아니다. 단일 서버면 지운다 | `Layout.tsx`(쓰기), `lib/serverScope.ts` `LOCAL_ID_KEY` |
 | `sfpanel_language` | i18next 선택 언어 | `Settings.tsx`, i18next detector |
 | `sfpanel-sidebar-collapsed` | 사이드바 접기 상태 | `Layout.tsx` |
 | `sfpanel-cluster-mode` | 마지막으로 안 클러스터 모드(`true`/`false`) — 새로고침 때 `/cluster/status` 답 전에 맞는 사이드바를 그린다 | `Layout.tsx` |
