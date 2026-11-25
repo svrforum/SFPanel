@@ -6,6 +6,31 @@ The format is loosely based on [Keep a Changelog](https://keepachangelog.com/), 
 
 ---
 
+## [0.94.0] – 2026-11-25
+
+One name for each thing, and the server you are looking at named where you look. This is the first of four steps that reorganise the menus; the sidebar keeps its shape in this one.
+
+### Changed
+
+- **One name per menu, tab and page.** Cron jobs are Scheduled Tasks (예약 작업). In a cluster, the Security tab is Key Rotation (키 교체) and the Tasks tab is Group Tasks (그룹 작업). The firewall tabs are Firewall Rules, Open Ports, Access Blocking and Container Port Rules. Each "update" says which one it is: Package Updates, Rolling or Simultaneous Panel Update, New version in the app store, Check for New Images in Docker. A page's heading is its menu label.
+- **The firewall log is the Logs screen, opened on its source.** Firewall › Logs is gone. Its address opens Logs with the firewall source chosen, and the address now names the source (`/logs?source=firewall`), so a bookmark opens the same log. A source this server does not have falls back to the first one it does. Under the sources, Other records links to services, scheduled tasks and the audit log.
+- **Open Ports and the Port Map are one table.** Each port and protocol has one row: the process, its addresses, the containers that publish it and the firewall rule that covers it, with search and a protocol filter. Rows where something listens have Add rule, and an added rule shows in its row at once. Rows come sorted by port; column sorting is gone, and a port held by several processes shows one of them. `/firewall/portmap` opens this table.
+- **A full disk opens its usage.** The dashboard's disk warning opens Disk › Usage at that disk (`/disk/usage?path=…`).
+- **The server's name where you look.** In a cluster, a server page's browser tab reads "Page · server · SFPanel", and the dashboard heading is the server's cluster name, with its hostname under it when the two differ. Cluster and settings pages carry no server name. The terminal keeps its waiting count in front.
+- **The cluster sidebar says how many servers are behind.** "n to update" is counted the way the overview banner counts (online servers behind the release the leader last saw) and links to the overview. It is read once a minute while the tab is visible.
+- **A standalone panel's cluster page offers create and join only**, instead of five empty tabs. Other cluster addresses land there, and `/cluster/running` opens Running.
+
+### Fixed
+
+- **A container in the port map did not open.** The link used a parameter the containers page does not read.
+- **Going up to `/` in Disk › Usage kept the folder's listing.** From a folder, Up showed that folder's contents under `/`. It now asks before scanning `/`, as `/` always did.
+- **A usage scan that answered late was listed under the wrong path.** A scan answered after you had moved to another path showed under the new one. It is now dropped.
+- **At 1024 px the Open Ports rule button was off-screen.** With the sidebar open it sat past the right edge. The Address column now shows from 1280 px (it stays searchable) and long process and container names wrap. Add rule appears once the host is known to use ufw, so none flashes on a Proxmox host.
+
+### Upgrading
+
+- Old addresses keep working: `/firewall/logs` opens `/logs?source=firewall` and `/firewall/portmap` opens `/firewall/ports`.
+
 ## [0.93.1] – 2026-11-24
 
 ### Added
