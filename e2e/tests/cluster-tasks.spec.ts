@@ -143,6 +143,8 @@ interface Fixture {
   replies?: Record<string, Reply | Reply[] | (() => Reply)>
   /** /cluster/status answers {enabled: false}. */
   standalone?: boolean
+  /** Milliseconds /cluster/nodes waits before it answers, as a busy cluster's list arrives after the task. */
+  nodesDelay?: number
 }
 
 interface Call { method: string; path: string; body: unknown }
@@ -209,7 +211,10 @@ async function mock(page: Page, fixture: Fixture = {}) {
     else if (path === '/auth/ws-ticket') data = { ticket: 'fixture-ticket' }
     else if (path === '/cluster/status' && fixture.standalone) data = { enabled: false }
     else if (path === '/cluster/status') data = { enabled: true, name: 'lab', node_count: nodes.length, leader_id: 'm-1', local_id: 'm-1', is_leader: true }
-    else if (path === '/cluster/nodes') data = { nodes, local_id: 'm-1', is_leader: true }
+    else if (path === '/cluster/nodes') {
+      if (fixture.nodesDelay) await new Promise((resolve) => setTimeout(resolve, fixture.nodesDelay))
+      data = { nodes, local_id: 'm-1', is_leader: true }
+    }
     else if (path === '/cluster/overview') data = { name: 'lab', node_count: nodes.length, leader_id: 'm-1', nodes, metrics: [] }
     else if (path === '/cluster/events') data = { events: [] }
     else if (path === '/cluster/tasks') data = tasks
@@ -888,6 +893,55 @@ test.describe('run setup', () => {
       const box = await previewDialog(page).boundingBox()
       expect(box && box.x >= 0 && box.x + box.width <= 412).toBe(true)
     })
+  })
+})
+
+// Another screen opens a task's run setup with the servers and values it
+// knows: ?nodes=<id,id> picks those servers alone, input.<name>=<value> fills
+// the task's own inputs. The node list arrives after the task, as on a busy
+// cluster, so the picks cannot wait for it.
+test.describe('prefilled from another screen', () => {
+  const planFails = { 'POST /cluster/task-runs/plan': fail(500, 'INTERNAL_ERROR', 'fixture') }
+  const box = (page: Page, name: string) => setup(page).getByRole('checkbox', { name, exact: true })
+  const groupChip = (page: Page, name: string) => setup(page).getByRole('group', { name: 'Groups' }).getByRole('button', { name, exact: true })
+
+  test("the address picks the servers and fills the values, over the task's own targets", async ({ page }) => {
+    const { calls } = await mock(page, { taskDetails: TASK_DETAILS, nodesDelay: 800, replies: planFails })
+    await page.goto(`/cluster/tasks/${DEPLOY_ID}?nodes=a-1,m-2&input.version=1.2.3&input.nope=x`)
+    await expect(setup(page).getByLabel('Version')).toHaveValue('1.2.3')
+    await expect(setup(page).getByLabel('Extra flags')).toHaveValue('')
+    await expect(box(page, 'agent-01')).toBeChecked()
+    await expect(box(page, 'manager-2')).toBeChecked()
+    await expect(box(page, 'agent-02')).not.toBeChecked()
+    await expect(groupChip(page, 'web')).toHaveAttribute('aria-pressed', 'false')
+    await expect(setup(page).getByTestId('task-target-count')).toHaveText('2 nodes targeted')
+    await setup(page).getByRole('button', { name: 'Preview' }).click()
+    await expect.poll(() => posts(calls, '/cluster/task-runs/plan').length).toBe(1)
+    const [plan] = posts(calls, '/cluster/task-runs/plan')
+    expect(plan.body).toEqual({
+      task_id: DEPLOY_ID,
+      inputs: { version: '1.2.3' },
+      targets: { groups: [], kinds: [], nodes: ['a-1', 'm-2'] },
+      batch: 2,
+      stop_on_failure: true,
+    })
+  })
+
+  test('a server the cluster no longer has stays listed by its ID, and counts for nothing', async ({ page }) => {
+    await mock(page, { taskDetails: TASK_DETAILS, nodesDelay: 800 })
+    await page.goto(`/cluster/tasks/${encodeURIComponent('builtin/command')}?nodes=gone-1,a-1&input.command=uptime`)
+    await expect(setup(page).getByLabel('Command to run')).toHaveValue('uptime')
+    await expect(box(page, 'agent-01')).toBeChecked()
+    await expect(box(page, 'gone-1')).toBeChecked()
+    await expect(setup(page).getByTestId('task-target-count')).toHaveText('1 node targeted')
+  })
+
+  test('without an address the task keeps its own targets', async ({ page }) => {
+    await mock(page, { taskDetails: TASK_DETAILS, nodesDelay: 800 })
+    await page.goto(`/cluster/tasks/${DEPLOY_ID}`)
+    await expect(groupChip(page, 'web')).toHaveAttribute('aria-pressed', 'true')
+    await expect(setup(page).getByTestId('task-target-count')).toHaveText('2 nodes targeted')
+    await expect(setup(page).getByLabel('Version')).toHaveValue('')
   })
 })
 

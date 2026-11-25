@@ -1,9 +1,10 @@
 import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { Link, useMatch, useParams } from 'react-router-dom'
+import { Link, useLocation, useMatch, useParams } from 'react-router-dom'
 import { useTranslation } from 'react-i18next'
 import { Loader2, Server } from 'lucide-react'
 import { api } from '@/lib/api'
 import { taskErrorMessage } from '@/lib/taskErrors'
+import { parseRunPrefill } from '@/lib/taskPrefill'
 import { useVisibleInterval } from '@/hooks/useVisibleInterval'
 import { ListLoadState } from '@/components/ListLoadState'
 import type { ClusterStatus, RunRecord, TaskView } from '@/types/api'
@@ -38,6 +39,9 @@ export default function ClusterTasks() {
   const isNew = useMatch('/cluster/tasks/new') !== null
   const isHistory = useMatch('/cluster/tasks/runs') !== null
   const isEdit = useMatch('/cluster/tasks/:taskId/edit') !== null
+  // A task's run setup opened from another screen with servers and values.
+  const { search } = useLocation()
+  const prefill = useMemo(() => parseRunPrefill(search), [search])
 
   const [status, setStatus] = useState<ClusterStatus | null>(null)
   const [tasks, setTasks] = useState<TaskView[] | null>(null)
@@ -148,7 +152,7 @@ export default function ClusterTasks() {
     // A list read again that shows the document changed (pulled again from
     // Git, saved, imported) sets the pane up afresh from the new document.
     const version = task ? `${task.id}\n${task.updated_at ?? ''}\n${task.source.sha ?? ''}` : taskId
-    pane = tasks === null ? null : <TaskRunSetup key={version} task={task} onDeleted={loadTasks} />
+    pane = tasks === null ? null : <TaskRunSetup key={version} task={task} prefill={prefill} onDeleted={loadTasks} />
   }
   else {
     pane = (

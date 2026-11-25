@@ -5,6 +5,7 @@ import { AlertTriangle, Copy, Eye, Loader2, Pencil, Play, Trash2 } from 'lucide-
 import { api, type ApiError } from '@/lib/api'
 import { taskErrorMessage } from '@/lib/taskErrors'
 import { formatDate } from '@/lib/utils'
+import { NO_PREFILL, prefilledValues, type RunPrefill } from '@/lib/taskPrefill'
 import { Button } from '@/components/ui/button'
 import { Checkbox } from '@/components/ui/checkbox'
 import { Input } from '@/components/ui/input'
@@ -27,6 +28,8 @@ interface TaskRunSetupProps {
   task: TaskView | undefined
   /** Reads the list again once the task is deleted, until it no longer has it. */
   onDeleted: (holds?: ListHolds) => Promise<void> | void
+  /** Servers and values the address opened the setup with; none by default. */
+  prefill?: RunPrefill
 }
 
 const RECENT_RUNS = 5
@@ -52,7 +55,7 @@ interface Review {
 // underneath. Above them, what can be done to the task itself: the
 // operator's own tasks are edited and deleted; a built-in is only cloned;
 // a Git task is cloned or deleted (it changes only when fetched again).
-export function TaskRunSetup({ task, onDeleted }: TaskRunSetupProps) {
+export function TaskRunSetup({ task, onDeleted, prefill = NO_PREFILL }: TaskRunSetupProps) {
   const { t } = useTranslation()
   if (!task) {
     return (
@@ -73,7 +76,7 @@ export function TaskRunSetup({ task, onDeleted }: TaskRunSetupProps) {
         {description && <p className="text-[13px] text-muted-foreground whitespace-pre-wrap break-words">{description}</p>}
         {task.source.kind === 'git' && <GitSource source={task.source} />}
       </div>
-      <RunForm task={task} />
+      <RunForm task={task} prefill={prefill} />
       <RecentRuns taskId={task.id} />
     </section>
   )
@@ -129,7 +132,7 @@ function TaskActions({ task, name, onDeleted }: { task: TaskView; name: string; 
   )
 }
 
-function RunForm({ task }: { task: TaskView }) {
+function RunForm({ task, prefill }: { task: TaskView; prefill: RunPrefill }) {
   const { t } = useTranslation()
   const navigate = useNavigate()
   const mounted = useMounted()
@@ -154,6 +157,9 @@ function RunForm({ task }: { task: TaskView }) {
   const [confirmed, setConfirmed] = useState<number[]>([])
 
   // The document's model: the inputs, the task's own targets and how it runs.
+  // Servers the address names replace the task's own targets whole (the
+  // operator chose those servers, not its groups or kinds), and the values
+  // it gives fill only the inputs the task has.
   useEffect(() => {
     let live = true
     api.getTask(task.id).then(
@@ -161,7 +167,8 @@ function RunForm({ task }: { task: TaskView }) {
         if (!live) return
         setDetail(d)
         if (d.task) {
-          setTargets(picked(d.task))
+          setTargets(prefill.nodes.length > 0 ? { groups: [], kinds: [], nodes: prefill.nodes } : picked(d.task))
+          setValues(prefilledValues(d.task, prefill.inputs))
           setBatch(String(d.task.batch || 1))
           setStopOnFailure(d.task.stop_on_failure)
         }
@@ -169,7 +176,7 @@ function RunForm({ task }: { task: TaskView }) {
       (err) => live && setDetailError(taskErrorMessage(err, t)),
     )
     return () => { live = false }
-  }, [task.id, t])
+  }, [task.id, t, prefill])
 
   useEffect(() => {
     let live = true
