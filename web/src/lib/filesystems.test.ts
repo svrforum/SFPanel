@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { isRealFilesystem, worstFilesystem, rootFilesystem } from './filesystems'
+import { isRealFilesystem, worstFilesystem, rootFilesystem, usagePathFromQuery } from './filesystems'
 import type { Filesystem } from '@/types/api'
 
 const fs = (o: Partial<Filesystem>): Filesystem => ({
@@ -59,5 +59,12 @@ describe('rootFilesystem', () => {
     const list = [fs({ mount_point: '/mnt/nas', source: '/dev/sdb1' }), fs({ mount_point: '/' })]
     expect(rootFilesystem(list)?.mount_point).toBe('/')
     expect(rootFilesystem([fs({ mount_point: '/', source: 'rootfs', fstype: 'rootfs' })])).toBeNull()
+  })
+})
+
+describe('usagePathFromQuery', () => {
+  it('opens an absolute path', () => expect(usagePathFromQuery('/data')).toBe('/data'))
+  it('opens the root for no path, an empty one or a relative one', () => {
+    for (const p of [null, '', 'data', '../etc']) expect(usagePathFromQuery(p)).toBe('/')
   })
 })

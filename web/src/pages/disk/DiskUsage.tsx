@@ -1,16 +1,21 @@
 import { useState, useEffect, useCallback, useMemo } from 'react'
+import { useSearchParams } from 'react-router-dom'
 import { useTranslation } from 'react-i18next'
 import { RefreshCw, ArrowUp, Folder, Loader2, AlertCircle } from 'lucide-react'
 import { api } from '@/lib/api'
 import { formatBytes, pathBasename, pathParent } from '@/lib/utils'
+import { usagePathFromQuery } from '@/lib/filesystems'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import type { DiskUsageEntry } from '@/types/api'
 
 export default function DiskUsage() {
   const { t } = useTranslation()
-  const [path, setPath] = useState('/')
-  const [pathInput, setPathInput] = useState('/')
+  const [searchParams] = useSearchParams()
+  // /disk/usage?path=<absolute path> opens that folder (the dashboard's disk
+  // warning links here); anything else opens / as before.
+  const [path, setPath] = useState(() => usagePathFromQuery(searchParams.get('path')))
+  const [pathInput, setPathInput] = useState(path)
   const [data, setData] = useState<DiskUsageEntry | null>(null)
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)

@@ -145,6 +145,7 @@ const DockerStacks = lazy(() => import('@/pages/docker/DockerStacks'))
 - **파일**: `web/src/pages/Dashboard.tsx` (~600줄)
 - **기능**: 노드 단위 시스템 현황 대시보드 (클러스터 Layout 내에서 선택 노드 범위로 렌더)
   - 호스트 정보 (hostname, OS, platform+version, kernel, uptime, CPU 코어, **주 IP**)
+  - **확인 필요** (문제가 있을 때만, 맨 위): 확인이 필요한 컨테이너 → `/docker/containers`, 80% 이상 찬 디스크(가장 찬 실제 파일시스템) → 무엇이 채우는지 보이는 그 디스크의 사용량 탭 `/disk/usage?path=<마운트 지점>`, 마지막 백업 실패 → `/settings?scope=node&tab=system`. 자원 카드의 디스크는 그대로 `/disk/filesystems`
   - 실시간 메트릭 카드 4개 (CPU / 메모리+Swap / 디스크 / 네트워크)
   - CPU/메모리 히스토리 차트 (**1/4/12/24h** 범위 토글)
   - Docker 컨테이너 요약 (실행/중지/전체 카운트 + 최근 컨테이너 목록, "전체 보기" → /docker)
@@ -442,7 +443,7 @@ const DockerStacks = lazy(() => import('@/pages/docker/DockerStacks'))
 - **사용 컴포넌트**: NavLink (react-router-dom), Lucide 아이콘
 - **서브 컴포넌트 파일**:
   - `web/src/pages/disk/DiskOverview.tsx` — 디스크 개요 (블록 디바이스, SMART, I/O 통계, 디스크 사용량). **(v0.27.0)** SMART **셀프 테스트 실행 UI**(short/long, smartctl ETA 토스트) + 드라이브 **셀프 테스트 로그**(유형/상태/통과·실패/실행 시 power-on hours) 표시.
-  - `web/src/pages/disk/DiskUsage.tsx` — 경로/깊이별 디스크 사용량 탐색기 (`/disk/usage`)
+  - `web/src/pages/disk/DiskUsage.tsx` — 경로/깊이별 디스크 사용량 탐색기 (`/disk/usage`). `?path=<절대 경로>`는 그 폴더를 바로 연다(`usagePathFromQuery`, `lib/filesystems.ts`). 없거나 절대 경로가 아니면 `/`이고, `/`는 전체 스캔이 오래 걸릴 수 있어 누를 때만 스캔한다
   - `web/src/pages/disk/DiskPartitions.tsx` — 파티션 관리 (생성/삭제)
   - `web/src/pages/disk/DiskFilesystems.tsx` — 파일시스템 관리 (포맷/마운트/언마운트/리사이즈)
   - `web/src/pages/disk/DiskLVM.tsx` — LVM 관리 (PV/VG/LV 생성/삭제/리사이즈)

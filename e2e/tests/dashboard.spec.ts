@@ -88,6 +88,42 @@ test('desktop prioritizes problems and shortcuts, with actionable cards and cont
   await expect(page).toHaveURL(/\/docker\/containers$/)
 })
 
+// Records the folder each Disk › Usage scan asks for, and answers it empty.
+async function recordUsageScans(page: Page) {
+  const usage: string[] = []
+  await fixture(page, async (route, url) => {
+    if (url.pathname !== '/api/v1/disks/usage') return false
+    const { path } = route.request().postDataJSON() as { path: string }
+    usage.push(path)
+    await route.fulfill({ json: { success: true, data: { path, size: 0, children: [] } } })
+    return true
+  })
+  return usage
+}
+
+// The warning names the fullest disk, so it opens what fills that disk rather
+// than the list of every filesystem the resource card already links to.
+test('the disk warning opens what fills that disk', async ({ page }) => {
+  const usage = await recordUsageScans(page)
+  await page.goto('/dashboard')
+  const warning = page.getByRole('region', { name: 'Needs Attention', exact: true }).getByRole('link', { name: /92%/ })
+  await expect(warning).toHaveAttribute('href', '/disk/usage?path=%2Fdata')
+  await warning.click()
+  // StrictMode runs the page's effect twice in development, so the same scan
+  // can arrive twice; what counts is that /data is the only folder asked for.
+  await expect.poll(() => [...new Set(usage)]).toEqual(['/data'])
+})
+
+// Only an absolute path is opened. Anything else is the root, which waits for
+// a click like an address without a path does.
+test('a usage address that is not absolute scans nothing', async ({ page }) => {
+  const usage = await recordUsageScans(page)
+  await page.goto('/disk/usage?path=data')
+  // Soft, so a regression also reports the scan it sent.
+  await expect.soft(page.getByRole('button', { name: 'Scan / now' })).toBeVisible()
+  expect(usage).toEqual([])
+})
+
 for (const width of [360, 390, 768]) {
   test(`mobile ${width}px: no page overflow, accessible shortcuts and expandable details`, async ({ page }) => {
     await page.setViewportSize({ width, height: 844 })

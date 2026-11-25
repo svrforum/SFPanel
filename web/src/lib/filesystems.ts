@@ -46,3 +46,14 @@ export function rootFilesystem(list: Filesystem[] | null | undefined): Filesyste
   if (!list) return null
   return list.find((fs) => fs.mount_point === '/' && isRealFilesystem(fs)) ?? null
 }
+
+/**
+ * The folder Disk › Usage opens from its address, `/disk/usage?path=<absolute path>`.
+ *
+ * Only an absolute path is taken, the same rule the path bar applies. Anything
+ * else — no path, an empty one, a relative one — is the root, which waits for
+ * a click rather than starting the one scan that cannot be assumed cheap.
+ */
+export function usagePathFromQuery(param: string | null): string {
+  return param?.startsWith('/') ? param : '/'
+}
