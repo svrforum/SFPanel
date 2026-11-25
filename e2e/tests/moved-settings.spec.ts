@@ -166,7 +166,18 @@ test('the old place says where they went, for one release', async ({ page }) => 
   await mock(page); await page.goto('/settings?tab=system')
   const moved = page.getByRole('region', { name: 'Settings that moved' })
   await expect(moved.getByRole('link', { name: /Performance tuning moved/ })).toHaveAttribute('href', '/tuning')
-  await expect(moved.getByRole('link', { name: /terminal timeout moved/ })).toHaveAttribute('href', '/terminal')
+  // Named by the label it has now, where it went.
+  await expect(moved.getByRole('link', { name: 'The session timeout moved to Terminal › Tools & accounts, as “Temporary shell timeout”.' })).toHaveAttribute('href', '/terminal')
   await expect(moved.getByRole('link', { name: /upload limit moved/ })).toHaveAttribute('href', '/files')
   await expect(page.getByLabel('Session Timeout')).toHaveCount(0); await expect(page.getByLabel('Max Upload Size')).toHaveCount(0)
+})
+
+// The settings moved with the server they belong to: in a cluster each link
+// names the server whose settings tab it is on, as the menu's links do.
+test("in a cluster the links lead to the same server's screens", async ({ page }) => {
+  await mock(page, { cluster: true, current: 'agent-1' }); await page.goto('/settings?tab=system&node=agent-1')
+  const moved = page.getByRole('region', { name: 'Settings that moved' })
+  await expect(moved.getByRole('link', { name: /Performance tuning moved/ })).toHaveAttribute('href', '/tuning?node=agent-1')
+  await expect(moved.getByRole('link', { name: /session timeout moved/ })).toHaveAttribute('href', '/terminal?node=agent-1')
+  await expect(moved.getByRole('link', { name: /upload limit moved/ })).toHaveAttribute('href', '/files?node=agent-1')
 })

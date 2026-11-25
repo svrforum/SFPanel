@@ -2235,7 +2235,7 @@
     "moved": {
       "title": "Settings that moved",
       "tuning": "Performance tuning moved to System › Performance Tuning.",
-      "terminal": "The terminal timeout moved to Terminal › Tools & accounts.",
+      "terminal": "The session timeout moved to Terminal › Tools & accounts, as “Temporary shell timeout”.",
       "upload": "The upload limit moved to Files › Upload ▾."
     },
     "update": "Panel Update",

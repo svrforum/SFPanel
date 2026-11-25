@@ -3,6 +3,7 @@
 // limit to the file manager's upload menu.
 import { useTranslation } from 'react-i18next'
 import { Link } from 'react-router-dom'
+import { useServerScope } from '@/hooks/useServerScope'
 
 const MOVED = [
   { to: '/tuning', key: 'settings.moved.tuning' },
@@ -10,16 +11,21 @@ const MOVED = [
   { to: '/files', key: 'settings.moved.upload' },
 ] as const
 
-/** Where the settings this tab used to hold went, each sentence a link there. */
+/**
+ * Where the settings this tab used to hold went, each sentence a link there.
+ * They are this server's settings, so in a cluster each link names the server
+ * the tab is on, as the menu's links do.
+ */
 export default function MovedSettings() {
   const { t } = useTranslation()
+  const { href } = useServerScope()
   return (
     <section aria-labelledby="moved-settings-title" className="bg-card rounded-2xl p-6 card-shadow mt-6">
       <h2 id="moved-settings-title" className="text-[15px] font-semibold">{t('settings.moved.title')}</h2>
       <ul className="mt-3 space-y-2">
         {MOVED.map(({ to, key }) => (
           <li key={to}>
-            <Link to={to} className="text-[13px] text-primary hover:underline">{t(key)}</Link>
+            <Link to={href(to)} className="text-[13px] text-primary hover:underline">{t(key)}</Link>
           </li>
         ))}
       </ul>
