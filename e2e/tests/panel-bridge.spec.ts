@@ -19,6 +19,7 @@ declare global {
   interface Window {
     __sfpanel?: Bridge
     __seen?: (string | undefined)[]
+    __titles?: { title: string; published: boolean; server: string | null }[]
   }
 }
 
@@ -117,6 +118,46 @@ test('switching announces the new server once', async ({ page }) => {
   await page.evaluate(() => window.dispatchEvent(new Event('sfpanel:cluster-changed')))
   await page.waitForTimeout(1000)
   expect(await page.evaluate((n) => window.__seen!.slice(n), n)).toEqual(['m-1'])
+})
+
+// The app reads the bridge when the page renames its tab. A title set before
+// the bridge it goes with sent the app to its own list on a first load, or
+// kept the last server's name until the next move.
+async function recordTitles(page: Page) {
+  await page.addInitScript(() => {
+    const own = Object.getOwnPropertyDescriptor(Document.prototype, 'title')!
+    window.__titles = []
+    Object.defineProperty(Document.prototype, 'title', {
+      configurable: true,
+      get() { return own.get!.call(this) },
+      set(value: string) {
+        window.__titles!.push({ title: value, published: window.__sfpanel !== undefined, server: window.__sfpanel?.server?.name ?? null })
+        own.set!.call(this, value)
+      },
+    })
+  })
+}
+
+test('the bridge goes with every title the page sets', async ({ page }) => {
+  await recordTitles(page)
+  await mock(page)
+  await page.goto('/services?node=agent-1')
+  await expect(page).toHaveTitle('Services · agent-1 · SFPanel')
+  const titles = await page.evaluate(() => window.__titles!)
+  expect(titles[0]).toMatchObject({ title: 'Services · SFPanel', published: true })
+  // Every title that names the server finds the bridge naming it.
+  const named = titles.filter((s) => s.title.includes('agent-1'))
+  expect(named.length).toBeGreaterThan(0)
+  expect(named.map((s) => s.server)).toEqual(named.map(() => 'agent-1'))
+})
+
+test('a single server\'s first title finds its menu', async ({ page }) => {
+  await recordTitles(page)
+  await mock(page, { standalone: true })
+  await page.goto('/services')
+  await expect(page).toHaveTitle('Services · SFPanel')
+  const first = await page.evaluate(() => window.__titles![0])
+  expect(first).toMatchObject({ title: 'Services · SFPanel', published: true })
 })
 
 test('a single server publishes no server', async ({ page }) => {

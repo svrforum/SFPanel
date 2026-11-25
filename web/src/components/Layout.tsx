@@ -103,6 +103,17 @@ export default function Layout() {
   const serverName = clusterEnabled === true ? selectedNodeName(scope.nodes, scope.selected, scope.localId) : null
   const serverInTitle = owner?.entry.scope === 'server'
   const pageTitle = documentTitle(pageLabel, serverInTitle ? serverName : null)
+
+  // The server the pages act on and the menu, for the Android app's title and
+  // feature sheet. The node list is reread into new objects every poll: only
+  // what the bridge carries counts, and t follows the language. A layout
+  // effect declared before the title's: the app reads the bridge when the
+  // title changes, so the bridge a title goes with is in place before it.
+  useLayoutEffect(() => publishBridge(window, buildBridge(clusterEnabled === true, bridgeServer(scope), t)),
+    [clusterEnabled, scope.current?.id, scope.current?.name, scope.current?.kind, scope.selected, i18n.language]) // eslint-disable-line react-hooks/exhaustive-deps
+  // Signed out, the shell is gone: the app goes back to its own list and the connection's name.
+  useEffect(() => () => { delete window.__sfpanel }, [])
+
   // Twice, around the terminal page's own effect, which prefixes "(n) " to the
   // title it finds and takes the prefix off again on cleanup. The layout
   // effect runs before any page's passive effect in the same commit, so the
@@ -116,14 +127,6 @@ export default function Layout() {
   useEffect(() => {
     if (!isTerminal) document.title = pageTitle
   }, [pageTitle, isTerminal])
-
-  // The server the pages act on and the menu, for the Android app's title and
-  // feature sheet. The node list is reread into new objects every poll: only
-  // what the bridge carries counts, and t follows the language.
-  useEffect(() => publishBridge(window, buildBridge(clusterEnabled === true, bridgeServer(scope), t)),
-    [clusterEnabled, scope.current?.id, scope.current?.name, scope.current?.kind, scope.selected, i18n.language]) // eslint-disable-line react-hooks/exhaustive-deps
-  // Signed out, the shell is gone: the app goes back to its own list and the connection's name.
-  useEffect(() => () => { delete window.__sfpanel }, [])
 
   // Moving to another section takes focus to the new view, as a page load
   // would: it was left on the link in the sidebar or on <body>, so a keyboard
