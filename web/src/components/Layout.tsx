@@ -6,7 +6,9 @@ import GithubIcon from '@/components/GithubIcon'
 import { useTranslation } from 'react-i18next'
 import { api } from '@/lib/api'
 import { cn } from '@/lib/utils'
-import { NAV_ITEMS, isTerminalRoute } from '@/lib/navigation'
+import { NAV_ITEMS, documentTitle, isServerSection, isTerminalRoute } from '@/lib/navigation'
+import { selectedNodeName } from '@/lib/clusterNodes'
+import { keepTitlePrefix } from '@/lib/aiSessions'
 import { CLUSTER_TAB_ITEMS } from '@/components/cluster/datacenterMenu'
 import { useTerminalCompact, useTerminalFocus } from '@/lib/terminalLayout'
 import { NODE_CHANGED, type NodeChangedDetail } from '@/lib/nodeSelection'
@@ -17,7 +19,7 @@ import SidebarSkeleton from '@/components/SidebarSkeleton'
 import Logo, { LogoMark } from '@/components/Logo'
 import BottomNav from '@/components/BottomNav'
 import MoreMenu from '@/components/MoreMenu'
-import type { ClusterStatus, DashboardOverview } from '@/types/api'
+import type { ClusterNode, ClusterStatus, DashboardOverview } from '@/types/api'
 
 const navItems = NAV_ITEMS
 
@@ -31,6 +33,12 @@ const CLUSTER_MODE_KEY = 'sfpanel-cluster-mode'
 // (consumers should fall back to their own fetch).
 export interface LayoutOutletContext {
   overview: { data: DashboardOverview | null; node: string | null; at: number } | null
+  /** Cluster name of the server the pages act on (api.currentNode, else the attached node); null standalone, before the node list, or when the list lacks it. */
+  serverName: string | null
+  /** The shell's belief about cluster mode: the last /cluster/status answer, seeded from localStorage; null before any. */
+  clusterEnabled: boolean | null
+  /** This page load's latest /cluster/status answer; null until one arrives. */
+  clusterStatus: ClusterStatus | null
 }
 
 export default function Layout() {
@@ -54,6 +62,8 @@ export default function Layout() {
     return saved === null ? null : saved === 'true'
   })
   const [clusterStatus, setClusterStatus] = useState<ClusterStatus | null>(null)
+  // The tree's node list, for the name of the server the pages act on.
+  const [clusterNodes, setClusterNodes] = useState<ClusterNode[]>([])
   const location = useLocation()
   const isTerminal = isTerminalRoute(location.pathname)
   // The terminal has the window to itself on a touch device, and on a desktop
@@ -70,15 +80,23 @@ export default function Layout() {
   const section = navItems.find((i) => within(i.to))
   const ownTab = CLUSTER_TAB_ITEMS.find((i) => i.ownTitle && within(i.to))
   const pageLabel = ownTab ? t(ownTab.labelKey) : section ? t(section.labelKey) : location.pathname === '/' ? null : t('layout.notFound.title')
-  const pageTitle = pageLabel ? `${pageLabel} · SFPanel` : 'SFPanel'
+  // In a cluster, a server page also names the server it acts on: the one
+  // picked, else the one this panel runs on. Read at render — a node switch
+  // re-renders through nodeKey. The cluster's own screens and settings act on
+  // no one server, and a server whose name the list has not given is left out.
+  const serverName = clusterEnabled === true ? selectedNodeName(clusterNodes, api.currentNode, clusterStatus?.local_id ?? '') : null
+  const serverInTitle = !!section && !ownTab && isServerSection(section.to)
+  const pageTitle = documentTitle(pageLabel, serverInTitle ? serverName : null)
   // Twice, around the terminal page's own effect, which prefixes "(n) " to the
-  // title it finds and puts that title back on cleanup. The layout effect runs
-  // before any page's passive effect in the same commit, so the page finds
-  // this title; the passive one runs after the page's cleanup on the way out,
-  // which would otherwise leave the terminal's name on the next page.
+  // title it finds and takes the prefix off again on cleanup. The layout
+  // effect runs before any page's passive effect in the same commit, so the
+  // page finds this title; the passive one runs after the page's cleanup on
+  // the way out, so the next page has its own name whatever that cleanup left.
+  // On the terminal the layout effect keeps the page's count: the server's
+  // name arrives with the node list, after the page has counted.
   useLayoutEffect(() => {
-    document.title = pageTitle
-  }, [pageTitle])
+    document.title = isTerminal ? keepTitlePrefix(document.title, pageTitle) : pageTitle
+  }, [pageTitle, isTerminal])
   useEffect(() => {
     if (!isTerminal) document.title = pageTitle
   }, [pageTitle, isTerminal])
@@ -174,7 +192,10 @@ export default function Layout() {
     return () => { stale = true }
   }, [nodeKey])
 
-  const outletContext = useMemo<LayoutOutletContext>(() => ({ overview }), [overview])
+  const outletContext = useMemo<LayoutOutletContext>(
+    () => ({ overview, serverName, clusterEnabled, clusterStatus }),
+    [overview, serverName, clusterEnabled, clusterStatus],
+  )
 
   // Track the visual viewport height so the app shell shrinks when the mobile
   // soft keyboard opens, instead of staying 100vh and pushing content (terminal
@@ -231,6 +252,7 @@ export default function Layout() {
             panelVersion={panelVersion}
             onLogout={handleLogout}
             onNodeChanged={handleNodeChanged}
+            onNodes={setClusterNodes}
           />
         </div>
       )}

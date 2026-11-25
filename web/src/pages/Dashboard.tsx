@@ -53,6 +53,9 @@ export default function Dashboard() {
   const { t, i18n } = useTranslation()
   const outletCtx = useOutletContext<LayoutOutletContext | undefined>()
   const sharedOverview = outletCtx?.overview
+  // In a cluster the heading is the name the tree lists, and the host's own
+  // name goes under it.
+  const serverName = outletCtx?.serverName ?? null
   const loadOverview = useCallback(() => {
     const shared = sharedOverview?.data && sharedOverview.node === api.currentNode && Date.now() - sharedOverview.at < OVERVIEW_REUSE_MS
       ? sharedOverview.data : null
@@ -141,7 +144,8 @@ export default function Dashboard() {
         <div className="flex items-start justify-between gap-3">
           <div className="min-w-0">
             <p className="text-xs font-medium text-muted-foreground">{t('dashboard.title')}</p>
-            <h1 className="mt-1 break-all text-xl font-bold tracking-tight">{hostInfo?.hostname || t('dashboard.serverOverview')}</h1>
+            <h1 className="mt-1 break-all text-xl font-bold tracking-tight">{serverName || hostInfo?.hostname || t('dashboard.serverOverview')}</h1>
+            {serverName && hostInfo?.hostname && hostInfo.hostname !== serverName && <p className="text-xs text-muted-foreground">{t('dashboard.hostname')} · {hostInfo.hostname}</p>}
           </div>
           <span className="inline-flex max-w-[50%] shrink-0 items-center gap-2 rounded-full bg-card px-3 py-2 text-xs text-muted-foreground">
             <span aria-hidden="true" className={cn('size-2 shrink-0 rounded-full', liveFresh ? 'bg-success' : 'bg-warning')} />{t(metricsStatus)}

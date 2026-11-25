@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import type { AISession, AITools } from '@/types/api'
-import { LAUNCH_CATALOGUE, PROFILE_TOOLS, aiErrorMessage, aiPrefill, dangerousBlocked, dangerousFlagFor, defaultTitle, formatTimestamp, launchKey, launchModel, launchSummary, loginCommandFor, parseLaunch, profileErrorMessage, relativeSince, sessionInfoLine, stateDotClass, supportsLaunch, supportsProfiles, titlePrefix, toolInstalledFor, toolsFor, untouchedPrefill, validateExtra, validateModel, waitingCount } from './aiSessions'
+import { LAUNCH_CATALOGUE, PROFILE_TOOLS, aiErrorMessage, aiPrefill, dangerousBlocked, dangerousFlagFor, defaultTitle, formatTimestamp, keepTitlePrefix, launchKey, launchModel, launchSummary, loginCommandFor, parseLaunch, profileErrorMessage, relativeSince, sessionInfoLine, stateDotClass, stripTitlePrefix, supportsLaunch, supportsProfiles, titlePrefix, toolInstalledFor, toolsFor, untouchedPrefill, validateExtra, validateModel, waitingCount } from './aiSessions'
 
 const bundle = (account: string, installed: Partial<Record<'claude' | 'codex' | 'gemini', boolean>>): AITools => ({
   tmux: { installed: true, version: '3.6', supported: true, min_version: '3.2' },
@@ -215,6 +215,12 @@ describe('formatTimestamp', () => {
     expect(formatTimestamp('not a date')).toBe('not a date')
     expect(formatTimestamp('')).toBe('')
   })
+})
+
+describe('title prefix', () => {
+  it('strips a waiting count', () => expect(stripTitlePrefix('(12) Terminal · SFPanel')).toBe('Terminal · SFPanel'))
+  it('keeps the count on a new title', () => expect(keepTitlePrefix('(2) Terminal · SFPanel', 'Terminal · node-b · SFPanel')).toBe('(2) Terminal · node-b · SFPanel'))
+  it('adds none where there was none', () => expect(keepTitlePrefix('Docker · SFPanel', 'Terminal · SFPanel')).toBe('Terminal · SFPanel'))
 })
 
 describe('profile support', () => {

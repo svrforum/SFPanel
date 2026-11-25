@@ -473,7 +473,7 @@ test('both routes are titled by the screen', async ({ page }) => {
   await expect(page).toHaveTitle('실행 현황 · SFPanel')
   await page.goto('/running')
   await expect(page.getByRole('heading', { name: '실행 현황', level: 1 })).toBeVisible()
-  await expect(page).toHaveTitle('실행 현황 · SFPanel')
+  await expect(page).toHaveTitle('실행 현황 · alpha-node · SFPanel')
 })
 
 for (const width of [360, 320]) {

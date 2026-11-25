@@ -3,7 +3,7 @@ import { useTranslation } from 'react-i18next'
 import { toast } from 'sonner'
 import { api } from '@/lib/api'
 import type { AISession, AITools, TerminalInfo, TerminalSession as TerminalSessionInfo } from '@/types/api'
-import { aiErrorMessage, sessionInfoLine, titlePrefix, waitingCount } from '@/lib/aiSessions'
+import { aiErrorMessage, sessionInfoLine, stripTitlePrefix, titlePrefix, waitingCount } from '@/lib/aiSessions'
 import { activeKey, buildRail, findItem, parseActiveKey, pickActive, type RailItem } from '@/lib/sessionRail'
 import { cn } from '@/lib/utils'
 import { OutputDialog, useSSEOutput } from '@/components/OutputDialog'
@@ -144,12 +144,15 @@ export default function TerminalPage() {
   }, [groups, active, loaded])
 
   // "(n) SFPanel" while something waits in a session that is not on screen.
+  // The cleanup takes the prefix off the title as it is then, rather than
+  // putting back the one found here: the shell may have renamed the page
+  // since (the server's name comes with the node list), and the old title
+  // would take that name away again.
   const activeSessionId = activeItem?.kind === 'tmux' ? activeItem.id : null
   const waiting = waitingCount(sessions, activeSessionId)
   useEffect(() => {
-    const base = document.title.replace(/^\(\d+\) /, '')
-    document.title = titlePrefix(waiting) + base
-    return () => { document.title = base }
+    document.title = titlePrefix(waiting) + stripTitlePrefix(document.title)
+    return () => { document.title = stripTitlePrefix(document.title) }
   }, [waiting])
 
   // The Android app opens the tools panel by toggling <html data-ai-tools-open>;

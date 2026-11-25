@@ -21,9 +21,11 @@ interface ClusterSidebarProps {
   onLogout: () => void
   /** The node now shown, or null for the datacenter. */
   onNodeChanged: (nodeId: string | null) => void
+  /** Each node list that comes back; Layout names the server from it. Keep it stable: it is in the poll's dependencies. */
+  onNodes?: (nodes: ClusterNode[]) => void
 }
 
-export default function ClusterSidebar({ status, panelVersion, onLogout, onNodeChanged }: ClusterSidebarProps) {
+export default function ClusterSidebar({ status, panelVersion, onLogout, onNodeChanged, onNodes }: ClusterSidebarProps) {
   const navigate = useNavigate()
   const { t } = useTranslation()
   const [nodes, setNodes] = useState<ClusterNode[]>([])
@@ -65,6 +67,7 @@ export default function ClusterSidebar({ status, panelVersion, onLogout, onNodeC
       .then((data) => {
         setNodes(data.nodes)
         setNodesError(false)
+        onNodes?.(data.nodes)
         const seen = lastNodes.current
         lastNodes.current = data.nodes
         // The node being shown left the cluster (removed, or converted and not
@@ -85,7 +88,7 @@ export default function ClusterSidebar({ status, panelVersion, onLogout, onNodeC
         // cluster has no nodes", with nothing on screen to say otherwise.
         setNodesError(true)
       })
-  }, [t])
+  }, [t, onNodes])
 
   // Load on mount + poll every 15s while visible (paused when the tab is hidden).
   // Status itself comes from Layout — this only refreshes the node list.

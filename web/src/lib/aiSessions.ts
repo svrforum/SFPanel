@@ -457,6 +457,18 @@ export function titlePrefix(n: number): string {
   return n > 0 ? `(${n}) ` : ''
 }
 
+const TITLE_PREFIX = /^\(\d+\) /
+
+/** The title without the terminal's "(n) " waiting count. */
+export function stripTitlePrefix(title: string): string {
+  return title.replace(TITLE_PREFIX, '')
+}
+
+/** The next title with the "(n) " waiting count the current one carries, if any. */
+export function keepTitlePrefix(current: string, next: string): string {
+  return (TITLE_PREFIX.exec(current)?.[0] ?? '') + next
+}
+
 type Translate = (key: string, opts?: Record<string, unknown>) => string
 
 /**

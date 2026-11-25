@@ -144,6 +144,7 @@ const DockerStacks = lazy(() => import('@/pages/docker/DockerStacks'))
 ### Dashboard
 - **파일**: `web/src/pages/Dashboard.tsx` (~600줄)
 - **기능**: 노드 단위 시스템 현황 대시보드 (클러스터 Layout 내에서 선택 노드 범위로 렌더)
+  - 제목(`<h1>`): 클러스터 모드에서는 트리에 보이는 서버 이름(Layout의 `serverName`)이고, 호스트명이 그와 다르면 바로 아래 "호스트명 · <hostname>" 한 줄. 단일 서버이거나 노드 목록을 아직(또는 못) 받았으면 호스트명
   - 호스트 정보 (hostname, OS, platform+version, kernel, uptime, CPU 코어, **주 IP**)
   - **확인 필요** (문제가 있을 때만, 맨 위): 확인이 필요한 컨테이너 → `/docker/containers`, 80% 이상 찬 디스크(가장 찬 실제 파일시스템) → 무엇이 채우는지 보이는 그 디스크의 사용량 탭 `/disk/usage?path=<마운트 지점>`, 마지막 백업 실패 → `/settings?scope=node&tab=system`. 자원 카드의 디스크는 그대로 `/disk/filesystems`
   - 실시간 메트릭 카드 4개 (CPU / 메모리+Swap / 디스크 / 네트워크)
@@ -577,10 +578,10 @@ const DockerStacks = lazy(() => import('@/pages/docker/DockerStacks'))
 
 | 컴포넌트 | 파일 | 용도 |
 |----------|------|------|
-| Layout | `web/src/components/Layout.tsx` | 인증된 페이지의 공통 레이아웃. 좌측 사이드바(네비게이션 12항목 + 접기/펼치기 + 로그아웃) + 우측 메인 콘텐츠(Outlet). NavLink로 활성 상태 표시. 사이드바 접기 상태 localStorage 영속화. |
+| Layout | `web/src/components/Layout.tsx` | 인증된 페이지의 공통 레이아웃. 좌측 사이드바(네비게이션 12항목 + 접기/펼치기 + 로그아웃) + 우측 메인 콘텐츠(Outlet). NavLink로 활성 상태 표시. 사이드바 접기 상태 localStorage 영속화. 탭 제목은 `documentTitle`로 `${화면} · SFPanel`이고, 클러스터 모드의 서버 화면(`isServerSection` — `/cluster/*`·`/settings`가 아니고 `ownTitle` 탭도 아닌 곳)만 `${화면} · ${서버} · SFPanel`이다. 서버 이름은 `selectedNodeName`(고른 노드 `api.currentNode`, 없으면 이 노드 `local_id`)으로 렌더 때 계산하고, 노드 목록이 오기 전이나 목록에 그 노드가 없으면(목록 503 포함) 뺀다. 터미널 화면에서는 제목을 바꿀 때 페이지의 `(n) ` 대기 수 접두사를 남긴다(`keepTitlePrefix` — 이름은 노드 목록과 함께 늦게 온다). Outlet context(`LayoutOutletContext`): `overview`(대시보드·앱스토어가 다시 쓰는 `/system/overview`), `serverName`, `clusterEnabled`(마지막 `/cluster/status` 답, localStorage에서 시작), `clusterStatus`(이번 로드의 최신 답). |
 | MetricsCard | `web/src/components/MetricsCard.tsx` | 메트릭 표시 카드. 아이콘 + 제목 + 값 + 프로그레스 바(80% 초과 빨강, 60% 초과 노랑, 그 외 파랑). |
 | MetricsChart | `web/src/components/MetricsChart.tsx` | CPU/메모리 시계열 차트. uPlot 사용. CPU(파랑) + Memory(초록) 이중 라인. Y축 0-100%. |
-| ClusterSidebar | `web/src/components/cluster/ClusterSidebar.tsx` | 클러스터 모드 좌측 2단 트리(TreePanel+ContextMenu). 선택 시 `api.setCurrentNode` + 라우팅 + `sfpanel:node-changed`(detail `{ nodeId }`, 데이터센터는 `null`). 표준 사이드바를 대체. 노드 목록은 15초 폴링 + `sfpanel:cluster-changed`를 들으면 바로 다시 받는다. 고른 노드(`api.currentNode`)가 성공한 목록에 없으면(제거·전환, 예전에 저장된 값 포함) 이 노드로 돌아오고 토스트로 알린다(직전 목록에 있던 이름으로, 처음 받은 목록이면 ID로). 메뉴 머리의 "알 수 없는 노드"는 받은 목록에 그 노드가 없을 때만 — 첫 목록 전이나 목록을 못 받는 동안은 비워 둔다. 트리 아래 버전은 Layout이 노드를 바꿀 때마다 다시 받는 `/system/overview`의 것이라 열린 노드의 버전이다. |
+| ClusterSidebar | `web/src/components/cluster/ClusterSidebar.tsx` | 클러스터 모드 좌측 2단 트리(TreePanel+ContextMenu). 선택 시 `api.setCurrentNode` + 라우팅 + `sfpanel:node-changed`(detail `{ nodeId }`, 데이터센터는 `null`). 표준 사이드바를 대체. 노드 목록은 15초 폴링 + `sfpanel:cluster-changed`를 들으면 바로 다시 받는다. 고른 노드(`api.currentNode`)가 성공한 목록에 없으면(제거·전환, 예전에 저장된 값 포함) 이 노드로 돌아오고 토스트로 알린다(직전 목록에 있던 이름으로, 처음 받은 목록이면 ID로). 메뉴 머리의 "알 수 없는 노드"는 받은 목록에 그 노드가 없을 때만 — 첫 목록 전이나 목록을 못 받는 동안은 비워 둔다. 트리 아래 버전은 Layout이 노드를 바꿀 때마다 다시 받는 `/system/overview`의 것이라 열린 노드의 버전이다. 받은 노드 목록은 성공할 때마다 `onNodes`로 Layout에 넘긴다(탭 제목·대시보드 제목의 서버 이름). |
 | TreePanel | `web/src/components/cluster/TreePanel.tsx` | 데이터센터 루트 + 노드 트리. 에이전트가 있으면 구역으로 묶는다(`treeSections`: 매니저 → 에이전트 그룹 이름순 → 그룹 없음, 구역 머리는 접을 수 있고 `sfpanel-tree-collapsed`에 남음). 노드가 8대를 넘으면 검색. 접이식 52px 레일은 노드 점 열이 세로로 스크롤되고 로그아웃은 아래에 고정. |
 | ContextMenu | `web/src/components/cluster/ContextMenu.tsx` | 선택 범위별 메뉴(데이터센터: 개요/실행 현황/노드/Docker/키 교체/그룹 작업/설정 · 노드: 모듈 메뉴). |
 | ContainerShell | `web/src/components/ContainerShell.tsx` | Docker 컨테이너 셸 접속. xterm.js + WebSocket(`/ws/docker/containers/{id}/exec`). 키 입력 전송, 리사이즈 이벤트 전송. |

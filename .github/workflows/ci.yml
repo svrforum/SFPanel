@@ -218,7 +218,8 @@ jobs:
             tests/running-network.spec.ts \
             tests/running-rack.spec.ts \
             tests/logs-source.spec.ts \
-            tests/firewall-ports.spec.ts
+            tests/firewall-ports.spec.ts \
+            tests/server-name.spec.ts
       - name: Dump panel log on failure
         if: failure()
         run: cat "$E2E_DIR/panel.log" || true
