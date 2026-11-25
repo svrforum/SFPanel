@@ -220,7 +220,8 @@ jobs:
             tests/logs-source.spec.ts \
             tests/firewall-ports.spec.ts \
             tests/server-name.spec.ts \
-            tests/update-badge.spec.ts
+            tests/update-badge.spec.ts \
+            tests/cluster-standalone.spec.ts
       - name: Dump panel log on failure
         if: failure()
         run: cat "$E2E_DIR/panel.log" || true

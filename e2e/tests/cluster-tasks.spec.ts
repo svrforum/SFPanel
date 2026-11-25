@@ -351,10 +351,10 @@ test('every tasks route has its pane', async ({ page }) => {
   await expect(page.getByTestId('task-pane-setup')).toContainText('No such task')
 })
 
-test('a node outside a cluster says so', async ({ page }) => {
+test('a node outside a cluster is sent to create or join', async ({ page }) => {
   await mock(page, { standalone: true })
   await page.goto('/cluster/tasks')
-  await expect(page.getByText('Cluster not enabled')).toBeVisible()
+  await expect(page).toHaveURL(/\/cluster\/overview$/)
   await expect(list(page)).toHaveCount(0)
 })
 
