@@ -46,8 +46,12 @@ export default function DiskUsage() {
     // cannot be assumed cheap: measured on this host it did not finish in
     // thirty seconds (4.5 M inodes), which is longer than the browser waits,
     // so opening the tab auto-ran a scan that always died with an error.
-    // Root is scanned when asked for; subdirectories load as before.
-    if (path === '/' && !rootRequested) return
+    // Root is scanned when asked for; subdirectories load as before. Going up
+    // to / drops the folder's listing, which would otherwise stand under /.
+    if (path === '/' && !rootRequested) {
+      setData(null)
+      return
+    }
     load(path)
   }, [path, load, rootRequested])
 

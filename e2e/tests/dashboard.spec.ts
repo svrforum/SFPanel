@@ -124,6 +124,18 @@ test('a usage address that is not absolute scans nothing', async ({ page }) => {
   expect(usage).toEqual([])
 })
 
+// Up from the folder the warning opened reaches /, which asks first like any
+// other arrival there — not the folder's own listing left standing under /.
+test('going up to / from an opened folder asks before scanning it', async ({ page }) => {
+  const usage = await recordUsageScans(page)
+  await page.goto('/disk/usage?path=%2Fdata')
+  await expect.poll(() => [...new Set(usage)]).toEqual(['/data'])
+  await page.getByRole('button', { name: 'Up one level', exact: true }).click()
+  await expect(page.getByRole('textbox', { name: 'Path' })).toHaveValue('/')
+  await expect(page.getByRole('button', { name: 'Scan / now' })).toBeVisible()
+  expect([...new Set(usage)]).toEqual(['/data'])
+})
+
 for (const width of [360, 390, 768]) {
   test(`mobile ${width}px: no page overflow, accessible shortcuts and expandable details`, async ({ page }) => {
     await page.setViewportSize({ width, height: 844 })
