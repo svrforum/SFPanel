@@ -639,3 +639,16 @@ export function guestServers(hosts: GuestHost[], interfaces: ReadonlyMap<string,
   }
   return result
 }
+
+/**
+ * The board's view as kept across visits. The board unless the canvas was
+ * chosen: it is the form for a phone and a screen reader. A network or rack
+ * view kept from before is the map's devices or rack tab now; it is sent
+ * there, and is the board from then on.
+ */
+export function readRunningView(saved: string | null): { view: 'board' | 'canvas'; moveTo: '/map' | '/map/rack' | null } {
+  if (saved === 'canvas') return { view: 'canvas', moveTo: null }
+  if (saved === 'network') return { view: 'board', moveTo: '/map' }
+  if (saved === 'rack') return { view: 'board', moveTo: '/map/rack' }
+  return { view: 'board', moveTo: null }
+}

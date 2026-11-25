@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { api, type ApiError } from '@/lib/api'
 import { nodeRoleKind, sortNodes, type NodeRoleKind } from '@/lib/clusterNodes'
 import {
-  attention, guestKey, guestServers, linkHost, nodeContents, runningGuests, totals,
+  attention, guestKey, guestServers, linkHost, nodeContents, readRunningView, runningGuests, totals,
   type AttentionItem, type BoardNode, type GuestHost, type RunningGuest, type Totals,
 } from '@/lib/running'
 import type { ClusterNode, ClusterOverview, ClusterStatus, ComposeProjectWithStatus, Container, Metrics, PveGuest } from '@/types/api'
@@ -469,18 +469,19 @@ export function useFolded(): [ReadonlySet<string>, (id: string) => void] {
   return [folded, toggle]
 }
 
-export type RunningView = 'board' | 'canvas' | 'network' | 'rack'
+export type RunningView = 'board' | 'canvas'
 
-/** Board, canvas or network, kept across visits. The board unless another was chosen: it is the form for a phone and a screen reader. */
+function savedView(): string | null {
+  try {
+    return localStorage.getItem(VIEW_KEY)
+  } catch {
+    return null
+  }
+}
+
+/** Board or canvas, kept across visits. The board unless the canvas was chosen: it is the form for a phone and a screen reader. */
 export function useRunningView(): [RunningView, (view: RunningView) => void] {
-  const [view, setView] = useState<RunningView>(() => {
-    try {
-      const saved = localStorage.getItem(VIEW_KEY)
-      return saved === 'canvas' || saved === 'network' || saved === 'rack' ? saved : 'board'
-    } catch {
-      return 'board'
-    }
-  })
+  const [view, setView] = useState<RunningView>(() => readRunningView(savedView()).view)
   const choose = useCallback((next: RunningView) => {
     setView(next)
     try {
@@ -490,4 +491,29 @@ export function useRunningView(): [RunningView, (view: RunningView) => void] {
     }
   }, [])
   return [view, choose]
+}
+
+/**
+ * Where a network or rack view kept from before sends the board: the map or
+ * its rack. Read on every render, not held, so a board drawn once the map has
+ * opened is the board.
+ */
+export function useMovedView(): '/map' | '/map/rack' | null {
+  return readRunningView(savedView()).moveTo
+}
+
+/**
+ * The map has opened: a network or rack view kept from before is the board
+ * from now on. Done by the map, not by the board as it sends the operator
+ * away: a move that never arrives (the operator went elsewhere before the
+ * map's code came) keeps the view, and the next board sends them again.
+ */
+export function settleMovedView(): void {
+  if (readRunningView(savedView()).moveTo === null) return
+  try {
+    localStorage.setItem(VIEW_KEY, 'board')
+  } catch {
+    // Storage too full to write: with no view kept the board is the board too.
+    try { localStorage.removeItem(VIEW_KEY) } catch { /* Storage refused altogether. */ }
+  }
 }

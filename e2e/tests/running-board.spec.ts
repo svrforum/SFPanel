@@ -87,17 +87,23 @@ interface Opts {
   language?: 'en' | 'ko'
   /** Containers the attached node runs besides its own. */
   extra?: ReturnType<typeof ctr>[]
+  /** localStorage the first load finds (a returning operator's). */
+  storage?: Record<string, string>
 }
 
 async function mock(page: Page, opts: Opts = {}) {
   const cluster = opts.cluster ?? true
   const nodes = [alpha, charlie, delta, ...(opts.bravo ? [bravo] : []), ...(opts.pve ? [pve] : [])]
   const state = { bravoFails: true, portmap: [] as string[], asked: [] as string[], interfaces: [] as string[] }
-  await page.addInitScript(({ language, current }) => {
+  await page.addInitScript(({ language, current, storage }) => {
     sessionStorage.setItem('token', 'fixture-token')
     localStorage.setItem('sfpanel_language', language)
     if (current) localStorage.setItem('sfpanel_current_node', current)
-  }, { language: opts.language ?? 'en', current: opts.current ?? '' })
+    // Only on the first load: a later one must find what the page itself stored.
+    if (sessionStorage.getItem('fixture-seeded')) return
+    sessionStorage.setItem('fixture-seeded', '1')
+    for (const [k, v] of Object.entries(storage)) localStorage.setItem(k, v)
+  }, { language: opts.language ?? 'en', current: opts.current ?? '', storage: opts.storage ?? {} })
   await page.route('**/api/v1/**', async (route) => {
     const url = new URL(route.request().url())
     const path = url.pathname.replace('/api/v1', '')
@@ -493,6 +499,35 @@ for (const width of [360, 320]) {
     })).toBe(true)
   })
 }
+
+// The network and rack views became the map's devices and rack tabs. A view
+// kept from before opens the map once, by replace, and the board from then on.
+test('a view kept as network opens the map, once', async ({ page }) => {
+  await mock(page, { storage: { 'sfpanel-running-view': 'network' } })
+  await page.goto('/dashboard'); const before = await page.evaluate(() => history.length)
+  await page.goto('/cluster/running')
+  await expect(page).toHaveURL(/\/map$/)
+  expect(await page.evaluate(() => history.length)).toBe(before + 1)
+  await expect.poll(() => page.evaluate(() => localStorage.getItem('sfpanel-running-view'))).toBe('board')
+  // No loop between the board and the map: Back leaves both.
+  await page.goBack(); await expect(page).toHaveURL(/\/dashboard/)
+  await page.goto('/cluster/running'); await expect(page).toHaveURL(/\/cluster\/running$/)
+  await expect(page.getByRole('group', { name: 'View' }).getByRole('button', { name: 'Board' })).toHaveAttribute('aria-pressed', 'true')
+})
+
+test('a view kept as rack opens the rack, even while the shell puts the server in the address', async ({ page }) => {
+  // A returning operator: the cached mode and server id let the shell put
+  // ?node= in the address in its first commit.
+  await mock(page, { storage: { 'sfpanel-running-view': 'rack', 'sfpanel-cluster-mode': 'true', 'sfpanel-cluster-local-id': 'm-1' } })
+  await page.goto('/running')
+  await expect(page).toHaveURL(/\/map\/rack$/)
+  await expect(page.getByTestId('rack-view')).toBeVisible()
+})
+
+test('the board has two views: board and canvas', async ({ page }) => {
+  await mock(page); await page.goto('/cluster/running')
+  await expect(page.getByRole('group', { name: 'View' }).getByRole('button')).toHaveText(['Board', 'Canvas'])
+})
 
 // The canvas: the same data as a map. Its chunk (with the library) is asked
 // for only once the canvas is chosen: by its module path on the dev server,

@@ -1,7 +1,7 @@
 import { lazy, Suspense, useMemo, useState, type ReactNode } from 'react'
 import { flushSync } from 'react-dom'
 import { useTranslation } from 'react-i18next'
-import { Link } from 'react-router-dom'
+import { Link, Navigate } from 'react-router-dom'
 import { RefreshCw } from 'lucide-react'
 import ResourceStatus from '@/components/ResourceStatus'
 import { ListLoadState } from '@/components/ListLoadState'
@@ -10,13 +10,11 @@ import { useVisibleInterval } from '@/hooks/useVisibleInterval'
 import { filterContents, filterGuests, type Totals } from '@/lib/running'
 import { cn } from '@/lib/utils'
 import { AttentionList } from './running/AttentionList'
-import { NetworkView } from './running/network/NetworkView'
-import { RackView } from './running/rack/RackView'
 import { Meters, NodeBody, NodeSection } from './running/NodeSection'
 import { SearchField } from './running/SearchField'
 import type { HeadingLevel } from './running/Heading'
 import { nodeSectionId, type Scope } from './running/targets'
-import { useClusterBoard, useFolded, useNodeBoard, useRunningView, type BoardModel, type BoardSection, type RunningView } from './running/useRunningBoard'
+import { useClusterBoard, useFolded, useMovedView, useNodeBoard, useRunningView, type BoardModel, type BoardSection, type RunningView } from './running/useRunningBoard'
 
 // The canvas and its library are fetched only once the canvas is chosen.
 import { CANVAS_AREA } from './running/canvasArea'
@@ -29,6 +27,10 @@ const REFRESH_MS = 15_000
 // cluster (/cluster/running), with what needs looking at first. It reads and
 // links; it starts and stops nothing.
 export default function Running({ scope = 'node' }: { scope?: 'node' | 'cluster' }) {
+  // A network or rack view kept from before is the map's now: sent there
+  // before the board asks anything. The map, once open, makes it the board.
+  const moved = useMovedView()
+  if (moved) return <Navigate to={moved} replace />
   return scope === 'cluster' ? <ClusterRunning /> : <NodeRunning />
 }
 
@@ -83,7 +85,7 @@ function matches(board: BoardModel, query: string): number {
   return board.sections.reduce((sum, s) => sum + tileCount(s, query), 0)
 }
 
-/** Board, canvas, network or rack: a button each, the one in use pressed. */
+/** Board or canvas: a button each, the one in use pressed. */
 function ViewSwitch({ view, onView }: { view: RunningView; onView: (view: RunningView) => void }) {
   const { t } = useTranslation()
   const option = (value: RunningView, label: string) => (
@@ -103,8 +105,6 @@ function ViewSwitch({ view, onView }: { view: RunningView; onView: (view: Runnin
     <div role="group" aria-label={t('running.view.label')} className="inline-flex rounded-xl bg-secondary p-0.5">
       {option('board', t('running.view.board'))}
       {option('canvas', t('running.view.canvas'))}
-      {option('network', t('running.view.network'))}
-      {option('rack', t('running.view.rack'))}
     </div>
   )
 }
@@ -176,8 +176,6 @@ function ClusterRunning() {
   const [query, setQuery] = useState('')
   const [folded, toggleFold] = useFolded()
   const [view, setView] = useRunningView()
-  // The network view's own reads are asked again only when the operator asks.
-  const [netRound, setNetRound] = useState(0)
   useVisibleInterval(refresh, REFRESH_MS)
 
   if (state.phase === 'standalone') {
@@ -215,23 +213,6 @@ function ClusterRunning() {
     if (!section) return
     section.scrollIntoView({ block: 'start' })
     section.querySelector<HTMLElement>('[data-node-toggle]')?.focus({ preventScroll: true })
-  }
-  if (view === 'rack') {
-    return (
-      <Frame wide>
-        <BoardHeader board={board} title={t('running.title')} subtitle={t('running.subtitleCluster')} onRefresh={() => { refresh(); setNetRound((r) => r + 1) }} view={view} onView={setView} />
-        <RackView sections={board.sections} round={netRound} level={2} />
-      </Frame>
-    )
-  }
-  if (view === 'network') {
-    return (
-      <Frame>
-        <BoardHeader board={board} title={t('running.title')} subtitle={t('running.subtitleCluster')} onRefresh={() => { refresh(); setNetRound((r) => r + 1) }} view={view} onView={setView} />
-        <SearchField value={query} onChange={setQuery} network />
-        <NetworkView sections={board.sections} scope="cluster" query={query} round={netRound} level={2} onClearQuery={() => setQuery('')} />
-      </Frame>
-    )
   }
   if (view === 'canvas') {
     return (
@@ -273,7 +254,6 @@ function NodeRunning() {
   const { board, host, metrics, refresh } = useNodeBoard()
   const [query, setQuery] = useState('')
   const [view, setView] = useRunningView()
-  const [netRound, setNetRound] = useState(0)
   useVisibleInterval(refresh, REFRESH_MS)
   const section = board.sections[0]
   const noMatch = query.trim() !== '' && searchable(section) && matches(board, query) === 0
@@ -283,23 +263,6 @@ function NodeRunning() {
     () => [metrics ? { ...section, metrics: { cpu: metrics.cpu, memory: metrics.mem_percent, disk: metrics.disk_percent } } : section],
     [section, metrics],
   )
-  if (view === 'rack') {
-    return (
-      <Frame wide>
-        <BoardHeader board={board} title={t('layout.tabs.runningHere')} subtitle={subtitle} onRefresh={() => { refresh(); setNetRound((r) => r + 1) }} view={view} onView={setView} />
-        <RackView sections={board.sections} round={netRound} level={2} />
-      </Frame>
-    )
-  }
-  if (view === 'network') {
-    return (
-      <Frame>
-        <BoardHeader board={board} title={t('layout.tabs.runningHere')} subtitle={subtitle} onRefresh={() => { refresh(); setNetRound((r) => r + 1) }} view={view} onView={setView} />
-        <SearchField value={query} onChange={setQuery} network />
-        <NetworkView sections={board.sections} scope="node" query={query} round={netRound} level={2} onClearQuery={() => setQuery('')} />
-      </Frame>
-    )
-  }
   if (view === 'canvas') {
     return (
       <Frame wide>

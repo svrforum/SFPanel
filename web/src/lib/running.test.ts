@@ -13,6 +13,7 @@ import {
   linkHost,
   nodeContents,
   portChips,
+  readRunningView,
   runningGuests,
   serviceName,
   stackInPart,
@@ -599,5 +600,19 @@ describe('guestServers', () => {
       ifaces({ inner: [MAC_A], app: [MAC_B] }),
     )
     expect(matches(m)).toEqual([[guestKey('inner', 201), 'app'], [guestKey('pve', 101), 'inner']])
+  })
+})
+
+describe('readRunningView', () => {
+  it('keeps the board and the canvas where they are', () => {
+    expect(readRunningView('board')).toEqual({ view: 'board', moveTo: null })
+    expect(readRunningView('canvas')).toEqual({ view: 'canvas', moveTo: null })
+  })
+  it('sends a saved network view to the map and a rack view to its rack, as the board from then on', () => {
+    expect(readRunningView('network')).toEqual({ view: 'board', moveTo: '/map' })
+    expect(readRunningView('rack')).toEqual({ view: 'board', moveTo: '/map/rack' })
+  })
+  it('reads nothing, or anything else, as the board', () => {
+    for (const saved of [null, '', 'grid']) expect(readRunningView(saved)).toEqual({ view: 'board', moveTo: null })
   })
 })

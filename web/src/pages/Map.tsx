@@ -1,4 +1,4 @@
-import { Suspense, useState, type ReactNode } from 'react'
+import { Suspense, useEffect, useState, type ReactNode } from 'react'
 import { useTranslation } from 'react-i18next'
 import { Outlet, useMatch } from 'react-router-dom'
 import { RefreshCw } from 'lucide-react'
@@ -10,7 +10,7 @@ import { useVisibleInterval } from '@/hooks/useVisibleInterval'
 import { navTabs } from '@/lib/navigation'
 import { cn } from '@/lib/utils'
 import type { MapContext } from './map/mapContext'
-import { useClusterBoard, useNodeBoard } from './running/useRunningBoard'
+import { settleMovedView, useClusterBoard, useNodeBoard } from './running/useRunningBoard'
 
 // The servers — which are online, and a Proxmox host's guests — are read again
 // on the running board's timer; scans, ports and racks only when the operator asks.
@@ -24,6 +24,9 @@ const REFRESH_MS = 15_000
  */
 export default function MapPage() {
   const { clusterEnabled } = useServerScope()
+  // A network or rack view the running board kept may have sent the operator
+  // here; now that they have arrived, the board is the board again.
+  useEffect(() => { settleMovedView() }, [])
   if (clusterEnabled === true) return <ClusterMap />
   if (clusterEnabled === false) return <ServerMap />
   return <Frame><Loading /></Frame>
