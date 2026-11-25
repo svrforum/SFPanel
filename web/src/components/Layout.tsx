@@ -8,6 +8,7 @@ import { api } from '@/lib/api'
 import { cn } from '@/lib/utils'
 import { documentTitle, isTerminalRoute, navFor, navOwner, pageTitleKey } from '@/lib/navigation'
 import { selectedNodeName } from '@/lib/clusterNodes'
+import { CLUSTER_MODE_KEY, LOCAL_ID_KEY } from '@/lib/serverScope'
 import { keepTitlePrefix } from '@/lib/aiSessions'
 import { useTerminalCompact, useTerminalFocus } from '@/lib/terminalLayout'
 import { NODE_CHANGED, type NodeChangedDetail } from '@/lib/nodeSelection'
@@ -24,7 +25,6 @@ import type { ClusterNode, ClusterStatus, DashboardOverview } from '@/types/api'
 const navItems = navFor(false)
 
 const SIDEBAR_KEY = 'sfpanel-sidebar-collapsed'
-const CLUSTER_MODE_KEY = 'sfpanel-cluster-mode'
 
 // Shared with pages via <Outlet context>. The overview payload Layout already
 // fetches for the sidebar version display is tagged with the node scope and
@@ -143,6 +143,10 @@ export default function Layout() {
         setClusterStatus(status)
         setClusterEnabled(status.enabled)
         localStorage.setItem(CLUSTER_MODE_KEY, String(status.enabled))
+        // Kept so the next load can tell this server's own id in the address
+        // before this answer comes.
+        if (status.enabled && status.local_id) localStorage.setItem(LOCAL_ID_KEY, status.local_id)
+        else if (status.enabled === false) localStorage.removeItem(LOCAL_ID_KEY)
       })
       .catch(() => {
         // Keep the mode we already believe — a transient failure must not tear

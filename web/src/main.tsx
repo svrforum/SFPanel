@@ -3,6 +3,8 @@ import { createRoot } from 'react-dom/client'
 import './i18n'
 import './index.css'
 import { initTheme } from './lib/theme'
+import { api } from './lib/api'
+import { adoptUrlNode } from './lib/serverScope'
 import App from './App'
 
 // Activate theming: re-sync the stored preference applied by the index.html
@@ -41,6 +43,10 @@ if ('serviceWorker' in navigator) {
     .then((reg) => { setInterval(() => { void reg.update() }, 60_000) })
     .catch(() => {})
 }
+
+// A server named in the address is the one the first request asks, before any
+// page reads the stored choice.
+adoptUrlNode(window.location.search, localStorage, (id) => api.setCurrentNode(id))
 
 createRoot(document.getElementById('root')!).render(
   <StrictMode>
