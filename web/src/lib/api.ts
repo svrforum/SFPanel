@@ -1644,17 +1644,20 @@ class ApiClient {
         }
       }
 
+      // A refusal carries its status and code, as request()'s does: the page
+      // asks before replacing on a 409, and a plain Error had neither.
       xhr.onload = () => {
         if (xhr.status >= 200 && xhr.status < 300) {
           resolve()
-        } else {
-          try {
-            const json = JSON.parse(xhr.responseText)
-            reject(new Error(json.error?.message || 'Upload failed'))
-          } catch {
-            reject(new Error(`Upload failed (${xhr.status})`))
-          }
+          return
         }
+        let body: unknown
+        try {
+          body = JSON.parse(xhr.responseText)
+        } catch {
+          // not JSON: the status is all there is
+        }
+        reject(apiErrorFrom(xhr.status, body))
       }
 
       xhr.onerror = () => reject(new Error('Network error'))
