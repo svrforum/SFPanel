@@ -127,10 +127,9 @@ function ViewSwitch({ view, onView }: { view: RunningView; onView: (view: Runnin
 }
 
 /** The canvas, once its chunk has arrived; until then, a line that says it is coming. */
-function Canvas({ sections, scope, localId, query, storageKey, level }: {
+function Canvas({ sections, scope, query, storageKey, level }: {
   sections: BoardSection[]
   scope: Scope
-  localId: string
   query: string
   storageKey: string
   level: HeadingLevel
@@ -144,7 +143,7 @@ function Canvas({ sections, scope, localId, query, storageKey, level }: {
     )}
     >
       {/* A new key is a new place to read the moved boxes from. */}
-      <RunningCanvas key={storageKey} sections={sections} scope={scope} localId={localId} query={query} storageKey={storageKey} level={level} />
+      <RunningCanvas key={storageKey} sections={sections} scope={scope} query={query} storageKey={storageKey} level={level} />
     </Suspense>
   )
 }
@@ -247,7 +246,7 @@ function ClusterRunning() {
       <Frame>
         <BoardHeader board={board} title={t('running.title')} subtitle={t('running.subtitleCluster')} onRefresh={() => { refresh(); setNetRound((r) => r + 1) }} view={view} onView={setView} />
         <SearchField value={query} onChange={setQuery} network />
-        <NetworkView sections={board.sections} scope="cluster" localId={board.localId} query={query} round={netRound} level={2} onClearQuery={() => setQuery('')} />
+        <NetworkView sections={board.sections} scope="cluster" query={query} round={netRound} level={2} onClearQuery={() => setQuery('')} />
       </Frame>
     )
   }
@@ -257,7 +256,7 @@ function ClusterRunning() {
         <BoardHeader board={board} title={t('running.title')} subtitle={t('running.subtitleCluster')} onRefresh={refresh} view={view} onView={setView} />
         <SearchField value={query} onChange={setQuery} />
         {noMatch && <NoMatch query={query} onClear={() => setQuery('')} />}
-        <Canvas sections={board.sections} scope="cluster" localId={board.localId} query={query} storageKey="sfpanel-running-canvas:cluster" level={2} />
+        <Canvas sections={board.sections} scope="cluster" query={query} storageKey="sfpanel-running-canvas:cluster" level={2} />
       </Frame>
     )
   }
@@ -265,7 +264,7 @@ function ClusterRunning() {
     <Frame>
       <BoardHeader board={board} title={t('running.title')} subtitle={t('running.subtitleCluster')} onRefresh={refresh} view={view} onView={setView} />
       <TotalsRow totals={board.totals} showNodes loaded={board.sections.some((s) => s.node.contents)} />
-      <AttentionList items={board.items} scope="cluster" localId={board.localId} level={2} />
+      <AttentionList items={board.items} scope="cluster" level={2} />
       <SearchField value={query} onChange={setQuery} />
       {noMatch && <NoMatch query={query} onClear={() => setQuery('')} />}
       {board.sections
@@ -279,7 +278,6 @@ function ClusterRunning() {
             folded={folded.has(s.node.id)}
             onToggle={() => toggleFold(s.node.id)}
             query={query}
-            localId={board.localId}
             onReveal={reveal}
           />
         ))}
@@ -315,7 +313,7 @@ function NodeRunning() {
       <Frame>
         <BoardHeader board={board} title={t('layout.tabs.runningHere')} subtitle={subtitle} onRefresh={() => { refresh(); setNetRound((r) => r + 1) }} view={view} onView={setView} />
         <SearchField value={query} onChange={setQuery} network />
-        <NetworkView sections={board.sections} scope="node" localId={board.localId} query={query} round={netRound} level={2} onClearQuery={() => setQuery('')} />
+        <NetworkView sections={board.sections} scope="node" query={query} round={netRound} level={2} onClearQuery={() => setQuery('')} />
       </Frame>
     )
   }
@@ -325,7 +323,7 @@ function NodeRunning() {
         <BoardHeader board={board} title={t('layout.tabs.runningHere')} subtitle={subtitle} onRefresh={refresh} view={view} onView={setView} />
         <SearchField value={query} onChange={setQuery} />
         {noMatch && <NoMatch query={query} onClear={() => setQuery('')} />}
-        <Canvas sections={boxed} scope="node" localId={board.localId} query={query} storageKey={`sfpanel-running-canvas:node:${section.node.id}`} level={2} />
+        <Canvas sections={boxed} scope="node" query={query} storageKey={`sfpanel-running-canvas:node:${section.node.id}`} level={2} />
       </Frame>
     )
   }
@@ -334,11 +332,11 @@ function NodeRunning() {
       <BoardHeader board={board} title={t('layout.tabs.runningHere')} subtitle={subtitle} onRefresh={refresh} view={view} onView={setView} />
       {metrics && <Meters metrics={{ cpu: metrics.cpu, memory: metrics.mem_percent, disk: metrics.disk_percent }} />}
       <TotalsRow totals={board.totals} showNodes={false} loaded={!!section.node.contents} />
-      <AttentionList items={board.items} scope="node" localId="" level={2} />
+      <AttentionList items={board.items} scope="node" level={2} />
       <SearchField value={query} onChange={setQuery} />
       {noMatch ? <NoMatch query={query} onClear={() => setQuery('')} /> : (
         <div className="rounded-2xl bg-card pb-1 card-shadow">
-          <NodeBody section={section} scope="node" query={query} localId={board.localId} groupLevel={2} />
+          <NodeBody section={section} scope="node" query={query} groupLevel={2} />
         </div>
       )}
     </Frame>

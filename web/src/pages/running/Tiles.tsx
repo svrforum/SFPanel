@@ -53,7 +53,7 @@ const tileClass = 'relative flex min-w-0 flex-col gap-1.5 rounded-xl border bord
 const tileAttention = 'border-destructive/40 bg-destructive/5'
 const nameLink = 'min-w-0 break-words text-[14px] font-semibold outline-none after:absolute after:inset-0 after:rounded-xl hover:underline focus-visible:after:ring-2 focus-visible:after:ring-ring'
 
-export function StackTile({ stack, scope, nodeId, localId }: { stack: RunningStack; scope: Scope; nodeId: string; localId: string }) {
+export function StackTile({ stack, scope, nodeId }: { stack: RunningStack; scope: Scope; nodeId: string }) {
   const { t, i18n } = useTranslation()
   const problems = stack.containers.filter((c) => containerProblem(c) !== null)
   const attention = stackInPart(stack) || problems.length > 0
@@ -61,7 +61,7 @@ export function StackTile({ stack, scope, nodeId, localId }: { stack: RunningSta
   return (
     <li className={cn(tileClass, attention && tileAttention)}>
       <div className="flex items-start justify-between gap-2">
-        <NodeLink target={stackTarget(scope, nodeId, stack)} nodeId={nodeId} localId={localId} className={nameLink}>{stack.name}</NodeLink>
+        <NodeLink target={stackTarget(scope, stack)} nodeId={nodeId} className={nameLink}>{stack.name}</NodeLink>
         <StatusPill tone={word.tone} className="shrink-0">{word.text}</StatusPill>
       </div>
       <p className="break-words text-xs text-muted-foreground">
@@ -83,7 +83,7 @@ export function StackTile({ stack, scope, nodeId, localId }: { stack: RunningSta
   )
 }
 
-export function ContainerTile({ container, scope, nodeId, localId }: { container: RunningContainer; scope: Scope; nodeId: string; localId: string }) {
+export function ContainerTile({ container, scope, nodeId }: { container: RunningContainer; scope: Scope; nodeId: string }) {
   const { t, i18n } = useTranslation()
   const attention = containerProblem(container) !== null
   const word = containerWord(container, t)
@@ -91,7 +91,7 @@ export function ContainerTile({ container, scope, nodeId, localId }: { container
   return (
     <li className={cn(tileClass, attention && tileAttention)}>
       <div className="flex items-start justify-between gap-2">
-        <NodeLink target={containerTarget(scope, container.id)} nodeId={nodeId} localId={localId} className={nameLink}>{container.name}</NodeLink>
+        <NodeLink target={containerTarget(scope, container.id)} nodeId={nodeId} className={nameLink}>{container.name}</NodeLink>
         <StatusPill tone={word.tone} className="shrink-0">{word.text}</StatusPill>
       </div>
       <p className="break-all text-xs text-muted-foreground">
@@ -110,11 +110,10 @@ const serverLink = 'inline-flex min-h-8 items-center break-words rounded-sm font
  * of the cluster's nodes links to that node — its section on the datacenter
  * board, its own board otherwise.
  */
-export function GuestTile({ guest, server, scope, localId, onReveal }: {
+export function GuestTile({ guest, server, scope, onReveal }: {
   guest: RunningGuest
   server?: GuestServer
   scope: Scope
-  localId: string
   /** Brings a node's section on this page into view and focus. */
   onReveal?: (nodeId: string) => void
 }) {
@@ -148,7 +147,7 @@ export function GuestTile({ guest, server, scope, localId, onReveal }: {
               {server.name}
             </a>
           ) : (
-            <NodeLink target={{ to: '/running', onNode: true }} nodeId={server.id} localId={localId} className={serverLink}>{server.name}</NodeLink>
+            <NodeLink target={{ to: '/running', onNode: true }} nodeId={server.id} className={serverLink}>{server.name}</NodeLink>
           )}
         </p>
       )}

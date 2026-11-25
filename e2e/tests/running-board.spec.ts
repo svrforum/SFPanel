@@ -173,13 +173,10 @@ test('datacenter scope: totals, what needs attention in order, and links that le
   await expect(lines.nth(2)).toContainText('wiki · alpha-node — 1 of 2 services running. Open stack')
   await expect(lines.nth(3)).toContainText('backup-agent · alpha-node — Exited 2 hours ago (exit code 1). View logs')
   await expect(lines.nth(0).getByRole('link', { name: 'View nodes (charlie-agent)' })).toHaveAttribute('href', '/cluster/nodes?status=offline')
-  await expect(lines.nth(1).getByRole('link', { name: 'Open stack (photos)' })).toHaveAttribute('href', '/cluster/stacks/m-1/photos')
-  // The containers screen shows the selected node, and its address does not
-  // say which: what leads there from another node's line is a button that
-  // selects the node on the way, not a link a new tab could open on the
-  // wrong server.
-  await expect(lines.nth(3).getByRole('button', { name: 'View logs (backup-agent)' })).toBeVisible()
-  await expect(lines.nth(3).getByRole('link')).toHaveCount(0)
+  // Every line leads to a screen whose address names the line's server, so a
+  // new tab opens it on that server too.
+  await expect(lines.nth(1).getByRole('link', { name: 'Open stack (photos)' })).toHaveAttribute('href', '/docker/stacks/photos?node=m-1')
+  await expect(lines.nth(3).getByRole('link', { name: 'View logs (backup-agent)' })).toHaveAttribute('href', '/docker/containers?container=backup-agent-id&tab=logs&node=m-1')
   // Stopped on purpose and failed long ago are tiles, not lines.
   await expect(attention).not.toContainText('monitoring')
   await expect(attention).not.toContainText('old-test')
@@ -221,7 +218,7 @@ test('datacenter scope: totals, what needs attention in order, and links that le
   await expect(alphaRegion.getByRole('link', { name: /^53/ })).toHaveCount(0)
 
   // A stack tile opens the stack on its node.
-  await expect(alphaRegion.getByRole('link', { name: 'media', exact: true })).toHaveAttribute('href', '/cluster/stacks/m-1/media')
+  await expect(alphaRegion.getByRole('link', { name: 'media', exact: true })).toHaveAttribute('href', '/docker/stacks/media?node=m-1')
 
   // The offline node is not asked; the node without Docker says so calmly.
   await expect(region(page, 'charlie-agent')).toContainText('A node that is not answering is not asked.')
@@ -249,10 +246,10 @@ test('a node whose containers fail shows why and a retry, and the others stay dr
   await expect(page.getByText(/could not be loaded/)).toHaveCount(0)
   await expect(region(page, 'alpha-node').getByRole('link', { name: 'photos', exact: true })).toBeVisible()
 
-  // A container opens on its own node's containers screen: the node is selected on the way.
-  await bravoRegion.getByRole('button', { name: 'agent-tool', exact: true }).click()
-  await expect(page).toHaveURL(/\/docker\/containers\?container=agent-tool-id$/)
-  expect(await page.evaluate(() => localStorage.getItem('sfpanel_current_node'))).toBe('a-1')
+  // A container opens on its own node's containers screen, which the address names.
+  await bravoRegion.getByRole('link', { name: 'agent-tool', exact: true }).click()
+  await expect(page).toHaveURL(/\/docker\/containers\?container=agent-tool-id&node=a-1$/)
+  await expect.poll(() => page.evaluate(() => localStorage.getItem('sfpanel_current_node'))).toBe('a-1')
 })
 
 // The page's own line said "Loading…" for as long as the page stayed open
@@ -409,9 +406,10 @@ test("node scope: a Proxmox host's VM that is another node leads to that node's 
   await mock(page, { pve: true, current: 'p-1' })
   await page.goto('/running')
   await expect(page.getByRole('heading', { name: 'VMs and LXC containers 3', level: 2 })).toBeVisible()
-  // In the page, not the node tree beside it.
-  const toNode = page.getByRole('main').getByRole('button', { name: 'delta-node' })
+  // In the page, not the server picker beside it.
+  const toNode = page.getByRole('main').getByRole('link', { name: 'delta-node' })
   await toNode.click()
+  await expect(page).toHaveURL(/\/running\?node=m-2$/)
   await expect.poll(() => page.evaluate(() => localStorage.getItem('sfpanel_current_node'))).toBe('m-2')
   await expect(page.getByText('Docker is not installed here, or not running.')).toBeVisible()
   await expect(page.getByRole('heading', { name: /VMs and LXC/ })).toHaveCount(0)
@@ -616,7 +614,7 @@ test.describe('canvas', () => {
     await page.waitForTimeout(1000)
     expect(await allBoxesInView(page)).toBe(true)
     release()
-    await expect(box(page, 'alpha-node').getByRole('button', { name: 'tool-16', exact: true })).toBeAttached()
+    await expect(box(page, 'alpha-node').getByRole('link', { name: 'tool-16', exact: true })).toBeAttached()
     await expect.poll(() => allBoxesInView(page)).toBe(true)
   })
 
@@ -635,7 +633,7 @@ test.describe('canvas', () => {
     await page.mouse.up()
     const moved = await viewportOf(page)
     release()
-    await expect(box(page, 'alpha-node').getByRole('button', { name: 'tool-16', exact: true })).toBeAttached()
+    await expect(box(page, 'alpha-node').getByRole('link', { name: 'tool-16', exact: true })).toBeAttached()
     await page.waitForTimeout(800)
     expect(await viewportOf(page)).toBe(moved)
     // Auto arrange is how to ask for the fitted view back.
@@ -654,7 +652,7 @@ test.describe('canvas', () => {
     await page.waitForTimeout(500)
     const zoomed = await viewportOf(page)
     release()
-    await expect(box(page, 'alpha-node').getByRole('button', { name: 'tool-16', exact: true })).toBeAttached()
+    await expect(box(page, 'alpha-node').getByRole('link', { name: 'tool-16', exact: true })).toBeAttached()
     await page.waitForTimeout(800)
     expect(await viewportOf(page)).toBe(zoomed)
   })
@@ -736,9 +734,9 @@ test.describe('canvas', () => {
     await page.goto('/cluster/running')
     await chooseCanvas(page)
     const photos = box(page, 'alpha-node').getByRole('link', { name: 'photos', exact: true })
-    await expect(photos).toHaveAttribute('href', '/cluster/stacks/m-1/photos')
+    await expect(photos).toHaveAttribute('href', '/docker/stacks/photos?node=m-1')
     await photos.click()
-    await expect(page).toHaveURL(/\/cluster\/stacks\/m-1\/photos$/)
+    await expect(page).toHaveURL(/\/docker\/stacks\/photos\?node=m-1$/)
   })
 
   test("node scope: the server's one box, its tiles leading to this server's screens", async ({ page }) => {
@@ -803,7 +801,7 @@ test.describe('canvas', () => {
     await mock(page)
     await page.goto('/cluster/running')
     await chooseCanvas(page)
-    const last = box(page, 'alpha-node').getByRole('button', { name: 'speedtest', exact: true })
+    const last = box(page, 'alpha-node').getByRole('link', { name: 'speedtest', exact: true })
     await expect(last).toBeVisible()
     // The background dragged up and to the side: the box goes out of view.
     const frame = (await canvas(page).boundingBox())!

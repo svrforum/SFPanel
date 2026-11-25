@@ -23,7 +23,6 @@ interface BodyProps {
   section: BoardSection
   scope: Scope
   query: string
-  localId: string
   /** The level of the group headings ("스택 6"). */
   groupLevel: HeadingLevel
   /** Brings a node's section on this page into view: where a guest that is that node links. */
@@ -35,11 +34,10 @@ interface BodyProps {
  * when they could not be listed, a line that says so and why — never as if
  * there were none.
  */
-function GuestsGroup({ group, scope, query, localId, level, onReveal }: {
+function GuestsGroup({ group, scope, query, level, onReveal }: {
   group: GuestGroup
   scope: Scope
   query: string
-  localId: string
   level: HeadingLevel
   onReveal?: (nodeId: string) => void
 }) {
@@ -63,7 +61,7 @@ function GuestsGroup({ group, scope, query, localId, level, onReveal }: {
       )}
       <ul className={cn(grid, 'mt-2')}>
         {shown.map((g) => (
-          <GuestTile key={g.vmid} guest={g} server={group.servers.get(g.vmid)} scope={scope} localId={localId} onReveal={onReveal} />
+          <GuestTile key={g.vmid} guest={g} server={group.servers.get(g.vmid)} scope={scope} onReveal={onReveal} />
         ))}
       </ul>
     </div>
@@ -71,7 +69,7 @@ function GuestsGroup({ group, scope, query, localId, level, onReveal }: {
 }
 
 /** What runs on one node, or why it cannot be shown. */
-export function NodeBody({ section, scope, query, localId, groupLevel, onReveal }: BodyProps) {
+export function NodeBody({ section, scope, query, groupLevel, onReveal }: BodyProps) {
   const { t, i18n } = useTranslation()
   const { node, load } = section
 
@@ -110,7 +108,7 @@ export function NodeBody({ section, scope, query, localId, groupLevel, onReveal 
           <div className="px-4 pt-3 pb-1">
             <Heading level={groupLevel} className="text-xs font-semibold text-muted-foreground">{t('running.groups.stacks', { count: shown.stacks.length })}</Heading>
             <ul className={cn(grid, 'mt-2')}>
-              {shown.stacks.map((s) => <StackTile key={`${s.managed ? 'managed' : 'label'}:${s.name}`} stack={s} scope={scope} nodeId={node.id} localId={localId} />)}
+              {shown.stacks.map((s) => <StackTile key={`${s.managed ? 'managed' : 'label'}:${s.name}`} stack={s} scope={scope} nodeId={node.id} />)}
             </ul>
           </div>
         )}
@@ -118,7 +116,7 @@ export function NodeBody({ section, scope, query, localId, groupLevel, onReveal 
           <div className="px-4 pt-3 pb-1">
             <Heading level={groupLevel} className="text-xs font-semibold text-muted-foreground">{t('running.groups.standalone', { count: shown.standalone.length })}</Heading>
             <ul className={cn(grid, 'mt-2')}>
-              {shown.standalone.map((c) => <ContainerTile key={c.id} container={c} scope={scope} nodeId={node.id} localId={localId} />)}
+              {shown.standalone.map((c) => <ContainerTile key={c.id} container={c} scope={scope} nodeId={node.id} />)}
             </ul>
           </div>
         )}
@@ -127,9 +125,9 @@ export function NodeBody({ section, scope, query, localId, groupLevel, onReveal 
             <p className="text-[13px] font-medium">{t('running.empty.title')}</p>
             <p className="mt-1 text-xs text-muted-foreground">
               {t('running.empty.hint')}{' '}
-              <NodeLink target={{ to: '/appstore', onNode: scope === 'cluster' }} nodeId={node.id} localId={localId} className="font-medium text-primary hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring">{t('running.empty.appStore')}</NodeLink>
+              <NodeLink target={{ to: '/appstore', onNode: scope === 'cluster' }} nodeId={node.id} className="font-medium text-primary hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring">{t('running.empty.appStore')}</NodeLink>
               {' · '}
-              <NodeLink target={{ to: '/docker/stacks', onNode: scope === 'cluster' }} nodeId={node.id} localId={localId} className="font-medium text-primary hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring">{t('running.empty.stacks')}</NodeLink>
+              <NodeLink target={{ to: '/docker/stacks', onNode: scope === 'cluster' }} nodeId={node.id} className="font-medium text-primary hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring">{t('running.empty.stacks')}</NodeLink>
             </p>
           </div>
         )}
@@ -139,7 +137,7 @@ export function NodeBody({ section, scope, query, localId, groupLevel, onReveal 
 
   return (
     <>
-      {section.guests && <GuestsGroup group={section.guests} scope={scope} query={query} localId={localId} level={groupLevel} onReveal={onReveal} />}
+      {section.guests && <GuestsGroup group={section.guests} scope={scope} query={query} level={groupLevel} onReveal={onReveal} />}
       {content}
       {/* Ports the host serves itself are a question for any node that answers, with Docker or without. */}
       {load && <div className="pt-2"><HostListeners node={section.nodeParam} /></div>}
@@ -168,12 +166,11 @@ export function Meters({ metrics, className }: { metrics: SectionMetrics; classN
 }
 
 /** One node of the cluster: its header, and what runs on it unless folded. */
-export function NodeSection({ section, folded, onToggle, query, localId, onReveal }: {
+export function NodeSection({ section, folded, onToggle, query, onReveal }: {
   section: BoardSection
   folded: boolean
   onToggle: () => void
   query: string
-  localId: string
   onReveal?: (nodeId: string) => void
 }) {
   const { t, i18n } = useTranslation()
@@ -204,7 +201,7 @@ export function NodeSection({ section, folded, onToggle, query, localId, onRevea
       </header>
       {!folded && (
         <div id={bodyId} className="pb-1">
-          <NodeBody section={section} scope="cluster" query={query} localId={localId} groupLevel={3} onReveal={onReveal} />
+          <NodeBody section={section} scope="cluster" query={query} groupLevel={3} onReveal={onReveal} />
         </div>
       )}
     </section>

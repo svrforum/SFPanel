@@ -83,7 +83,13 @@ async function mock(page: Page, opts: MockOptions = {}) {
       : []
     else if (path === '/logs/sources') data = sources
     else if (path === '/logs/read') data = { lines: [], total_lines: 0 }
-    else if (path === '/docker/compose' || path === '/docker/containers') data = []
+    // agent-1 runs one stack, demo; the other servers none.
+    else if (path === '/docker/compose') data = url.searchParams.get('node') === 'agent-1'
+      ? [{ name: 'demo', compose_file: 'compose.yaml', has_env: false, path: '/opt/stacks/demo', service_count: 1, running_count: 1, real_status: 'running' }]
+      : []
+    else if (path === '/docker/compose/demo') data = { name: 'demo', yaml: 'services:\n  web:\n    image: nginx\n' }
+    else if (path === '/docker/compose/demo/env') data = { content: '' }
+    else if (path === '/docker/compose/demo/services' || path === '/docker/containers') data = []
     else if (path === '/alerts/history') data = { items: [], total: 0 }
     else if (path === '/alerts/channels' || path === '/alerts/rules') data = []
     await route.fulfill({ json: { success: true, data } })
@@ -200,6 +206,26 @@ test('an old address that redirects keeps the server it named', async ({ page })
   await page.goto('/firewall/logs?node=agent-1')
   await expect(page).toHaveURL(/\/logs\?source=firewall&node=agent-1$/)
   await expect.poll(() => requests.some((r) => r.startsWith('/logs/read') && r.includes('node=agent-1'))).toBe(true)
+})
+
+test('an old cluster stack address opens the stack screen on its server through the address', async ({ page }) => {
+  const requests = await mock(page)
+  await page.goto('/cluster/stacks/agent-1/demo')
+  await expect(page).toHaveURL(/\/docker\/stacks\/demo\?node=agent-1$/)
+  await expect.poll(() => requests.some((r) => r.startsWith('/docker/compose/demo') && r.includes('node=agent-1'))).toBe(true)
+  // The shell was told: the old address pointed the client at the server
+  // without a word, and the picker went on naming the attached one.
+  await expect(page.getByRole('button', { name: /Choose a server: agent-1/ })).toBeVisible()
+  await page.getByRole('navigation', { name: 'Main menu' }).getByRole('link', { name: 'Cluster' }).click()
+  await expect(page).toHaveURL(/\/cluster\/overview$/)
+  // Leaving does not put the server back: it is the one chosen now.
+  expect(await stored(page)).toBe('agent-1')
+})
+
+test('the old cluster Docker opens the running board', async ({ page }) => {
+  await mock(page)
+  await page.goto('/cluster/stacks')
+  await expect(page).toHaveURL(/\/cluster\/running$/)
 })
 
 test.describe('phone', () => {

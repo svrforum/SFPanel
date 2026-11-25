@@ -28,15 +28,12 @@ export function MigrateStackDialog({
   open,
   onOpenChange,
   project,
-  sourceNodeId,
   onMigrated,
 }: {
   open: boolean
   onOpenChange: (open: boolean) => void
+  // A stack of the node the page is on, which is the source.
   project: string
-  // The node the stack lives on. Defaults to the current node (detail-page use);
-  // the cluster-wide view passes it explicitly so it can migrate any node's stack.
-  sourceNodeId?: string
   // Fired once when a migration completes successfully, so the caller can refresh
   // its stack lists (the stack has moved nodes).
   onMigrated?: () => void
@@ -74,7 +71,7 @@ export function MigrateStackDialog({
         // /cluster/*, and with an agent selected ?node= is refused. local_id
         // is then this manager's, the source only when no node is selected.
         const [nodesRes, status] = await Promise.all([api.getClusterNodes(), api.getClusterStatus()])
-        const sourceId = sourceNodeId ?? api.currentNode ?? status.local_id ?? ''
+        const sourceId = api.currentNode ?? status.local_id ?? ''
         const leader = status.leader_id ?? ''
         const source = (nodesRes.nodes || []).find((n) => n.id === sourceId)
         setLeaderId(leader)
@@ -87,7 +84,7 @@ export function MigrateStackDialog({
         toast.error(t('docker.migrate.loadNodesFailed'))
       }
     })()
-  }, [open, t, sourceNodeId])
+  }, [open, t])
 
   const blocked = (report?.blocks?.length ?? 0) > 0
   // The migration refuses a target the pre-flight could not reach before the
@@ -109,7 +106,7 @@ export function MigrateStackDialog({
     setReport(null)
     setRisksAck(false)
     try {
-      setReport(await api.migratePreflight(project, { targetNodeId: targetId, overwriteAcked: overwriteAck }, sourceNodeId))
+      setReport(await api.migratePreflight(project, { targetNodeId: targetId, overwriteAcked: overwriteAck }))
     } catch (e) {
       toast.error(e instanceof Error ? e.message : String(e))
     } finally {
@@ -144,7 +141,6 @@ export function MigrateStackDialog({
             if (ev.phase === 'done') onMigrated?.()
           }
         },
-        sourceNodeId,
       )
       // Stream ended without a terminal event (relay timeout / reset) — show a
       // definite end state instead of silently reverting to the form. The

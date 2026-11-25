@@ -126,7 +126,6 @@ function useOnlyThis(el: { current: HTMLElement | null }, active: boolean) {
 interface CanvasProps {
   sections: BoardSection[]
   scope: Scope
-  localId: string
   query: string
   /** Where the positions of moved boxes are kept: one key per scope. */
   storageKey: string
@@ -148,7 +147,7 @@ export default function RunningCanvas(props: CanvasProps) {
   )
 }
 
-function Flow({ sections, scope, localId, query, storageKey, level }: CanvasProps) {
+function Flow({ sections, scope, query, storageKey, level }: CanvasProps) {
   const { t } = useTranslation()
   const { fitView, getViewport, setViewport } = useReactFlow()
   const dark = useSyncExternalStore(subscribeTheme, isDark)
@@ -194,11 +193,10 @@ function Flow({ sections, scope, localId, query, storageKey, level }: CanvasProp
       section: s,
       rows: drawn.get(s.node.id) ?? ([] as CanvasRow[]),
       scope,
-      localId,
       level,
       linked: linked.get(s.node.id) ?? new Set(),
     }]))
-  }, [sections, drawn, links, scope, localId, level])
+  }, [sections, drawn, links, scope, level])
 
   const base = useMemo<ServerNode[]>(() => sections.map((s) => {
     const d = data.get(s.node.id)!

@@ -16,7 +16,7 @@ function subjectName(item: AttentionItem): string {
 }
 
 /** What needs looking at, worst first; each line says what, where, why, and leads there. */
-export function AttentionList({ items, scope, localId, level }: { items: AttentionItem[]; scope: Scope; localId: string; level: HeadingLevel }) {
+export function AttentionList({ items, scope, level }: { items: AttentionItem[]; scope: Scope; level: HeadingLevel }) {
   const { t, i18n } = useTranslation()
   const headingId = useId()
   if (items.length === 0) return null
@@ -53,7 +53,7 @@ export function AttentionList({ items, scope, localId, level }: { items: Attenti
 
   const link = (item: AttentionItem): { target: Target; text: string } => {
     if (item.opens.kind === 'nodes') return { target: DOWN_NODES, text: t('running.attention.openNodes') }
-    if (item.opens.kind === 'stack') return { target: stackTarget(scope, item.nodeId, item.opens.stack), text: t('running.attention.openStack') }
+    if (item.opens.kind === 'stack') return { target: stackTarget(scope, item.opens.stack), text: t('running.attention.openStack') }
     return { target: containerTarget(scope, item.opens.container.id, true), text: t('running.attention.openLogs') }
   }
 
@@ -73,7 +73,7 @@ export function AttentionList({ items, scope, localId, level }: { items: Attenti
               {scope === 'cluster' && item.subject.kind !== 'node' && <span className="text-muted-foreground"> · {item.nodeName}</span>}
               {' — '}
               {why(item).join(' ')}{' '}
-              <NodeLink target={to.target} nodeId={item.nodeId} localId={localId} className={linkClass}>
+              <NodeLink target={to.target} nodeId={item.nodeId} className={linkClass}>
                 {to.text}<span className="sr-only"> ({name})</span>
               </NodeLink>
             </li>

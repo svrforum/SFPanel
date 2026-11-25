@@ -54,7 +54,6 @@ export function TaskRunView({ runId, onStatus }: TaskRunViewProps) {
     if (status) onStatus?.()
   }, [status, onStatus])
   const [names, setNames] = useState<Record<string, string>>({})
-  const [localId, setLocalId] = useState('')
   const [chosen, setChosen] = useState<ChosenCell | null>(null)
 
   // Names from the node list; a node no longer in the cluster shows its ID.
@@ -64,7 +63,6 @@ export function TaskRunView({ runId, onStatus }: TaskRunViewProps) {
       (r) => {
         if (!live) return
         setNames(Object.fromEntries(r.nodes.map((n) => [n.id, n.name])))
-        setLocalId(r.local_id)
       },
       () => {},
     )
@@ -144,7 +142,7 @@ export function TaskRunView({ runId, onStatus }: TaskRunViewProps) {
           </div>
         )}
       </div>
-      {install && <InstallRowActions run={run} state={state} rowName={nodeName} localId={localId} />}
+      {install && <InstallRowActions run={run} state={state} rowName={nodeName} />}
     </section>
   )
 }

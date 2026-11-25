@@ -1,21 +1,9 @@
-import type { ClusterNodeStacks, ComposeProjectWithStatus } from '@/types/api'
+import type { ComposeProjectWithStatus } from '@/types/api'
 
-// What the stack list shows and in what order, for one node and for the
-// cluster's every node alike.
+// What the stack list counts and which stacks its filter keeps.
 
 /** A stack's own state; the server's real_status is one of the last three. */
 export type StackFilter = 'all' | 'running' | 'partial' | 'stopped'
-
-const byName = (a: string, b: string) => a.localeCompare(b, undefined, { numeric: true })
-
-/**
- * This node first, then the others by name. The server builds the list from
- * a map, so in the order it arrives the groups changed places between loads.
- */
-export function sortNodeGroups(groups: ClusterNodeStacks[]): ClusterNodeStacks[] {
-  return [...groups].sort((a, b) =>
-    Number(b.local) - Number(a.local) || byName(a.node_name, b.node_name) || byName(a.node_id, b.node_id))
-}
 
 export function stackCounts(projects: ComposeProjectWithStatus[]): Record<StackFilter, number> {
   const counts: Record<StackFilter, number> = { all: projects.length, running: 0, partial: 0, stopped: 0 }

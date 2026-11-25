@@ -47,7 +47,6 @@ async function mock(page: Page, opts: Opts) {
     // the page behind the redirect reads them until the status answers.
     if (opts.status !== 500 && !opts.status.enabled) {
       const refuse = (code: string, message: string) => route.fulfill({ status: 400, json: { success: false, error: { code, message } } })
-      if (path === '/docker/compose/cluster-stacks') return refuse('INTERNAL_ERROR', 'cluster is not enabled')
       if (path.startsWith('/cluster/') && path !== '/cluster/interfaces') return refuse('INVALID_REQUEST', 'Cluster not configured')
     }
     let data: unknown = {}
@@ -81,13 +80,16 @@ test('a standalone panel opens create and join, with no tab row', async ({ page 
 
 test('every other cluster address lands there too', async ({ page }) => {
   await mock(page, { status: { enabled: false } })
-  for (const path of ['/cluster/security', '/cluster/tasks', '/cluster/tasks/runs', '/cluster/stacks', '/cluster/tokens']) {
+  for (const path of ['/cluster/security', '/cluster/tasks', '/cluster/tasks/runs', '/cluster/tokens']) {
     await page.goto(path)
     await expect(page, path).toHaveURL(/\/cluster\/overview$/)
   }
-  // The fleet board has a counterpart for one server: what runs on it.
-  await page.goto('/cluster/running')
-  await expect(page).toHaveURL(/\/running$/)
+  // The fleet board has a counterpart for one server: what runs on it. The
+  // old cluster Docker address opens the fleet board, so it lands there too.
+  for (const path of ['/cluster/running', '/cluster/stacks']) {
+    await page.goto(path)
+    await expect(page, path).toHaveURL(/\/running$/)
+  }
 })
 
 test('the redirect replaces the address', async ({ page }) => {

@@ -99,7 +99,6 @@ export type ServerBoxData = {
   /** The rows drawn: what the search left. */
   rows: CanvasRow[]
   scope: Scope
-  localId: string
   level: HeadingLevel
   /** The guest tiles an edge leaves from, which carry a handle for it. */
   linked: ReadonlySet<string>

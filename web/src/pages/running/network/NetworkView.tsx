@@ -9,11 +9,10 @@ import { ScanControl } from './ScanControl'
 import { ServerNetwork } from './ServerNetwork'
 import { useNetworkView, type NetworkModel } from './useNetworkView'
 
-function Network({ entry, model, scope, localId, query, level, onClear }: {
+function Network({ entry, model, scope, query, level, onClear }: {
   entry: NetworkEntry
   model: NetworkModel
   scope: Scope
-  localId: string
   query: string
   level: HeadingLevel
   onClear: () => void
@@ -50,7 +49,6 @@ function Network({ entry, model, scope, localId, query, level, onClear }: {
         <ScanControl
           entry={entry}
           scope={scope}
-          localId={localId}
           onStart={model.start}
           onCancel={model.cancel}
           onSchedule={(nodeId, minutes, portsDaily) => model.setSchedule(entry, nodeId, minutes, portsDaily)}
@@ -104,10 +102,9 @@ function Network({ entry, model, scope, localId, query, level, onClear }: {
  * found there, then each node from the inside — its interfaces and what
  * listens on them. `round` changes when the operator asks for a refresh.
  */
-export function NetworkView({ sections, scope, localId, query, round, level, onClearQuery }: {
+export function NetworkView({ sections, scope, query, round, level, onClearQuery }: {
   sections: BoardSection[]
   scope: Scope
-  localId: string
   query: string
   round: number
   level: HeadingLevel
@@ -138,7 +135,7 @@ export function NetworkView({ sections, scope, localId, query, round, level, onC
         <p className="rounded-2xl bg-card px-4 py-3 text-[13px] text-muted-foreground card-shadow">{t('running.network.none')}</p>
       )}
       {model.entries.map((entry) => (
-        <Network key={entry.key} entry={entry} model={model} scope={scope} localId={localId} query={query} level={level} onClear={onClearQuery} />
+        <Network key={entry.key} entry={entry} model={model} scope={scope} query={query} level={level} onClear={onClearQuery} />
       ))}
       <section className="space-y-2">
         <Heading level={level} className="px-1 pt-2 text-[15px] font-semibold">{t('running.network.server.title')}</Heading>

@@ -510,9 +510,9 @@ test('without nmap on any node the page says which node lacks it and leads to it
   const network = page.locator('[data-testid="net-network"]')
   await expect(network).toContainText('nmap is not installed on alpha-node.')
   await expect(network.getByRole('button', { name: /^Scan/ })).toHaveCount(0)
-  // The packages screen shows the selected node: a button that selects it on the way, not a link.
-  await network.getByRole('button', { name: 'Install nmap in Packages' }).click()
-  await expect(page).toHaveURL(/\/packages$/)
+  // The packages screen of the node that lacks it: the address names the node.
+  await network.getByRole('link', { name: 'Install nmap in Packages' }).click()
+  await expect(page).toHaveURL(/\/packages\?node=m-1$/)
 })
 
 test('nodes older than the scan say so, and still show their interfaces and ports', async ({ page }) => {

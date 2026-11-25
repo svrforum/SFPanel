@@ -6,22 +6,21 @@ export type Scope = 'node' | 'cluster'
 export interface Target {
   to: string
   /**
-   * The page shows the selected node's own data (the containers screen), so in
-   * the datacenter scope the node is selected first, as the cluster tree does.
+   * The page shows one node's own data, so in the datacenter scope the link
+   * names the node in its address: opened here, in a new tab or from a
+   * bookmark, it shows that node.
    */
   onNode: boolean
 }
 
 /**
- * A managed stack opens on the stack screen, which in the datacenter scope
- * carries its node in the address. A project the panel does not manage has no
- * stack screen: it opens the node's containers, found by the project's name.
+ * A managed stack opens on the stack screen. A project the panel does not
+ * manage has no stack screen: it opens the node's containers, found by the
+ * project's name.
  */
-export function stackTarget(scope: Scope, nodeId: string, stack: RunningStack): Target {
+export function stackTarget(scope: Scope, stack: RunningStack): Target {
   if (!stack.managed) return { to: `/docker/containers?search=${encodeURIComponent(stack.name)}`, onNode: scope === 'cluster' }
-  return scope === 'cluster'
-    ? { to: `/cluster/stacks/${encodeURIComponent(nodeId)}/${encodeURIComponent(stack.name)}`, onNode: false }
-    : { to: `/docker/stacks/${encodeURIComponent(stack.name)}`, onNode: false }
+  return { to: `/docker/stacks/${encodeURIComponent(stack.name)}`, onNode: scope === 'cluster' }
 }
 
 /** A container's detail on its node's containers screen, on its logs if asked. */

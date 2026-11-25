@@ -58,7 +58,7 @@ export function NodeRowMenu({ node, localId, leaderId, hasLeader, onLabels, onAd
         </Button>
       </DropdownMenuTrigger>
       <DropdownMenuContent align="end">
-        <DropdownMenuItem onClick={() => openNode(node.id, localId, navigate)}>
+        <DropdownMenuItem onClick={() => openNode(node.id, navigate)}>
           <ExternalLink className="h-4 w-4 mr-2" />
           {t('cluster.nodes.open')}
         </DropdownMenuItem>

@@ -1,4 +1,4 @@
-import { api } from '@/lib/api'
+import { hrefWithNode } from '@/lib/serverScope'
 
 /**
  * Broadcast whenever the API client is scoped to another node. Layout remounts
@@ -12,11 +12,10 @@ export interface NodeChangedDetail {
 }
 
 /**
- * Opens a node's dashboard, or another of its pages. The local node is the
- * unscoped client (null), and the event still names it.
+ * Opens a node's dashboard, or another of its pages, at an address that names
+ * the node. The shell selects the node from the address, the way it does for
+ * a bookmark or a new tab; nothing here selects it.
  */
-export function openNode(nodeId: string, localId: string, navigate: (to: string) => void, to = '/dashboard'): void {
-  api.setCurrentNode(nodeId === localId ? null : nodeId)
-  window.dispatchEvent(new CustomEvent<NodeChangedDetail>(NODE_CHANGED, { detail: { nodeId } }))
-  navigate(to)
+export function openNode(nodeId: string, navigate: (to: string) => void, to?: string): void {
+  navigate(hrefWithNode(to ?? '/dashboard', nodeId))
 }

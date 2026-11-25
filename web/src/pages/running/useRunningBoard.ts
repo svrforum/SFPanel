@@ -80,8 +80,6 @@ export interface BoardModel {
   items: AttentionItem[]
   totals: Totals
   header: BoardHeader
-  /** The id of the node this browser is attached to, when the cluster said. */
-  localId: string
 }
 
 const message = (err: unknown) => (err instanceof Error ? err.message : String(err))
@@ -367,7 +365,6 @@ export function useClusterBoard(): { state: ClusterBoardState; refresh: () => vo
         updatedAt: latest(sections.map((s) => s.load)) ?? (allFailed ? null : overview.at),
         retry: refresh,
       },
-      localId,
     }
   }, [overview, loads, guestLoads, interfaces, localId, enqueue, refresh])
 
@@ -438,7 +435,6 @@ export function useNodeBoard(): { board: BoardModel; host: string; metrics: Metr
       items,
       totals: totals([node], items),
       header: { loading: load?.phase === 'loading', error: load?.phase === 'error', updatedAt: latest([load]), retry: refresh },
-      localId: cluster?.localId ?? '',
     }
   }, [loads, guestLoads, interfaces, cluster, linkTo, system.host, current, enqueue, refresh])
 

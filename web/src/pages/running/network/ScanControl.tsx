@@ -115,10 +115,9 @@ function Schedule({ entry, nodeId, nodeName, onSchedule }: {
   )
 }
 
-export function ScanControl({ entry, scope, localId, onStart, onCancel, onSchedule }: {
+export function ScanControl({ entry, scope, onStart, onCancel, onSchedule }: {
   entry: NetworkEntry
   scope: Scope
-  localId: string
   onStart: (nodeId: string, network: string, ports: boolean) => Promise<string | null>
   onCancel: (nodeId: string) => Promise<void>
   onSchedule: (nodeId: string, intervalMinutes: number, portsDaily: boolean) => Promise<string | null>
@@ -161,7 +160,6 @@ export function ScanControl({ entry, scope, localId, onStart, onCancel, onSchedu
             <NodeLink
               target={{ to: '/packages', onNode: scope === 'cluster' }}
               nodeId={noTool.nodeId}
-              localId={localId}
               className="inline-flex min-h-11 items-center rounded-md px-1 font-medium text-primary hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
             >
               {t('running.network.scan.openPackages')}

@@ -3359,8 +3359,8 @@ test.describe('agent install', () => {
       await expect(server(page, 's2').getByRole('button', { name: 'Revert' })).toHaveCount(0)
 
       await server(page, 's1').getByRole('button', { name: 'Open node' }).click()
-      await expect(page).toHaveURL(/\/dashboard$/)
-      expect(await page.evaluate(() => localStorage.getItem('sfpanel_current_node'))).toBe('a-1')
+      await expect(page).toHaveURL(/\/dashboard\?node=a-1$/)
+      await expect.poll(() => page.evaluate(() => localStorage.getItem('sfpanel_current_node'))).toBe('a-1')
     })
 
     test('a server stopped after it registered: [Revert] alone, then the cleanup command; an agent without its group opens its node', async ({ page }) => {

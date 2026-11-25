@@ -40,10 +40,9 @@ interface Minted {
 // watches the node list until an agent that was not there turns up. Closing
 // it leaves the token valid: a command copied now may be pasted later, and the
 // pending list under "Add a manager instead" is where it is taken back.
-export function AddAgentDialog({ open, onOpenChange, localId, onJoined }: {
+export function AddAgentDialog({ open, onOpenChange, onJoined }: {
   open: boolean
   onOpenChange: (open: boolean) => void
-  localId: string
   /** The agent is in: the page reloads its list and tells the shell. */
   onJoined: () => void
 }) {
@@ -65,13 +64,13 @@ export function AddAgentDialog({ open, onOpenChange, localId, onJoined }: {
         </DialogHeader>
         {/* Inside the content, so it mounts on every opening: a fresh token,
             a fresh baseline and no name left over from the last time. */}
-        <AddAgentBody localId={localId} onJoined={onJoined} onClose={() => onOpenChange(false)} />
+        <AddAgentBody onJoined={onJoined} onClose={() => onOpenChange(false)} />
       </DialogContent>
     </Dialog>
   )
 }
 
-function AddAgentBody({ localId, onJoined, onClose }: { localId: string; onJoined: () => void; onClose: () => void }) {
+function AddAgentBody({ onJoined, onClose }: { onJoined: () => void; onClose: () => void }) {
   const { t } = useTranslation()
   const navigate = useNavigate()
   const nameId = useId()
@@ -188,7 +187,7 @@ function AddAgentBody({ localId, onJoined, onClose }: { localId: string; onJoine
             className="rounded-xl"
             onClick={() => {
               onClose()
-              openNode(joined.id, localId, navigate)
+              openNode(joined.id, navigate)
             }}
           >
             {t('cluster.nodes.open')}

@@ -15,13 +15,8 @@ const nodes = [
   { ...base, id: 'agent-1', name: 'agent-1', kind: 'agent', role: '', api_address: '198.51.100.1:3628' },
   { ...base, id: 'agent-2', name: 'agent-2', kind: 'agent', role: '', api_address: '198.51.100.2:3628' },
 ]
-const stacks = [
-  { node_id: 'm-1', node_name: 'm-1', local: true, status: 'online', stacks: [] },
-  {
-    node_id: 'agent-1', node_name: 'agent-1', local: false, status: 'online',
-    stacks: [{ name: 'demo', compose_file: 'docker-compose.yml', has_env: false, path: '/opt/stacks/demo', service_count: 1, running_count: 1, real_status: 'running' }],
-  },
-]
+// agent-1 runs demo; the managers run nothing.
+const demo = { name: 'demo', compose_file: 'docker-compose.yml', has_env: false, path: '/opt/stacks/demo', service_count: 1, running_count: 1, real_status: 'running' }
 
 const RISKY = 'the stack asks for host access that runs on the target as it is: '
   + 'service "web" binds sensitive host path "/var/run/docker.sock" at "/var/run/docker.sock", '
@@ -39,7 +34,8 @@ async function mock(page: Page, opts: Opts) {
   })
   await page.route('**/api/v1/**', async (route) => {
     const req = route.request()
-    const path = new URL(req.url()).pathname.replace('/api/v1', '')
+    const url = new URL(req.url())
+    const path = url.pathname.replace('/api/v1', '')
     if (path === '/docker/compose/demo/migrate' && req.method() === 'POST') {
       starts.push({ url: req.url(), body: req.postDataJSON() })
       if (opts.start) {
@@ -60,7 +56,10 @@ async function mock(page: Page, opts: Opts) {
     else if (path === '/cluster/nodes') data = { nodes, local_id: 'm-1', is_leader: true }
     else if (path === '/cluster/overview') data = { name: 'lab', node_count: nodes.length, leader_id: 'm-1', nodes, metrics: [] }
     else if (path === '/cluster/events') data = { events: [] }
-    else if (path === '/docker/compose/cluster-stacks') data = stacks
+    else if (path === '/docker/compose') data = url.searchParams.get('node') === 'agent-1' ? [demo] : []
+    else if (path === '/docker/compose/demo') data = { name: 'demo', yaml: 'services:\n  web:\n    image: nginx\n' }
+    else if (path === '/docker/compose/demo/env') data = { content: '' }
+    else if (path === '/docker/compose/demo/services') data = []
     else if (path === '/docker/compose/demo/migrate/preflight') data = opts.report
     await route.fulfill({ json: { success: true, data } })
   })
@@ -69,7 +68,7 @@ async function mock(page: Page, opts: Opts) {
 }
 
 async function openDialog(page: Page) {
-  await page.goto('/cluster/stacks')
+  await page.goto('/docker/stacks/demo?node=agent-1')
   await page.getByRole('button', { name: 'Migrate to node' }).click()
   const dialog = page.getByRole('dialog')
   await expect(dialog.getByText('From: agent-1')).toBeVisible()
@@ -155,22 +154,4 @@ test('shows the kind of each node', async ({ page }) => {
   await expect(page.getByRole('option', { name: /^m-1\b/ })).toContainText('Leader')
   await expect(page.getByRole('option', { name: /^m-2\b/ })).toContainText('Manager')
   await expect(page.getByRole('option', { name: /^agent-2\b/ })).toContainText('Agent')
-})
-
-// The overview beside the cluster list counted the single-node list, which is
-// empty in cluster mode: 0 / 0 / 0 next to the stacks. The groups also came in
-// the server's map order; this node is first whatever order they arrive in.
-test('the cluster overview counts every node’s stacks and lists this node first', async ({ page }) => {
-  await mock(page, { report: { blocks: [], warnings: [] } })
-  await page.route('**/api/v1/docker/compose/cluster-stacks', (route) =>
-    route.fulfill({ json: { success: true, data: [...stacks].reverse() } }))
-  await page.goto('/cluster/stacks')
-  const overview = page.getByRole('heading', { name: 'Stack overview' }).locator('..')
-  await expect(overview.getByRole('button', { name: /^1\s*All$/ })).toBeVisible()
-  await expect(overview.getByRole('button', { name: /^1\s*Running$/ })).toBeVisible()
-  await expect(overview.getByRole('button', { name: /^0\s*Stopped$/ })).toBeVisible()
-  const thisNode = page.getByText('· This node')
-  const agent = page.getByRole('button', { name: 'demo', exact: true })
-  const [a, b] = [await thisNode.boundingBox(), await agent.boundingBox()]
-  expect(a!.y).toBeLessThan(b!.y)
 })

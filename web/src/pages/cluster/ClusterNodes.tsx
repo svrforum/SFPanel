@@ -429,7 +429,7 @@ export default function ClusterNodes() {
         onSaved={changed}
       />
 
-      <AddAgentDialog open={addOpen} onOpenChange={setAddAgent} localId={localId} onJoined={changed} />
+      <AddAgentDialog open={addOpen} onOpenChange={setAddAgent} onJoined={changed} />
 
       <EditNodeAddressDialog
         open={addressDialogOpen}

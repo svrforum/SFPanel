@@ -23,8 +23,6 @@ interface InstallRowActionsProps {
   state: RunState
   /** A row's name as the table shows it. */
   rowName: (key: string) => string
-  /** This manager's node ID: opening it is opening the local node. */
-  localId: string
 }
 
 // Below the table: how long the leader keeps the credentials a recheck or
@@ -34,7 +32,7 @@ interface InstallRowActionsProps {
 // once nothing else will, Open node for one that became an agent. A server
 // that had SFPanel before is never given that command: it is told nothing
 // was removed, and how to start its panel if it may be stopped.
-export function InstallRowActions({ run, state, rowName, localId }: InstallRowActionsProps) {
+export function InstallRowActions({ run, state, rowName }: InstallRowActionsProps) {
   const { t } = useTranslation()
   const now = useNow(1000)
   const left = credentialsLeft(run.credentials_until, now)
@@ -78,7 +76,6 @@ export function InstallRowActions({ run, state, rowName, localId }: InstallRowAc
               gone={gone}
               cleanup={cleanup ? cleanupCommand(version) : null}
               kept={kept}
-              localId={localId}
             />
           ))}
         </ul>
@@ -97,12 +94,11 @@ interface RowEntryProps {
   gone: boolean
   cleanup: string | null
   kept: KeptPanelNote | null
-  localId: string
 }
 
 // A server's line: a refusal of Recheck or Revert reads as a sentence here,
 // and nothing is sent again by itself.
-function RowEntry({ runId, rowKey, name, record, reason, can, gone, cleanup, kept, localId }: RowEntryProps) {
+function RowEntry({ runId, rowKey, name, record, reason, can, gone, cleanup, kept }: RowEntryProps) {
   const { t } = useTranslation()
   const confirm = useConfirm()
   const navigate = useNavigate()
@@ -168,7 +164,7 @@ function RowEntry({ runId, rowKey, name, record, reason, can, gone, cleanup, kep
             </Button>
           )}
           {can.openNode && nodeId && (
-            <Button size="sm" variant="outline" onClick={() => openNode(nodeId, localId, navigate)}>
+            <Button size="sm" variant="outline" onClick={() => openNode(nodeId, navigate)}>
               {t('cluster.nodes.open')}
             </Button>
           )}

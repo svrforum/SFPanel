@@ -52,7 +52,6 @@ import type {
   MigratePreflightReport,
   MigratePhaseEvent,
   MigrateDisposition,
-  ClusterNodeStacks,
   TerminalSession,
   TerminalInfo,
   FileKind,
@@ -1418,18 +1417,11 @@ class ApiClient {
     await this.readSSEStream(res, onEvent)
   }
 
-  // getClusterStacks aggregates compose stacks across all cluster nodes (the
-  // Cluster › Docker Stacks page). Always runs on the local node (no ?node) and
-  // fans out from there.
-  getClusterStacks() {
-    return this.request<ClusterNodeStacks[]>('/docker/compose/cluster-stacks', { local: true })
-  }
-
-  // migratePreflight runs the source-side dry-run for a node-to-node migration.
-  // `node` is the SOURCE node the stack lives on (defaults to the current node);
-  // it routes the request there. Slow (sizes volumes/images), so generous timeout.
-  migratePreflight(project: string, body: { targetNodeId: string; overwriteAcked: boolean }, node?: string) {
-    const nodeId = node ?? this._currentNode
+  // migratePreflight runs the source-side dry-run for a node-to-node migration,
+  // on the current node, which is the source the stack lives on. Slow (sizes
+  // volumes/images), so generous timeout.
+  migratePreflight(project: string, body: { targetNodeId: string; overwriteAcked: boolean }) {
+    const nodeId = this._currentNode
     const q = nodeId ? `?node=${encodeURIComponent(nodeId)}` : ''
     return this.request<MigratePreflightReport>(
       `/docker/compose/${encodeURIComponent(project)}/migrate/preflight${q}`,
@@ -1439,8 +1431,8 @@ class ApiClient {
 
   // migrateStream cold-migrates the stack to targetNodeId and streams phase
   // events (preflight → quiesce → package → transfer → restore → up →
-  // healthcheck → finalize, or rollback/error on failure). `node` is the SOURCE
-  // node the stack lives on (defaults to the current node). acknowledgedRisks
+  // healthcheck → finalize, or rollback/error on failure), from the current
+  // node, which is the source the stack lives on. acknowledgedRisks
   // is the agent stack's host access the operator said yes to: the lines of
   // the pre-flight's compose-risky warning, as shown. The target refuses each
   // risky finding of an agent's stack that is not among them.
@@ -1448,9 +1440,8 @@ class ApiClient {
     project: string,
     body: { targetNodeId: string; disposition: MigrateDisposition; overwriteAcked: boolean; acknowledgedRisks?: string[]; rateLimitMbps?: number },
     onEvent: (event: MigratePhaseEvent) => void,
-    node?: string,
   ): Promise<void> {
-    const nodeId = node ?? this._currentNode
+    const nodeId = this._currentNode
     const nodeParam = nodeId ? `?node=${encodeURIComponent(nodeId)}` : ''
     const res = await fetch(`${this.apiBase}/docker/compose/${encodeURIComponent(project)}/migrate${nodeParam}`, {
       method: 'POST', headers: this.streamHeaders({ 'Content-Type': 'application/json' }), body: JSON.stringify(body),

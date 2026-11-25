@@ -1038,10 +1038,6 @@
       "title": "This node's cluster service did not start",
       "description": "This server is still a member of its cluster, but the cluster service failed when the panel started, so it is running on its own for now. Restart the panel to rejoin; the panel log says what went wrong."
     },
-    "stacks": {
-      "nodeUnreachable": "unreachable",
-      "nodeListFailed": "failed to list stacks"
-    },
     "init": {
       "clusterName": "Cluster Name",
       "nameRequired": "Enter a name for the cluster.",

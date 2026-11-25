@@ -5,7 +5,7 @@ import {
   Plus, Play, Square, RotateCw, RefreshCw,
   Trash2, Terminal, ScrollText, FileCode, Loader2,
   CheckCircle2, XCircle, Download, Undo2, Search, ChevronLeft,
-  HeartPulse, Info, ArrowRightLeft, Monitor, AlertTriangle, AlertCircle,
+  HeartPulse, Info, ArrowRightLeft, Monitor, AlertCircle,
 } from 'lucide-react'
 import { HealthcheckComposerDialog } from '@/components/compose/HealthcheckComposerDialog'
 import { MigrateStackDialog } from '@/pages/docker/components/MigrateStackDialog'
@@ -16,11 +16,11 @@ import { Input } from '@/components/ui/input'
 import { useVisibleInterval } from '@/hooks/useVisibleInterval'
 import { ContainerStateBadge } from '@/components/docker/ContainerStateBadge'
 import { api } from '@/lib/api'
-import { cn, nodeStatusColor } from '@/lib/utils'
+import { cn } from '@/lib/utils'
 import { isRiskyRefusal, riskLines } from '@/lib/composeRisk'
-import { matchesStackFilter, sortNodeGroups, stackCounts, type StackFilter } from '@/pages/docker/stackList'
+import { matchesStackFilter, stackCounts, type StackFilter } from '@/pages/docker/stackList'
 import { useConfirm } from '@/components/ConfirmDialog'
-import type { ComposeProjectWithStatus, ComposeService, StackUpdateCheck, RollbackInfo, ClusterNodeStacks } from '@/types/api'
+import type { ComposeProjectWithStatus, ComposeService, StackUpdateCheck, RollbackInfo } from '@/types/api'
 import { Button } from '@/components/ui/button'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import {
@@ -55,15 +55,8 @@ function statusIcon(status: string) {
   }
 }
 
-// Cluster node health dot — a fetch error (stacks couldn't load) takes
-// precedence, otherwise the node's reported health.
-function nodeDot(status: string, error?: string) {
-  return error ? 'bg-destructive' : nodeStatusColor(status)
-}
-
 // Load-failure banner for the stack list (docker-family error-state pattern,
-// narrow-panel layout) — shared by the single-node and cluster-mode lists so
-// both failure paths look and behave the same.
+// narrow-panel layout).
 function ListErrorBanner({ message, onRetry }: { message: string; onRetry: () => void }) {
   const { t } = useTranslation()
   return (
@@ -149,10 +142,6 @@ function ServiceActions({
   )
 }
 
-// clusterMode renders the cluster-wide master-detail (Cluster › Docker): the left
-// list is every node's stacks grouped by node. Selecting one navigates to
-// /cluster/stacks/:node/:name; the detail panel is identical to the single-node
-// page and scopes its fetches to the route node (api.currentNode = routeNode).
 /**
  * Everything that carries the compose editor arrives when it is opened.
  *
@@ -179,16 +168,13 @@ function warnUnsavedDrafts(event: BeforeUnloadEvent) {
   if (stackDrafts.size > 0 && draftSession === api.getToken()) { event.preventDefault(); event.returnValue = '' }
 }
 
-export default function DockerStacks({ clusterMode = false }: { clusterMode?: boolean }) {
+export default function DockerStacks() {
   const { t } = useTranslation()
   const confirm = useConfirm()
-  // In cluster mode the route is /cluster/stacks/:node/:name — the owning node is
-  // in the URL (not just api.currentNode), so same-named stacks on different
-  // nodes are distinct routes and reloads/deep-links resolve the right node.
-  const { name: selectedName, node: routeNode } = useParams()
+  const { name: selectedName } = useParams()
   const navigate = useNavigate()
   const [searchParams, setSearchParams] = useSearchParams()
-  const basePath = clusterMode ? '/cluster/stacks' : '/docker/stacks'
+  const basePath = '/docker/stacks'
 
   const [updatedAt, setUpdatedAt] = useState<number | null>(null)
   const [projects, setProjects] = useState<ComposeProjectWithStatus[]>([])
@@ -201,11 +187,9 @@ export default function DockerStacks({ clusterMode = false }: { clusterMode?: bo
   // Create dialog
   const [createOpen, setCreateOpen] = useState(false)
 
-  // Node-to-node migration. In single-node mode the source is the current node;
-  // in cluster mode the left list passes the stack's own node explicitly.
+  // Node-to-node migration, from the server the page is on.
   const [migrateOpen, setMigrateOpen] = useState(false)
   const [migrateProject, setMigrateProject] = useState('')
-  const [migrateSourceNode, setMigrateSourceNode] = useState<string | undefined>(undefined)
   const [clusterNodeCount, setClusterNodeCount] = useState(0)
   useEffect(() => {
     // local: cluster membership is the same from any node; don't proxy this to a
@@ -215,34 +199,9 @@ export default function DockerStacks({ clusterMode = false }: { clusterMode?: bo
       .catch(() => setClusterNodeCount(0))
   }, [])
 
-  // Cluster mode: the left list is every node's stacks grouped by node, and it
-  // also resolves the detail's selectedProject.
-  const [clusterStacks, setClusterStacks] = useState<ClusterNodeStacks[]>([])
-  const [clusterLoading, setClusterLoading] = useState(false)
-  const [clusterError, setClusterError] = useState<string | null>(null)
-  // Failures surface as a banner + retry (same treatment as the single-node
-  // list below) instead of collapsing into an empty list. Per-node failures
-  // are a different thing — those come back inside a successful response as
-  // node.error and are rendered next to the node header.
-  const fetchClusterStacks = useCallback(async () => {
-    setClusterLoading(true)
-    try {
-      setClusterError(null)
-      setClusterStacks(await api.getClusterStacks())
-      setUpdatedAt(Date.now())
-    } catch (err: unknown) {
-      const msg = err instanceof Error ? err.message : t('docker.compose.fetchFailed')
-      setClusterError(msg)
-      toast.error(msg)
-    } finally {
-      setClusterLoading(false)
-    }
-  }, [t])
-
-  // Single-node mode: resolve the active remote node's name for the header chip.
+  // The remote node the page is on, named in the header chip.
   const [currentNodeName, setCurrentNodeName] = useState<string | null>(null)
   useEffect(() => {
-    if (clusterMode) return
     const nid = api.currentNode
     if (!nid) { setCurrentNodeName(null); return }
     // local: node names are the same from any node — resolve locally instead of
@@ -250,20 +209,10 @@ export default function DockerStacks({ clusterMode = false }: { clusterMode?: bo
     api.getClusterNodes()
       .then((d) => setCurrentNodeName(d.nodes.find((n) => n.id === nid)?.name ?? null))
       .catch(() => setCurrentNodeName(null))
-  }, [clusterMode])
+  }, [])
 
-  // The node group the selected stack lives on (cluster mode), resolved from the
-  // ROUTE node — deterministic across reloads and same-named stacks on two nodes.
-  const selectedNodeGroup = clusterMode
-    ? clusterStacks.find((n) => n.node_id === routeNode)
-    : undefined
-  const detailNodeName = clusterMode
-    ? (selectedNodeGroup && !selectedNodeGroup.local ? selectedNodeGroup.node_name : null)
-    : currentNodeName
-
-  const openMigrate = (project: string, sourceNode?: string) => {
+  const openMigrate = (project: string) => {
     setMigrateProject(project)
-    setMigrateSourceNode(sourceNode)
     setMigrateOpen(true)
   }
 
@@ -288,7 +237,7 @@ export default function DockerStacks({ clusterMode = false }: { clusterMode?: bo
     return { current: stackDrafts }
   })
   const [loadedDraftKey, setLoadedDraftKey] = useState('')
-  const draftKey = `${routeNode ?? api.currentNode ?? 'local'}:${selectedName ?? ''}`
+  const draftKey = `${api.currentNode ?? 'local'}:${selectedName ?? ''}`
   const editorDirty = editYaml !== diskYaml || editEnv !== diskEnv
   useEffect(() => {
     if (!selectedName || loadedDraftKey !== draftKey || editorLoading || editorError) return
@@ -327,11 +276,7 @@ export default function DockerStacks({ clusterMode = false }: { clusterMode?: bo
   const [shellService, setShellService] = useState<ComposeService | null>(null)
   const [inspectService, setInspectService] = useState<ComposeService | null>(null)
 
-  // In cluster mode the selected stack lives in its node group (it isn't in the
-  // local `projects` list); otherwise resolve from the single-node list.
-  const selectedProject = clusterMode
-    ? selectedNodeGroup?.stacks.find(p => p.name === selectedName)
-    : projects.find(p => p.name === selectedName)
+  const selectedProject = projects.find(p => p.name === selectedName)
 
   const fetchProjects = useCallback(async (showLoading = true) => {
     try {
@@ -348,13 +293,6 @@ export default function DockerStacks({ clusterMode = false }: { clusterMode?: bo
       if (showLoading) setLoading(false)
     }
   }, [t])
-
-  // After list-affecting actions, refresh whichever list is showing so statuses
-  // (and selectedProject in cluster mode) stay current.
-  const refreshList = useCallback(
-    (showLoading = false) => (clusterMode ? fetchClusterStacks() : fetchProjects(showLoading)),
-    [clusterMode, fetchClusterStacks, fetchProjects],
-  )
 
   // Tracks the latest stack the user is looking at, so that in-flight fetches for
   // a previously-selected stack don't overwrite the services list when they resolve
@@ -381,29 +319,16 @@ export default function DockerStacks({ clusterMode = false }: { clusterMode?: bo
   }, [])
 
   useEffect(() => {
-    // Create flow is single-node only (the cluster master-detail has no '+');
-    // its route /cluster/stacks/NAME wouldn't match the :node/:name detail route.
-    if (!clusterMode && searchParams.get('new') === '1') {
+    if (searchParams.get('new') === '1') {
       setCreateOpen(true)
       // Only `new` goes: the server the address names stays.
       const next = new URLSearchParams(searchParams)
       next.delete('new')
       setSearchParams(next, { replace: true })
     }
-  }, [clusterMode, searchParams, setSearchParams])
-
-  // Tracks the node we last pointed api.currentNode at (cluster mode), so the
-  // unmount cleanup only clears it if the sidebar didn't re-point it meanwhile.
-  const lastClusterNode = useRef<string | null>(null)
+  }, [searchParams, setSearchParams])
 
   useEffect(() => {
-    // Cluster mode: the route node is authoritative — scope every detail fetch
-    // and action to it. Keying on routeNode makes the panel reload when only the
-    // node changes (same-named stack on a different node).
-    if (clusterMode && routeNode) {
-      api.setCurrentNode(routeNode)
-      lastClusterNode.current = routeNode
-    }
     let cancelled = false
     latestSelectedRef.current = draftKey
     setServices([])
@@ -435,23 +360,12 @@ export default function DockerStacks({ clusterMode = false }: { clusterMode?: bo
       }
     }
     return () => { cancelled = true; latestSelectedRef.current = '' }
-  }, [selectedName, routeNode, clusterMode, fetchServices, draftKey, editorAttempt, drafts])
+  }, [selectedName, fetchServices, draftKey, editorAttempt, drafts])
 
   useVisibleInterval(() => {
-    void refreshList()
+    void fetchProjects(false)
     if (selectedName) void fetchServices(selectedName)
   }, 15000)
-
-  // Don't leak the in-page node selection to the rest of the app on leave —
-  // unless the sidebar tree re-pointed currentNode while navigating away.
-  useEffect(() => {
-    if (!clusterMode) return
-    return () => {
-      if (api.currentNode && api.currentNode === lastClusterNode.current) {
-        api.setCurrentNode(null)
-      }
-    }
-  }, [clusterMode])
 
   const handleUp = async (name: string) => {
     try {
@@ -462,7 +376,7 @@ export default function DockerStacks({ clusterMode = false }: { clusterMode?: bo
     } finally {
       // Failed or not: a start that stopped halfway left some containers up.
       await Promise.all([
-        refreshList(),
+        fetchProjects(false),
         selectedName === name ? fetchServices(name) : Promise.resolve(),
       ])
     }
@@ -481,7 +395,7 @@ export default function DockerStacks({ clusterMode = false }: { clusterMode?: bo
       await api.composeStop(name)
       toast.success(t('docker.compose.downSuccess', { name }))
       await Promise.all([
-        refreshList(),
+        fetchProjects(false),
         selectedName === name ? fetchServices(name) : Promise.resolve(),
       ])
     } catch (err: unknown) {
@@ -496,7 +410,7 @@ export default function DockerStacks({ clusterMode = false }: { clusterMode?: bo
     setActionLoading(selectedName)
     try {
       await api.composeDown(selectedName)
-      await Promise.all([refreshList(), fetchServices(selectedName)])
+      await Promise.all([fetchProjects(false), fetchServices(selectedName)])
     } catch (err) { toast.error(err instanceof Error ? err.message : String(err)) }
     finally { setActionLoading(null) }
   }
@@ -514,7 +428,7 @@ export default function DockerStacks({ clusterMode = false }: { clusterMode?: bo
       setDeleteImages(false)
       setDeleteVolumes(false)
       if (selectedName === deleteTarget.name) navigate(basePath)
-      await refreshList(true)
+      await fetchProjects()
     } catch (err: unknown) {
       toast.error(err instanceof Error ? err.message : t('docker.compose.deleteFailed'))
     } finally {
@@ -579,11 +493,11 @@ export default function DockerStacks({ clusterMode = false }: { clusterMode?: bo
     } catch (err: unknown) {
       toast.error(err instanceof Error ? err.message : t('docker.stacks.deployFailed'))
     } finally {
-      await Promise.all([refreshList(), fetchServices(selectedName)])
+      await Promise.all([fetchProjects(false), fetchServices(selectedName)])
     }
   }
 
-  // Reset update check and rollback when the stack OR its node changes
+  // Reset update check and rollback when the stack changes
   useEffect(() => {
     let cancelled = false
     setUpdateCheck(null)
@@ -594,7 +508,7 @@ export default function DockerStacks({ clusterMode = false }: { clusterMode?: bo
       setRollbackInfo(null)
     }
     return () => { cancelled = true }
-  }, [selectedName, routeNode])
+  }, [selectedName])
 
   const handleCheckUpdates = async () => {
     if (!selectedName) return
@@ -630,7 +544,7 @@ export default function DockerStacks({ clusterMode = false }: { clusterMode?: bo
       // rollback button and the lists must show that, not the state before.
       setUpdateCheck(null)
       api.hasRollback(selectedName).then(r => setRollbackInfo(r)).catch(() => {})
-      await Promise.all([refreshList(), fetchServices(selectedName)])
+      await Promise.all([fetchProjects(false), fetchServices(selectedName)])
     }
   }
 
@@ -658,7 +572,7 @@ export default function DockerStacks({ clusterMode = false }: { clusterMode?: bo
       toast.success(t('docker.stacks.rollbackSuccess'))
       setUpdateCheck(null)
       setRollbackInfo(null)
-      await Promise.all([refreshList(), fetchServices(selectedName)])
+      await Promise.all([fetchProjects(false), fetchServices(selectedName)])
     } catch (err: unknown) {
       toast.error(err instanceof Error ? err.message : t('docker.stacks.rollbackFailed'))
     } finally {
@@ -666,13 +580,8 @@ export default function DockerStacks({ clusterMode = false }: { clusterMode?: bo
     }
   }
 
-  // The overview counts and links what the list beside it shows: in cluster
-  // mode that is every node's stacks, and `projects` is empty there.
-  const overviewStacks = clusterMode
-    ? sortNodeGroups(clusterStacks).flatMap((n) => n.stacks.map((p) => ({ node: n.node_id as string | undefined, p })))
-    : projects.map((p) => ({ node: undefined as string | undefined, p }))
-  const overviewCounts = stackCounts(overviewStacks.map(({ p }) => p))
-  const overviewNotRunning = overviewStacks.filter(({ p }) => p.real_status !== 'running')
+  const overviewCounts = stackCounts(projects)
+  const overviewNotRunning = projects.filter((p) => p.real_status !== 'running')
 
   const handleServiceAction = async (action: 'restart' | 'stop' | 'start', service: string) => {
     if (!selectedName) return
@@ -682,7 +591,7 @@ export default function DockerStacks({ clusterMode = false }: { clusterMode?: bo
       else if (action === 'stop') await api.stopComposeService(selectedName, service)
       else if (action === 'start') await api.startComposeService(selectedName, service)
       toast.success(t(`docker.stacks.${action}Success`))
-      await Promise.all([fetchServices(selectedName), refreshList()])
+      await Promise.all([fetchServices(selectedName), fetchProjects(false)])
     } catch (err: unknown) {
       toast.error(err instanceof Error ? err.message : t('docker.stacks.actionFailed'))
     } finally {
@@ -692,88 +601,25 @@ export default function DockerStacks({ clusterMode = false }: { clusterMode?: bo
 
   return (
     <div className="flex flex-col md:flex-row gap-4 h-full">
-      {/* Stack list (left panel) — hidden on mobile when a stack is selected.
-          In cluster mode it lists every node's stacks grouped by node. */}
+      {/* Stack list (left panel) — hidden on mobile when a stack is selected. */}
       <div className={`md:w-[220px] shrink-0 space-y-2 ${selectedName ? 'hidden md:block' : ''}`}>
         <div className="flex items-center justify-between">
           <span className="text-[15px] font-semibold">{t('docker.stacks.title')}</span>
           <div className="flex gap-1">
-            <Button variant="ghost" size="icon" aria-label={t('common.refresh')} onClick={() => (clusterMode ? fetchClusterStacks() : fetchProjects())} disabled={clusterMode ? clusterLoading : loading}>
-              <RefreshCw className={`h-3.5 w-3.5 ${(clusterMode ? clusterLoading : loading) ? 'animate-spin' : ''}`} />
+            <Button variant="ghost" size="icon" aria-label={t('common.refresh')} onClick={() => fetchProjects()} disabled={loading}>
+              <RefreshCw className={`h-3.5 w-3.5 ${loading ? 'animate-spin' : ''}`} />
             </Button>
-            {!clusterMode && (
-              <Button variant="ghost" size="icon" aria-label={t('docker.compose.createTitle')} onClick={() => setCreateOpen(true)}>
-                <Plus className="h-3.5 w-3.5" />
-              </Button>
-            )}
+            <Button variant="ghost" size="icon" aria-label={t('docker.compose.createTitle')} onClick={() => setCreateOpen(true)}>
+              <Plus className="h-3.5 w-3.5" />
+            </Button>
           </div>
         </div>
 
-        <ResourceStatus resource={{ loading: clusterMode ? clusterLoading : loading, error: !!(clusterMode ? clusterError : listError), updatedAt, retry: () => { void refreshList() } }} />
+        <ResourceStatus resource={{ loading, error: !!listError, updatedAt, retry: () => { void fetchProjects(false) } }} />
         <Input aria-label={t('docker.improvements.search')} placeholder={t('docker.improvements.search')} value={stackSearch} onChange={e => setStackSearch(e.target.value)} />
         <select className="min-h-11 w-full rounded-xl bg-secondary px-3 text-base md:text-sm" aria-label={t('common.status')} value={stackFilter} onChange={e => setStackFilter(e.target.value as StackFilter)}>
           <option value="all">{t('docker.improvements.all')}</option><option value="running">{t('docker.stacks.running')}</option><option value="partial">{t('docker.stacks.partial')}</option><option value="stopped">{t('docker.stacks.stopped')}</option>
         </select>
-        {clusterMode ? (
-          /* Cluster-wide list: every node's stacks grouped by node (responsive) */
-          <div className="space-y-1">
-            {clusterError && clusterStacks.length === 0 && !clusterLoading && (
-              <ListErrorBanner message={clusterError} onRetry={() => fetchClusterStacks()} />
-            )}
-            {clusterLoading && clusterStacks.length === 0 && (
-              <p className="text-[13px] text-muted-foreground py-4 text-center">{t('common.loading')}</p>
-            )}
-            {!clusterLoading && !clusterError && clusterStacks.length === 0 && (
-              <p className="text-[13px] text-muted-foreground py-4 text-center">{t('docker.stacks.noStacks')}</p>
-            )}
-            {sortNodeGroups(clusterStacks).map(node => (
-              <div key={node.node_id} className="space-y-0.5">
-                <div className="flex items-center gap-1.5 px-2 pt-2 text-[12px] font-medium text-muted-foreground">
-                  <span aria-hidden="true" className={`h-1.5 w-1.5 rounded-full shrink-0 ${nodeDot(node.status, node.error)}`} />
-                  <span className="truncate">{node.node_name}</span>
-                  {node.local && <span className="shrink-0">· {t('layout.cluster.localNode')}</span>}
-                  {node.error && (
-                    <span className="shrink-0 inline-flex items-center gap-0.5 text-warning">
-                      <AlertTriangle className="h-3 w-3" />
-                      {node.error === 'unreachable' ? t('cluster.stacks.nodeUnreachable') : node.error === 'list_failed' ? t('cluster.stacks.nodeListFailed') : node.error}
-                    </span>
-                  )}
-                </div>
-                {node.stacks.filter(p => matchesStackFilter(p, stackSearch, stackFilter)).map(p => {
-                  const isSel = selectedName === p.name && routeNode === node.node_id
-                  return (
-                    // The name button fills the row's height, so the whole row
-                    // is pressable and not a 20px band of it.
-                    <div key={node.node_id + '/' + p.name} className={`flex items-center gap-2 px-3 rounded-xl ${isSel ? 'bg-primary/10 ring-1 ring-primary' : 'hover:bg-secondary/50'}`}>
-                      {statusIcon(p.real_status)}
-                      <button
-                        type="button"
-                        aria-current={isSel ? 'true' : undefined}
-                        className="text-[13px] font-medium truncate min-w-0 flex-1 self-stretch py-2 text-left rounded hover:text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-                        onClick={() => navigate(`${basePath}/${node.node_id}/${p.name}`)}
-                      >{p.name}</button>
-                      <span className="text-[12px] text-muted-foreground shrink-0">{p.running_count}/{p.service_count}</span>
-                      <Button
-                        variant="ghost"
-                        size="icon-xs"
-                        title={t('docker.migrate.action')}
-                        aria-label={t('docker.migrate.action')}
-                        className="text-muted-foreground hover:text-primary"
-                        onClick={() => openMigrate(p.name, node.node_id)}
-                      >
-                        <ArrowRightLeft />
-                      </Button>
-                    </div>
-                  )
-                })}
-                {node.stacks.length === 0 && !node.error && (
-                  <p className="px-3 py-1 text-[12px] text-muted-foreground/70">{t('docker.stacks.noStacks')}</p>
-                )}
-              </div>
-            ))}
-          </div>
-        ) : (
-        <>
         {/* Load failure */}
         {listError && !loading && (
           <ListErrorBanner message={listError} onRetry={() => fetchProjects()} />
@@ -881,8 +727,6 @@ export default function DockerStacks({ clusterMode = false }: { clusterMode?: bo
             </div>
           ))}
         </div>
-        </>
-        )}
       </div>
 
       {/* Stack detail (right panel) */}
@@ -897,7 +741,7 @@ export default function DockerStacks({ clusterMode = false }: { clusterMode?: bo
               ['partial', t('docker.stacks.partial')],
               ['stopped', t('docker.stacks.stopped')],
             ] as const).map(([key, label]) => <button key={key} type="button" aria-pressed={stackFilter === key} className={`rounded-xl p-4 text-left outline-none focus-visible:ring-2 focus-visible:ring-ring ${stackFilter === key ? 'bg-primary/10 ring-1 ring-primary' : 'bg-secondary/50'}`} onClick={() => setStackFilter(key)}><span className="block text-2xl font-semibold">{overviewCounts[key]}</span><span className="text-sm">{label}</span></button>)}</div>
-            {overviewNotRunning.slice(0, 5).map(({ node, p }) => <Button key={`${node ?? ''}/${p.name}`} variant="outline" onClick={() => navigate(`${basePath}/${node ? `${node}/` : ''}${encodeURIComponent(p.name)}`)}>{p.name} · {p.running_count}/{p.service_count}</Button>)}
+            {overviewNotRunning.slice(0, 5).map((p) => <Button key={p.name} variant="outline" onClick={() => navigate(`${basePath}/${encodeURIComponent(p.name)}`)}>{p.name} · {p.running_count}/{p.service_count}</Button>)}
           </section>
         ) : (
           <div className="space-y-4">
@@ -913,13 +757,13 @@ export default function DockerStacks({ clusterMode = false }: { clusterMode?: bo
                   <ChevronLeft className="h-4 w-4" />
                 </Button>
                 <h2 className="text-[18px] font-bold truncate min-w-0 max-w-full">{selectedName}</h2>
-                {detailNodeName && (
+                {currentNodeName && (
                   <span
                     className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[12px] font-medium bg-primary/10 text-primary shrink-0"
-                    title={t('docker.stacks.onNode', { node: detailNodeName })}
+                    title={t('docker.stacks.onNode', { node: currentNodeName })}
                   >
                     <Monitor className="h-3 w-3" />
-                    {detailNodeName}
+                    {currentNodeName}
                   </span>
                 )}
                 {selectedProject && (
@@ -998,7 +842,7 @@ export default function DockerStacks({ clusterMode = false }: { clusterMode?: bo
                 {clusterNodeCount > 1 && (
                   <Button
                     variant="outline" size="sm" className="rounded-xl"
-                    onClick={() => selectedName && openMigrate(selectedName, clusterMode ? routeNode : undefined)}
+                    onClick={() => selectedName && openMigrate(selectedName)}
                   >
                     <ArrowRightLeft className="h-3.5 w-3.5" />
                     {t('docker.migrate.action')}
@@ -1242,7 +1086,7 @@ export default function DockerStacks({ clusterMode = false }: { clusterMode?: bo
                   deploying={editSaving}
                   onDeploy={() => setDiffOpen(true)}
                   onOpenDiff={() => setDiffOpen(true)}
-                  onEnvSaved={() => { if (latestSelectedRef.current === draftKey) setDiskEnv(editEnv); void refreshList() }}
+                  onEnvSaved={() => { if (latestSelectedRef.current === draftKey) setDiskEnv(editEnv); void fetchProjects(false) }}
                 />
                 </Suspense>
                 </>}
@@ -1406,11 +1250,10 @@ export default function DockerStacks({ clusterMode = false }: { clusterMode?: bo
         open={migrateOpen}
         onOpenChange={setMigrateOpen}
         project={migrateProject}
-        sourceNodeId={migrateSourceNode}
         onMigrated={() => {
           // Stack moved off this node — refresh the list, and if it was the open
           // stack clear the now-stale detail route (matches the delete flow).
-          void refreshList()
+          void fetchProjects(false)
           if (migrateProject && migrateProject === selectedName) navigate(basePath)
         }}
       />

@@ -319,7 +319,7 @@
   - **IP 자동 감지** (`internal/cluster/detect.go`): Tailscale(100.64.0.0/10), 동일 서브넷 매칭, TCP 다이얼 기반 감지, 리더 주소 기반 라우팅 힌트
   - **클러스터 업데이트**: 롤링/동시 모드로 전체 클러스터 SFPanel 업데이트 오케스트레이션 (SSE 진행률 스트리밍, 노드별 step+status 이벤트). UI는 평면 로그 대신 **노드별 스테퍼 + 전체 진행 바**(완료/총 노드, 실패 카운트)로 렌더 — 각 노드의 지역화된 단계 상태(업데이트 중/재시작 대기/리더십 이전/온라인 복귀/느린 재시작/건너뜀/실패)를 백엔드가 이미 내보내던 구조화 SSE에서 도출
   - **노드 주소 편집·탈퇴 (인라인)**: 노드 행에서 광고 주소(advertise address) 인라인 편집(API + gRPC), 로컬 노드 행에서 클러스터 탈퇴 — 정족수 손실 시 force 오버라이드 지원
-  - **(v0.47.0–v0.48.0) Cluster › Docker 스택 뷰**: 전 노드 compose 스택 집계(`GET /docker/compose/cluster-stacks` — 노드별 동시 fan-out, bounded 타임아웃, 불달 노드는 안정 에러코드 + 빈 목록) + 마스터-디테일(`/cluster/stacks/:node/:name` — 소유 노드가 URL에 포함되어 동명 스택 오타겟 방지). 어느 노드의 스택이든 그 자리에서 마이그레이션 시작 가능. 클러스터 사이드바 트리는 기본 접힘
+  - **(v0.47.0–v0.48.0) Cluster › Docker 스택 뷰**: 전 노드 compose 스택 집계(`GET /docker/compose/cluster-stacks` — 노드별 동시 fan-out, bounded 타임아웃, 불달 노드는 안정 에러코드 + 빈 목록) + 마스터-디테일(`/cluster/stacks/:node/:name` — 소유 노드가 URL에 포함되어 동명 스택 오타겟 방지). 어느 노드의 스택이든 그 자리에서 마이그레이션 시작 가능. 클러스터 사이드바 트리는 기본 접힘. 이 화면은 이제 없다: 모든 노드의 스택은 실행 현황(`/cluster/running`)이 보이고, 옛 주소는 그곳과 `/docker/stacks/:name?node=:node`로 간다. 집계 엔드포인트는 서버에 남아 있지만 웹은 더 부르지 않는다
   - **(v0.55.0) CA 개인키 Raft FSM 복제**: 클러스터 CA 개인키를 JWT 시크릿과 함께 FSM으로 복제하고 필요 시 디스크에 구체화 — **어떤 리더든 join 서명 가능** (issue #5: founding 노드가 아닌 리더가 join을 받으면 `ca.key` 부재로 실패하던 문제). 기존 클러스터는 키 보유 노드가 리더가 되는 시점에 자가치유
   - **(v0.55.0) 하트비트 스트림 안정화**: 리더의 메트릭-하트비트 스트림 idle timeout을 송신 주기의 3×로 결합 — 30s 송신 = 30s idle의 경합으로 분당 EOF 재접속이 반복되던 플래핑 제거
   - **(v0.53.0) WS 릴레이 keepalive**: 릴레이의 클라이언트 레그에 30s ping + auto-pong으로 read deadline 재장전 — 조용한 원격 터미널 세션이 릴레이에서 끊기지 않음
@@ -875,7 +875,7 @@ SQLite (WAL 모드, busy_timeout 5000ms, `SetMaxOpenConns(4)`, 추가 프래그�
 | Dashboard | `web/src/pages/Dashboard.tsx` | 시스템 대시보드 |
 | AppStore | `web/src/pages/AppStore.tsx` | 앱스토어 (원클릭 Docker 앱 설치, `/appstore/:appId` 딥링크) |
 | Cluster | `web/src/pages/Cluster.tsx` | 클러스터 관리 셸 (사이드 탭 + Outlet) |
-| ClusterOverview / ClusterNodes / ClusterStacks | `web/src/pages/cluster/` | 클러스터 개요 / 노드 관리(에이전트 추가 대화상자가 참가 토큰을 맡음) / (v0.47.0) 전 노드 스택 집계 |
+| ClusterOverview / ClusterNodes | `web/src/pages/cluster/` | 클러스터 개요 / 노드 관리(에이전트 추가 대화상자가 참가 토큰을 맡음) |
 | Docker | `web/src/pages/Docker.tsx` | Docker 관리 (탭: Stacks, Containers, Images, Volumes, Networks) |
 | DockerStacks | `web/src/pages/docker/DockerStacks.tsx` | Docker Compose 스택 관리 |
 | DockerContainers | `web/src/pages/docker/DockerContainers.tsx` | 컨테이너 관리 (독립형 컨테이너 생성은 페이지 내 CreateContainerDialog — 별도 페이지 아님) |

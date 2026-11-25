@@ -1,8 +1,9 @@
 import { lazy, Suspense, useEffect, useState } from 'react'
 import { useTranslation } from 'react-i18next'
-import { BrowserRouter, Routes, Route, Navigate, Link, useNavigate, useLocation } from 'react-router-dom'
+import { BrowserRouter, Routes, Route, Navigate, Link, useNavigate, useLocation, useParams } from 'react-router-dom'
 import { Toaster } from '@/components/ui/sonner'
 import { api } from '@/lib/api'
+import { hrefWithNode } from '@/lib/serverScope'
 import Layout from '@/components/Layout'
 import { ErrorBoundary } from './components/ErrorBoundary'
 import { ConfirmProvider } from '@/components/ConfirmDialog'
@@ -47,7 +48,6 @@ const FirewallDocker = lazy(() => import('@/pages/firewall/FirewallDocker'))
 const Cluster = lazy(() => import('@/pages/Cluster'))
 const ClusterOverview = lazy(() => import('@/pages/cluster/ClusterOverview'))
 const ClusterNodes = lazy(() => import('@/pages/cluster/ClusterNodes'))
-const ClusterStacks = lazy(() => import('@/pages/cluster/ClusterStacks'))
 const ClusterSecurity = lazy(() => import('@/pages/cluster/ClusterSecurity'))
 const ClusterTasks = lazy(() => import('@/pages/cluster/ClusterTasks'))
 const AppStore = lazy(() => import('@/pages/AppStore'))
@@ -90,6 +90,13 @@ function NotFound() {
       </Link>
     </div>
   )
+}
+
+// The old cluster-wide stack address: the stack screen, on the server the
+// address named.
+function LegacyClusterStack() {
+  const { node = '', name = '' } = useParams()
+  return <Navigate replace to={hrefWithNode(`/docker/stacks/${encodeURIComponent(name)}`, node)} />
 }
 
 function ProtectedRoute({ children }: { children: React.ReactNode }) {
@@ -214,13 +221,16 @@ export default function App() {
                   <Route path="appstore" element={<AppStore />} />
                   <Route path="appstore/:appId" element={<AppStore />} />
                 </Route>
+                {/* The cluster-wide Docker screen is gone: the fleet board shows every
+                    server's stacks. Outside the cluster page, so these redirect before
+                    its single-server redirect can answer the old address instead. */}
+                <Route path="cluster/stacks" element={<Navigate to="/cluster/running" replace />} />
+                <Route path="cluster/stacks/:node/:name" element={<LegacyClusterStack />} />
                 <Route path="cluster" element={<Cluster />}>
                   <Route index element={<Navigate to="overview" replace />} />
                   <Route path="overview" element={<ClusterOverview />} />
                   <Route path="running" element={<Running scope="cluster" />} />
                   <Route path="nodes" element={<ClusterNodes />} />
-                  <Route path="stacks" element={<ClusterStacks />} />
-                  <Route path="stacks/:node/:name" element={<ClusterStacks />} />
                   <Route path="security" element={<ClusterSecurity />} />
                   <Route path="tasks" element={<ClusterTasks />} />
                   <Route path="tasks/new" element={<ClusterTasks />} />

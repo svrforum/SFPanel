@@ -123,8 +123,8 @@ test('says when the agent has joined', async ({ page }) => {
   expect(await page.evaluate(() => (window as unknown as { clusterChanged: number }).clusterChanged)).toBeGreaterThan(0)
 
   await dialog.getByRole('button', { name: 'Open node' }).click()
-  await expect(page).toHaveURL(/\/dashboard$/)
-  expect(await page.evaluate(() => localStorage.getItem('sfpanel_current_node'))).toBe('agent-7')
+  await expect(page).toHaveURL(/\/dashboard\?node=agent-7$/)
+  await expect.poll(() => page.evaluate(() => localStorage.getItem('sfpanel_current_node'))).toBe('agent-7')
 })
 
 // An older leader ignores the kind and makes a manager token: pasted into an

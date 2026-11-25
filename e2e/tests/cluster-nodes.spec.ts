@@ -263,8 +263,8 @@ test('opens a node and lands on its dashboard', async ({ page }) => {
   await mock(page)
   await page.goto('/cluster/nodes')
   await choose(page, 'agent-7', 'Open node')
-  await expect(page).toHaveURL(/\/dashboard$/)
-  expect(await page.evaluate(() => localStorage.getItem('sfpanel_current_node'))).toBe('agent-7')
+  await expect(page).toHaveURL(/\/dashboard\?node=agent-7$/)
+  await expect.poll(() => page.evaluate(() => localStorage.getItem('sfpanel_current_node'))).toBe('agent-7')
 })
 
 test('edits the group as the group label', async ({ page }) => {

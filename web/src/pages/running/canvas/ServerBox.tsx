@@ -25,11 +25,10 @@ const tileAttention = 'border-destructive/40 bg-destructive/5'
 const nameClass = 'min-w-0 break-words text-[14px] font-semibold leading-5'
 const linkClass = 'outline-none hover:underline after:absolute after:inset-0 after:rounded-lg focus-visible:after:ring-2 focus-visible:after:ring-ring'
 
-function Tile({ row, nodeId, scope, localId, linked }: {
+function Tile({ row, nodeId, scope, linked }: {
   row: Extract<CanvasRow, { kind: 'tile' }>
   nodeId: string
   scope: Scope
-  localId: string
   linked: boolean
 }) {
   const { t } = useTranslation()
@@ -50,10 +49,10 @@ function Tile({ row, nodeId, scope, localId, linked }: {
   }
   const attention = item.attention
   const word = item.type === 'stack' ? stackWord(item.stack, attention, t) : containerWord(item.container, t)
-  const target = item.type === 'stack' ? stackTarget(scope, nodeId, item.stack) : containerTarget(scope, item.container.id)
+  const target = item.type === 'stack' ? stackTarget(scope, item.stack) : containerTarget(scope, item.container.id)
   return (
     <li className={cn(tileClass, attention && tileAttention)} style={style}>
-      <NodeLink target={target} nodeId={nodeId} localId={localId} className={cn(name, linkClass)} title={row.name}>{row.name}</NodeLink>
+      <NodeLink target={target} nodeId={nodeId} className={cn(name, linkClass)} title={row.name}>{row.name}</NodeLink>
       <StatusPill tone={word.tone} className={pillClass}>{word.text}</StatusPill>
       {/* The board says what is wrong in a list above it; here the tile has
           to, and not by its red edge alone: a mark on its corner, and the
@@ -113,7 +112,7 @@ function GroupTitle({ row, level }: { row: Extract<CanvasRow, { kind: 'title' }>
  */
 function ServerBoxView({ data }: NodeProps<ServerNode>) {
   const { t } = useTranslation()
-  const { section, rows, scope, localId, level, linked } = data
+  const { section, rows, scope, level, linked } = data
   const { node, kind, metrics } = section
   const lines = nameLines(node.name, CANVAS.headerNameChars)
   const groupLevel = Math.min(level + 1, 4) as HeadingLevel
@@ -146,7 +145,7 @@ function ServerBoxView({ data }: NodeProps<ServerNode>) {
           {rows.map((row) => {
             if (row.kind === 'title') return <GroupTitle key={row.key} row={row} level={groupLevel} />
             if (row.kind === 'note') return <Note key={row.key} note={row.note} at={row.at} />
-            return <Tile key={row.key} row={row} nodeId={node.id} scope={scope} localId={localId} linked={linked.has(row.key)} />
+            return <Tile key={row.key} row={row} nodeId={node.id} scope={scope} linked={linked.has(row.key)} />
           })}
         </ul>
       )}
