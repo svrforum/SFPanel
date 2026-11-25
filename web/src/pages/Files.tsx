@@ -717,6 +717,22 @@ export default function Files() {
             }
             continue
           }
+          if ((err as { code?: string })?.code === 'FILE_TOO_LARGE') {
+            // The limit is this server's, and the dialog changes it here. The
+            // dialog gives the focus back to what had it when it opened, and
+            // the toast's button is gone by then: hand it to Upload options,
+            // where the menu's way in leaves it too.
+            toast.error(`${file.name}: ${err instanceof Error ? err.message : t('files.uploadFailed')}`, {
+              action: {
+                label: t('files.uploadLimit.change'),
+                onClick: () => {
+                  limitTriggerRef.current?.focus()
+                  setLimitOpen(true)
+                },
+              },
+            })
+            continue
+          }
           toast.error(`${file.name}: ${err instanceof Error ? err.message : t('files.uploadFailed')}`)
         }
       }

@@ -53,3 +53,16 @@ test('a file that exists already is replaced only after asking', async ({ page }
   await expect.poll(() => bodies.length).toBe(2)
   expect(bodies[1]).toMatch(/name="overwrite"\r\n\r\ntrue/)
 })
+
+test('a file over the limit says so and offers to change the limit', async ({ page }) => {
+  await openFiles(page, { upload: () => ({ status: 413, json: { success: false, error: { code: 'FILE_TOO_LARGE', message: 'File exceeds the upload limit of 1 MB' } } }) })
+  await page.locator('input[type="file"]').setInputFiles({ name: 'big.iso', mimeType: 'application/octet-stream', buffer: Buffer.alloc(16) })
+  await expect(page.getByText(/File exceeds the upload limit of 1 MB/)).toBeVisible()
+  await page.getByRole('button', { name: 'Change limit' }).click()
+  const dialog = page.getByRole('dialog', { name: 'Upload limit' })
+  await expect(dialog).toBeVisible()
+  // Closed, it hands the focus to Upload options: the toast's button is gone.
+  await page.keyboard.press('Escape')
+  await expect(dialog).toBeHidden()
+  await expect(page.getByRole('button', { name: 'Upload options' })).toBeFocused()
+})

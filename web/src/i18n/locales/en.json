@@ -2938,7 +2938,8 @@
       "title": "Upload limit",
       "label": "Largest file",
       "hint": "The largest single file this server accepts. Default 1024 MB.",
-      "invalid": "Enter a whole number, 1 or more"
+      "invalid": "Enter a whole number, 1 or more",
+      "change": "Change limit"
     },
     "edit": "Edit",
     "editFile": "Edit File",

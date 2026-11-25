@@ -1064,6 +1064,17 @@ func (h *Handler) UploadFile(c echo.Context) error {
 	}
 	c.Request().Body = http.MaxBytesReader(c.Response(), c.Request().Body, maxMB*1024*1024)
 
+	// Parse the form here, where its error can be read. FormValue parses it
+	// too but drops the error, so a body cut short at the limit read as a
+	// missing path and was refused as INVALID_PATH.
+	if err := c.Request().ParseMultipartForm(32 << 20); err != nil {
+		var tooBig *http.MaxBytesError
+		if errors.As(err, &tooBig) {
+			return response.Fail(c, http.StatusRequestEntityTooLarge, response.ErrFileTooLarge,
+				fmt.Sprintf("File exceeds the upload limit of %d MB", maxMB))
+		}
+	}
+
 	destDir := c.FormValue("path")
 	if err := validatePathForWrite(destDir); err != nil {
 		return response.Fail(c, http.StatusBadRequest, response.ErrInvalidPath, err.Error())

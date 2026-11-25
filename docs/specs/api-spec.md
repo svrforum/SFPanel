@@ -1265,7 +1265,7 @@ systemd 서비스 목록. `systemctl`이 없으면 빈 목록(200)입니다. 각
 ---
 
 ### POST /api/v1/files/upload
-파일 업로드 (최대 100 MB). multipart/form-data 사용.
+파일 업로드. 최대 크기는 `max_upload_size`(기본 1024 MB). multipart/form-data 사용.
 
 - **인증 필요**: 예
 - **Content-Type**: `multipart/form-data`
@@ -1275,6 +1275,7 @@ systemd 서비스 목록. `systemctl`이 없으면 빈 목록(200)입니다. 각
 |------|------|------|------|
 | `file` | File | 예 | 업로드할 파일 |
 | `path` | string | 예 | 저장할 디렉토리의 절대 경로 |
+| `overwrite` | string | 아니오 | `true`면 같은 이름의 파일을 덮어씀 |
 
 **Response (200):**
 ```json
@@ -1294,6 +1295,8 @@ systemd 서비스 목록. `systemctl`이 없으면 빈 목록(200)입니다. 각
 |------|-----------|------|
 | `MISSING_FILE` | 400 | 'file' 필드에 파일 없음 |
 | `INVALID_FILENAME` | 400 | 유효하지 않은 파일명 |
+| `DESTINATION_EXISTS` | 409 | 같은 이름의 파일이 이미 있고 `overwrite`가 `true`가 아님 |
+| `FILE_TOO_LARGE` | 413 | 본문이 `max_upload_size`를 넘음 ("File exceeds the upload limit of N MB") |
 
 ---
 
