@@ -84,3 +84,14 @@ export const MORE_MENU_ITEMS = NAV_ITEMS.filter((i) => !i.bottomNav)
 export const NODE_MENU_ITEMS = NAV_ITEMS.filter((i) => i.to !== '/cluster').map((i) =>
   i.to === '/settings' ? { ...i, to: '/settings?scope=node' } : i
 )
+
+/** The tab title: the page, the server it acts on when there is one, then the product; the product alone without a page. */
+export function documentTitle(page: string | null, server: string | null): string {
+  if (!page) return 'SFPanel'
+  return server ? `${page} · ${server} · SFPanel` : `${page} · SFPanel`
+}
+
+/** Whether a menu entry acts on one server: everything but the cluster page and settings (stage ② of the menu rework replaces this with NavEntry.scope). */
+export function isServerSection(to: string): boolean {
+  return to !== '/cluster' && to !== '/settings'
+}

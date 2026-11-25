@@ -1,4 +1,4 @@
-import type { ClusterNode } from '@/types/api'
+import type { ClusterNode, ClusterOverview } from '@/types/api'
 import { relativeSince } from '@/lib/aiSessions'
 
 // The one place the cluster screens decide what a node is: its kind, role,
@@ -265,4 +265,22 @@ export function roleChangeFailure(err: unknown, refusedCode: string): RoleChange
 export function otherManagerAddress(nodes: ClusterNode[], excludeId: string): string {
   const others = nodes.filter((n) => isManager(n) && n.id !== excludeId)
   return (others.find((n) => n.status === 'online') ?? others[0])?.api_address ?? ''
+}
+
+/** The name of the node the client is looking at — the one it is scoped to, else the one it is attached to — or null when the list does not have it yet. */
+export function selectedNodeName(nodes: ClusterNode[], current: string | null, localId: string): string | null {
+  const id = current ?? localId
+  if (!id) return null
+  return nodes.find((n) => n.id === id)?.name ?? null
+}
+
+/** The online nodes running a version below the reference, and that reference: the overview banner's rule, so the badge and the banner count alike. */
+export function nodesToUpdate(
+  o: Partial<Pick<ClusterOverview, 'nodes' | 'metrics' | 'latest_version'>> | null | undefined,
+): { count: number; version: string | undefined } {
+  const metrics = o?.metrics ?? []
+  const version = referenceVersion(o?.latest_version, metrics.map((m) => m.version))
+  const versionOf = new Map(metrics.map((m) => [m.node_id, m.version]))
+  const count = (o?.nodes ?? []).filter((n) => n.status === 'online' && isOutdated(versionOf.get(n.id), version)).length
+  return { count, version }
 }

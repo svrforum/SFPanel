@@ -13,7 +13,7 @@ import { useConfirm } from '@/components/ConfirmDialog'
 import { usePrompt } from '@/components/PromptDialog'
 import { cn } from '@/lib/utils'
 import { waitForServerBack } from '@/lib/restart'
-import { ALL_NODES, filterNodes, isAgent, isManager, isOutdated, nodeRoleKind, referenceVersion, sortNodes } from '@/lib/clusterNodes'
+import { ALL_NODES, filterNodes, isAgent, isManager, nodeRoleKind, nodesToUpdate, sortNodes } from '@/lib/clusterNodes'
 import { warningText, type ApiWarning } from '@/lib/warnings'
 import { toast } from 'sonner'
 import { ClusterInitForm, RestartingCard } from './components/ClusterInitForm'
@@ -346,9 +346,7 @@ export default function ClusterOverview() {
   const online = (list: ClusterNode[]) => list.filter(n => n.status === 'online').length
   // Offline as the node list's filter reads it, so the link shows the same nodes.
   const offlineAgents = filterNodes(nodes, { ...ALL_NODES, kind: 'agent', status: 'offline' })
-  const reference = referenceVersion(overview?.latest_version, metrics.map(m => m.version))
-  const versionOf = new Map(metrics.map(m => [m.node_id, m.version]))
-  const toUpdate = nodes.filter(n => n.status === 'online' && isOutdated(versionOf.get(n.id), reference)).length
+  const { count: toUpdate, version: reference } = nodesToUpdate(overview)
   const offlineNames = offlineAgents.slice(0, NAMED_OFFLINE).map(n => n.name).join(', ')
     + (offlineAgents.length > NAMED_OFFLINE ? ' ' + t('cluster.overview.andMore', { count: offlineAgents.length - NAMED_OFFLINE }) : '')
 

@@ -13,10 +13,12 @@ import {
   nodeGroup,
   nodeGroups,
   nodeRoleKind,
+  nodesToUpdate,
   otherManagerAddress,
   referenceVersion,
   roleChangeFailure,
   roleChangePhase,
+  selectedNodeName,
   sortNodes,
   treeSections,
 } from './clusterNodes'
@@ -334,5 +336,37 @@ describe('treeSections', () => {
       ['group:db', 'group', 'db', ['agent-1']],
     ])
     expect(treeSections(nodes, 'm-1', 'nothing')).toEqual([])
+  })
+})
+
+const metric = (node_id: string, version: string) => ({ node_id, version, cpu_percent: 0, memory_percent: 0, disk_percent: 0, container_count: 0, uptime_seconds: 0, timestamp: 0 })
+
+describe('selectedNodeName', () => {
+  const nodes = [node({ id: 'n-1', name: 'node-a' }), node({ id: 'n-2', name: 'node-b' })]
+  it('names the node the client is scoped to', () => expect(selectedNodeName(nodes, 'n-2', 'n-1')).toBe('node-b'))
+  it('names the attached node when unscoped', () => expect(selectedNodeName(nodes, null, 'n-1')).toBe('node-a'))
+  it('is null for an id the list does not have, and before the list', () => {
+    expect(selectedNodeName(nodes, 'gone', 'n-1')).toBeNull()
+    expect(selectedNodeName([], null, 'n-1')).toBeNull()
+    expect(selectedNodeName(nodes, null, '')).toBeNull()
+  })
+})
+
+describe('nodesToUpdate', () => {
+  const nodes = [node({ id: 'n-1' }), node({ id: 'n-2' }), node({ id: 'n-3' }), node({ id: 'n-4', status: 'offline' })]
+  it('counts online nodes behind the reference, as the overview banner does', () => {
+    const metrics = [metric('n-1', '0.93.1'), metric('n-2', '0.93.0'), metric('n-3', '0.92.0'), metric('n-4', '0.90.0')]
+    expect(nodesToUpdate({ nodes, metrics, latest_version: '0.93.1' })).toEqual({ count: 2, version: '0.93.1' })
+  })
+  it('takes the highest running version when the leader has seen no release', () => {
+    expect(nodesToUpdate({ nodes, metrics: [metric('n-1', '0.93.0'), metric('n-2', '0.92.0')] })).toEqual({ count: 1, version: '0.93.0' })
+  })
+  it('does not count a node without metrics', () => {
+    expect(nodesToUpdate({ nodes, metrics: [metric('n-1', '0.93.1')], latest_version: '0.93.1' }).count).toBe(0)
+  })
+  // An older leader leaves metrics and latest_version out; before the first answer there is no overview at all.
+  it('is zero for an empty, older or missing answer', () => {
+    expect(nodesToUpdate({})).toEqual({ count: 0, version: undefined })
+    expect(nodesToUpdate(null)).toEqual({ count: 0, version: undefined })
   })
 })

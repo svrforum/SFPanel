@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { BOTTOM_NAV_ITEMS, MORE_MENU_ITEMS, NAV_ITEMS, NODE_MENU_ITEMS, TERMINAL_ROUTES, isTerminalRoute } from './navigation'
+import { BOTTOM_NAV_ITEMS, MORE_MENU_ITEMS, NAV_ITEMS, NODE_MENU_ITEMS, TERMINAL_ROUTES, documentTitle, isServerSection, isTerminalRoute } from './navigation'
 
 describe('NAV_ITEMS registry', () => {
   it('has a unique route per entry', () => {
@@ -90,5 +90,21 @@ describe('isTerminalRoute', () => {
     const routes = new Set(NAV_ITEMS.map((i) => i.to))
     for (const r of TERMINAL_ROUTES) expect(routes.has(r)).toBe(true)
     expect(routes.has('/ai')).toBe(false)
+  })
+})
+
+describe('documentTitle', () => {
+  it('names the page, the server, then the product', () => expect(documentTitle('Docker', 'node-b')).toBe('Docker · node-b · SFPanel'))
+  it('leaves the server out when there is none', () => expect(documentTitle('Docker', null)).toBe('Docker · SFPanel'))
+  it('is the product alone without a page', () => expect(documentTitle(null, 'node-b')).toBe('SFPanel'))
+})
+
+describe('isServerSection', () => {
+  it('is true for the pages that act on one server', () => {
+    for (const to of ['/dashboard', '/running', '/docker', '/appstore', '/terminal', '/logs', '/firewall']) expect(isServerSection(to)).toBe(true)
+  })
+  it('is false for the cluster page and settings', () => {
+    expect(isServerSection('/cluster')).toBe(false)
+    expect(isServerSection('/settings')).toBe(false)
   })
 })
