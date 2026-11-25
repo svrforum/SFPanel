@@ -19,6 +19,10 @@ describe('settingsTabScope', () => {
 
 describe('settingsRedirect', () => {
   it('writes the tab the old node scope meant', () => expect(settingsRedirect('?scope=node')).toBe('?tab=system'))
+  it('writes the system tab over a tab that is none of the six', () => {
+    expect(settingsRedirect('?scope=node&tab=nope')).toBe('?tab=system')
+    expect(settingsTab('?scope=node&tab=nope')).toBe('system')
+  })
   it('drops the scope and keeps the tab and the server, in order', () => {
     expect(settingsRedirect('?scope=node&tab=audit&node=a-1')).toBe('?tab=audit&node=a-1')
     expect(settingsRedirect('?node=a-1&scope=node')).toBe('?node=a-1&tab=system')
