@@ -58,3 +58,21 @@ test('the bar keeps its four tabs in order, then More', async ({ page }) => {
   expect(await bar.locator('a, button').evaluateAll(els => els.map(el => `${el.tagName === 'A' ? 'link' : 'button'} ${el.textContent?.trim()}`)))
     .toEqual(['link Dashboard', 'link Docker', 'link Terminal', 'link Logs', 'button More'])
 })
+
+// The bar marked a tab by its address prefix, so the dashboard's Running here
+// (/running) and Docker's App Store (/appstore), tabs at addresses of their
+// own, marked nothing — and neither is in More. A page marks the tab of the
+// menu entry it belongs to, as the sidebar and More do.
+test('the open tab is the one the page belongs to', async ({ page }) => {
+  await mock(page)
+  const bar = page.getByRole('navigation').filter({ has: page.getByRole('button', { name: 'More' }) })
+  for (const [path, tab] of [['/running', 'Dashboard'], ['/appstore', 'Docker'], ['/docker/containers', 'Docker'], ['/dashboard', 'Dashboard'], ['/logs', 'Logs']]) {
+    await page.goto(path)
+    await expect(bar.getByRole('link', { name: tab }), path).toHaveAttribute('aria-current', 'page')
+    await expect(bar.locator('a[aria-current="page"]'), path).toHaveCount(1)
+  }
+  // A page none of the four owns marks none.
+  await page.goto('/files')
+  await expect(page.getByRole('button', { name: 'More' })).toBeVisible()
+  await expect(bar.locator('a[aria-current="page"]')).toHaveCount(0)
+})
