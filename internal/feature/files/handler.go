@@ -1070,8 +1070,11 @@ func (h *Handler) UploadFile(c echo.Context) error {
 	if err := c.Request().ParseMultipartForm(32 << 20); err != nil {
 		var tooBig *http.MaxBytesError
 		if errors.As(err, &tooBig) {
-			return response.Fail(c, http.StatusRequestEntityTooLarge, response.ErrFileTooLarge,
-				fmt.Sprintf("File exceeds the upload limit of %d MB", maxMB))
+			// limit_mb: the panel words the refusal itself, and tells a
+			// limit it can raise from the most a server takes.
+			return response.FailWith(c, http.StatusRequestEntityTooLarge, response.ErrFileTooLarge,
+				fmt.Sprintf("File exceeds the upload limit of %d MB", maxMB),
+				map[string]string{"limit_mb": strconv.FormatInt(maxMB, 10)})
 		}
 	}
 

@@ -34,8 +34,8 @@ func openTestDB(t *testing.T) *sql.DB {
 }
 
 // postUpload sends content as big.bin into dir through UploadFile, on a server
-// whose max_upload_size is limitMB, and returns the status and error code.
-func postUpload(t *testing.T, limitMB int, dir string, content []byte) (int, string) {
+// whose max_upload_size is limitMB, and returns the status, error code and details.
+func postUpload(t *testing.T, limitMB int, dir string, content []byte) (int, string, map[string]string) {
 	t.Helper()
 	db := openTestDB(t)
 	if _, err := db.Exec(`INSERT OR REPLACE INTO settings (key, value) VALUES ('max_upload_size', ?)`, strconv.Itoa(limitMB)); err != nil {
@@ -65,32 +65,39 @@ func postUpload(t *testing.T, limitMB int, dir string, content []byte) (int, str
 	}
 	var decoded struct {
 		Error struct {
-			Code string `json:"code"`
+			Code    string            `json:"code"`
+			Details map[string]string `json:"details"`
 		} `json:"error"`
 	}
 	_ = json.Unmarshal(rec.Body.Bytes(), &decoded)
-	return rec.Code, decoded.Error.Code
+	return rec.Code, decoded.Error.Code, decoded.Error.Details
 }
 
 // uploadWithLimit uploads size bytes into a fresh directory under a limit of
 // limitMB.
-func uploadWithLimit(t *testing.T, limitMB int, size int) (int, string) {
+func uploadWithLimit(t *testing.T, limitMB int, size int) (int, string, map[string]string) {
 	t.Helper()
 	return postUpload(t, limitMB, t.TempDir(), bytes.Repeat([]byte("x"), size))
 }
 
 func TestUploadOverTheLimitIsRefusedAsTooLarge(t *testing.T) {
 	// Assert the REASON: a refusal for size, not the INVALID_PATH a body cut short at the limit used to read as.
-	status, code := uploadWithLimit(t, 1 /* MB */, 2<<20 /* bytes */)
+	status, code, details := uploadWithLimit(t, 1 /* MB */, 2<<20 /* bytes */)
 	if status != http.StatusRequestEntityTooLarge || code != response.ErrFileTooLarge {
 		t.Fatalf("upload of 2 MiB under a 1 MB limit returned %d/%s, want 413/%s", status, code, response.ErrFileTooLarge)
+	}
+	// The refusal names the limit that refused it, for the panel to word in
+	// the operator's language and to tell a limit it can raise from the most
+	// a server takes.
+	if details["limit_mb"] != "1" {
+		t.Fatalf("refusal details = %v, want limit_mb=1", details)
 	}
 }
 
 func TestUploadUnderTheLimitStillLands(t *testing.T) {
 	dir := t.TempDir()
 	content := bytes.Repeat([]byte("y"), 1<<10)
-	if status, code := postUpload(t, 1, dir, content); status != http.StatusOK {
+	if status, code, _ := postUpload(t, 1, dir, content); status != http.StatusOK {
 		t.Fatalf("upload of 1 KiB under a 1 MB limit returned %d/%s, want 200", status, code)
 	}
 	got, err := os.ReadFile(filepath.Join(dir, "big.bin"))
