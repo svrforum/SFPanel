@@ -97,11 +97,10 @@ test('the leader offers what it always did', async ({ page }) => {
   expect(await actions(page, row(page, 'gamma'))).toEqual({ labels: 1, transfer: 1, remove: 1 })
 })
 
-test('any node renames the cluster, and the sidebar shows it at once', async ({ page }) => {
+test('any node renames the cluster', async ({ page }) => {
   const calls = await mock(page, 'node-b')
   await page.goto('/cluster/overview')
   await expect(page.getByRole('heading', { name: 'homelab' })).toBeVisible()
-  await expect(page.getByTitle('homelab')).toBeVisible()
 
   await page.getByRole('button', { name: 'Rename' }).click()
   const dialog = page.getByRole('dialog')
@@ -111,8 +110,6 @@ test('any node renames the cluster, and the sidebar shows it at once', async ({ 
 
   await expect.poll(() => calls.find(c => c.path === '/cluster/name')).toEqual({ method: 'PUT', path: '/cluster/name', body: { name: 'lab-2' } })
   await expect(page.getByRole('heading', { name: 'lab-2' })).toBeVisible()
-  // Well inside the shell's 15-second poll: the page told it.
-  await expect(page.getByTitle('lab-2')).toBeVisible({ timeout: 3000 })
 })
 
 test('a refused name says why', async ({ page }) => {

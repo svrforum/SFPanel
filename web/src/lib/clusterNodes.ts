@@ -3,7 +3,7 @@ import { relativeSince } from '@/lib/aiSessions'
 
 // The one place the cluster screens decide what a node is: its kind, role,
 // group and whether its version is behind. Keeping it here means the table,
-// the tree and the overview cannot disagree about which node is an agent.
+// the server picker and the overview cannot disagree about which node is an agent.
 
 /** The label key that puts a node in a group. One group per node. */
 export const GROUP_LABEL = 'group'
@@ -143,12 +143,12 @@ export interface TreeSection {
 }
 
 /**
- * The sidebar tree and the phone's node picker in sections: the managers, then
+ * The server picker and the phone's node picker in sections: the managers, then
  * each agent group by name, then the agents without one. A manager is listed
  * among the managers whatever its group — there are one to three of them, and
  * a group section is where the agents of a kind are found. A section the
  * search leaves empty is not drawn. A cluster without agents is one managers
- * section, which the tree draws without a heading, as it always has.
+ * section, drawn without a heading.
  */
 export function treeSections(nodes: ClusterNode[], leaderId: string, query: string): TreeSection[] {
   const shown = sortNodes(filterNodes(nodes, { ...ALL_NODES, query }), leaderId)

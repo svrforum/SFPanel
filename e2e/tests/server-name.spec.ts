@@ -74,8 +74,8 @@ async function mock(page: Page, opts: { current?: string; nodesFail?: boolean } 
   return state
 }
 
-// The collapsed tree lists a node once the late list has come.
-const listed = (page: Page) => expect(page.getByRole('button', { name: 'node-b · Online', exact: true })).toBeVisible()
+// The server picker names the attached server by its cluster name once the late list has come.
+const listed = (page: Page) => expect(page.getByRole('button', { name: 'Choose a server: node-a' })).toBeVisible()
 
 test('the dashboard and the tab name the server the pages act on', async ({ page }) => {
   await mock(page, { current: 'n-2' })
@@ -106,7 +106,10 @@ test('cluster and settings screens carry no server', async ({ page }) => {
 test('a node list that fails leaves the hostname', async ({ page }) => {
   await mock(page, { nodesFail: true })
   await page.goto('/dashboard')
-  await expect(page.getByTitle('Node list unavailable')).toBeVisible()
+  // The list has failed, not merely not come yet: the picker says so.
+  await page.getByRole('button', { name: /Choose a server/ }).click()
+  await expect(page.getByRole('dialog').getByText('Server list unavailable')).toBeVisible()
+  await page.keyboard.press('Escape')
   await expect(page.getByRole('heading', { level: 1, name: 'host-b' })).toBeVisible()
   await expect(page.getByText('Hostname · host-b', { exact: true })).toHaveCount(0)
   await expect(page).toHaveTitle('Dashboard · SFPanel')
@@ -127,7 +130,7 @@ test('the terminal keeps its waiting count when the name arrives late', async ({
   await expect(page).toHaveTitle('(2) Terminal · node-b · SFPanel', { timeout: 10_000 })
   // In the app, not a reload: the order of the terminal's cleanup and the
   // shell's title is what is under test.
-  await page.getByRole('navigation').getByRole('link', { name: 'Settings', exact: true }).click()
+  await page.getByRole('navigation', { name: 'Main menu' }).getByRole('link', { name: 'Settings' }).click()
   await expect(page.getByRole('heading', { name: 'Settings', level: 1 })).toBeVisible()
   await expect(page).toHaveTitle('Settings · SFPanel')
 })

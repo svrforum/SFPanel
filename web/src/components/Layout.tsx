@@ -1,29 +1,23 @@
 import { useState, useEffect, useCallback, useLayoutEffect, useMemo, useRef } from 'react'
-import { Link, Outlet, useNavigate, useLocation } from 'react-router-dom'
-import { LogOut, PanelLeftClose, PanelLeftOpen, Coffee, ArrowUpCircle } from 'lucide-react'
-
-import GithubIcon from '@/components/GithubIcon'
+import { Outlet, useNavigate, useLocation } from 'react-router-dom'
 import { useTranslation } from 'react-i18next'
 import { api } from '@/lib/api'
 import { cn } from '@/lib/utils'
-import { documentTitle, isTerminalRoute, navFor, navOwner, pageTitleKey } from '@/lib/navigation'
+import { documentTitle, isTerminalRoute, navOwner, pageTitleKey } from '@/lib/navigation'
 import { selectedNodeName } from '@/lib/clusterNodes'
 import { CLUSTER_MODE_KEY, LOCAL_ID_KEY } from '@/lib/serverScope'
 import { keepTitlePrefix } from '@/lib/aiSessions'
 import { useTerminalCompact, useTerminalFocus } from '@/lib/terminalLayout'
-import { NODE_CHANGED, type NodeChangedDetail } from '@/lib/nodeSelection'
+import { NODE_CHANGED } from '@/lib/nodeSelection'
 import { useVisibleInterval } from '@/hooks/useVisibleInterval'
 import { useClusterUpdateCount } from '@/hooks/useClusterUpdateCount'
 import { ServerScopeContext, useServerScopeState } from '@/hooks/useServerScope'
 import { ErrorBoundary } from '@/components/ErrorBoundary'
-import ClusterSidebar from '@/components/cluster/ClusterSidebar'
+import Sidebar from '@/components/Sidebar'
 import SidebarSkeleton from '@/components/SidebarSkeleton'
-import Logo, { LogoMark } from '@/components/Logo'
 import BottomNav from '@/components/BottomNav'
 import MoreMenu from '@/components/MoreMenu'
-import type { ClusterNode, ClusterStatus, DashboardOverview } from '@/types/api'
-
-const navItems = navFor(false)
+import type { ClusterStatus, DashboardOverview } from '@/types/api'
 
 const SIDEBAR_KEY = 'sfpanel-sidebar-collapsed'
 
@@ -54,29 +48,25 @@ export default function Layout() {
   const [nodeKey, setNodeKey] = useState(0)
   const [moreOpen, setMoreOpen] = useState(false)
   // null = mode not yet known. Seeded from the last answer so a reload draws
-  // the correct sidebar immediately instead of assuming standalone, painting
-  // the standard sidebar, then swapping it for the cluster one once
-  // /cluster/status replies — that swap left the shell with NO sidebar while
-  // ClusterSidebar waited on its own probe.
+  // the menu for its mode at once, instead of a single server's menu that
+  // turns into the cluster's when /cluster/status replies.
   const [clusterEnabled, setClusterEnabled] = useState<boolean | null>(() => {
     const saved = localStorage.getItem(CLUSTER_MODE_KEY)
     return saved === null ? null : saved === 'true'
   })
   const [clusterStatus, setClusterStatus] = useState<ClusterStatus | null>(null)
-  // The tree's node list, for the name of the server the pages act on.
-  const [clusterNodes, setClusterNodes] = useState<ClusterNode[]>([])
   // The server the pages act on, for every surface that shows or changes it,
   // and kept in the address. The overview's hostname names the attached
   // server while no node list does.
   const hostname = overview?.node === api.currentNode ? overview?.data?.host?.hostname ?? '' : ''
   const scope = useServerScopeState({ clusterEnabled, status: clusterStatus, hostname })
-  // The cluster's counterpart of the standalone sidebar's update badge.
+  // The cluster's counterpart of a single server's update badge.
   const updateCount = useClusterUpdateCount(clusterEnabled === true)
   const location = useLocation()
   const isTerminal = isTerminalRoute(location.pathname)
   // The terminal has the window to itself on a touch device, and on a desktop
-  // when the operator chose focus: the sidebars stay mounted (their state and
-  // the cluster tree's polling survive) and are only not shown.
+  // when the operator chose focus: the sidebar stays mounted and is only not
+  // shown.
   const terminalCompact = useTerminalCompact()
   const [terminalFocus] = useTerminalFocus()
   const sidebarHidden = isTerminal && (terminalCompact || terminalFocus)
@@ -88,10 +78,11 @@ export default function Layout() {
   const titleKey = pageTitleKey(location.pathname)
   const pageLabel = titleKey ? t(titleKey) : location.pathname === '/' ? null : t('layout.notFound.title')
   // In a cluster, a server page also names the server it acts on: the one
-  // picked, else the one this panel runs on. Read at render — a node switch
-  // re-renders through nodeKey. The pages about all servers and settings act
-  // on no one server, and a server whose name the list has not given is left out.
-  const serverName = clusterEnabled === true ? selectedNodeName(clusterNodes, api.currentNode, clusterStatus?.local_id ?? '') : null
+  // picked, else the one this panel runs on. The pages about all servers and
+  // settings act on no one server, and a server whose name the list has not
+  // given is left out: the picker's stand-in name (the hostname, the id) is
+  // not the cluster's.
+  const serverName = clusterEnabled === true ? selectedNodeName(scope.nodes, scope.selected, scope.localId) : null
   const serverInTitle = owner?.entry.scope === 'server'
   const pageTitle = documentTitle(pageLabel, serverInTitle ? serverName : null)
   // Twice, around the terminal page's own effect, which prefixes "(n) " to the
@@ -123,11 +114,6 @@ export default function Layout() {
     const main = mainRef.current
     if (main && !main.contains(document.activeElement)) main.focus({ preventScroll: true })
   }, [sectionKey])
-
-  const handleNodeChanged = useCallback((nodeId: string | null) => {
-    setNodeKey((k) => k + 1)
-    window.dispatchEvent(new CustomEvent<NodeChangedDetail>(NODE_CHANGED, { detail: { nodeId } }))
-  }, [])
 
   useEffect(() => {
     const handler = () => setNodeKey((k) => k + 1)
@@ -164,9 +150,9 @@ export default function Layout() {
   // Single source of cluster status for the shell: ClusterSidebar used to run
   // its own copy of this call, so first paint cost two *sequential* round-trips
   // (Layout's, then the sidebar's) before anything could render. Polling (vs
-  // the previous one-shot) keeps leader/stale changes visible in the tree.
+  // the previous one-shot) keeps leader changes visible in the server picker.
   useVisibleInterval(loadClusterStatus, 15000)
-  // A change the page made itself (a rename) shows now, not at the next poll.
+  // A change the page made itself (a new leader) shows now, not at the next poll.
   useEffect(() => {
     window.addEventListener('sfpanel:cluster-changed', loadClusterStatus)
     return () => window.removeEventListener('sfpanel:cluster-changed', loadClusterStatus)
@@ -232,7 +218,13 @@ export default function Layout() {
     }
   }, [])
 
-  const versionState = updateAvailable ? t('layout.updateAvailable') : panelVersion ? t('layout.upToDate') : ''
+  // Under the menu: what is behind leads to where it is updated. A cluster
+  // counts its servers behind and sends to the overview, whose banner counts
+  // the same; a single server sends to its own update.
+  const update = clusterEnabled === true
+    ? (updateCount > 0 ? { label: t('layout.updateCount', { count: updateCount }), to: '/cluster/overview' } : null)
+    : (updateAvailable ? { label: t('layout.updateAvailable'), to: '/settings?tab=system' } : null)
+  const versionTo = clusterEnabled === true ? '/settings?scope=node&tab=system' : '/settings?tab=system'
 
   const handleLogout = () => {
     // Fire-and-forget — even if the server is unreachable we still want to
@@ -252,192 +244,21 @@ export default function Layout() {
       >
         {t('layout.skipToContent')}
       </a>
-      {/* First visit only: no remembered mode yet, so neither sidebar can be
-          chosen without guessing. Hold the slot rather than collapsing it. */}
-      {clusterEnabled === null && !sidebarHidden && <SidebarSkeleton />}
-
-      {/* Cluster dual-panel sidebar */}
-      {clusterEnabled === true && (
+      {/* First visit only: no remembered mode yet, so which menu to draw
+          cannot be known without guessing. Hold the slot rather than
+          collapsing it. */}
+      {clusterEnabled === null && !sidebarHidden ? <SidebarSkeleton /> : (
         <div className={cn('hidden h-full shrink-0', !sidebarHidden && 'md:flex')}>
-          <ClusterSidebar
-            status={clusterStatus}
-            panelVersion={panelVersion}
+          <Sidebar
+            collapsed={collapsed}
+            onToggleCollapsed={() => setCollapsed((c) => !c)}
+            version={panelVersion}
+            update={update}
+            versionTo={versionTo}
             onLogout={handleLogout}
-            onNodeChanged={handleNodeChanged}
-            onNodes={setClusterNodes}
-            updateCount={updateCount}
           />
         </div>
       )}
-
-      {/* Standard sidebar (non-cluster mode) */}
-      {clusterEnabled === false && <aside className={cn(
-        'bg-card border-r border-border flex-col transition-[width] duration-300 ease-in-out shrink-0 hidden h-full',
-        !sidebarHidden && 'md:flex',
-        collapsed ? 'w-[68px]' : 'w-60'
-      )}>
-        <div className={cn('flex items-center', collapsed ? 'px-3 py-6 justify-center' : 'px-4 py-4')}>
-          {collapsed ? (
-            <Link to="/dashboard" aria-label="SFPanel" className="rounded-lg focus:outline-none focus-visible:ring-2 focus-visible:ring-ring">
-              <LogoMark className="h-8 w-8" />
-            </Link>
-          ) : (
-            <Link to="/dashboard" aria-label="SFPanel" className="block w-full rounded-lg focus:outline-none focus-visible:ring-2 focus-visible:ring-ring">
-              <Logo />
-            </Link>
-          )}
-        </div>
-
-        <nav className={cn('flex-1 min-h-0 overflow-y-auto no-scrollbar space-y-0.5', collapsed ? 'px-2' : 'px-3')}>
-          {navItems.map((item) => {
-            // The entry a page belongs to, tabs included: /processes lights
-            // System, /cluster/nodes lights Cluster.
-            const active = owner?.entry === item
-            return (
-              <Link
-                key={item.to}
-                to={item.to}
-                aria-current={active ? 'page' : undefined}
-                title={collapsed ? t(item.labelKey) : undefined}
-                className={cn(
-                  'relative flex items-center rounded-xl text-[13px] font-medium transition duration-200 outline-none focus-visible:ring-2 focus-visible:ring-ring',
-                  collapsed ? 'justify-center px-0 py-2.5' : 'gap-3 px-3 py-2',
-                  active
-                    ? 'bg-primary/10 text-primary'
-                    : 'text-muted-foreground hover:bg-accent hover:text-foreground'
-                )}
-              >
-                <item.icon className="h-[18px] w-[18px] shrink-0" />
-                {!collapsed && t(item.labelKey)}
-              </Link>
-            )
-          })}
-        </nav>
-
-        {/* Sidebar bottom (fixed, never pushed off-screen) */}
-        <div className="shrink-0 mt-auto">
-        {/* Version info */}
-        <div className={cn('border-t border-border', collapsed ? 'px-2 py-2' : 'px-4 py-3')}>
-          {collapsed ? (
-            <div className="flex flex-col items-center gap-1.5">
-              {/* The dot's colour was all that told an update from up to
-                  date, and the name said only "Settings": the state is in
-                  the name and the title, and an update is an arrow. */}
-              <button
-                onClick={() => navigate('/settings?scope=node&tab=system')}
-                title={[panelVersion ? `v${panelVersion}` : 'SFPanel', versionState].filter(Boolean).join(' · ')}
-                aria-label={[t('layout.nav.settings'), panelVersion && `v${panelVersion}`, versionState].filter(Boolean).join(' · ')}
-                className="flex flex-col items-center gap-1 w-full rounded-lg outline-none focus-visible:ring-2 focus-visible:ring-ring"
-              >
-                <span className="text-[12px] font-medium text-muted-foreground">
-                  {panelVersion ? `v${panelVersion.split('.').slice(0, 2).join('.')}` : '…'}
-                </span>
-                {updateAvailable ? (
-                  <ArrowUpCircle className="h-3 w-3 text-primary" aria-hidden="true" />
-                ) : panelVersion ? (
-                  <span className="h-1.5 w-1.5 rounded-full bg-success" aria-hidden="true" />
-                ) : null}
-              </button>
-              <div className="flex items-center gap-1 pt-0.5">
-                <a
-                  href="https://github.com/svrforum/SFPanel"
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  title="GitHub"
-                  aria-label="GitHub"
-                  className="text-muted-foreground hover:text-foreground transition-colors rounded-sm outline-none focus-visible:ring-2 focus-visible:ring-ring"
-                >
-                  <GithubIcon className="h-3.5 w-3.5" />
-                </a>
-                <a
-                  href="https://buymeacoffee.com/svrforum"
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  title="Buy me a coffee"
-                  aria-label="Buy me a coffee"
-                  className="text-muted-foreground hover:text-[#FFDD00] transition-colors rounded-sm outline-none focus-visible:ring-2 focus-visible:ring-ring"
-                >
-                  <Coffee className="h-3.5 w-3.5" />
-                </a>
-              </div>
-            </div>
-          ) : (
-            <div className="space-y-2">
-              <button
-                onClick={() => navigate('/settings?scope=node&tab=system')}
-                aria-label={t('layout.nav.settings')}
-                className="flex items-center justify-between w-full group rounded-lg outline-none focus-visible:ring-2 focus-visible:ring-ring"
-              >
-                <div>
-                  <p className="text-[12px] font-medium text-muted-foreground">SFPanel</p>
-                  <p className="text-[12px] font-semibold text-foreground/80">
-                    {panelVersion ? `v${panelVersion}` : '…'}
-                  </p>
-                </div>
-                {updateAvailable ? (
-                  <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[12px] font-semibold bg-primary/10 text-primary">
-                    {t('layout.updateAvailable')}
-                  </span>
-                ) : panelVersion ? (
-                  <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[12px] font-semibold bg-success/10 text-success">
-                    {t('layout.upToDate')}
-                  </span>
-                ) : null}
-              </button>
-              <div className="flex items-center gap-2.5 text-[12px] text-muted-foreground">
-                <a
-                  href="https://github.com/svrforum/SFPanel"
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="inline-flex items-center gap-1 hover:text-foreground transition-colors"
-                  title="GitHub"
-                >
-                  <GithubIcon className="h-3 w-3" />
-                  <span>GitHub</span>
-                </a>
-                <a
-                  href="https://buymeacoffee.com/svrforum"
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="inline-flex items-center gap-1 hover:text-[#FFDD00] transition-colors"
-                  title="Buy me a coffee"
-                >
-                  <Coffee className="h-3 w-3" />
-                  <span>{t('layout.sponsor')}</span>
-                </a>
-              </div>
-            </div>
-          )}
-        </div>
-
-        <div className={cn('pb-4 pt-2 border-t border-border', collapsed ? 'px-2' : 'px-3')}>
-          <button
-            onClick={() => setCollapsed(!collapsed)}
-            className={cn(
-              'flex items-center rounded-xl text-[13px] font-medium text-muted-foreground hover:bg-accent hover:text-foreground transition duration-200 w-full outline-none focus-visible:ring-2 focus-visible:ring-ring',
-              collapsed ? 'justify-center px-0 py-2.5' : 'gap-3 px-3 py-2'
-            )}
-            title={collapsed ? t('layout.expand') : t('layout.collapse')}
-            aria-label={collapsed ? t('layout.expand') : t('layout.collapse')}
-          >
-            {collapsed ? <PanelLeftOpen className="h-[18px] w-[18px]" /> : <PanelLeftClose className="h-[18px] w-[18px]" />}
-            {!collapsed && t('layout.collapse')}
-          </button>
-          <button
-            onClick={handleLogout}
-            className={cn(
-              'flex items-center rounded-xl text-[13px] font-medium text-muted-foreground hover:bg-accent hover:text-foreground transition duration-200 w-full outline-none focus-visible:ring-2 focus-visible:ring-ring',
-              collapsed ? 'justify-center px-0 py-2.5' : 'gap-3 px-3 py-2'
-            )}
-            title={collapsed ? t('layout.logout') : undefined}
-            aria-label={t('layout.logout')}
-          >
-            <LogOut className="h-[18px] w-[18px] shrink-0" />
-            {!collapsed && t('layout.logout')}
-          </button>
-        </div>
-        </div>
-      </aside>}
 
       <main id="main-content" ref={mainRef} tabIndex={-1} className={cn(
         // min-w-0 lets this flex child shrink below its content width, and

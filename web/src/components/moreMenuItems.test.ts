@@ -13,8 +13,8 @@ describe('the drawer in cluster mode', () => {
   })
 
   it('does not repeat the bottom bar', () => {
-    // NODE_MENU_ITEMS is the whole registry; deriving from it would list the
-    // bottom tabs in the drawer beside themselves.
+    // Deriving from the whole registry would list the bottom tabs in the
+    // drawer beside themselves.
     const bottom = BOTTOM_NAV_ITEMS.map((i) => i.to)
     for (const path of nodeScoped) {
       expect(bottom).not.toContain(path)

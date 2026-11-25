@@ -83,14 +83,25 @@
     "collapse": "사이드바 접기",
     "expand": "사이드바 펼치기",
     "updateAvailable": "업데이트",
-    "upToDate": "최신",
     "updateCount_one": "업데이트 {{count}}대",
     "updateCount_other": "업데이트 {{count}}대",
+    "mainMenu": "주 메뉴",
+    "groups": {
+      "fleet": "모든 서버"
+    },
+    "server": {
+      "pick": "서버 고르기",
+      "search": "서버 검색",
+      "noMatch": "일치하는 서버가 없습니다.",
+      "listUnavailable": "서버 목록을 가져올 수 없음",
+      "attached": "접속 중",
+      "offline": "{{count}}대 꺼짐",
+      "agentGroup": "에이전트 (그룹 {{group}})"
+    },
     "cluster": {
       "localNode": "이 노드",
       "selectNode": "노드 선택",
-      "nodeCount": "{{count}}개 노드",
-      "unknownNode": "알 수 없는 노드"
+      "nodeCount": "{{count}}개 노드"
     },
     "mobileNav": {
       "dashboard": "대시보드",
@@ -1007,11 +1018,8 @@
     "title": "클러스터",
     "nav": {
       "overview": "개요",
-      "running": "실행 현황",
       "nodes": "서버 목록",
-      "stacks": "Docker",
-      "security": "키 교체",
-      "tasks": "그룹 작업"
+      "security": "키 교체"
     },
     "notEnabled": {
       "title": "클러스터가 활성화되지 않았습니다",
@@ -1328,15 +1336,10 @@
       "restartingDesc": "단독 패널로 돌아가려고 서비스를 재시작하고 있습니다. 다시 응답하면 이 페이지를 새로 불러옵니다."
     },
     "tree": {
-      "datacenter": "데이터센터",
-      "node": "노드",
-      "toggleNodes": "노드 목록 접기/펼치기",
-      "nodesUnavailable": "노드 목록을 가져올 수 없음",
       "managers": "매니저",
       "ungrouped": "그룹 없음",
       "search": "노드 검색",
-      "noMatch": "일치하는 노드가 없습니다.",
-      "nodeGone": "{{id}}이(가) 더 이상 클러스터에 없어 이 노드를 대신 보여 줍니다."
+      "noMatch": "일치하는 노드가 없습니다."
     },
     "status": {
       "online": "온라인",

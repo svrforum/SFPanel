@@ -204,7 +204,7 @@ jobs:
             tests/mobile-node-picker.spec.ts \
             tests/bottom-nav.spec.ts \
             tests/docker-workflows.spec.ts \
-            tests/cluster-tree.spec.ts \
+            tests/server-switcher.spec.ts \
             tests/cluster-follower-actions.spec.ts \
             tests/alert-settings.spec.ts \
             tests/terminal-select-text.spec.ts \

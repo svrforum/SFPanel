@@ -7,7 +7,7 @@ const at = (tree: unknown, key: string): unknown =>
 
 // One Korean name per menu, tab and action, the same wherever it appears.
 const KO: Record<string, string> = {
-  'layout.nav.cron': '예약 작업', 'cluster.nav.security': '키 교체', 'cluster.nav.tasks': '그룹 작업',
+  'layout.nav.cron': '예약 작업', 'cluster.nav.security': '키 교체',
   'firewall.tabs.rules': '방화벽 규칙', 'firewall.tabs.ports': '열린 포트', 'firewall.tabs.fail2ban': '접속 차단',
   'firewall.tabs.docker': '컨테이너 포트 규칙', 'packages.systemUpdates': '패키지 업데이트',
   'cluster.overview.rollingUpdate': '패널 순차 업데이트', 'cluster.overview.simultaneousUpdate': '패널 동시 업데이트',
@@ -15,6 +15,7 @@ const KO: Record<string, string> = {
   'settings.update': '패널 업데이트', 'running.empty.appStore': '앱스토어',
   'layout.nav.system': '시스템', 'layout.nav.tasks': '그룹 작업', 'cluster.nav.nodes': '서버 목록',
   'layout.tabs.summary': '요약', 'layout.tabs.runningHere': '실행 중인 항목',
+  'layout.groups.fleet': '모든 서버', 'layout.server.attached': '접속 중', 'layout.server.offline': '{{count}}대 꺼짐',
 }
 // A page's <h1> is its menu label.
 const H1: [string, string][] = [

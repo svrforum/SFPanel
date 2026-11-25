@@ -53,7 +53,7 @@ export default function Dashboard() {
   const { t, i18n } = useTranslation()
   const outletCtx = useOutletContext<LayoutOutletContext | undefined>()
   const sharedOverview = outletCtx?.overview
-  // In a cluster the heading is the name the tree lists, and the host's own
+  // In a cluster the heading is the name the node list gives, and the host's own
   // name goes under it.
   const serverName = outletCtx?.serverName ?? null
   const loadOverview = useCallback(() => {

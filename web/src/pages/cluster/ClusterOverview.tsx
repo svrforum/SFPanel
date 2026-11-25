@@ -145,7 +145,7 @@ export default function ClusterOverview() {
   }
 
   // The name is cluster-wide: any node can rename it (the server hands the
-  // write to the leader), and the shell's sidebar is told to re-read it.
+  // write to the leader), and the shell is told to re-read the status.
   const handleRename = async () => {
     const current = overview?.name || status?.name || ''
     const entered = await prompt({

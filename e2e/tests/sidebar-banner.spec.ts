@@ -9,9 +9,7 @@ import { PW_USER, PW_PASS } from './helpers'
 // wordmark text rather than on an image URL. Expanded and collapsed differ by
 // whether the wordmark text is present.
 //
-// Scoped to <aside>, i.e. the standalone sidebar, which is what CI runs. The
-// cluster sidebar renders its own brand in a <div> and drops it entirely when
-// the tree is collapsed, so it is not covered here.
+// Scoped to <aside>, the sidebar of both modes; CI runs it on a single server.
 //
 // Credentials come from PW_USER / PW_PASS (default admin / TestPass123!);
 // the account must have no TOTP — the form fill below can't answer 2FA.

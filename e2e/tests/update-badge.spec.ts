@@ -1,11 +1,11 @@
 import { test, expect, type Page } from '@playwright/test'
 
 // In cluster mode the sidebar said nothing of servers behind: the standalone
-// sidebar's update badge has no place in the tree, and the count lived on the
-// overview alone. The tree now carries it — an arrow above sign-out in the
-// rail, a badge beside the version when expanded — counted as the overview's
-// banner counts it, from the same /cluster/overview. Mocked API: four
-// managers, node-d offline; the node list answers late, as a leader does.
+// sidebar's update badge had no place in the old tree, and the count lived on
+// the overview alone. The version under the menu now carries it, counted as
+// the overview's banner counts it, from the same /cluster/overview, and links
+// there. Mocked API: four managers, node-d offline; the node list answers
+// late, as a leader does.
 test.use({ viewport: { width: 1280, height: 800 }, locale: 'en-US' })
 
 const node = (i: number, status: string) => ({
@@ -20,8 +20,6 @@ const LATEST = '0.93.1'
 // n-2 and n-3 are online and behind; n-4 is further behind, but offline.
 const BEHIND = ['0.93.1', '0.93.0', '0.92.0', '0.90.0']
 const CURRENT = ['0.93.1', '0.93.1', '0.93.1', '0.90.0']
-
-const EXPANDED = { 'sfpanel-cluster-tree-collapsed': 'false' }
 
 interface Opts { versions?: string[]; overviewDown?: boolean; storage?: Record<string, string> }
 
@@ -70,16 +68,17 @@ async function mock(page: Page, opts: Opts = {}) {
   return overview
 }
 
-const badge = (page: Page) => page.getByRole('link', { name: /to update/ })
-// The rail's node buttons, named "node-a · Online"; they come with the late node list.
-const railNodes = (page: Page) => page.getByRole('button', { name: /^node-[a-d] · / })
+// The version link under the menu, named with the count when there is one.
+const badge = (page: Page) => page.locator('aside').getByRole('link', { name: /to update/ })
+// The node list has come: the picker counts the offline node.
+const listed = (page: Page) => expect(page.getByRole('button', { name: /Choose a server/ })).toContainText('1 offline')
 
-test('the rail links the count of servers behind to the overview', async ({ page }) => {
+test('the footer links the count of servers behind to the overview', async ({ page }) => {
   // No remembered mode: the shell learns it is a cluster after it has drawn.
   await mock(page)
   await page.goto('/cluster/nodes')
 
-  const link = page.getByRole('link', { name: '2 to update' })
+  const link = page.locator('aside').getByRole('link', { name: /2 to update/ })
   await expect(link).toBeVisible()
   await expect(link).toHaveAttribute('href', '/cluster/overview')
   await link.click()
@@ -88,38 +87,35 @@ test('the rail links the count of servers behind to the overview', async ({ page
   await expect(page.getByText(`2 nodes to update to ${LATEST}`)).toBeVisible()
 })
 
-test('the expanded tree shows the count beside the version', async ({ page }) => {
-  await mock(page, { storage: { ...EXPANDED, 'sfpanel-cluster-mode': 'true' } })
+test('a collapsed sidebar keeps the count in the link\'s name', async ({ page }) => {
+  await mock(page, { storage: { 'sfpanel-sidebar-collapsed': 'true', 'sfpanel-cluster-mode': 'true' } })
   await page.goto('/cluster/nodes')
 
-  const link = page.getByRole('link', { name: '2 to update' })
+  const link = page.locator('aside').getByRole('link', { name: /2 to update/ })
   await expect(link).toBeVisible()
   await expect(link).toHaveAttribute('href', '/cluster/overview')
-  await expect(link.locator('xpath=..')).toContainText(`v${LATEST}`)
 })
 
 test('no badge when every online server is current', async ({ page }) => {
-  await mock(page, { versions: CURRENT })
+  const overview = await mock(page, { versions: CURRENT })
   await page.goto('/cluster/nodes')
 
   // The overview answered long before the node list: it has been counted.
-  await expect(railNodes(page)).toHaveCount(4)
-  await expect(badge(page)).toHaveCount(0)
-
-  await page.getByRole('button', { name: 'Expand sidebar' }).click()
-  await expect(page.locator('[data-tree-node]')).toHaveCount(4)
+  await listed(page)
+  expect(overview.asked).toBeGreaterThan(0)
   await expect(badge(page)).toHaveCount(0)
 })
 
 test('an overview the leader cannot answer shows no badge', async ({ page }) => {
   const errors: string[] = []
   page.on('pageerror', (e) => errors.push(e.message))
-  const overview = await mock(page, { overviewDown: true, storage: EXPANDED })
+  const overview = await mock(page, { overviewDown: true })
   await page.goto('/cluster/nodes')
 
   // The sidebar is drawn as ever, after the refused overview.
-  await expect(page.locator('[data-tree-node]')).toHaveCount(4)
-  expect(overview.asked).toBeGreaterThan(0)
+  await listed(page)
+  expect(overview.refused).toBeGreaterThan(0)
+  await expect(page.getByRole('navigation', { name: 'Main menu' }).getByRole('link', { name: 'Settings' })).toBeVisible()
   await expect(badge(page)).toHaveCount(0)
   expect(errors).toEqual([])
 })
@@ -129,7 +125,7 @@ test('a read that fails keeps the last count', async ({ page }) => {
   const opts: Opts = {}
   const overview = await mock(page, opts)
   await page.goto('/cluster/nodes')
-  const link = page.getByRole('link', { name: '2 to update' })
+  const link = page.locator('aside').getByRole('link', { name: /2 to update/ })
   await expect(link).toBeVisible()
 
   // The next minute's read is refused.

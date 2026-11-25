@@ -125,7 +125,7 @@ export function useServerScopeState({ clusterEnabled, status, hostname }: {
     listedBefore.current = listed
   }, [listed, loadNodes])
 
-  // A switch made elsewhere (the cluster tree, a node list's "Open node").
+  // A switch made elsewhere (a node list's "Open node").
   useEffect(() => {
     const follow = () => setSelected(api.currentNode)
     window.addEventListener(NODE_CHANGED, follow)

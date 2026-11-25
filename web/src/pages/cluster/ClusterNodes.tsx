@@ -134,7 +134,7 @@ export default function ClusterNodes() {
   const shown = useMemo(() => sortNodes(filterNodes(nodes ?? [], filter), leaderId), [nodes, filter, leaderId])
 
   // After a change the list is fetched again and the shell is told, so the
-  // sidebar's tree shows the same nodes, groups and leader as this table.
+  // server picker shows the same nodes, groups and leader as this table.
   const changed = useCallback(() => {
     loadNodes()
     window.dispatchEvent(new Event('sfpanel:cluster-changed'))

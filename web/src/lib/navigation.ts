@@ -248,15 +248,6 @@ export function moreMenuGroups(cluster: boolean): MoreGroup[] {
 /** @deprecated The More drawer moves to moreMenuGroups. */
 export const MORE_MENU_ITEMS = NAV_ITEMS.filter((i) => !i.bottomNav)
 
-/**
- * @deprecated The cluster tree's per-node menu goes with the tree.
- * The pages that act on one server, with settings scoped to the node.
- */
-export const NODE_MENU_ITEMS: NavEntry[] = [
-  ...NAV_ITEMS.filter((i) => i.group === 'server'),
-  ...NAV_ITEMS.filter((i) => i.to === '/settings').map((i) => ({ ...i, to: '/settings?scope=node' })),
-]
-
 /** The tab title: the page, the server it acts on when there is one, then the product; the product alone without a page. */
 export function documentTitle(page: string | null, server: string | null): string {
   if (!page) return 'SFPanel'

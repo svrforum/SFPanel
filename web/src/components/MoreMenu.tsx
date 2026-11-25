@@ -36,9 +36,9 @@ const menuItems = MORE_MENU_ITEMS.map((i) => ({
  * has no way to open — so on a phone in cluster mode none of it was reachable
  * at all.
  *
- * Derived from MORE_MENU_ITEMS rather than NODE_MENU_ITEMS: the latter is the
- * whole registry, which would put the bottom bar's own tabs into the drawer
- * beside themselves — the duplication navigation.ts says it fixed.
+ * Derived from MORE_MENU_ITEMS rather than the whole registry, which would
+ * put the bottom bar's own tabs into the drawer beside themselves — the
+ * duplication navigation.ts says it fixed.
  */
 const nodeMenuItems = MORE_MENU_ITEMS.map((i) => ({
   path: i.to === '/settings' ? '/settings?scope=node' : i.to,

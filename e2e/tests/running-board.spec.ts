@@ -284,9 +284,9 @@ test('a node list that answers after the page was left asks no node', async ({ p
   await page.goto('/cluster/running')
   const title = page.getByRole('main').getByRole('heading', { name: 'Running', exact: true })
   await expect(title).toBeVisible()
-  await page.getByRole('link', { name: 'Key Rotation', exact: true }).first().click()
+  await page.getByRole('navigation', { name: 'Main menu' }).getByRole('link', { name: 'Settings' }).click()
   // Left, and not only by the address: the page itself is gone.
-  await expect(page).toHaveURL(/\/cluster\/security/)
+  await expect(page).toHaveURL(/\/settings$/)
   await expect(title).toHaveCount(0)
   release()
   await page.waitForTimeout(800)
