@@ -6,6 +6,7 @@ import { api } from '@/lib/api'
 import { cn } from '@/lib/utils'
 import { documentTitle, isTerminalRoute, navOwner, pageTitleKey } from '@/lib/navigation'
 import { selectedNodeName } from '@/lib/clusterNodes'
+import { bridgeServer, buildBridge, publishBridge } from '@/lib/panelBridge'
 import { CLUSTER_MODE_KEY, LOCAL_ID_KEY } from '@/lib/serverScope'
 import { keepTitlePrefix } from '@/lib/aiSessions'
 import { useTerminalCompact, useTerminalFocus } from '@/lib/terminalLayout'
@@ -42,7 +43,7 @@ export interface LayoutOutletContext {
 
 export default function Layout() {
   const navigate = useNavigate()
-  const { t } = useTranslation()
+  const { t, i18n } = useTranslation()
   const [collapsed, setCollapsed] = useState(() => {
     return localStorage.getItem(SIDEBAR_KEY) === 'true'
   })
@@ -115,6 +116,14 @@ export default function Layout() {
   useEffect(() => {
     if (!isTerminal) document.title = pageTitle
   }, [pageTitle, isTerminal])
+
+  // The server the pages act on and the menu, for the Android app's title and
+  // feature sheet. The node list is reread into new objects every poll: only
+  // what the bridge carries counts, and t follows the language.
+  useEffect(() => publishBridge(window, buildBridge(clusterEnabled === true, bridgeServer(scope), t)),
+    [clusterEnabled, scope.current?.id, scope.current?.name, scope.current?.kind, scope.selected, i18n.language]) // eslint-disable-line react-hooks/exhaustive-deps
+  // Signed out, the shell is gone: the app goes back to its own list and the connection's name.
+  useEffect(() => () => { delete window.__sfpanel }, [])
 
   // Moving to another section takes focus to the new view, as a page load
   // would: it was left on the link in the sidebar or on <body>, so a keyboard
