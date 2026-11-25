@@ -25,6 +25,9 @@ export default function Cluster() {
   // other tabs each said only "Cluster not enabled". Only a definite answer
   // sends it there — a cluster node whose status read is late or fails keeps
   // the page it asked for. The fleet board has one server's counterpart.
+  // `enabled: false` also comes from a member whose cluster failed to start
+  // (`configured: true`); the overview is right for it too, since it says the
+  // cluster is not running instead of offering create and join.
   const standalone = ctx?.clusterStatus?.enabled === false
   if (standalone && pathname !== '/cluster/overview') {
     return <Navigate to={pathname === '/cluster/running' ? '/running' : '/cluster/overview'} replace />

@@ -5,7 +5,7 @@ import en from './locales/en.json'
 const at = (tree: unknown, key: string): unknown =>
   key.split('.').reduce<unknown>((n, p) => (n && typeof n === 'object' ? (n as Record<string, unknown>)[p] : undefined), tree)
 
-// Words the menu redesign fixes (docs: 2026-11-25 menu IA, §3 and appendix F).
+// One Korean name per menu, tab and action, the same wherever it appears.
 const KO: Record<string, string> = {
   'layout.nav.cron': '예약 작업', 'cluster.nav.security': '키 교체', 'cluster.nav.tasks': '그룹 작업',
   'firewall.tabs.rules': '방화벽 규칙', 'firewall.tabs.ports': '열린 포트', 'firewall.tabs.fail2ban': '접속 차단',

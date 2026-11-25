@@ -399,9 +399,10 @@ export default function Logs() {
             ))
           )}
 
-          {/* Records kept elsewhere: shown whatever became of the list above */}
-          <nav aria-label={t('logs.otherRecords')} className="pt-4">
-            <h2 className="mb-1 text-sm font-semibold text-muted-foreground uppercase tracking-wider">
+          {/* Records kept elsewhere: shown whatever became of the list above.
+              Named by its heading, so a screen reader says the name once. */}
+          <nav aria-labelledby="log-other-records" className="pt-4">
+            <h2 id="log-other-records" className="mb-1 text-sm font-semibold text-muted-foreground uppercase tracking-wider">
               {t('logs.otherRecords')}
             </h2>
             <ul>

@@ -8,8 +8,9 @@ import { test, expect, type Page } from '@playwright/test'
 test.use({ viewport: { width: 1280, height: 800 }, locale: 'en-US' })
 
 interface Opts {
-  /** What GET /cluster/status answers: the mode, or a server error. */
-  status: { enabled: boolean } | 500
+  /** What GET /cluster/status answers: the mode, or a server error.
+   * `configured`: a member whose cluster did not start. */
+  status: { enabled: boolean; configured?: boolean } | 500
   /** Milliseconds before /cluster/status answers. */
   delay?: number
   /** The shell's saved belief from an earlier visit (sfpanel-cluster-mode). */
@@ -38,7 +39,7 @@ async function mock(page: Page, opts: Opts) {
       }
       const data = opts.status.enabled
         ? { enabled: true, name: 'lab', node_count: nodes.length, leader_id: 'm-1', local_id: 'm-1', is_leader: true }
-        : { enabled: false }
+        : { enabled: false, ...(opts.status.configured ? { configured: true } : {}) }
       await route.fulfill({ json: { success: true, data } })
       return
     }
@@ -115,4 +116,15 @@ test('a cluster node whose status read fails keeps its tab', async ({ page }) =>
   expect((await answered).status()).toBe(500)
   await expect(page).toHaveURL(/\/cluster\/nodes$/)
   await expect(tab(page, 'Nodes')).toHaveAttribute('aria-current', 'page')
+})
+
+// `enabled: false` also comes from a member whose cluster failed to start. It
+// is sent to the overview too, which tells it so instead of offering create
+// and join over the membership it still has.
+test('a member whose cluster did not start lands on the overview, which says so', async ({ page }) => {
+  await mock(page, { status: { enabled: false, configured: true } })
+  await page.goto('/cluster/nodes')
+  await expect(page).toHaveURL(/\/cluster\/overview$/)
+  await expect(page.getByRole('heading', { name: "This node's cluster service did not start" })).toBeVisible()
+  await expect(page.getByRole('button', { name: 'Initialize Cluster' })).toHaveCount(0)
 })

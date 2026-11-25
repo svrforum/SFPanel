@@ -69,7 +69,7 @@ for (const { name, width, action } of layouts) {
     await action(page, 'Run now').click()
 
     const ask = page.getByRole('dialog')
-    await expect(ask.getByRole('heading', { name: 'Run this job now?' })).toBeVisible()
+    await expect(ask.getByRole('heading', { name: 'Run this task now?' })).toBeVisible()
     await expect(ask).toContainText('as root')
     await expect(ask.getByText('echo heartbeat', { exact: true })).toBeVisible()
     expect(posts).toEqual([])

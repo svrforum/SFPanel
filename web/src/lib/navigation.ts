@@ -91,7 +91,7 @@ export function documentTitle(page: string | null, server: string | null): strin
   return server ? `${page} · ${server} · SFPanel` : `${page} · SFPanel`
 }
 
-/** Whether a menu entry acts on one server: everything but the cluster page and settings (stage ② of the menu rework replaces this with NavEntry.scope). */
+/** Whether a menu entry acts on one server, so its tab title names that server: everything but the cluster page and settings, which are not one server's pages. */
 export function isServerSection(to: string): boolean {
   return to !== '/cluster' && to !== '/settings'
 }
