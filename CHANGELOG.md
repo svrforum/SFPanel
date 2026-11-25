@@ -6,6 +6,32 @@ The format is loosely based on [Keep a Changelog](https://keepachangelog.com/), 
 
 ---
 
+## [0.95.0] – 2026-11-26
+
+One menu, and the server you are looking at always in sight. The second of four steps that reorganise the menus: the sidebar is one column in both modes, the cluster tree is gone, and in a cluster every server page says which server it is on — above the page, in the address and in the tab title.
+
+### Changed
+
+- **One menu for both modes.** Terminal, Dashboard, Docker, Files, Logs, System, Network / VPN, Firewall and Disk act on one server. In a cluster an "All servers" group follows with Running, Group Tasks and Cluster, and Settings comes last. That is 13 entries in a cluster and 11 on a single server, in the same order on the desktop, in the phone's More drawer and in the Android app. The cluster tree and its datacenter menu are gone.
+- **Pages that belong together are tabs.** System holds Services, Processes, Scheduled Tasks and Packages. Dashboard holds Summary and Running here. Docker holds Stacks, Containers, Images, Volumes, Networks and App Store. Cluster holds Overview, Nodes (서버 목록) and Key Rotation. Every address stays as it was.
+- **The server picker heads the menu.** In a cluster the top of the sidebar names the server the pages act on, its role, whether it is the one you are attached to, and how many servers are off. It opens a searchable list. On a phone the same list heads the More drawer, and the terminal header carries a server chip, so the terminal keeps every line it had.
+- **A line above each page says what it acts on.** In a cluster, server pages show "Server <name> · <role>", outlined in orange while you look at another server than the one you are attached to. All-servers pages show how many servers are online, and settings say whether a change is the same on every server or saved on that server only. A bookmarked server that has left the cluster says "Server not found" instead of quietly showing another one. The terminal keeps its full height and gets no line.
+- **The address names the server.** In a cluster a server page's address carries `?node=<id>`, the attached server's own id included, so a bookmark, a new tab or a link opens the same server, and Back and Forward follow the server in the address. Menu links carry it too, so pressing the page you are on adds no history step. A single server never carries it.
+- **Changing servers keeps you on the page.** Picking another server stays on the same page and tab. A detail the new server lacks (a stack, a container, a folder) opens its list instead of an empty page. Only a pick made on an all-servers page opens that server's dashboard.
+- **No more silent server switches.** The running board and the cluster pages link to a server's pages with the server in the address instead of changing the shell's server behind your back. The cluster-wide Docker page is gone: a stack on the running board opens Docker › Stacks on its server, and the old `/cluster/stacks` addresses lead there.
+- **The phone's More drawer is grouped**: the current server's pages under its name, then All servers, then settings. Opened from the terminal's session drawer through its new Menu button, it starts with the bottom bar's other tabs.
+- **The page tells the Android app its menu and server.** App 0.2.0 draws the same menu in its feature sheet and titles itself with the server you are looking at. Older apps keep their own list and work as before.
+
+### Fixed
+
+- **Files showed a folder you had already left.** A listing that answered after you moved on replaced the one you asked for.
+- **The Docker stack list never finished its first load.** "No stacks found" never showed and Refresh stayed disabled until the next poll.
+- **Files and Docker › Stacks dropped other address parameters** when the folder changed or the new-stack form closed.
+
+### Upgrading
+
+- Old addresses, bookmarks, saved dashboard shortcuts and the Android app's 15 entries all keep opening their pages. The cluster tree's saved state is cleared once, as it has nothing left to describe.
+
 ## [0.94.0] – 2026-11-25
 
 One name for each thing, and the server you are looking at named where you look. This is the first of four steps that reorganise the menus; the sidebar keeps its shape in this one.
