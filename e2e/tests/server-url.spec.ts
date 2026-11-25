@@ -414,16 +414,31 @@ test('the disk Setup menu names the server shown, like the tabs', async ({ page 
   await expect(page.getByRole('menuitem', { name: 'RAID' })).toHaveAttribute('href', '/disk/raid?node=m-1')
 })
 
-// The dashboard's RAID line opens the arrays of the server it read them from,
-// in this tab or a new one.
-test('the dashboard RAID line names the server shown', async ({ page }) => {
+// The dashboard's lines open what they say of the server they read it from,
+// in this tab or a new one: every Needs Attention line, the backup and the
+// update. A bare link got the server back only from the shell, after the page
+// had opened, and a new tab opened whichever server was stored last.
+test('the dashboard lines name the server shown', async ({ page }) => {
   await mock(page, { storage: CLUSTER })
-  await page.route((url) => url.pathname === '/api/v1/raid', (route) => route.fulfill({ json: { success: true, data: [
-    { name: 'md0', level: 'raid1', state: 'clean, degraded', size: 1e12, devices: [], active: 1, total: 2, failed: 1, spare: 0 },
-  ] } }))
+  const answer = (path: string, data: unknown) => page.route((url) => url.pathname === `/api/v1${path}`, (route) => route.fulfill({ json: { success: true, data } }))
+  await answer('/raid', [{ name: 'md0', level: 'raid1', state: 'clean, degraded', size: 1e12, devices: [], active: 1, total: 2, failed: 1, spare: 0 }])
+  await answer('/docker/containers', [{ Id: 'unhealthy-id', Names: ['/api-service'], Image: 'api:latest', State: 'running', Status: 'Up 1 hour (unhealthy)', Ports: [], Labels: {}, Created: 1 }])
+  await answer('/filesystems', [{ source: '/dev/sdb1', fstype: 'ext4', size: 100 * 1024 ** 3, used: 92 * 1024 ** 3, available: 8 * 1024 ** 3, use_percent: 92, mount_point: '/data' }])
+  await answer('/system/backup/schedule', { schedule: { enabled: true, last_status: 'error', last_run: '2026-09-23T00:00:00Z' }, files: [] })
+  await answer('/system/overview', {
+    version: '0.94.0', host: { hostname: 'agent-1-host', os: 'linux', platform: 'debian', platform_version: '13', kernel: '6.12', uptime: 3600, num_cpu: 4 },
+    metrics: { cpu: 12, mem_total: 8 * 1024 ** 3, mem_used: 2 * 1024 ** 3, mem_percent: 25, swap_total: 0, swap_used: 0, swap_percent: 0, disk_total: 100 * 1024 ** 3, disk_used: 30 * 1024 ** 3, disk_percent: 30, net_bytes_sent: 0, net_bytes_recv: 0, timestamp: 0 },
+    metrics_history: [], update_info: { update_available: true, latest_version: '99.0' },
+  })
   await page.goto('/dashboard?node=agent-1')
-  const line = page.getByRole('region', { name: 'Needs Attention', exact: true }).getByRole('link', { name: /RAID array needs attention · md0/ })
-  await expect(line).toHaveAttribute('href', '/disk/raid?node=agent-1')
+  const issues = page.getByRole('region', { name: 'Needs Attention', exact: true })
+  await expect(issues.getByRole('link', { name: /RAID array needs attention · md0/ })).toHaveAttribute('href', '/disk/raid?node=agent-1')
+  await expect(issues.getByRole('link', { name: '1 container needs attention' })).toHaveAttribute('href', '/docker/containers?node=agent-1')
+  await expect(issues.getByRole('link', { name: /Disk \/data/ })).toHaveAttribute('href', '/disk/usage?path=%2Fdata&node=agent-1')
+  await expect(issues.getByRole('link', { name: 'Last backup failed' })).toHaveAttribute('href', '/settings?tab=system&node=agent-1')
+  const backup = page.getByRole('region', { name: 'Backup', exact: true })
+  await expect(backup.getByRole('link', { name: /^Backup · failed/ })).toHaveAttribute('href', '/settings?tab=system&node=agent-1')
+  await expect(backup.getByRole('link', { name: /v99\.0/ })).toHaveAttribute('href', '/settings?tab=system&node=agent-1')
 })
 
 test('pressing the open entry or tab again adds no history', async ({ page }) => {

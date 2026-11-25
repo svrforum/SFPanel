@@ -146,9 +146,9 @@ export default function Dashboard() {
   const diskPercent = worstFs?.use_percent ?? metrics?.disk_percent
   const brokenArrays = (raid.data ?? []).filter(raidNeedsAttention).map((a) => a.name)
   const issues = [
-    ...(attentionCount ? [{ key: 'containers', to: '/docker/containers', text: t('dashboard.attentionContainers', { count: attentionCount }), stale: containers.error }] : []),
-    ...(diskPercent != null && diskPercent >= 80 ? [{ key: 'disk', to: `/disk/usage?path=${encodeURIComponent(worstFs?.mount_point ?? '/')}`, text: t('dashboard.attentionDisk', { mount: worstFs?.mount_point ?? '/', percent: diskPercent.toFixed(0) }), stale: worstFs ? filesystems.error : !liveFresh }] : []),
-    ...(backupFailed ? [{ key: 'backup', to: '/settings?tab=system', text: t('dashboard.attentionBackup'), stale: backup.error }] : []),
+    ...(attentionCount ? [{ key: 'containers', to: href('/docker/containers'), text: t('dashboard.attentionContainers', { count: attentionCount }), stale: containers.error }] : []),
+    ...(diskPercent != null && diskPercent >= 80 ? [{ key: 'disk', to: href(`/disk/usage?path=${encodeURIComponent(worstFs?.mount_point ?? '/')}`), text: t('dashboard.attentionDisk', { mount: worstFs?.mount_point ?? '/', percent: diskPercent.toFixed(0) }), stale: worstFs ? filesystems.error : !liveFresh }] : []),
+    ...(backupFailed ? [{ key: 'backup', to: href('/settings?tab=system'), text: t('dashboard.attentionBackup'), stale: backup.error }] : []),
     ...(brokenArrays.length ? [{ key: 'raid', to: href('/disk/raid'), text: t('dashboard.attentionRaid', { count: brokenArrays.length, names: brokenArrays.join(', ') }), stale: raid.error }] : []),
   ]
   const failedSources = [overview, containers, filesystems, backup, processes, interfaces, history, systemLogs, firewallLogs, raid].filter((resource) => resource.error).length
@@ -296,8 +296,8 @@ export default function Dashboard() {
       </details>
 
       <section aria-label={t('dashboard.backupLabel')} className="flex flex-wrap items-center justify-between gap-x-4 gap-y-2 border-t border-border pt-3">
-        <div><Link to="/settings?tab=system" className={linkClass}>{t('dashboard.backupLabel')} · <span className={backupFailed ? 'text-destructive' : ''}>{backupLabel}</span><ArrowUpRight className="size-3" aria-hidden="true" /></Link><ResourceStatus resource={backup} /></div>
-        {updateAvailable && <Link to="/settings?tab=system" className={linkClass}>{t('dashboard.updateBanner', { version: updateAvailable })}<ArrowUpRight className="size-3 shrink-0" aria-hidden="true" /></Link>}
+        <div><Link to={href('/settings?tab=system')} className={linkClass}>{t('dashboard.backupLabel')} · <span className={backupFailed ? 'text-destructive' : ''}>{backupLabel}</span><ArrowUpRight className="size-3" aria-hidden="true" /></Link><ResourceStatus resource={backup} /></div>
+        {updateAvailable && <Link to={href('/settings?tab=system')} className={linkClass}>{t('dashboard.updateBanner', { version: updateAvailable })}<ArrowUpRight className="size-3 shrink-0" aria-hidden="true" /></Link>}
       </section>
     </div>
   )
