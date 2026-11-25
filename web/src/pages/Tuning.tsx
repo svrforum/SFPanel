@@ -1,7 +1,9 @@
 import { useState, useEffect, useRef, useCallback } from 'react'
 import { useTranslation } from 'react-i18next'
+import { Link } from 'react-router-dom'
 import { api } from '@/lib/api'
 import { useConfirm } from '@/components/ConfirmDialog'
+import { useServerScope } from '@/hooks/useServerScope'
 import { ListLoadState } from '@/components/ListLoadState'
 import { formatBytes } from '@/lib/utils'
 import type { TuningStatus, TuningCategory } from '@/types/api'
@@ -16,9 +18,14 @@ const CATEGORY_META: Record<string, { icon: typeof Network; color: string }> = {
   security:   { icon: Shield,     color: 'var(--destructive)' },
 }
 
+/**
+ * Performance tuning: System's fifth tab. Swappiness is also set in Disks ›
+ * Swap, and each place links to the other.
+ */
 export default function Tuning() {
   const { t } = useTranslation()
   const confirm = useConfirm()
+  const { href } = useServerScope()
   const [status, setStatus] = useState<TuningStatus | null>(null)
   const [loading, setLoading] = useState(true)
   const [applying, setApplying] = useState<string | null>(null) // category name or 'all'
@@ -144,18 +151,35 @@ export default function Tuning() {
     setExpanded(prev => ({ ...prev, [name]: !prev[name] }))
   }
 
+  // The page's name stays while the status loads or fails to.
+  const head = (
+    <div>
+      <h2 className="text-[17px] font-semibold">{t('tuning.title')}</h2>
+      <p className="text-[13px] text-muted-foreground mt-1">{t('tuning.subtitle')}</p>
+    </div>
+  )
+  const swapLink = (
+    <Link to={href('/disk/swap')} className="text-primary hover:underline">{t('settings.tuning.openSwap')}</Link>
+  )
+
   if (loading) {
     return (
-      <div className="flex items-center justify-center py-12">
-        <div className="h-6 w-6 border-2 border-primary border-t-transparent rounded-full animate-spin" />
+      <div className="space-y-6">
+        {head}
+        <div className="flex items-center justify-center py-12">
+          <div className="h-6 w-6 border-2 border-primary border-t-transparent rounded-full animate-spin" />
+        </div>
       </div>
     )
   }
 
   if (!status) {
-    return loadError
-      ? <ListLoadState loading={false} error={loadError} errorTitle={t('settings.tuning.loadFailed')} onRetry={loadStatus} />
-      : null
+    return (
+      <div className="space-y-6">
+        {head}
+        {loadError && <ListLoadState loading={false} error={loadError} errorTitle={t('settings.tuning.loadFailed')} onRetry={loadStatus} />}
+      </div>
+    )
   }
 
   const overallPercent = status.total_params > 0
@@ -164,11 +188,13 @@ export default function Tuning() {
 
   return (
     <div className="space-y-6">
+      {head}
+
       {/* System Specs */}
       <div className="bg-card rounded-2xl p-5 card-shadow">
         <div className="flex items-center gap-2 mb-4">
           <Cpu className="h-4 w-4 text-muted-foreground" />
-          <h2 className="text-[15px] font-semibold">{t('settings.tuning.systemSpecs')}</h2>
+          <h3 className="text-[15px] font-semibold">{t('settings.tuning.systemSpecs')}</h3>
         </div>
         <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
           <div className="space-y-1">
@@ -191,7 +217,7 @@ export default function Tuning() {
         <div className="flex items-center justify-between mb-3">
           <div className="flex items-center gap-2">
             <Zap className="h-4 w-4 text-primary" />
-            <h2 className="text-[15px] font-semibold">{t('settings.tuning.optimizationStatus')}</h2>
+            <h3 className="text-[15px] font-semibold">{t('settings.tuning.optimizationStatus')}</h3>
           </div>
           <span className="text-[13px] font-semibold text-primary">
             {status.applied} / {status.total_params}
@@ -265,8 +291,11 @@ export default function Tuning() {
             <AlertTriangle className="h-4 w-4 text-warning" />
           </div>
           <div className="min-w-0">
-            <h2 className="text-[15px] font-semibold">{t(`settings.tuning.advisory.${advisory.id}.title`)}</h2>
-            <p className="text-[12px] text-muted-foreground mt-0.5">{t(`settings.tuning.advisory.${advisory.id}.body`, { device: advisory.detail })}</p>
+            <h3 className="text-[15px] font-semibold">{t(`settings.tuning.advisory.${advisory.id}.title`)}</h3>
+            <p className="text-[12px] text-muted-foreground mt-0.5">
+              {t(`settings.tuning.advisory.${advisory.id}.body`, { device: advisory.detail })}
+              {advisory.id === 'swap_on_zvol' && <>{' '}{swapLink}</>}
+            </p>
           </div>
         </div>
       ))}
@@ -279,7 +308,7 @@ export default function Tuning() {
               <Info className="h-4 w-4 text-muted-foreground" />
             </div>
             <div className="min-w-0">
-              <h2 className="text-[15px] font-semibold">{t('settings.tuning.managedTitle')}</h2>
+              <h3 className="text-[15px] font-semibold">{t('settings.tuning.managedTitle')}</h3>
               <p className="text-[12px] text-muted-foreground mt-0.5">{t('settings.tuning.managedDesc')}</p>
             </div>
           </div>
@@ -305,7 +334,7 @@ export default function Tuning() {
               <Info className="h-4 w-4 text-muted-foreground" />
             </div>
             <div className="min-w-0">
-              <h2 className="text-[15px] font-semibold">{t('settings.tuning.operatorTitle')}</h2>
+              <h3 className="text-[15px] font-semibold">{t('settings.tuning.operatorTitle')}</h3>
               <p className="text-[12px] text-muted-foreground mt-0.5">{t('settings.tuning.operatorDesc')}</p>
             </div>
           </div>
@@ -346,7 +375,7 @@ export default function Tuning() {
                   <Icon className="h-4 w-4" style={{ color: meta.color }} />
                 </div>
                 <div className="min-w-0">
-                  <h2 className="text-[15px] font-semibold">
+                  <h3 className="text-[15px] font-semibold">
                     <button
                       type="button"
                       aria-expanded={isExpanded}
@@ -356,7 +385,7 @@ export default function Tuning() {
                     >
                       {t(`settings.tuning.cat.${cat.name}`)}
                     </button>
-                  </h2>
+                  </h3>
                   <p className="text-[12px] text-muted-foreground">
                     {t(`settings.tuning.catDesc.${cat.name}`)}
                   </p>
@@ -421,6 +450,7 @@ export default function Tuning() {
                           )}
                         </div>
                         <p className="text-[12px] text-muted-foreground mt-0.5">{param.description}</p>
+                        {param.key === 'vm.swappiness' && <p className="text-[12px] mt-0.5">{swapLink}</p>}
                       </div>
                       <div className="min-w-0 text-right ms-auto">
                         <div className="flex flex-wrap items-center justify-end gap-x-2 text-[12px]">

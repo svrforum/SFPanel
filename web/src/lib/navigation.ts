@@ -10,6 +10,7 @@ import {
   Database,
   FileText,
   FolderOpen,
+  Gauge,
   Globe,
   HardDrive,
   Image,
@@ -99,6 +100,7 @@ export const NAV_ITEMS: NavEntry[] = [
       { to: '/processes', labelKey: 'layout.nav.processes', icon: Activity, ownTitle: true },
       { to: '/cron', labelKey: 'layout.nav.cron', icon: Clock, ownTitle: true },
       { to: '/packages', labelKey: 'layout.nav.packages', icon: Package, ownTitle: true },
+      { to: '/tuning', labelKey: 'layout.nav.tuning', icon: Gauge, ownTitle: true },
     ],
   },
   {

@@ -1,10 +1,12 @@
 import { useState, useEffect, useCallback } from 'react'
 import { Trans, useTranslation } from 'react-i18next'
+import { Link } from 'react-router-dom'
 import { Plus, PowerOff, MemoryStick, Save, Maximize2, AlertTriangle } from 'lucide-react'
 import { toast } from 'sonner'
 import { api } from '@/lib/api'
 import { formatBytes } from '@/lib/utils'
 import { useApiAction } from '@/hooks/useApiAction'
+import { useServerScope } from '@/hooks/useServerScope'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
@@ -36,6 +38,7 @@ import type { SwapEntry, SwapInfo } from '@/types/api'
 
 export default function DiskSwap() {
   const { t } = useTranslation()
+  const { href } = useServerScope()
   const [summary, setSummary] = useState<Omit<SwapInfo, 'entries'>>({ total: 0, used: 0, free: 0, swappiness: 60 })
   const [entries, setEntries] = useState<SwapEntry[]>([])
   const [loading, setLoading] = useState(true)
@@ -268,6 +271,10 @@ export default function DiskSwap() {
           <div>
             <h3 id="swappiness-title" className="text-[14px] font-semibold">{t('disk.swap.swappiness')}</h3>
             <p className="text-[12px] text-muted-foreground mt-0.5">{t('disk.swap.swappinessDescription')}</p>
+            <p className="text-[12px] text-muted-foreground mt-0.5">
+              {t('disk.swap.alsoInTuning')}{' '}
+              <Link to={href('/tuning')} className="text-primary hover:underline">{t('disk.swap.openTuning')}</Link>
+            </p>
           </div>
           <div className="flex items-center gap-3">
             <span className="text-lg font-bold min-w-[40px] text-right">{swappiness}</span>

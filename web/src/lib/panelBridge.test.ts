@@ -17,8 +17,8 @@ describe('the menu the app draws', () => {
     expect(b.nav[0].items).toHaveLength(9)
     const system = b.nav[0].items.find((i) => i.path === '/services')!
     expect(system.label).toBe('T(layout.nav.system)')
-    expect(system.tabs.map((x) => x.path)).toEqual(['/services', '/processes', '/cron', '/packages'])
-    expect(system.tabs.map((x) => x.label)).toEqual(['T(layout.nav.services)', 'T(layout.nav.processes)', 'T(layout.nav.cron)', 'T(layout.nav.packages)'])
+    expect(system.tabs.map((x) => x.path)).toEqual(['/services', '/processes', '/cron', '/packages', '/tuning'])
+    expect(system.tabs.map((x) => x.label)).toEqual(['T(layout.nav.services)', 'T(layout.nav.processes)', 'T(layout.nav.cron)', 'T(layout.nav.packages)', 'T(layout.nav.tuning)'])
     expect(b.nav[0].items.find((i) => i.path === '/files')!.tabs).toEqual([])
   })
 

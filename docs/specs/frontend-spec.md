@@ -71,7 +71,7 @@
 | `/cron` | CronJobs | O | System | 예약 작업(root 크론탭) 관리. 시스템 메뉴 항목의 탭 |
 | `/logs` | Logs | O | Layout | 시스템 로그 뷰어. `?source=<id>`가 그 소스를 연다 |
 | `/processes` | Processes | O | System | 프로세스 관리자. 시스템 메뉴 항목의 탭 |
-| `/services` | Services | O | System | Systemd 서비스 관리. 시스템 메뉴 항목의 첫 탭(메뉴의 시스템이 여기로 간다). `System`(`pages/System.tsx`)은 경로 없는 레이아웃 라우트로 `/services`·`/processes`·`/cron`·`/packages`를 감싸 제목 `시스템`과 탭 줄(`서비스 · 프로세스 · 예약 작업 · 패키지`)을 그린다 — 주소는 그대로고, 탭마다 탭 제목이 그 탭의 이름이다 |
+| `/services` | Services | O | System | Systemd 서비스 관리. 시스템 메뉴 항목의 첫 탭(메뉴의 시스템이 여기로 간다). `System`(`pages/System.tsx`)은 경로 없는 레이아웃 라우트로 `/services`·`/processes`·`/cron`·`/packages`·`/tuning`을 감싸 제목 `시스템`과 탭 줄(`서비스 · 프로세스 · 예약 작업 · 패키지 · 성능 튜닝`)을 그린다 — 주소는 그대로고(`/tuning`만 새 주소), 탭마다 탭 제목이 그 탭의 이름이다. 클러스터에서 탭 링크는 다른 서버 화면처럼 `?node=<보고 있는 서버>`를 단다 |
 | `/network` | Network | O | Layout | 네트워크/VPN 관리 (위쪽 탭 줄 `SubNavTabs` + Outlet 구조, 인덱스는 `interfaces`로 `replace`) |
 | `/network/interfaces` | NetworkInterfaces | O | Network | 네트워크 인터페이스 관리 (기본 서브라우트) |
 | `/network/wireguard` | NetworkWireGuard | O | Network | WireGuard VPN 클라이언트 관리 |
@@ -83,7 +83,7 @@
 | `/disk/filesystems` | DiskFilesystems | O | Disk | 파일시스템 관리 |
 | `/disk/lvm` | DiskLVM | O | Disk | LVM PV/VG/LV 관리 |
 | `/disk/raid` | DiskRAID | O | Disk | RAID 배열 관리 |
-| `/disk/swap` | DiskSwap | O | Disk | 스왑 관리 |
+| `/disk/swap` | DiskSwap | O | Disk | 스왑 관리. Swappiness 카드가 성능 튜닝(`/tuning`)으로 링크 |
 | `/disk/network-shares` | DiskNetworkShares | O | Disk | 네트워크 드라이브(SMB/CIFS·NFS) 등록·마운트 (v0.63.0+) |
 | `/firewall` | Firewall | O | Layout | 방화벽 관리 (위쪽 탭 줄 `SubNavTabs` + Outlet 구조, 인덱스는 `rules`로 `replace`) |
 | `/firewall/rules` | FirewallRules | O | Firewall | UFW 규칙 관리 (기본 서브라우트) |
@@ -93,10 +93,10 @@
 | `/firewall/docker` | FirewallDocker | O | Firewall | Docker 방화벽 (DOCKER-USER 체인) |
 | `/firewall/logs` | (redirect) | O | Firewall | `/logs?source=firewall`로 리다이렉트 (방화벽 › 로그 탭은 로그 화면으로 흡수, 예전 북마크용) |
 | `/packages` | Packages | O | System | 시스템 패키지 관리 + Docker 설치. 시스템 메뉴 항목의 탭 |
+| `/tuning` | Tuning | O | System | 성능 튜닝 — 커널 sysctl 최적화(범주별 적용, 롤백). 시스템 메뉴 항목의 다섯째 탭. 아래 "Tuning (`/tuning`, 시스템 탭)" |
 | `/terminal` | Terminal | O | Layout | 터미널 — tmux 세션(셸·Claude·Codex·Gemini) 레일 + 큰 패널, tmux가 없으면 PTY 폴백 |
 | `/ai` | (redirect) | O | Layout | `/terminal`로 리다이렉트 (v0.76.0 이전 북마크·Android 앱용) |
 | `/settings` | Settings | O | Layout | 계정/시스템 설정 |
-| `/settings` (내장) | SettingsTuning | O | Settings 내장 | 시스템 커널 튜닝 (sysctl 최적화, 4 카테고리, 롤백) |
 | `/settings` (내장) | AlertSettings | O | Settings 내장 | 알림 채널/규칙 관리 (Discord, Telegram) |
 
 ### 라우트 가드
@@ -455,7 +455,7 @@ const DockerStacks = lazy(() => import('@/pages/docker/DockerStacks'))
   - `web/src/pages/disk/DiskFilesystems.tsx` — 파일시스템 관리 (포맷/마운트/언마운트/리사이즈)
   - `web/src/pages/disk/DiskLVM.tsx` — LVM 관리 (PV/VG/LV 생성/삭제/리사이즈)
   - `web/src/pages/disk/DiskRAID.tsx` — RAID 관리 (생성/삭제/디스크 추가·제거)
-  - `web/src/pages/disk/DiskSwap.tsx` — Swap 관리 (생성/삭제/리사이즈/스왑피니스 설정)
+  - `web/src/pages/disk/DiskSwap.tsx` — Swap 관리 (생성/삭제/리사이즈/스왑피니스 설정). Swappiness 카드 설명 아래 한 줄이 성능 튜닝의 메모리 범주도 이 값을 바꾼다고 말하고 `/tuning`으로 링크한다(`disk.swap.alsoInTuning`·`openTuning`)
 - **사용 API**:
   - Overview: `api.getDiskOverview()`, `api.getDiskSmart()`, `api.getDiskIOStats()`, `api.getDiskUsage()`, `api.checkSmartmontools()`, `api.installSmartmontools()`
   - Partitions: `api.getPartitions()`, `api.createPartition()`, `api.deletePartition()`
@@ -538,7 +538,7 @@ const DockerStacks = lazy(() => import('@/pages/docker/DockerStacks'))
 > - **General** (`settings/General.tsx`, browser 탭): 언어 변경(i18n.changeLanguage), **(v0.53.0) 테마 선택**(라이트/다크/시스템 — `lib/theme.ts` `setThemePref`), Tauri면 연결된 서버 해제.
 > - **Security** (`settings/Security.tsx`, account 탭): 비밀번호 변경, 2FA 설정(QR `QRCodeSVG` from `qrcode.react`)·검증·비활성화(비활성화 시 `usePrompt`로 **비밀번호 + 현재 TOTP 코드** 입력 — `api.disable2FA(password, totpCode)`), **2FA 복구 코드** 생성/재생성·잔여 개수 표시(`api.get2FARecoveryStatus()`, `api.regenerate2FARecoveryCodes()`). (v0.34.0/v0.36.0/v0.38.0)
 > - **Maintenance** (`settings/Maintenance.tsx`, system 탭 상단): 시스템 정보, 패널 업데이트(SSE — 클러스터 모드면 제목·확인 창에 업데이트할 노드 이름, 스트림 전 거부는 코드로 번역(`CLUSTER_QUORUM`은 서버 이유를 함께), `200 {status:'up_to_date'}`는 최신 안내, `complete`도 `error`도 없이 끝난 스트림과 중계의 `event: error`는 오류로, 완료 뒤 `lib/restart.ts`의 `waitForNodeBack`이 고른 노드가 다른 버전으로 답할 때까지 기다림), 백업 다운로드/복원(클러스터 모드면 `getClusterNodes()`로 고른 노드의 종류를 판정 — 에이전트는 `restoreAgentNote` 안내만 보이고 Raft 확인·매니저 백업 경고는 묻지 않음; 업로드 복원과 예약 백업 복원이 같은 클러스터 확인을 묻고 `waitForNodeBack`으로 고른 노드를 기다림; 업로드 복원 거부는 `errorFromResponse`로 코드 번역), **예약 백업 스케줄 폼 + 즉시 실행 + 아카이브 목록(다운로드/삭제)** (v0.26.0). `clusterEnabled` prop 수신.
-> - **Performance** (`settings/Performance.tsx`, system 탭 하단): 터미널 타임아웃·업로드 한도 설정 + `SettingsTuning` 커널 튜닝 컴포넌트 래핑.
+> - **Performance** (`settings/Performance.tsx`, system 탭 하단): 터미널 타임아웃·업로드 한도 설정. 커널 튜닝은 시스템 › 성능 튜닝(`/tuning`)으로 옮겼다.
 > - **TLSCertificate** (`settings/TLSCertificate.tsx`, https 탭): 패널 HTTPS 상태와 CA 인증서 내려받기(`?node=`의 서버 것).
 > - **Alerts** (`settings/AlertSettings.tsx`, alerts 탭): 알림 채널/규칙/히스토리 (아래 별도 섹션).
 > - **Audit** (`settings/Audit.tsx`, audit 탭): 감사 로그 뷰어(데스크톱 테이블 + **모바일 카드 폴백**, v0.35.0).
@@ -553,15 +553,16 @@ const DockerStacks = lazy(() => import('@/pages/docker/DockerStacks'))
   - 2FA 관리: 설정 시작 -> QR 코드(qrcode.react 클라이언트 렌더링) + 시크릿 키 표시 -> 6자리 코드 인증 -> 활성화/비활성화(비밀번호 재확인)
   - 시스템 정보 표시 (버전, 호스트명, OS, 커널, 가동시간)
   - **버전 표시**: `api.getSystemInfo()`의 `data.version` 필드에서 가져옴 (`v${data.version}` 형식)
-  - 시스템 튜닝 섹션 (SettingsTuning 컴포넌트 내장)
   - 알림 설정 섹션 (AlertSettings 컴포넌트 내장)
 - **사용 API**: `api.getSettings()`, `api.updateSettings()`, `api.changePassword()`, `api.setup2FA()`, `api.verify2FA()`, `api.getSystemInfo()`
 - **사용 컴포넌트**: Button, Input, Label (shadcn/ui)
-- **내부 서브컴포넌트**: `SettingsTuning` (`web/src/pages/SettingsTuning.tsx`), `AlertSettings` (`web/src/pages/settings/AlertSettings.tsx`)
+- **내부 서브컴포넌트**: `AlertSettings` (`web/src/pages/settings/AlertSettings.tsx`)
 
-### Settings > SettingsTuning
-- **파일**: `web/src/pages/SettingsTuning.tsx`
-- **기능**: 시스템 커널 파라미터 최적화 관리 (Settings 페이지 내에 포함된 컴포넌트)
+### Tuning (`/tuning`, 시스템 탭)
+- **파일**: `web/src/pages/Tuning.tsx`
+- **자리**: 시스템 메뉴 항목의 다섯째 탭 `성능 튜닝`(레지스트리 `ownTitle` — 브라우저 탭 제목과 대시보드 바로가기에 제 이름). 예전에는 설정 › 시스템 탭 아래에 제목 없이 있었다. 머리는 다른 시스템 탭처럼 `<h2>` `tuning.title` + 부제 `tuning.subtitle`이고, 상태를 읽는 중이거나 읽지 못했을 때도 남는다. i18n 키는 여전히 `settings.tuning.*`.
+- **스왑 상호 링크**: `vm.swappiness` 행과 `swap_on_zvol` 권고가 `디스크 › 스왑 열기`(`settings.tuning.openSwap`)로 `/disk/swap`에 링크하고, 디스크 › 스왑의 Swappiness 카드가 `/tuning`으로 되돌아 링크한다. 두 링크 모두 `useServerScope().href`로 만들어 클러스터에서는 보고 있는 서버의 `?node=`를 단다.
+- **기능**: 시스템 커널 파라미터 최적화 관리
   - 시스템 스펙 표시 (CPU 코어 수, RAM 용량, 커널 버전)
   - 전체 최적화 진행률 바 + 적용 카운트 (applied / total_params)
   - 전체 적용 / 기본값 복원 버튼

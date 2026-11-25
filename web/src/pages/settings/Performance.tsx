@@ -5,7 +5,6 @@ import { ListLoadState } from '@/components/ListLoadState'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
-import Tuning from '@/pages/settings/Tuning'
 import { saveSetting } from '@/lib/saveSetting'
 
 export default function Performance() {
@@ -142,8 +141,6 @@ export default function Performance() {
           </Button>
         </form>
       </div>
-
-      <Tuning />
     </div>
   )
 }

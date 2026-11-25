@@ -54,8 +54,6 @@ async function mock(page: Page, opts: { cluster: boolean; update: Reply }): Prom
       body = { host: { hostname: 'host-a', kernel: '6.8', uptime: 60 }, metrics: {}, version }
     } else if (path === '/system/update-check') body = { current_version: '0.79.4', latest_version: '0.80.0', update_available: true, release_notes: '' }
     else if (path === '/system/backup/schedule') body = { schedule: { enabled: false, interval_hours: 24, retention: 7 }, files: [] }
-    // The same tab renders the tuning panel, which needs its shape.
-    else if (path === '/system/tuning') body = { categories: [], total_params: 0, applied: 0, pending_rollback: false, rollback_remaining: 0, system_info: { cpu_cores: 2, total_ram: 2147483648, kernel: '6.8' } }
     await route.fulfill({ json: { success: true, data: body } })
   })
   await page.routeWebSocket(/\/ws\//, () => {})

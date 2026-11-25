@@ -23,6 +23,7 @@ const KO: Record<string, string> = {
   'settings.alerts.ruleType.lanNewDevice': '구성도: 새 기기',
   'settings.tabBrowser': '언어·테마', 'settings.tabSystem': '업데이트·백업', 'settings.tabHttps': 'HTTPS 인증서',
   'layout.scope.savedBrowser': '이 브라우저에만 저장됩니다',
+  'layout.nav.tuning': '성능 튜닝',
 }
 // A page's <h1> is its menu label.
 const H1: [string, string][] = [
@@ -31,6 +32,7 @@ const H1: [string, string][] = [
   ['appStore.title', 'layout.nav.appstore'], ['services.title', 'layout.nav.services'], ['network.title', 'layout.nav.networkVpn'],
   ['firewall.title', 'layout.nav.firewall'], ['docker.title', 'layout.nav.docker'], ['running.title', 'layout.nav.running'],
   ['cluster.title', 'layout.nav.cluster'], ['settings.title', 'layout.nav.settings'], ['map.title', 'layout.nav.map'],
+  ['tuning.title', 'layout.nav.tuning'],
 ]
 
 describe('menu labels', () => {

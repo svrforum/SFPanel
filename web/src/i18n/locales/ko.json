@@ -67,6 +67,7 @@
       "networkVpn": "네트워크 / VPN",
       "disk": "디스크",
       "packages": "패키지",
+      "tuning": "성능 튜닝",
       "firewall": "방화벽",
       "sites": "사이트",
       "terminal": "터미널",
@@ -2379,7 +2380,8 @@
           "title": "ZFS ARC 상한이 없습니다",
           "body": "zfs_arc_max가 0이라 OpenZFS 2.3부터 ARC가 메모리의 5/8과 '전체 − 1 GiB' 중 큰 쪽까지 커질 수 있습니다. Proxmox 문서의 기준(기본 2 GiB + 스토리지 1 TiB당 1 GiB)으로 /etc/modprobe.d/zfs.conf에 zfs_arc_max를 정하세요. 루트가 ZFS면 update-initramfs -u -k all 후 재부팅해야 적용됩니다."
         }
-      }
+      },
+      "openSwap": "디스크 › 스왑 열기"
     },
     "tabAlerts": "알림",
     "alerts": {
@@ -3660,6 +3662,10 @@
     "bridgeNfNotLoaded": "꺼짐 (br_netfilter 미로드)",
     "forwardDropWarning": "FORWARD 정책이 DROP입니다. Docker가 포워딩을 켜면서 설정한 것입니다. 라우팅되는 게스트 네트워크와, bridge-nf-call-iptables가 켜져 있을 때의 브리지 네트워크는 어떤 규칙도 허용하지 않는 트래픽을 잃습니다. DOCKER-USER 체인에서 게스트 브리지를 허용하거나 Docker를 VM이나 컨테이너에서 실행하세요."
   },
+  "tuning": {
+    "title": "성능 튜닝",
+    "subtitle": "이 서버의 커널 설정을 맞춥니다."
+  },
   "disk": {
     "title": "디스크",
     "deviceInUse": "이 장치는 사용 중입니다(마운트, LVM, RAID, ZFS 또는 스왑). 먼저 사용을 해제하세요.",
@@ -3990,6 +3996,8 @@
       "free": "여유",
       "swappiness": "Swappiness",
       "swappinessDescription": "메모리 스왑 적극성을 설정합니다 (0-100)",
+      "alsoInTuning": "성능 튜닝의 메모리 항목도 이 값을 바꿉니다.",
+      "openTuning": "성능 튜닝 열기",
       "swappinessSaved": "Swappiness가 저장되었습니다",
       "swappinessFailed": "Swappiness 변경에 실패했습니다",
       "preferRAM": "RAM 우선",

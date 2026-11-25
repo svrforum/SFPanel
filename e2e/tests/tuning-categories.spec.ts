@@ -2,7 +2,7 @@ import { test, expect } from '@playwright/test'
 import { login } from './helpers'
 
 // Guards the tuning-status API payload against future regressions. The
-// structure is load-bearing for the /settings tuning UI (categories +
+// structure is load-bearing for the /tuning UI (categories +
 // per-param current vs. recommended values + applied flag).
 //
 // Targets the config baseURL (PLAYWRIGHT_BASE_URL, default localhost:3628).

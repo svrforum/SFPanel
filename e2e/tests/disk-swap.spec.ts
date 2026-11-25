@@ -66,6 +66,29 @@ test('swap on a device is typed out, and overwriting data is asked for', async (
   ])
 })
 
+// Swappiness is also a value of performance tuning's memory category; the
+// card says so and opens that page.
+test('swappiness says tuning sets it too, and leads there', async ({ page }) => {
+  await page.addInitScript(() => {
+    sessionStorage.setItem('token', 'fixture-token')
+    localStorage.setItem('i18nextLng', 'en')
+    localStorage.setItem('sfpanel_language', 'en')
+  })
+  await page.route('**/api/v1/**', async route => {
+    const p = new URL(route.request().url()).pathname.replace('/api/v1', '')
+    let data: unknown = {}
+    if (p === '/auth/setup-status') data = { setup_required: false }
+    else if (p === '/cluster/status') data = { enabled: false }
+    else if (p === '/swap') data = { total: 0, used: 0, free: 0, swappiness: 60, entries: [] }
+    await route.fulfill({ json: { success: true, data } })
+  })
+  await page.routeWebSocket(/\/ws\//, () => {})
+  await page.goto('/disk/swap')
+
+  await expect(page.getByText("Performance Tuning's memory category sets this value too.")).toBeVisible()
+  await expect(page.getByRole('link', { name: 'Open Performance Tuning' })).toHaveAttribute('href', '/tuning')
+})
+
 // "Remove" only ran swapoff: the file and its fstab line stayed, and the swap
 // was back after a reboot. And swapoff pulls what is in the swap into RAM,
 // which the resize dialog warned about and this one did not.

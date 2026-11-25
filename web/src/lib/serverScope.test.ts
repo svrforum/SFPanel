@@ -79,6 +79,7 @@ it('says where each settings tab is saved', () => {
 
 it('names the server shown in a server link, in a cluster only', () => {
   expect(menuHref('/services', true, 'agent-1')).toBe('/services?node=agent-1')
+  expect(menuHref('/tuning', true, 'agent-1')).toBe('/tuning?node=agent-1')
   expect(menuHref('/settings?tab=system', true, 'm-1')).toBe('/settings?tab=system&node=m-1')
   // The pages about all servers and account settings name no server.
   expect([menuHref('/cluster', true, 'm-1'), menuHref('/cluster/overview', true, 'm-1'), menuHref('/settings', true, 'm-1'), menuHref('/settings?tab=browser', true, 'm-1')])

@@ -224,7 +224,8 @@ jobs:
             tests/cluster-standalone.spec.ts \
             tests/server-url.spec.ts \
             tests/scope-bar.spec.ts \
-            tests/panel-bridge.spec.ts
+            tests/panel-bridge.spec.ts \
+            tests/tuning.spec.ts
       - name: Dump panel log on failure
         if: failure()
         run: cat "$E2E_DIR/panel.log" || true

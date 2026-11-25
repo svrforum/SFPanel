@@ -96,6 +96,7 @@ test('a server page publishes its server and the menu', async ({ page }) => {
     { label: 'Processes', path: '/processes' },
     { label: 'Scheduled Tasks', path: '/cron' },
     { label: 'Packages', path: '/packages' },
+    { label: 'Performance Tuning', path: '/tuning' },
   ])
   await expect(page).toHaveTitle(/agent-1/)
 })
@@ -179,7 +180,7 @@ test('labels follow the interface language', async ({ page }) => {
 
 test('a language changed in settings relabels the menu', async ({ page }) => {
   await mock(page)
-  await page.goto('/settings')
+  await page.goto('/settings?tab=browser')
   // Everything else the menu is built from has come: the switch alone has to relabel it.
   await expect.poll(() => page.evaluate(() => window.__sfpanel?.server?.name)).toBe('m-1')
   expect(await systemLabel(page)).toBe('System')

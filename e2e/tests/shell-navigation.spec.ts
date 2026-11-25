@@ -101,10 +101,10 @@ test('the terminal keeps its waiting count, and the next page does not inherit i
   await expect(page).toHaveTitle('Settings · SFPanel')
 })
 
-// Services, processes, scheduled tasks and packages are one menu entry's tabs,
-// the app store is Docker's last and the running board the dashboard's second,
-// each at the address it always had.
-test('system groups four pages as tabs at their old addresses', async ({ page }) => {
+// Services, processes, scheduled tasks, packages and performance tuning are one
+// menu entry's tabs, the app store is Docker's last and the running board the
+// dashboard's second, each at the address it always had (tuning's is new).
+test('system groups five pages as tabs at their old addresses', async ({ page }) => {
   await mock(page)
   await page.goto('/processes')
   await expect(page.getByRole('heading', { level: 1, name: 'System' })).toBeVisible()
@@ -112,7 +112,7 @@ test('system groups four pages as tabs at their old addresses', async ({ page })
   await expect(page.getByRole('heading', { level: 2, name: 'Processes' })).toBeVisible()
   await expect(page.getByRole('heading', { level: 1 })).toHaveCount(1)
   const tabs = page.getByRole('navigation', { name: 'System' }).getByRole('link')
-  expect(await tabs.evaluateAll((a) => a.map((l) => l.getAttribute('href')))).toEqual(['/services', '/processes', '/cron', '/packages'])
+  expect(await tabs.evaluateAll((a) => a.map((l) => l.getAttribute('href')))).toEqual(['/services', '/processes', '/cron', '/packages', '/tuning'])
   await expect(tabs.filter({ hasText: 'Processes' })).toHaveAttribute('aria-current', 'page')
   await expect(page).toHaveTitle('Processes · SFPanel')
   const packages = tabs.filter({ hasText: 'Packages' })

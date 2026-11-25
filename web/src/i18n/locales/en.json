@@ -67,6 +67,7 @@
       "networkVpn": "Network / VPN",
       "disk": "Disks",
       "packages": "Packages",
+      "tuning": "Performance Tuning",
       "firewall": "Firewall",
       "sites": "Sites",
       "terminal": "Terminal",
@@ -2391,7 +2392,8 @@
           "title": "ZFS ARC has no limit",
           "body": "zfs_arc_max is 0, so since OpenZFS 2.3 the ARC may grow to the larger of five eighths of memory and all of it less 1 GiB. Set zfs_arc_max in /etc/modprobe.d/zfs.conf by the Proxmox guideline (2 GiB base plus 1 GiB per TiB of storage); with root on ZFS it takes effect after update-initramfs -u -k all and a reboot."
         }
-      }
+      },
+      "openSwap": "Open Disks › Swap"
     },
     "tabAlerts": "Alerts",
     "alerts": {
@@ -3674,6 +3676,10 @@
     "bridgeNfNotLoaded": "off (br_netfilter not loaded)",
     "forwardDropWarning": "The FORWARD policy is DROP, which Docker sets when it turns forwarding on. Routed guest networks, and bridged ones while bridge-nf-call-iptables is on, lose traffic that no rule accepts: allow the guests' bridges in the DOCKER-USER chain, or run Docker in a VM or container."
   },
+  "tuning": {
+    "title": "Performance Tuning",
+    "subtitle": "Kernel settings tuned for this server."
+  },
   "disk": {
     "title": "Disks",
     "deviceInUse": "This device is in use (mounted, LVM, RAID, ZFS or swap). Release it first.",
@@ -4009,6 +4015,8 @@
       "free": "Free",
       "swappiness": "Swappiness",
       "swappinessDescription": "Set memory swap aggressiveness (0-100)",
+      "alsoInTuning": "Performance Tuning's memory category sets this value too.",
+      "openTuning": "Open Performance Tuning",
       "swappinessSaved": "Swappiness saved",
       "swappinessFailed": "Failed to change swappiness",
       "preferRAM": "Prefer RAM",

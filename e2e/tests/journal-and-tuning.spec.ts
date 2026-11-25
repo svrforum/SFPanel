@@ -56,7 +56,7 @@ test('a source read from the journal says so in place of a file size', async ({ 
 })
 
 test('on Proxmox the tuning page shows what Proxmox manages', async ({ page }) => {
-  await open(page, '/settings?tab=system')
+  await open(page, '/tuning')
   await expect(page.getByRole('heading', { name: 'Managed by Proxmox' })).toBeVisible()
   await expect(page.getByText(/Datacenter or Node → Firewall → Options/)).toBeVisible()
   await expect(page.getByText('net.ipv4.ip_forward', { exact: true })).toBeVisible()
@@ -64,7 +64,7 @@ test('on Proxmox the tuning page shows what Proxmox manages', async ({ page }) =
 })
 
 test('on Proxmox the tuning page warns of swap on a zvol and leaves the host’s own settings alone', async ({ page }) => {
-  await open(page, '/settings?tab=system')
+  await open(page, '/tuning')
   await expect(page.getByRole('alert').filter({ hasText: 'Swap is on a ZFS zvol' })).toContainText('/dev/zd0')
   await expect(page.getByRole('heading', { name: "This server's own settings" })).toBeVisible()
   await expect(page.getByText('10 in 99-swappiness.conf')).toBeVisible()

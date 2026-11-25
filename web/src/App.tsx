@@ -55,6 +55,7 @@ const MapDevices = lazy(() => import('@/pages/map/MapDevices'))
 const MapRack = lazy(() => import('@/pages/map/MapRack'))
 const AppStore = lazy(() => import('@/pages/AppStore'))
 const Packages = lazy(() => import('@/pages/Packages'))
+const Tuning = lazy(() => import('@/pages/Tuning'))
 const Settings = lazy(() => import('@/pages/Settings'))
 const Terminal = lazy(() => import('@/pages/Terminal'))
 const Connect = lazy(() => import('@/pages/Connect'))
@@ -255,6 +256,7 @@ export default function App() {
                   <Route path="processes" element={<Processes />} />
                   <Route path="cron" element={<CronJobs />} />
                   <Route path="packages" element={<Packages />} />
+                  <Route path="tuning" element={<Tuning />} />
                 </Route>
                 <Route path="network" element={<Network />}>
                   <Route index element={<Navigate to="interfaces" replace />} />

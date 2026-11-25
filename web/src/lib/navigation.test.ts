@@ -29,8 +29,10 @@ describe('the menu', () => {
     expect(BOTTOM_NAV_ITEMS.map((e) => e.to)).toEqual(['/dashboard', '/docker', '/terminal', '/logs'])
   })
 
-  it('gives system four tabs, the cluster three, the dashboard two, Docker six ending in the app store', () => {
-    expect(navTabs('/services').map((t) => t.to)).toEqual(['/services', '/processes', '/cron', '/packages'])
+  it('gives system five tabs ending in performance tuning, the cluster three, the dashboard two, Docker six ending in the app store', () => {
+    expect(navTabs('/services').map((t) => t.to)).toEqual(['/services', '/processes', '/cron', '/packages', '/tuning'])
+    expect(navOwner('/tuning')?.entry.to).toBe('/services')
+    expect(pageTitleKey('/tuning')).toBe('layout.nav.tuning')
     expect(navTabs('/cluster').map((t) => t.to)).toEqual(['/cluster/overview', '/cluster/nodes', '/cluster/security'])
     expect(navTabs('/dashboard').map((t) => t.to)).toEqual(['/dashboard', '/running'])
     expect(navTabs('/docker').map((t) => t.to).at(-1)).toBe('/appstore')

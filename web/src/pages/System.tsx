@@ -4,9 +4,10 @@ import { SubNavTabs } from '@/components/SubNavTabs'
 import { navTabs } from '@/lib/navigation'
 
 /**
- * Services, processes, scheduled tasks and packages: one menu entry, a tab
- * each, every page at the address it always had. The shell's context is
- * handed on to the pages, as if this layer were not there.
+ * Services, processes, scheduled tasks, packages and performance tuning: one
+ * menu entry, a tab each, every page at the address it always had (tuning's,
+ * /tuning, is the one new one). The shell's context is handed on to the
+ * pages, as if this layer were not there.
  */
 export default function System() {
   const { t } = useTranslation()
