@@ -25,18 +25,22 @@ const FIELDS: Record<string, string[]> = {
   'builtin/service-restart': ['name', 'description', 'inputs.service', 'steps.0'],
   'builtin/command': ['name', 'description', 'inputs.command', 'steps.0'],
   'builtin/reboot': ['name', 'description', 'steps.0'],
+  'builtin/zabbix-agent': ['name', 'description', 'steps.0'],
+  'builtin/wazuh-agent': ['name', 'description', 'steps.0'],
   // No YAML: the server lists it, and the screen names its five phases.
   'builtin/agent-install': ['name', 'description', 'steps.0', 'steps.1', 'steps.2', 'steps.3', 'steps.4'],
 }
 
 describe('builtinKey', () => {
-  it('names each of the six built-ins', () => {
+  it('names each of the eight built-ins', () => {
     expect(builtinKey('builtin/package-update')).toBe('packageUpdate')
     expect(builtinKey('builtin/package-install')).toBe('packageInstall')
     expect(builtinKey('builtin/service-restart')).toBe('serviceRestart')
     expect(builtinKey('builtin/command')).toBe('command')
     expect(builtinKey('builtin/reboot')).toBe('reboot')
     expect(builtinKey('builtin/agent-install')).toBe('agentInstall')
+    expect(builtinKey('builtin/zabbix-agent')).toBe('zabbixAgent')
+    expect(builtinKey('builtin/wazuh-agent')).toBe('wazuhAgent')
   })
 
   it('is null for anything else', () => {
@@ -82,6 +86,14 @@ describe('builtinText', () => {
     expect(steps(ko)).toEqual(['접속', '사전 점검', '설치', '등록', '연결 확인'])
     expect(steps(en)).toEqual(['Connect', 'Pre-flight check', 'Install', 'Register', 'Connection check'])
     expect(builtinText(keyT, 'builtin/agent-install', 'name', 'x')).toBe('cluster.tasks.builtins.agentInstall.name')
+  })
+
+  it('names the agent each deploy task deploys', () => {
+    const words = (tree: unknown, id: string) => ['name', 'steps.0'].map((f) => builtinText(lookup(tree), id, f, ''))
+    expect(words(ko, 'builtin/zabbix-agent')).toEqual(['Zabbix 에이전트 배포', 'Zabbix 에이전트 2'])
+    expect(words(ko, 'builtin/wazuh-agent')).toEqual(['Wazuh 에이전트 배포', 'Wazuh 에이전트'])
+    expect(words(en, 'builtin/zabbix-agent')).toEqual(['Deploy the Zabbix agent', 'Zabbix agent 2'])
+    expect(words(en, 'builtin/wazuh-agent')).toEqual(['Deploy the Wazuh agent', 'Wazuh agent'])
   })
 
   it('says in the service input which name it takes', () => {

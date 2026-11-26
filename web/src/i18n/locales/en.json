@@ -1507,6 +1507,20 @@
             "0": "Reboot if required"
           }
         },
+        "zabbixAgent": {
+          "name": "Deploy the Zabbix agent",
+          "description": "Installs Zabbix agent 2 or takes the one already there, sets only the connection values from the Agents page (Server, ServerActive, HostMetadata), restarts it and checks that it really reaches the server.",
+          "steps": {
+            "0": "Zabbix agent 2"
+          }
+        },
+        "wazuhAgent": {
+          "name": "Deploy the Wazuh agent",
+          "description": "Installs the Wazuh agent at the version set and holds it, or takes the one already there, sets only the manager address and groups from the Agents page, restarts it and checks that it really connects. Only servers whose manager address changed enroll again.",
+          "steps": {
+            "0": "Wazuh agent"
+          }
+        },
         "agentInstall": {
           "name": "Agent install (SSH)",
           "description": "The cluster leader logs in to servers over SSH, installs the SFPanel agent on them and adds them to the cluster.",
@@ -1569,6 +1583,14 @@
         "allFine": "Every step can run",
         "checkError": "Could not check this node: {{error}}",
         "skippedPve": "Skipped (Proxmox host)",
+        "agentSkipped": "{{agent}} skipped — {{why}}",
+        "agentSkipWhy": {
+          "os": "unsupported OS",
+          "legacy": "the old Zabbix agent (agentd) is installed; agent 2 is not added beside it",
+          "unmanaged": "not installed as a package; left alone",
+          "no_package": "no package for this OS",
+          "newer": "the installed version is newer than the one set; left alone"
+        },
         "left": "Left out",
         "confirm": "Confirmations",
         "confirmStep": "Confirm “{{step}}” on every node",
@@ -1582,7 +1604,8 @@
           "offline": "Offline",
           "outdated": "Its version does not know group tasks",
           "unreachable": "The leader cannot reach it",
-          "busy": "Held by another run"
+          "busy": "Held by another run",
+          "stepUnsupported": "A version that does not run this task's steps — update it"
         },
         "verdict": {
           "serviceConfirm": "This unit is needed to manage the host or run its guests. Confirm the step to run it.",
@@ -1705,7 +1728,8 @@
           "command": "Command",
           "file": "File",
           "stack": "Stack",
-          "reboot": "Reboot"
+          "reboot": "Reboot",
+          "agent": "Agent deploy"
         },
         "step": {
           "name": "Name shown in the run",
@@ -1755,6 +1779,10 @@
         "reboot": {
           "onlyIfRequired": "Only when the node needs it",
           "wait": "Wait for it to come back"
+        },
+        "agent": {
+          "name": "Agent",
+          "hint": "Connection values are set on the Agents page"
         },
         "durationInvalid": "Write a duration such as 90s, 10m or 1h30m.",
         "durationDefault": "Left empty: {{value}}",
@@ -4961,6 +4989,20 @@
         "noNode": "No server to keep the rack on."
       },
       "settling": "Waiting for the other servers to answer. Racks can be changed once all have."
+    }
+  },
+  "agents": {
+    "settings": {
+      "zabbixServer": "Zabbix server (passive, comma-separated)",
+      "zabbixActive": "Zabbix active address (host[:port])",
+      "zabbixMetadata": "Auto-registration metadata",
+      "wazuhManager": "Wazuh manager address",
+      "wazuhGroups": "Wazuh groups (empty means default)",
+      "wazuhVersion": "Wazuh agent version"
+    },
+    "errors": {
+      "notConfigured": "Save the {{agent}} connection values on the Agents page first",
+      "settingsInvalid": "A connection value is not valid: {{field}}"
     }
   }
 }

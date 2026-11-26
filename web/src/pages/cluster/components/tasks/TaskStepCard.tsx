@@ -1,4 +1,5 @@
 import { cloneElement, isValidElement, useId, useState, type ReactNode } from 'react'
+import { Link } from 'react-router-dom'
 import { useTranslation } from 'react-i18next'
 import type { TFunction } from 'i18next'
 import { ArrowDown, ArrowUp, Trash2 } from 'lucide-react'
@@ -6,7 +7,7 @@ import { Button } from '@/components/ui/button'
 import { Checkbox } from '@/components/ui/checkbox'
 import { Input } from '@/components/ui/input'
 import { cn } from '@/lib/utils'
-import type { TaskPackagesStep, TaskServiceAction, TaskStep } from '@/types/api'
+import type { TaskAgentStep, TaskPackagesStep, TaskServiceAction, TaskStep } from '@/types/api'
 import {
   formatDuration,
   joinNames,
@@ -21,6 +22,7 @@ import {
   DEFAULT_WAIT,
   type PackagesAction,
 } from './taskForm'
+import { agentLabel } from './taskPlan'
 
 interface TaskStepCardProps {
   step: TaskStep
@@ -41,6 +43,7 @@ const SELECT = 'min-h-9 w-full rounded-md border border-input bg-transparent px-
 
 const SERVICE_ACTIONS: TaskServiceAction[] = ['start', 'stop', 'restart', 'enable', 'disable']
 const PACKAGES_ACTIONS: PackagesAction[] = ['none', 'upgradeAll', 'upgrade', 'install', 'remove']
+const AGENT_NAMES: TaskAgentStep['name'][] = ['zabbix', 'wazuh']
 // One empty list: NamesField tells a list changed from outside by its identity.
 const NO_NAMES: string[] = []
 
@@ -410,6 +413,30 @@ function KindFields({ id, step, onChange, disabled }: { id: string; step: TaskSt
         </div>
       )
     }
+    case 'agent':
+      // The agent alone: its connection values are the cluster's, set on the
+      // agents page, which the hint leads to.
+      return (
+        <div className="space-y-1">
+          <EditorField id={`${id}-agent`} label={t('cluster.tasks.editor.agent.name')}>
+            <select
+              id={`${id}-agent`}
+              value={step.agent.name}
+              disabled={disabled}
+              aria-describedby={`${id}-agent-note`}
+              className={cn(SELECT, 'sm:max-w-xs')}
+              onChange={(e) => onChange({ ...step, agent: { name: e.target.value as TaskAgentStep['name'] } })}
+            >
+              {AGENT_NAMES.map((name) => (
+                <option key={name} value={name}>{agentLabel(name)}</option>
+              ))}
+            </select>
+          </EditorField>
+          <p id={`${id}-agent-note`} className="text-[12px] text-muted-foreground">
+            <Link to="/agents" className="underline underline-offset-2 hover:text-primary">{t('cluster.tasks.editor.agent.hint')}</Link>
+          </p>
+        </div>
+      )
   }
 }
 

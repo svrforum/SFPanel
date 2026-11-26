@@ -9,7 +9,7 @@ import { StatusPill } from '@/components/StatusPill'
 import { cn } from '@/lib/utils'
 import type { CheckVerdict, PlanNode, TaskPlan } from '@/types/api'
 import { notReadyText } from '@/lib/clusterRotation'
-import { PVE_REBOOT_CODE, confirmSteps, leftReasonText, planBlocked, planNodes, verdictSays, verdictText, type RunErrorText } from './taskPlan'
+import { AGENT_SKIP_CODE, PVE_REBOOT_CODE, confirmSteps, leftReasonText, planBlocked, planNodes, verdictSays, verdictText, type RunErrorText } from './taskPlan'
 
 /** An input as the run fills it: the value given, else the default. */
 export interface FilledInput {
@@ -39,7 +39,8 @@ interface TaskPlanDialogProps {
 }
 
 function verdictTone(v: CheckVerdict): string {
-  if (v.code === PVE_REBOOT_CODE) return 'text-muted-foreground'
+  // A skip, not a failure: the run carries on past it.
+  if (v.code === PVE_REBOOT_CODE || v.code === AGENT_SKIP_CODE) return 'text-muted-foreground'
   if (v.refused) return 'text-destructive'
   if (v.needs_confirm) return 'text-warning'
   return 'text-muted-foreground'

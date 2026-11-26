@@ -126,6 +126,8 @@ describe('blank models', () => {
     expect(blankStep('file')).toEqual({ kind: 'file', file: { path: '', content: '' } })
     expect(blankStep('stack')).toEqual({ kind: 'stack', stack: { name: '', compose: '', up: true } })
   })
+
+  it('starts an agent step on Zabbix', () => expect(blankStep('agent')).toEqual({ kind: 'agent', agent: { name: 'zabbix' } }))
 })
 
 describe('package names', () => {

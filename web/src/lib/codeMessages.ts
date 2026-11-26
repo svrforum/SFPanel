@@ -82,6 +82,12 @@ export const CODE_MESSAGES: Record<string, string> = {
   TASK_REBOOT_PVE_HOST: 'cluster.tasks.errors.rebootPveHost',
   TASK_REBOOT_UNSUPPORTED: 'cluster.tasks.errors.rebootUnsupported',
 
+  // Server agents: a run of an agent step before the cluster's connection
+  // values are saved, and a refused save of them. A node that skips an agent
+  // (SERVER_AGENT_SKIPPED) says so in a preview verdict, worded by verdictText.
+  SERVER_AGENT_NOT_CONFIGURED: 'agents.errors.notConfigured',
+  SERVER_AGENT_SETTINGS_INVALID: 'agents.errors.settingsInvalid',
+
   // Agent install over SSH: the refusals of /cluster/agent-installs and of the
   // run routes for an install. AGENT_INSTALL_ACTIVE also refuses a task run
   // and a leadership transfer while an install is under way.
@@ -282,6 +288,10 @@ export const CODE_DETAIL_FORMATS: Record<string, Record<string, (value: string, 
   AGENT_INSTALL_IDENTITY_TAKEN: { row: rowText },
   AGENT_INSTALL_FAILED: { step: stepText, no_answer: noAnswerText },
   AGENT_INSTALL_OFFLINE: { ports: listText, failed: failedCallsText },
+  // The agent by its vendor's name, and a connection value as the agents
+  // page names its field.
+  SERVER_AGENT_NOT_CONFIGURED: { agent: agentLabel },
+  SERVER_AGENT_SETTINGS_INVALID: { field: agentFieldText },
 }
 
 const pad2 = (n: number) => String(n).padStart(2, '0')
@@ -292,6 +302,29 @@ export function localClockTime(value: string): string | null {
   const d = new Date(value)
   if (Number.isNaN(d.getTime())) return null
   return `${pad2(d.getHours())}:${pad2(d.getMinutes())}`
+}
+
+/** An agent as its vendor names it (zabbix → Zabbix); one this screen does not know, as sent. */
+export function agentLabel(name: string): string {
+  switch (name) {
+    case 'zabbix': return 'Zabbix'
+    case 'wazuh': return 'Wazuh'
+    default: return name
+  }
+}
+
+// The request's name for a connection value (zabbix.server_active), as the
+// agents page labels its field; one this screen does not know, as sent.
+function agentFieldText(v: string, t: TFunction): string {
+  switch (v) {
+    case 'zabbix.server': return t('agents.settings.zabbixServer')
+    case 'zabbix.server_active': return t('agents.settings.zabbixActive')
+    case 'zabbix.host_metadata': return t('agents.settings.zabbixMetadata')
+    case 'wazuh.manager': return t('agents.settings.wazuhManager')
+    case 'wazuh.groups': return t('agents.settings.wazuhGroups')
+    case 'wazuh.version': return t('agents.settings.wazuhVersion')
+    default: return v
+  }
 }
 
 // The words of the agent install's detail tokens. Every key is written out

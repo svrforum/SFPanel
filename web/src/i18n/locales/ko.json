@@ -1502,6 +1502,20 @@
             "0": "필요할 때 재부팅"
           }
         },
+        "zabbixAgent": {
+          "name": "Zabbix 에이전트 배포",
+          "description": "Zabbix 에이전트 2를 설치하거나 이미 있는 것을 알아보고, 에이전트 화면의 연결값(Server·ServerActive·HostMetadata)만 맞춘 뒤 다시 시작하고 실제로 서버에 붙었는지 확인합니다.",
+          "steps": {
+            "0": "Zabbix 에이전트 2"
+          }
+        },
+        "wazuhAgent": {
+          "name": "Wazuh 에이전트 배포",
+          "description": "정한 버전의 Wazuh 에이전트를 설치해 고정(hold)하거나 이미 있는 것을 알아보고, 에이전트 화면의 매니저 주소·그룹만 맞춘 뒤 다시 시작하고 실제로 붙었는지 확인합니다. 매니저 주소가 바뀐 서버만 다시 등록합니다.",
+          "steps": {
+            "0": "Wazuh 에이전트"
+          }
+        },
         "agentInstall": {
           "name": "에이전트 설치 (SSH)",
           "description": "클러스터 리더가 SSH로 서버에 접속해 SFPanel 에이전트를 설치하고 클러스터에 등록합니다.",
@@ -1563,6 +1577,14 @@
         "allFine": "모든 단계 실행 가능",
         "checkError": "이 서버를 확인하지 못했습니다: {{error}}",
         "skippedPve": "건너뜀 (Proxmox 호스트)",
+        "agentSkipped": "{{agent}} 건너뜀 — {{why}}",
+        "agentSkipWhy": {
+          "os": "지원하지 않는 OS",
+          "legacy": "옛 Zabbix 에이전트(agentd)가 있어 agent2를 깔지 않음",
+          "unmanaged": "패키지로 깔리지 않은 에이전트라 건드리지 않음",
+          "no_package": "이 OS에는 설치할 패키지가 없음",
+          "newer": "깔린 버전이 정한 버전보다 새것이라 건드리지 않음"
+        },
         "left": "빠지는 서버",
         "confirm": "확인",
         "confirmStep": "모든 서버에서 “{{step}}” 단계를 확인합니다",
@@ -1575,7 +1597,8 @@
           "offline": "오프라인",
           "outdated": "그룹 작업을 모르는 버전",
           "unreachable": "리더가 닿지 못함",
-          "busy": "다른 실행이 잡고 있음"
+          "busy": "다른 실행이 잡고 있음",
+          "stepUnsupported": "이 작업의 단계를 모르는 버전 — 업데이트하세요"
         },
         "verdict": {
           "serviceConfirm": "이 유닛은 호스트를 관리하거나 게스트를 실행하는 데 필요합니다. 실행하려면 이 단계를 확인하세요.",
@@ -1697,7 +1720,8 @@
           "command": "명령",
           "file": "파일",
           "stack": "스택",
-          "reboot": "재부팅"
+          "reboot": "재부팅",
+          "agent": "에이전트 배포"
         },
         "step": {
           "name": "실행 화면에 보일 이름",
@@ -1747,6 +1771,10 @@
         "reboot": {
           "onlyIfRequired": "필요할 때만",
           "wait": "다시 연결될 때까지 기다리는 시간"
+        },
+        "agent": {
+          "name": "에이전트",
+          "hint": "연결값은 에이전트 화면에서 정합니다"
         },
         "durationInvalid": "90s, 10m, 1h30m처럼 씁니다.",
         "durationDefault": "비워 두면 {{value}}",
@@ -4940,6 +4968,20 @@
         "noNode": "랙을 저장할 서버가 없습니다."
       },
       "settling": "다른 서버의 답을 기다리는 중입니다. 다 읽은 뒤에 고칠 수 있습니다."
+    }
+  },
+  "agents": {
+    "settings": {
+      "zabbixServer": "Zabbix 서버 (passive, 쉼표로 여러 개)",
+      "zabbixActive": "Zabbix active 주소 (호스트[:포트])",
+      "zabbixMetadata": "자동 등록 메타데이터",
+      "wazuhManager": "Wazuh 매니저 주소",
+      "wazuhGroups": "Wazuh 그룹 (비우면 default)",
+      "wazuhVersion": "Wazuh 에이전트 버전"
+    },
+    "errors": {
+      "notConfigured": "{{agent}} 연결값을 먼저 에이전트 화면에서 저장하세요",
+      "settingsInvalid": "연결값이 올바르지 않습니다: {{field}}"
     }
   }
 }

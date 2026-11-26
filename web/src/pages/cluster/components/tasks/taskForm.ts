@@ -30,6 +30,8 @@ export function blankStep(kind: TaskStepKind): TaskStep {
       return { kind, stack: { name: '', compose: '', up: true } }
     case 'reboot':
       return { kind, reboot: { only_if_required: true, wait: DEFAULT_WAIT } }
+    case 'agent':
+      return { kind, agent: { name: 'zabbix' } }
   }
 }
 
@@ -299,7 +301,7 @@ export function documentTooLarge(yaml: string): boolean {
 }
 
 /** The kinds in the order the editor offers them. */
-export const STEP_KINDS: TaskStepKind[] = ['command', 'packages', 'service', 'file', 'stack', 'reboot']
+export const STEP_KINDS: TaskStepKind[] = ['command', 'packages', 'service', 'file', 'stack', 'reboot', 'agent']
 
 /** A step kind's name on screen; every key written out for locales.test. */
 export function stepKindLabel(kind: TaskStepKind, t: TFunction): string {
@@ -316,6 +318,8 @@ export function stepKindLabel(kind: TaskStepKind, t: TFunction): string {
       return t('cluster.tasks.editor.kind.stack')
     case 'reboot':
       return t('cluster.tasks.editor.kind.reboot')
+    case 'agent':
+      return t('cluster.tasks.editor.kind.agent')
   }
 }
 

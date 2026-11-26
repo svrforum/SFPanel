@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import type { TFunction } from 'i18next'
 import type { PlanNode, TaskPlan } from '@/types/api'
-import { confirmSteps, leftReasonText, planBlocked, runErrorText, verdictText } from './taskPlan'
+import { agentLabel, confirmSteps, leftReasonText, planBlocked, runErrorText, verdictText } from './taskPlan'
 
 // A translator that names the key it was asked for, and its values.
 const t = ((key: string, opts?: Record<string, unknown>) => {
@@ -62,6 +62,33 @@ describe('verdictText', () => {
   it('shows the node reason for a code the table does not know', () => {
     expect(verdictText({ step: 0, refused: true, code: 'COMPOSE_FORBIDDEN', reason: 'privileged: true is not allowed' }, t)).toBe('privileged: true is not allowed')
   })
+
+  it('words a skipped agent with its reason', () =>
+    expect(verdictText({ step: 0, refused: true, code: 'SERVER_AGENT_SKIPPED', reason: 'skipped', details: { agent: 'zabbix', why: 'legacy' } }, t))
+      .toBe('cluster.tasks.plan.agentSkipped {"agent":"Zabbix","why":"cluster.tasks.plan.agentSkipWhy.legacy"}'))
+
+  it('words every reason a node skips an agent for', () => {
+    for (const why of ['os', 'legacy', 'unmanaged', 'no_package', 'newer']) {
+      const text = verdictText({ step: 0, refused: true, code: 'SERVER_AGENT_SKIPPED', reason: 'skipped: …', details: { agent: 'wazuh', why } }, t)
+      expect(text, why).toBe(`cluster.tasks.plan.agentSkipped {"agent":"Wazuh","why":"cluster.tasks.plan.agentSkipWhy.${why}"}`)
+    }
+  })
+
+  // A newer node may skip for a reason this screen has no words for: its own
+  // sentence says why.
+  it('shows the node reason for a skip it has no words for', () => {
+    const v = { step: 0, refused: true, code: 'SERVER_AGENT_SKIPPED', reason: 'skipped: the disk is full', details: { agent: 'zabbix', why: 'disk' } }
+    expect(verdictText(v, t)).toBe('skipped: the disk is full')
+    expect(verdictText({ ...v, details: undefined }, t)).toBe('skipped: the disk is full')
+  })
+})
+
+describe('agentLabel', () => {
+  it('names the two agents as their vendors do, and any other as sent', () => {
+    expect(agentLabel('zabbix')).toBe('Zabbix')
+    expect(agentLabel('wazuh')).toBe('Wazuh')
+    expect(agentLabel('nagios')).toBe('nagios')
+  })
 })
 
 describe('leftReasonText', () => {
@@ -71,6 +98,9 @@ describe('leftReasonText', () => {
     }
     expect(leftReasonText('later' as never, t)).toBe('later')
   })
+
+  it('names a node left out for a step it does not run', () =>
+    expect(leftReasonText('step_unsupported', t)).toBe('cluster.tasks.plan.leftReason.stepUnsupported'))
 })
 
 describe('runErrorText', () => {

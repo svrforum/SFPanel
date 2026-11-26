@@ -11,6 +11,8 @@ const KEYS: Record<string, string> = {
   'builtin/service-restart': 'serviceRestart',
   'builtin/command': 'command',
   'builtin/reboot': 'reboot',
+  'builtin/zabbix-agent': 'zabbixAgent',
+  'builtin/wazuh-agent': 'wazuhAgent',
   // No YAML behind it: the server lists it and the screen opens the install
   // form for it. Its steps are the five phases every server goes through.
   'builtin/agent-install': 'agentInstall',
@@ -39,6 +41,14 @@ const TEXT: Record<string, (t: TFunction) => string> = {
   'reboot.name': (t) => t('cluster.tasks.builtins.reboot.name'),
   'reboot.description': (t) => t('cluster.tasks.builtins.reboot.description'),
   'reboot.steps.0': (t) => t('cluster.tasks.builtins.reboot.steps.0'),
+
+  'zabbixAgent.name': (t) => t('cluster.tasks.builtins.zabbixAgent.name'),
+  'zabbixAgent.description': (t) => t('cluster.tasks.builtins.zabbixAgent.description'),
+  'zabbixAgent.steps.0': (t) => t('cluster.tasks.builtins.zabbixAgent.steps.0'),
+
+  'wazuhAgent.name': (t) => t('cluster.tasks.builtins.wazuhAgent.name'),
+  'wazuhAgent.description': (t) => t('cluster.tasks.builtins.wazuhAgent.description'),
+  'wazuhAgent.steps.0': (t) => t('cluster.tasks.builtins.wazuhAgent.steps.0'),
 
   'agentInstall.name': (t) => t('cluster.tasks.builtins.agentInstall.name'),
   'agentInstall.description': (t) => t('cluster.tasks.builtins.agentInstall.description'),

@@ -1279,7 +1279,7 @@ export interface TaskTargets {
   nodes?: string[]
 }
 
-export type TaskStepKind = 'packages' | 'service' | 'command' | 'file' | 'stack' | 'reboot'
+export type TaskStepKind = 'packages' | 'service' | 'command' | 'file' | 'stack' | 'reboot' | 'agent'
 
 // upgrade: all in the document is upgrade_all: true here.
 export interface TaskPackagesStep {
@@ -1325,6 +1325,12 @@ export interface TaskRebootStep {
   wait: number
 }
 
+// The agent alone: its connection values are the cluster's, saved on the
+// agents page, and the leader fills them in for each node.
+export interface TaskAgentStep {
+  name: 'zabbix' | 'wazuh'
+}
+
 interface TaskStepCommon {
   name?: string
   continue_on_error?: boolean
@@ -1338,6 +1344,7 @@ export type TaskStep = TaskStepCommon & (
   | { kind: 'file'; file: TaskFileStep }
   | { kind: 'stack'; stack: TaskStackStep }
   | { kind: 'reboot'; reboot: TaskRebootStep }
+  | { kind: 'agent'; agent: TaskAgentStep }
 )
 
 // A parsed task (tasks.Task): what validate returns and format takes.
@@ -1391,16 +1398,19 @@ export interface TaskRunRequest {
   plan_id?: string
 }
 
-// A node's verdict on one step (0-based). {step} alone means fine.
+// A node's verdict on one step (0-based). {step} alone means fine. details
+// are the facts behind a refusal, by name (a skipped agent's agent and why).
 export interface CheckVerdict {
   step: number
   refused?: boolean
   code?: string
   reason?: string
   needs_confirm?: boolean
+  details?: Record<string, string>
 }
 
-export type PlanLeftReason = 'unknown' | 'offline' | 'outdated' | 'unreachable' | 'busy'
+// step_unsupported: the node's version does not run a step of the task.
+export type PlanLeftReason = 'unknown' | 'offline' | 'outdated' | 'unreachable' | 'busy' | 'step_unsupported'
 
 // kind is '' for an unknown node ID. Nodes in a wave carry verdicts or a
 // check_error; nodes left out carry a reason (and run_id when busy).

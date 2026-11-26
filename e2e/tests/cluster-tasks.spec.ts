@@ -602,6 +602,51 @@ test.describe('run setup', () => {
     expect(posts(calls, '/cluster/task-runs')[0].body).not.toHaveProperty('confirmed')
   })
 
+  // An agent step: a node that leaves the agent alone refuses it with a
+  // reason in its details, and a run skips it there; a node whose version
+  // does not run the step is left out.
+  test('a node that leaves an agent alone reads as skipped and why, and one that cannot run the step is left out', async ({ page }) => {
+    const listed = builtin('zabbix-agent', 'Zabbix 에이전트 배포', 'Zabbix 에이전트 2를 설치하거나 이미 있는 것을 알아보고, 연결값만 맞춥니다.')
+    const zabbix = {
+      ...listed,
+      yaml: 'name: Zabbix 에이전트 배포\n',
+      task: {
+        name: 'Zabbix 에이전트 배포', targets: {}, batch: 1, stop_on_failure: false,
+        steps: [{ kind: 'agent', name: 'Zabbix 에이전트 2', agent: { name: 'zabbix' } }],
+      },
+    }
+    const skip = {
+      step: 0, refused: true, code: 'SERVER_AGENT_SKIPPED',
+      reason: 'skipped: the old Zabbix agent (zabbix-agent) is here; only Zabbix Agent 2 is set up, and not beside it',
+      details: { agent: 'zabbix', why: 'legacy' },
+    }
+    await mock(page, {
+      tasks: [...TASKS, listed],
+      taskDetails: { ...TASK_DETAILS, 'builtin/zabbix-agent': zabbix },
+      replies: {
+        'POST /cluster/task-runs/plan': planReply({
+          waves: [[pn('a-1', { verdicts: [skip] }), pn('a-2', { verdicts: [{ step: 0 }] })]],
+          left: [pn('a-3', { verdicts: undefined, reason: 'step_unsupported' })],
+        }),
+      },
+    })
+    await page.goto('/cluster/tasks/builtin%2Fzabbix-agent')
+    await expect(setup(page)).toContainText('Deploy the Zabbix agent')
+    await setup(page).getByRole('group', { name: 'Kinds' }).getByRole('button', { name: 'Agents' }).click()
+    await setup(page).getByRole('button', { name: 'Preview' }).click()
+
+    const dialog = previewDialog(page)
+    const verdict = dialog.getByTestId('plan-wave').first().getByRole('listitem').filter({ hasText: /^Zabbix agent 2:/ })
+    await expect(verdict).toHaveText('Zabbix agent 2: Zabbix skipped — the old Zabbix agent (agentd) is installed; agent 2 is not added beside it')
+    // A skip, not a failure: it does not read as one.
+    await expect(verdict).toHaveClass(/text-muted-foreground/)
+    await expect(verdict).not.toHaveClass(/text-destructive/)
+    const left = dialog.getByTestId('plan-left')
+    await expect(left).toContainText('agent-03')
+    await expect(left).toContainText("A version that does not run this task's steps — update it")
+    await expect(dialog.getByRole('button', { name: 'Run on 2 nodes' })).toBeEnabled()
+  })
+
   test('a plan changed since the preview is previewed again, and says why', async ({ page }) => {
     const confirmStep = { verdicts: [{ step: 0 }, { step: 1, needs_confirm: true, code: 'SERVICE_CONFIRM_REQUIRED' }] }
     const { calls } = await mock(page, {
@@ -1668,6 +1713,40 @@ test.describe('editor', () => {
     ])
     await expect(section(page, 'My tasks').getByRole('link', { name: 'Check disk' })).toHaveAttribute('aria-current', 'page')
     await expect(page.getByTestId('task-pane-setup')).toContainText('Check disk')
+  })
+
+  test('an agent step picks its agent, and leads to the Agents page for the connection values', async ({ page }) => {
+    const yaml = 'name: Agents\nsteps:\n  - agent:\n      name: wazuh\n'
+    const model = { name: 'Agents', targets: {}, batch: 1, stop_on_failure: true, steps: [{ kind: 'agent', agent: { name: 'wazuh' } }] }
+    const id = '4e5f607182930416'
+    const tasks: unknown[] = [...TASKS]
+    const { calls } = await mock(page, {
+      tasks,
+      replies: {
+        'POST /cluster/tasks/format': ok({ yaml }),
+        'POST /cluster/tasks/validate': valid(model),
+        'POST /cluster/tasks': ok({ id, name: 'Agents', source: { kind: 'user' }, read_only: false, updated_at: seen, updated_by: 'admin', yaml, task: model }),
+      },
+    })
+    await page.goto('/cluster/tasks/new')
+    const editor = editorPane(page)
+    await editor.getByLabel('Task name').fill('Agents')
+    await editor.getByRole('button', { name: 'Add step' }).click()
+    await page.getByRole('menuitem', { name: 'Agent deploy' }).click()
+    const card = editor.getByTestId('task-step-0')
+    await expect(card.getByRole('heading')).toHaveText('Step 1 · Agent deploy')
+    const agent = card.getByLabel('Agent', { exact: true })
+    await expect(agent).toHaveValue('zabbix')
+    await expect(agent.getByRole('option')).toHaveText(['Zabbix', 'Wazuh'])
+    await expect(agent).toHaveAccessibleDescription('Connection values are set on the Agents page')
+    await expect(card.getByRole('link', { name: 'Connection values are set on the Agents page' })).toHaveAttribute('href', '/agents')
+    await agent.selectOption('wazuh')
+
+    // The step goes to the format as the agent's name alone.
+    tasks.push({ id, name: 'Agents', source: { kind: 'user' }, read_only: false, updated_at: seen, updated_by: 'admin' })
+    await editor.getByRole('button', { name: 'Save', exact: true }).click()
+    await expect(page).toHaveURL(new RegExp(`/cluster/tasks/${id}$`))
+    expect(calls.find((c) => c.path === '/cluster/tasks/format')?.body).toEqual({ task: model })
   })
 
   test('a template token in a hint stays on one line', async ({ page }) => {

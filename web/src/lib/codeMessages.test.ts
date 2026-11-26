@@ -39,6 +39,8 @@ const SERVER_DETAILS: Record<string, string[]> = {
   TASK_TOO_MANY_TARGETS: ['max'],
   TASK_REBOOT_BUSY: ['run_id'],
   TASK_RUN_ACTIVE: ['run_id'],
+  SERVER_AGENT_NOT_CONFIGURED: ['agent'],
+  SERVER_AGENT_SETTINGS_INVALID: ['field'],
   AGENT_INSTALL_INVALID: ['field', 'row', 'max', 'same_as'],
   AGENT_INSTALL_HOST_KEY_CHANGED: ['approved', 'host_key'],
   AGENT_INSTALL_UNRELEASED: ['version'],
@@ -174,6 +176,28 @@ describe('apiErrorFrom, on a Korean screen', () => {
     const sent = 'pvesh failed: ipcc_send_rec[1] failed: Connection refused'
     const err = refusal(api, 500, 'PVE_GUESTS_ERROR', sent)
     expect(err.message).toBe(`Proxmox VE에서 이 서버의 가상 머신과 LXC 목록을 읽지 못했습니다. (${sent})`)
+  })
+
+  // The details are the agent's ID and the request's own name for a value:
+  // the message names them as the agents page does.
+  it('names the agent and the connection value as the agents page does', async () => {
+    const api = await koreanApi()
+    const fail = (code: string, details: Record<string, string>) =>
+      api.apiErrorFrom(400, { success: false, error: { code, message: 'sent', details } }).message
+    expect(fail('SERVER_AGENT_NOT_CONFIGURED', { agent: 'zabbix' })).toBe('Zabbix 연결값을 먼저 에이전트 화면에서 저장하세요')
+    expect(fail('SERVER_AGENT_SETTINGS_INVALID', { field: 'zabbix.server' })).toBe(`연결값이 올바르지 않습니다: ${ko.agents.settings.zabbixServer}`)
+    const fields: Record<string, string> = {
+      'zabbix.server_active': ko.agents.settings.zabbixActive,
+      'zabbix.host_metadata': ko.agents.settings.zabbixMetadata,
+      'wazuh.manager': ko.agents.settings.wazuhManager,
+      'wazuh.groups': ko.agents.settings.wazuhGroups,
+      'wazuh.version': ko.agents.settings.wazuhVersion,
+      // A value this screen has no name for, as sent.
+      'wazuh.later': 'wazuh.later',
+    }
+    for (const [field, name] of Object.entries(fields)) {
+      expect(fail('SERVER_AGENT_SETTINGS_INVALID', { field }), field).toBe(`연결값이 올바르지 않습니다: ${name}`)
+    }
   })
 
   // Worded by its code, the sentence would lose the one thing it says: the

@@ -1,5 +1,6 @@
 import type { TFunction } from 'i18next'
 import type { ApiError } from '@/lib/api'
+import { agentLabel } from '@/lib/codeMessages'
 import { taskErrorMessage } from '@/lib/taskErrors'
 import { warningText } from '@/lib/warnings'
 import type { CheckVerdict, PlanLeftReason, PlanNode, TaskPlan } from '@/types/api'
@@ -9,6 +10,11 @@ import type { CheckVerdict, PlanLeftReason, PlanNode, TaskPlan } from '@/types/a
 
 /** A Proxmox VE host refuses a reboot step; a run skips it there. */
 export const PVE_REBOOT_CODE = 'TASK_REBOOT_PVE_HOST'
+
+/** A node that leaves an agent alone refuses its step; a run skips it there. */
+export const AGENT_SKIP_CODE = 'SERVER_AGENT_SKIPPED'
+
+export { agentLabel }
 
 /** The nodes that run, wave by wave, flattened. waves is null with none. */
 export function planNodes(plan: TaskPlan): PlanNode[] {
@@ -46,6 +52,7 @@ const LEFT_REASON: Record<PlanLeftReason, (t: TFunction) => string> = {
   outdated: (t) => t('cluster.tasks.plan.leftReason.outdated'),
   unreachable: (t) => t('cluster.tasks.plan.leftReason.unreachable'),
   busy: (t) => t('cluster.tasks.plan.leftReason.busy'),
+  step_unsupported: (t) => t('cluster.tasks.plan.leftReason.stepUnsupported'),
 }
 
 /** Why a node is left out, in the screen's words; a reason this screen does not know, as sent. */
@@ -63,14 +70,33 @@ const VERDICT_TEXT: Record<string, (t: TFunction) => string> = {
   SERVICE_PROTECTED: (t) => t('cluster.tasks.plan.verdict.serviceProtected'),
 }
 
+// Why a node leaves an agent alone (its details' why), in the screen's words;
+// null for a reason this screen does not know.
+function agentSkipWhy(why: string | undefined, t: TFunction): string | null {
+  switch (why) {
+    case 'os': return t('cluster.tasks.plan.agentSkipWhy.os')
+    case 'legacy': return t('cluster.tasks.plan.agentSkipWhy.legacy')
+    case 'unmanaged': return t('cluster.tasks.plan.agentSkipWhy.unmanaged')
+    case 'no_package': return t('cluster.tasks.plan.agentSkipWhy.no_package')
+    case 'newer': return t('cluster.tasks.plan.agentSkipWhy.newer')
+    default: return null
+  }
+}
+
 /**
  * A node's verdict on a step, in words: a Proxmox host's refused reboot is
- * a skip; any other code is worded through the same table as an error
+ * a skip, and so is an agent the node leaves alone, with the reason its
+ * details give (the node's own sentence for a reason this screen does not
+ * know); any other code is worded through the same table as an error
  * (CODE_MESSAGES), and a code with no entry shows the node's reason.
  */
 export function verdictText(v: CheckVerdict, t: TFunction): string {
   const code = v.code ?? ''
   if (code === PVE_REBOOT_CODE) return t('cluster.tasks.plan.skippedPve')
+  if (code === AGENT_SKIP_CODE) {
+    const why = agentSkipWhy(v.details?.why, t)
+    return why === null ? v.reason || code : t('cluster.tasks.plan.agentSkipped', { agent: agentLabel(v.details?.agent ?? ''), why })
+  }
   if (Object.hasOwn(VERDICT_TEXT, code)) return VERDICT_TEXT[code](t)
   return warningText({ code, message: v.reason || code }, t)
 }
