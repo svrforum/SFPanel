@@ -221,7 +221,7 @@ const DockerStacks = lazy(() => import('@/pages/docker/DockerStacks'))
 
 ### Docker
 - **파일**: `web/src/pages/Docker.tsx`
-- **기능**: Docker 관리 컨테이너. 경로 없는 레이아웃 라우트로 `/docker/*`와 앱스토어(`/appstore`)를 함께 감싼다. 제목 아래 NavLink 탭 줄(폰은 3열 격자)로 6개 탭을 네비게이션하고, `<Outlet />`으로 서브라우트 콘텐츠를 렌더링(셸의 Outlet context를 그대로 넘긴다). 탭 링크는 클러스터에서 지금 서버를 단다(`useServerScope().href`). Prune 기능 포함.
+- **기능**: Docker 관리 컨테이너. 경로 없는 레이아웃 라우트로 `/docker/*`와 앱스토어(`/appstore`)를 함께 감싼다. 제목 아래 NavLink 탭 줄(폰은 3열 격자)로 6개 탭을 네비게이션하고, `<Outlet />`으로 서브라우트 콘텐츠를 렌더링(셸의 Outlet context를 그대로 넘긴다). 탭 링크는 클러스터에서 지금 서버를 단다(`useServerScope().href`). Prune 기능 포함. `GET /packages/docker-status`가 `installed: false`면 탭 줄 아래에 패키지의 Docker 상태 카드(설치 버튼)를 그리고, 설치되면 카드를 거두고 탭 화면이 다시 읽는다.
 - **탭 구조** (NavLink, `<Outlet />` 패턴, 레지스트리 `navTabs('/docker')`):
   - `/docker/stacks` (기본값, `/docker`가 `replace`로 옮긴다) -> DockerStacks
   - `/docker/containers` -> DockerContainers
@@ -229,7 +229,7 @@ const DockerStacks = lazy(() => import('@/pages/docker/DockerStacks'))
   - `/docker/volumes` -> DockerVolumes
   - `/docker/networks` -> DockerNetworks
   - `/appstore` -> AppStore (주소는 `/docker` 밖 그대로, 탭 제목은 `앱스토어`)
-- **사용 컴포넌트**: NavLink (react-router-dom), DockerPrune (커스텀), Lucide 아이콘
+- **사용 컴포넌트**: NavLink (react-router-dom), DockerPrune (커스텀), DockerStatusCard·OutputDialog (패키지 화면과 같은 것), Lucide 아이콘
 
 ### Docker > DockerStacks
 - **파일**: `web/src/pages/docker/DockerStacks.tsx`

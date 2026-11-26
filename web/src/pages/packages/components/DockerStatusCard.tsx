@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { AlertCircle, AlertTriangle, Check, CheckCircle2, Download, Info, Loader2, Server, X } from 'lucide-react'
 import { toast } from 'sonner'
@@ -14,17 +14,25 @@ import { failure } from '@/pages/packages/failure'
 // VE host there is no install, only why: Docker's FORWARD policy can take the
 // guests off the network, and the server refuses it too. A Docker already
 // there is shown as usual, with what it did to the host's forwarding.
-export function DockerStatusCard({ output }: { output: SSEOutput }) {
+// onStatus hears every status the card reads: on mount, and again after an
+// install.
+export function DockerStatusCard({ output, onStatus }: { output: SSEOutput; onStatus?: (status: DockerStatus) => void }) {
   const { t } = useTranslation()
   const [dockerStatus, setDockerStatus] = useState<DockerStatus | null>(null)
   const [checking, setChecking] = useState(false)
   const [installing, setInstalling] = useState(false)
+  // Kept in a ref so a caller's new function does not read the status again.
+  const onStatusRef = useRef(onStatus)
+  useEffect(() => {
+    onStatusRef.current = onStatus
+  }, [onStatus])
 
   const fetchDockerStatus = useCallback(async () => {
     setChecking(true)
     try {
       const data = await api.getDockerStatus()
       setDockerStatus(data)
+      onStatusRef.current?.(data)
     } catch (err) {
       toast.error(failure(t('packages.dockerStatusFailed'), err))
     } finally {
