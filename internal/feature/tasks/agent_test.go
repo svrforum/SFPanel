@@ -5,7 +5,9 @@ import (
 	"net/http"
 	"reflect"
 	"slices"
+	"strings"
 	"testing"
+	"unicode/utf8"
 
 	"github.com/svrforum/SFPanel/internal/api/response"
 	"github.com/svrforum/SFPanel/internal/cluster"
@@ -196,14 +198,29 @@ func TestASkippedAgentIsASkippedStep(t *testing.T) {
 	const why = "skipped: the old Zabbix agent (agentd) is installed"
 	e := newFakeEnv(t, "m-1", manager("m-1", "node-a"), agent("a-1", "agent-1"))
 	e.agentSettings = agentValues()
+	long := strings.Repeat("é", 150) // 300 bytes, from the node's os-release
 	e.refuse[key("a-1", 0)] = &jobRefusal{Status: http.StatusConflict, Code: response.ErrServerAgentSkipped, Message: why,
-		Details: map[string]string{"agent": "zabbix", "why": "legacy"}}
+		Details: map[string]string{"agent": "zabbix", "why": "legacy", "os": long}}
 	mustRun(t, e, newRun(t, e, zabbixDoc, [][]string{{"a-1"}, {"m-1"}}))
 
 	rec := wantNode(t, e, "a-1", cluster.RunNodeSucceeded, "")
 	wantStep(t, rec, 0, cluster.RunStepSkipped, why)
 	if len(rec.Steps) == 1 && rec.Steps[0].Summary != why {
 		t.Errorf("a-1's step says %q, want %q", rec.Steps[0].Summary, why)
+	}
+	// The screen words the skip in the operator's language from its code and
+	// details, as it does the preview's verdict.
+	if len(rec.Steps) == 1 {
+		step := rec.Steps[0]
+		if step.Code != response.ErrServerAgentSkipped {
+			t.Errorf("a-1's step code = %q, want %s", step.Code, response.ErrServerAgentSkipped)
+		}
+		if step.Details["agent"] != "zabbix" || step.Details["why"] != "legacy" || len(step.Details) != 3 {
+			t.Errorf("a-1's step details = %v, want the node's agent, why and os", step.Details)
+		}
+		if os := step.Details["os"]; len(os) > 200 || !strings.HasPrefix(long, os) || !utf8.ValidString(os) {
+			t.Errorf("os detail is %d bytes, want the node's cut at 200 on a character", len(os))
+		}
 	}
 	wantStarted(t, e, "m-1/0")
 	wantHead(t, e, cluster.RunSucceeded, "")

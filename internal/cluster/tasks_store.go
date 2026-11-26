@@ -250,6 +250,12 @@ type RunStepRecord struct {
 	Changed   bool      `json:"changed,omitempty"`
 	StartedAt time.Time `json:"started_at,omitzero"`
 	EndedAt   time.Time `json:"ended_at,omitzero"`
+	// Code and Details are a step the node's own rule skipped: the code of
+	// the node's refusal (SERVER_AGENT_SKIPPED, TASK_REBOOT_PVE_HOST) and
+	// its facts, which the screen words in the operator's language; Summary
+	// keeps the node's English.
+	Code    string            `json:"code,omitempty"`
+	Details map[string]string `json:"details,omitempty"`
 }
 
 // NewTaskID returns a new task ID: 16 random hex digits.

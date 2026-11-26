@@ -655,10 +655,12 @@ func (r *runner) runStep(id string, rec *cluster.RunNodeRecord, i int, spec task
 		case errors.As(err, &ref) && ref.Code == response.ErrTaskRebootPVEHost && spec.Kind == tasks.StepReboot:
 			// The design reboots no Proxmox host: the VMs on it stop too.
 			r.endStep(step, cluster.RunStepSkipped, reasonProxmoxHost, false)
+			skippedBy(step, ref)
 			res = stepDone
 		case errors.As(err, &ref) && ref.Code == response.ErrServerAgentSkipped && spec.Kind == tasks.StepAgent:
 			// The node leaves an agent it must not touch alone, and says why.
 			r.endStep(step, cluster.RunStepSkipped, ref.Message, false)
+			skippedBy(step, ref)
 			res = stepDone
 		case errors.As(err, &ref) && ref.Code == response.ErrTaskNodeBusy:
 			r.endStep(step, cluster.RunStepFailed, err.Error(), false)
@@ -682,6 +684,20 @@ func (r *runner) runStep(id string, rec *cluster.RunNodeRecord, i int, spec task
 		return stepAbandoned
 	}
 	return r.follow(id, rec, i, spec, view)
+}
+
+// skippedBy records the node's refusal that skipped step — its code, and its
+// facts, each cut to maxSummary bytes as a summary is — for the screen to
+// word the skip in the operator's language.
+func skippedBy(step *cluster.RunStepRecord, ref *jobRefusal) {
+	step.Code = ref.Code
+	step.Details = nil
+	for k, v := range ref.Details {
+		if step.Details == nil {
+			step.Details = make(map[string]string, len(ref.Details))
+		}
+		step.Details[k] = capSummary(v)
+	}
 }
 
 // endStep records how step ended, now.

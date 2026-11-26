@@ -353,6 +353,9 @@ func TestAProxmoxHostsRebootStepIsSkippedNotFailed(t *testing.T) {
 			rec := wantNode(t, e, "a1", tc.node, "")
 			if tc.code == response.ErrTaskRebootPVEHost {
 				wantStep(t, rec, 0, tc.step, reasonProxmoxHost)
+				if len(rec.Steps) > 0 && rec.Steps[0].Code != response.ErrTaskRebootPVEHost {
+					t.Errorf("step code = %q, want %s for the screen to word", rec.Steps[0].Code, response.ErrTaskRebootPVEHost)
+				}
 				wantStarted(t, e, "a1/1")
 			} else {
 				wantStep(t, rec, 0, tc.step, tc.code)
