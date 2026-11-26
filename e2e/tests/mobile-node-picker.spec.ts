@@ -67,7 +67,7 @@ test('More groups the menu under the server and all servers', async ({ page }) =
   await expect(drawer.getByRole('heading', { name: 'All servers' })).toBeVisible()
   // A server page's link names the server shown; the pages about all servers do not.
   const server = ['/files', '/services', '/network', '/firewall', '/disk'].map((to) => `${to}?node=node-a`)
-  const fleet = ['/cluster/running', '/map', '/cluster/tasks', '/cluster']
+  const fleet = ['/cluster/running', '/map', '/cluster/tasks', '/agents', '/cluster']
   expect(await hrefs(drawer.getByRole('region', { name: 'node-a' }).getByRole('link'))).toEqual(server)
   expect(await hrefs(drawer.getByRole('region', { name: 'All servers' }).getByRole('link'))).toEqual(fleet)
   // Then settings, under neither: its own page, not one server's half of it.

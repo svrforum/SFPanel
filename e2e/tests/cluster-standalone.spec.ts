@@ -48,6 +48,7 @@ async function mock(page: Page, opts: Opts) {
     if (opts.status !== 500 && !opts.status.enabled) {
       const refuse = (code: string, message: string) => route.fulfill({ status: 400, json: { success: false, error: { code, message } } })
       if (path.startsWith('/cluster/') && path !== '/cluster/interfaces') return refuse('INVALID_REQUEST', 'Cluster not configured')
+      if (path === '/agents/settings') return refuse('INVALID_REQUEST', 'Cluster not configured')
     }
     let data: unknown = {}
     if (path === '/auth/setup-status') data = { setup_required: false }
@@ -80,7 +81,8 @@ test('a standalone panel opens create and join, with no tab row', async ({ page 
 
 test('every other cluster address lands there too', async ({ page }) => {
   await mock(page, { status: { enabled: false } })
-  for (const path of ['/cluster/security', '/cluster/tasks', '/cluster/tasks/runs', '/cluster/tokens']) {
+  // The agents page is about a cluster's servers too: one server has none to deploy to.
+  for (const path of ['/cluster/security', '/cluster/tasks', '/cluster/tasks/runs', '/cluster/tokens', '/agents']) {
     await page.goto(path)
     await expect(page, path).toHaveURL(/\/cluster\/overview$/)
   }

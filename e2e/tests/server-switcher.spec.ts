@@ -92,13 +92,13 @@ async function mock(page: Page, opts: Opts = {}) {
 
 const picker = (page: Page) => page.getByRole('button', { name: /Choose a server/ })
 
-test('the menu is one list: 14 entries in a cluster', async ({ page }) => {
+test('the menu is one list: 15 entries in a cluster', async ({ page }) => {
   await mock(page)
   await page.goto('/cluster/overview')
   const menu = page.getByRole('navigation', { name: 'Main menu' })
-  await expect(menu.getByRole('link')).toHaveCount(14)
+  await expect(menu.getByRole('link')).toHaveCount(15)
   expect(await menu.getByRole('link').evaluateAll((a) => a.map((l) => new URL((l as HTMLAnchorElement).href).pathname)))
-    .toEqual(['/terminal', '/dashboard', '/docker', '/files', '/logs', '/services', '/network', '/firewall', '/disk', '/cluster/running', '/map', '/cluster/tasks', '/cluster', '/settings'])
+    .toEqual(['/terminal', '/dashboard', '/docker', '/files', '/logs', '/services', '/network', '/firewall', '/disk', '/cluster/running', '/map', '/cluster/tasks', '/agents', '/cluster', '/settings'])
   await expect(menu.getByText('All servers')).toBeVisible()
 })
 

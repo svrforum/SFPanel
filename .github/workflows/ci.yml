@@ -232,7 +232,8 @@ jobs:
             tests/disk-tabs.spec.ts \
             tests/fleet-links.spec.ts \
             tests/packages-actions.spec.ts \
-            tests/files-manager.spec.ts
+            tests/files-manager.spec.ts \
+            tests/agents.spec.ts
       - name: Dump panel log on failure
         if: failure()
         run: cat "$E2E_DIR/panel.log" || true
