@@ -1,5 +1,5 @@
 import { useCallback, useState } from 'react'
-import { useTranslation } from 'react-i18next'
+import { Trans, useTranslation } from 'react-i18next'
 import { Link } from 'react-router-dom'
 import { ArrowUpCircle, CheckCircle2, Download, KeyRound, Loader2 } from 'lucide-react'
 import { toast } from 'sonner'
@@ -34,9 +34,9 @@ export interface ToolsSheetProps {
 
 /**
  * The 도구·계정 panel: which account the tools are probed for, tmux's state,
- * one card per CLI (version, update/install, login state, profiles), a link to
- * the packages page where the Node.js version they run on is changed, and at
- * the bottom the emergency door to the PTY engine, with the server's timeout
+ * one card per CLI (version, update/install, login state, profiles), where the
+ * Node.js they run on is managed (for root, a link to the packages page), and
+ * at the bottom the emergency door to the PTY engine, with the server's timeout
  * for those shells left idle. Install and update stream into the shared
  * OutputDialog exactly as the packages page does.
  */
@@ -161,12 +161,26 @@ export function ToolsSheet({ open, onOpenChange, tools, toolsError, account, onA
               </div>
             )
           })}
-          {/* Closed as it is followed: its open state is kept on <html>,
-              which outlives this page, and the terminal reads it when it
-              mounts, so the sheet would be open over it on the next visit. */}
-          <p className="text-[12px] text-muted-foreground">
-            {t('terminal.tools.nodeVersions')} <Link to={href('/packages')} onClick={() => onOpenChange(false)} className="text-primary hover:underline">{t('layout.nav.packages')}</Link>
-          </p>
+          {/* The packages page switches root's nvm (/root/.nvm). Another
+              account's Codex and Gemini are installed with that account's own
+              ~/.nvm (ai.accountNpmCommand: an npm that resolves into root's
+              home is not used for anyone else), which the packages page does
+              not touch. The link closes the sheet as it is followed: its open state is
+              kept on <html>, which outlives this page, and the terminal reads
+              it when it mounts, so the sheet would be open over it on the
+              next visit. */}
+          {tools && (
+            <p className="text-[12px] text-muted-foreground">
+              {tools.account === 'root' ? (
+                // Not <link>: Trans reads it as HTML's void element and drops
+                // its text.
+                <Trans
+                  i18nKey="terminal.tools.nodeVersionsRoot"
+                  components={{ packages: <Link to={href('/packages')} onClick={() => onOpenChange(false)} className="text-primary hover:underline" /> }}
+                />
+              ) : t('terminal.tools.nodeVersionsOwn')}
+            </p>
+          )}
 
           {/* The emergency door: a PTY shell as the panel account, outside
               tmux, for the day tmux is present but something around it is

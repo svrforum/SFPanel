@@ -2655,7 +2655,8 @@
       "title": "도구·계정",
       "description": "이 계정에서 실행되는 도구의 설치 상태와 로그인, 프로파일을 관리합니다.",
       "tmuxOk": "tmux {{version}} · 정상",
-      "nodeVersions": "AI 도구가 쓰는 Node.js 버전은 여기서 바꿉니다:",
+      "nodeVersionsRoot": "root 계정의 AI 도구가 쓰는 Node.js 버전은 <packages>패키지</packages>에서 바꿉니다.",
+      "nodeVersionsOwn": "이 계정의 AI 도구는 이 계정의 nvm(~/.nvm)을 씁니다.",
       "temporaryShell": "tmux 없이 임시 셸 열기",
       "temporaryShellHint": "패널 계정으로 열리며 이 브라우저에서만 유지됩니다.",
       "timeout": {

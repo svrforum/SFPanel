@@ -31,6 +31,8 @@ interface MockOptions {
   cluster?: boolean
   /** The server stored from an earlier visit. */
   current?: string
+  /** The account GET /ai/tools answers for; tester unless set. */
+  account?: string
 }
 interface Mock {
   settingsDown: boolean
@@ -77,7 +79,7 @@ async function mock(page: Page, opts: MockOptions = {}): Promise<Mock> {
     else if (path === '/ai/sessions' || path === '/terminal/sessions') data = []
     else if (path === '/ai/tools') data = {
       tmux: { installed: true, supported: true, version: '3.4', min_version: '3.2' }, systemd_run: true,
-      accounts: ['tester'], panel_account: 'tester', account: 'tester',
+      accounts: [opts.account ?? 'tester'], panel_account: opts.account ?? 'tester', account: opts.account ?? 'tester',
       tools: { claude: installed, codex: installed, gemini: installed },
     }
     else if (path === '/ai/dirs') data = { recent: [], stacks: [], home: '/root' }
@@ -120,17 +122,32 @@ test('a value that could not be read is not offered as current', async ({ page }
   await expect(sheet.getByLabel('Temporary shell timeout')).toHaveValue('45')
 })
 
-test('the tools sheet leads to the Node.js version in packages', async ({ page }) => {
+// Packages switches root's nvm (/root/.nvm). Another account's Codex and
+// Gemini are installed with that account's own nvm, which Packages does not
+// touch, so for it the sheet says so and offers no link.
+test("for root the tools sheet leads to the Node.js version in packages", async ({ page }) => {
+  await mock(page, { account: 'root' }); await page.goto('/terminal')
+  await page.getByRole('button', { name: 'Tools & accounts' }).first().click()
+  const sheet = page.getByRole('dialog', { name: 'Tools & accounts' })
+  await expect(sheet.getByText("The Node.js version used by root's AI tools is changed in Packages.")).toBeVisible()
+  await expect(sheet.getByRole('link', { name: 'Packages', exact: true })).toHaveAttribute('href', '/packages')
+  await expect(sheet.getByText(/its own nvm/)).toHaveCount(0)
+})
+
+test("for another account the tools sheet says its tools use that account's own nvm, with no link to packages", async ({ page }) => {
   await mock(page); await page.goto('/terminal')
   await page.getByRole('button', { name: 'Tools & accounts' }).first().click()
-  await expect(page.getByRole('dialog', { name: 'Tools & accounts' }).getByRole('link', { name: 'Packages', exact: true })).toHaveAttribute('href', '/packages')
+  const sheet = page.getByRole('dialog', { name: 'Tools & accounts' })
+  await expect(sheet.getByText("This account's AI tools use its own nvm (~/.nvm).")).toBeVisible()
+  await expect(sheet.getByRole('link', { name: 'Packages', exact: true })).toHaveCount(0)
+  await expect(sheet.getByText(/Node\.js version/)).toHaveCount(0)
 })
 
 // The sheet's open state is kept on <html data-ai-tools-open>, which the
 // Android app reads and which outlives the page: left set by the link, it
 // opened the sheet over the terminal on the next visit.
 test('following the link closes the sheet, so the terminal opens without it next time', async ({ page }) => {
-  await mock(page); await page.goto('/terminal')
+  await mock(page, { account: 'root' }); await page.goto('/terminal')
   await page.getByRole('button', { name: 'Tools & accounts' }).first().click()
   const sheet = page.getByRole('dialog', { name: 'Tools & accounts' })
   await sheet.getByRole('link', { name: 'Packages', exact: true }).click()
@@ -143,7 +160,7 @@ test('following the link closes the sheet, so the terminal opens without it next
 })
 
 test("on another server the tools sheet leads to that server's packages", async ({ page }) => {
-  await mock(page, { cluster: true, current: 'agent-1' }); await page.goto('/terminal?node=agent-1')
+  await mock(page, { cluster: true, current: 'agent-1', account: 'root' }); await page.goto('/terminal?node=agent-1')
   await page.getByRole('button', { name: 'Tools & accounts' }).first().click()
   await expect(page.getByRole('dialog', { name: 'Tools & accounts' }).getByRole('link', { name: 'Packages', exact: true })).toHaveAttribute('href', '/packages?node=agent-1')
 })

@@ -2668,7 +2668,8 @@
       "title": "Tools & accounts",
       "description": "Install state, login and profiles of the tools that run as this account.",
       "tmuxOk": "tmux {{version}} · OK",
-      "nodeVersions": "The Node.js version the AI tools use is changed in",
+      "nodeVersionsRoot": "The Node.js version used by root's AI tools is changed in <packages>Packages</packages>.",
+      "nodeVersionsOwn": "This account's AI tools use its own nvm (~/.nvm).",
       "temporaryShell": "Open a temporary shell without tmux",
       "temporaryShellHint": "Runs as the panel account and lives in this browser only.",
       "timeout": {
