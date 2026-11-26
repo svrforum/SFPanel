@@ -73,6 +73,9 @@ func (d *Deployer) deployZabbix(ctx context.Context, step tasks.AgentStep, io Jo
 				Line:        line,
 				PrefFile:    zabbixPrefFile,
 				Pref:        zabbixPref,
+				// A source of another series, or of the tools alone, would
+				// give the agent of another version, or none.
+				Path: "/zabbix/7.0/",
 			}, io)
 			changed = changed || added
 			if err != nil {
@@ -229,7 +232,8 @@ func (h *Host) zabbixIncludeSets(includes []string) (key, file string) {
 	return "", ""
 }
 
-// filesAt is the file at p, or the files in the directory at p.
+// filesAt is the file at p, or the files in the directory at p — links to
+// files among them, which the agent reads as it reads the files.
 func filesAt(p string) []string {
 	fi, err := os.Stat(p)
 	if err != nil {
@@ -244,8 +248,9 @@ func filesAt(p string) []string {
 	}
 	var files []string
 	for _, e := range entries {
-		if e.Type().IsRegular() {
-			files = append(files, filepath.Join(p, e.Name()))
+		f := filepath.Join(p, e.Name())
+		if fi, err := os.Stat(f); err == nil && fi.Mode().IsRegular() {
+			files = append(files, f)
 		}
 	}
 	return files

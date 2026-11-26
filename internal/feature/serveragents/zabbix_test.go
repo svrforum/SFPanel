@@ -216,6 +216,43 @@ func TestAnExistingZabbixSourceIsUsedAsItIs(t *testing.T) {
 	}
 }
 
+func TestAnExistingDeb822ZabbixSourceIsUsedAsItIs(t *testing.T) {
+	f := freshZabbixHost(t, osNoble, zabbixVendorVersion)
+	const own = "Types: deb\nURIs: https://repo.zabbix.com/zabbix/7.0/ubuntu\nSuites: noble\nComponents: main\nSigned-By: /usr/share/keyrings/zabbix-official-repo.gpg\n"
+	f.write("etc/apt/sources.list.d/zabbix.sources", own)
+
+	f.mustSucceed(f.deploy(context.Background(), zabbixStep("192.0.2.10", "192.0.2.10", "")))
+
+	if f.has(zabbixSourcesRel) || f.hits() != 0 {
+		t.Errorf("%s written or the key fetched, want the host's own 7.0 source used", zabbixSourcesRel)
+	}
+}
+
+func TestAZabbixSourceThatIsNotAnEnabled70IsNotUsed(t *testing.T) {
+	for _, c := range []struct{ name, file, content, why string }{
+		{"another series", "zabbix.list", "deb https://repo.zabbix.com/zabbix/6.0/ubuntu noble main\n", "not for zabbix/7.0"},
+		{"the tools alone", "zabbix-tools.list", "deb [signed-by=/etc/apt/keyrings/zabbix-tools.gpg] https://repo.zabbix.com/zabbix-tools/debian-ubuntu noble main\n", "not for zabbix/7.0"},
+		{"turned off", "zabbix.sources", "Types: deb\nURIs: https://repo.zabbix.com/zabbix/7.0/ubuntu\nSuites: noble\nComponents: main\nEnabled: no\n", "turned off"},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			f := freshZabbixHost(t, osNoble, zabbixVendorVersion)
+			f.write("etc/apt/sources.list.d/"+c.file, c.content)
+
+			f.mustSucceed(f.deploy(context.Background(), zabbixStep("192.0.2.10", "192.0.2.10", "")))
+
+			if got, want := f.read(zabbixSourcesRel), "deb [signed-by=/usr/share/keyrings/sfpanel-zabbix.gpg] https://repo.zabbix.com/zabbix/7.0/ubuntu noble main\n"; got != want {
+				t.Errorf("sources = %q, want the 7.0 source added: %q", got, want)
+			}
+			if f.read("etc/apt/sources.list.d/"+c.file) != c.content {
+				t.Errorf("%s changed, want the host's own source left alone", c.file)
+			}
+			if !f.io.logged("/etc/apt/sources.list.d/"+c.file) || !f.io.logged(c.why) {
+				t.Errorf("log %q, want it to name %s and why it is not used (%s)", f.io.logs, c.file, c.why)
+			}
+		})
+	}
+}
+
 func TestAnInstalledDistroAgentIsKeptAndOnlyItsValuesChange(t *testing.T) {
 	old := zabbixConf(t, "192.0.2.19", "192.0.2.19", "web-host", "")
 	f := installedZabbixHost(t, zabbixDistroVersion, old)
@@ -336,6 +373,23 @@ func TestAManagedKeyInAnIncludedFileIsRefused(t *testing.T) {
 	}
 	if f.cmd.ran("systemctl restart") {
 		t.Error("restarted, want nothing done")
+	}
+}
+
+func TestAManagedKeyInALinkedIncludedFileIsRefused(t *testing.T) {
+	// A directory included whole, holding a link to the file that sets it.
+	conf := zabbixConf(t, "192.0.2.19", "192.0.2.19", "web-host", "") + "Include=/etc/zabbix/extra/\n"
+	f := installedZabbixHost(t, zabbixDistroVersion, conf)
+	f.write("etc/zabbix/shared/override.conf", "Server=192.0.2.30\n")
+	f.symlink("../shared/override.conf", "etc/zabbix/extra/override.conf")
+
+	out := f.deploy(context.Background(), zabbixStep("192.0.2.10", "192.0.2.10", ""))
+
+	if want := "Server is also set in /etc/zabbix/extra/override.conf; change it there"; out.Status != tasks.JobFailed || !strings.Contains(out.Summary, want) {
+		t.Errorf("outcome %+v, want failed: %q", out, want)
+	}
+	if f.read(zabbixConfRel) != conf {
+		t.Error("the config was changed, want it left alone")
 	}
 }
 

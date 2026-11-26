@@ -295,3 +295,68 @@ func TestTheSameContentIsNotWritten(t *testing.T) {
 		t.Errorf("directory holds %d entries, want only the file", len(entries))
 	}
 }
+
+// symlink puts a link at rel under the root pointing at target, as written.
+func (f *deployFixture) symlink(target, rel string) {
+	f.t.Helper()
+	p := filepath.Join(f.root, rel)
+	if err := os.MkdirAll(filepath.Dir(p), 0o755); err != nil {
+		f.t.Fatal(err)
+	}
+	if err := os.Symlink(target, p); err != nil {
+		f.t.Fatal(err)
+	}
+}
+
+func TestALinkedConfigIsWrittenThroughToItsFile(t *testing.T) {
+	for _, c := range []struct{ name, target string }{
+		{"a relative link", "../../srv/config/agent2.conf"},
+		// An absolute link is read under the root, as the host reads it.
+		{"an absolute link", "/srv/config/agent2.conf"},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			f := newDeployFixture(t)
+			f.write("srv/config/agent2.conf", "Server=127.0.0.1\n")
+			f.symlink(c.target, "etc/zabbix/zabbix_agent2.conf")
+
+			backup, err := f.h.writeConf("/etc/zabbix/zabbix_agent2.conf", []byte("Server=192.0.2.10\n"))
+			if err != nil {
+				t.Fatal(err)
+			}
+
+			link := filepath.Join(f.root, "etc/zabbix/zabbix_agent2.conf")
+			if fi, err := os.Lstat(link); err != nil || fi.Mode()&fs.ModeSymlink == 0 {
+				t.Fatalf("%s is no longer a link (%v), want the link kept", link, err)
+			}
+			if got := f.read("srv/config/agent2.conf"); got != "Server=192.0.2.10\n" {
+				t.Errorf("the linked file holds %q, want the new bytes", got)
+			}
+			if got := f.read(backup); got != "Server=127.0.0.1\n" {
+				t.Errorf("backup %s holds %q, want the old bytes", backup, got)
+			}
+			if left, _ := filepath.Glob(filepath.Join(f.root, "srv/config/.*")); len(left) != 0 {
+				t.Errorf("temporary files left: %q", left)
+			}
+		})
+	}
+}
+
+func TestALinkSomeoneElseMadeIsNotWrittenThrough(t *testing.T) {
+	// /var/ossec/etc is the wazuh group's to write in: a link there that
+	// root did not make could point client.keys at any file root owns.
+	f := newDeployFixture(t)
+	f.write("etc/shadow", "root:x:1:::::\n")
+	f.symlink("../../../etc/shadow", "var/ossec/etc/client.keys")
+	uid := processUID
+	processUID = func() int { return uid() + 1 }
+	t.Cleanup(func() { processUID = uid })
+
+	_, err := f.h.writeConf("/var/ossec/etc/client.keys", nil)
+
+	if err == nil || !strings.Contains(err.Error(), "/var/ossec/etc/client.keys is a link this panel's user did not make") {
+		t.Fatalf("err = %v, want the link refused", err)
+	}
+	if got := f.read("etc/shadow"); got != "root:x:1:::::\n" {
+		t.Errorf("the linked file holds %q, want it untouched", got)
+	}
+}

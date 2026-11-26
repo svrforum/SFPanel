@@ -3,6 +3,7 @@ package featureserveragents
 import (
 	"bytes"
 	"errors"
+	"fmt"
 	"io/fs"
 	"os"
 	"path/filepath"
@@ -24,10 +25,17 @@ var backupSuffix = regexp.MustCompile(`^\.sfpanel-[0-9]{8}T[0-9]{6}Z\.bak$`)
 // writeConf replaces a file under the root with data. What it held before
 // is kept beside it as <path>.sfpanel-<UTC time>.bak — the three newest
 // backups of a file, no more — and the new file keeps its mode and owner.
-// When the file already holds data it is left alone and backup is "";
-// otherwise backup is the backup's path as the host sees it.
+// A link at path is kept and the file it leads to is replaced: a config
+// linked from elsewhere stays the one the agent reads. Only links the
+// panel's own user made are followed, for /var/ossec/etc is the wazuh
+// group's to write in. When the file already holds data it is left alone
+// and backup is ""; otherwise backup is the backup's path as the host sees
+// it.
 func (h *Host) writeConf(path string, data []byte) (backup string, err error) {
-	p := h.path(path)
+	p, err := h.linkedFile(path)
+	if err != nil {
+		return "", err
+	}
 	old, err := os.ReadFile(p)
 	if err != nil {
 		return "", err
@@ -52,8 +60,37 @@ func (h *Host) writeConf(path string, data []byte) (backup string, err error) {
 	if err := writeAtomic(p, data, mode, uid, gid); err != nil {
 		return "", err
 	}
-	h.pruneBackups(p)
+	h.pruneBackups(h.path(path))
 	return backup, nil
+}
+
+// maxLinks bounds a chain of links, as the kernel's own limit does.
+const maxLinks = 40
+
+// linkedFile is the file under the root that path leads to: path itself, or
+// where its links lead, an absolute link read under the root. A link the
+// panel's user did not make is refused.
+func (h *Host) linkedFile(path string) (string, error) {
+	p := h.path(path)
+	for range maxLinks {
+		fi, err := os.Lstat(p)
+		if err != nil || fi.Mode()&fs.ModeSymlink == 0 {
+			return p, nil
+		}
+		if st, ok := fi.Sys().(*syscall.Stat_t); !ok || int(st.Uid) != processUID() {
+			return "", fmt.Errorf("%s is a link this panel's user did not make; it is not written through", path)
+		}
+		target, err := os.Readlink(p)
+		if err != nil {
+			return "", err
+		}
+		if filepath.IsAbs(target) {
+			p = h.path(target)
+		} else {
+			p = filepath.Join(filepath.Dir(p), target)
+		}
+	}
+	return "", fmt.Errorf("%s leads through more than %d links", path, maxLinks)
 }
 
 // writeFile puts a file under the root that apt reads — a keyring, a source,
@@ -155,3 +192,6 @@ func finishFile(f *os.File, content []byte, mode os.FileMode, uid, gid int) erro
 	}
 	return err
 }
+
+// processUID is the user the panel runs as; a variable for the tests.
+var processUID = os.Geteuid
