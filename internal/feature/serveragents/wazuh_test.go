@@ -439,7 +439,7 @@ func TestAWazuhStillReloadingIsNotWaitedForEver(t *testing.T) {
 
 	out := f.deploy(context.Background(), wazuhStep("198.51.100.5", "", "4.14.10"))
 
-	if out.Status != tasks.JobFailed || !strings.HasPrefix(out.Summary, "not connected after 1m0s: unknown (wazuh-agent is reloading)") {
+	if out.Status != tasks.JobFailed || !strings.HasPrefix(out.Summary, "not connected after 1m30s: unknown (wazuh-agent is reloading)") {
 		t.Fatalf("outcome %+v, want failed while it reloads", out)
 	}
 	if waited := f.now.Sub(fixtureNow); waited != 90*time.Second {

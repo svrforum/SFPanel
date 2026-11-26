@@ -470,8 +470,62 @@ func TestAnAgentThatKeepsBeingRefusedNeverConnects(t *testing.T) {
 
 	out := f.deploy(context.Background(), zabbixStep("192.0.2.10", "192.0.2.10", ""))
 
-	if out.Status != tasks.JobFailed || !strings.HasPrefix(out.Summary, "not connected after 1m0s: not_registered") {
-		t.Fatalf("outcome %+v, want failed, not connected after 1m0s: not_registered", out)
+	// The server answered, so the wait runs to its longest, and the summary
+	// says how long that was.
+	if out.Status != tasks.JobFailed || !strings.HasPrefix(out.Summary, "not connected after 2m30s: not_registered") {
+		t.Fatalf("outcome %+v, want failed, not connected after 2m30s: not_registered", out)
+	}
+	if waited := f.now.Sub(at10); waited != 150*time.Second {
+		t.Errorf("waited %v, want 2m30s", waited)
+	}
+	if n := len(slices.DeleteFunc(slices.Clone(f.io.logs), func(l string) bool { return !strings.HasPrefix(l, "the server has not registered this host yet") })); n != 1 {
+		t.Errorf("said %d times why it waits past the minute, want once", n)
+	}
+}
+
+func TestAnAgentThatRetriesAMinuteLaterIsWaitedFor(t *testing.T) {
+	// Agent 7.0.22 asks a server that refused it again only 60 seconds
+	// later: registered at its first request, it says so about 62 seconds
+	// after the restart, past the minute.
+	f := installedZabbixHost(t, zabbixDistroVersion, zabbixConf(t, "192.0.2.19", "192.0.2.19", "keep-me", ""))
+	f.restartLogs("7.0.22-notfound")
+	f.onSleep = func(int) {
+		if f.now.Sub(fixtureNow) >= 62*time.Second {
+			f.write(zabbixLogRel, agentLog(t, "7.0.22-notfound-recovered"))
+		}
+	}
+
+	out := f.deploy(context.Background(), zabbixStep("192.0.2.10", "192.0.2.10", ""))
+
+	f.mustSucceed(out)
+	if waited := f.now.Sub(fixtureNow); waited != 65*time.Second {
+		t.Errorf("succeeded %v after the restart, want at the poll of 65s", waited)
+	}
+	var said int
+	for _, l := range f.io.logs {
+		if l == "the server has not registered this host yet — waiting for the agent's next retry" {
+			said++
+		}
+	}
+	if said != 1 {
+		t.Errorf("log %q, want it to say once why it waits past the minute", f.io.logs)
+	}
+}
+
+func TestAStartingOrReloadingAgentIsWaitedForNotRestarted(t *testing.T) {
+	// A rerun with nothing to change finds the agent reloading.
+	f := settledZabbixHost(t, "192.0.2.10")
+	f.service("zabbix-agent2", "reloading")
+	f.onSleep = func(int) { f.service("zabbix-agent2", "active") }
+
+	out := f.deploy(context.Background(), zabbixStep("192.0.2.10", "192.0.2.10", ""))
+
+	f.mustSucceed(out)
+	if f.cmd.ran("systemctl restart") || f.cmd.ran("systemctl enable") {
+		t.Errorf("commands %q, want an agent between states waited for, not restarted", f.cmd.lines())
+	}
+	if !f.io.logged("zabbix-agent2 is reloading; it is not restarted") {
+		t.Errorf("log %q, want it to say why it waits", f.io.logs)
 	}
 }
 

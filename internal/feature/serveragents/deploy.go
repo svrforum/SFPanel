@@ -37,8 +37,13 @@ type Outcome struct {
 type Deployer struct {
 	*Host
 	// Wait is how long an agent has to connect; it is checked every Poll.
-	Wait time.Duration
-	Poll time.Duration
+	// RegisterWait is how long in all a Zabbix agent whose server answers
+	// that it does not know the host is waited for: agent 7.0.22 asks again
+	// only a minute after a refusal, so a host its server registers at the
+	// first request says it is taken just after Wait.
+	Wait         time.Duration
+	RegisterWait time.Duration
+	Poll         time.Duration
 	// Settle is how long a restarted Zabbix agent runs before it can count
 	// as connected: until its first active check, its log has nothing to
 	// say against it.
@@ -48,7 +53,7 @@ type Deployer struct {
 
 // NewDeployer is the deployer of the agents on h.
 func NewDeployer(h *Host) *Deployer {
-	return &Deployer{Host: h, Wait: 60 * time.Second, Poll: 5 * time.Second, Settle: 10 * time.Second, Sleep: sleep}
+	return &Deployer{Host: h, Wait: 60 * time.Second, RegisterWait: 150 * time.Second, Poll: 5 * time.Second, Settle: 10 * time.Second, Sleep: sleep}
 }
 
 // sleep waits for d, or until ctx is done.
@@ -123,12 +128,17 @@ func (d *Deployer) restart(unit string, io JobIO) error {
 // anything, when the service is not active, or when the agent is not
 // connected now — a run that died between writing the config and the
 // restart leaves an agent that is active, already set, and still talking to
-// the server it had before. When nothing changed it logs which it is.
+// the server it had before. A service starting or reloading is waited for,
+// not restarted. When nothing changed it logs which it is.
 func (d *Deployer) mustRestart(unit string, changed bool, io JobIO, connection func(service string) *serveragents.Connection) bool {
 	if changed {
 		return true
 	}
 	service := d.service(unit)
+	if transitional(service) {
+		io.Logf("%s is %s; it is not restarted, but waited for", unit, service)
+		return false
+	}
 	if service != "active" {
 		io.Logf("%s is %s; it is restarted", unit, service)
 		return true
@@ -146,36 +156,54 @@ func (d *Deployer) mustRestart(unit string, changed bool, io JobIO, connection f
 const transitionalGrace = 30 * time.Second
 
 // waitConnected checks the agent every Poll until check says connected or
-// Wait has gone by, and returns the last answer. After a restart it waits a
-// Poll before the first check, and a connected answer counts only once the
-// agent has run settle. An agent whose service is starting or reloading
-// when Wait is up gets up to transitionalGrace more. err is the context's,
-// when it ended the wait.
-func (d *Deployer) waitConnected(ctx context.Context, io JobIO, restarted bool, settle time.Duration, check func(context.Context) *serveragents.Connection) (last *serveragents.Connection, ok bool, err error) {
+// Wait has gone by, and returns the last answer and how long it waited.
+// After a restart it waits a Poll before the first check, and a connected
+// answer counts only once the agent has run settle. Past Wait, an agent
+// whose service is starting or reloading gets up to transitionalGrace
+// more, and one whose server answered that it does not know the host is
+// waited for until RegisterWait in all, for the agent's next retry. err is
+// the context's, when it ended the wait.
+func (d *Deployer) waitConnected(ctx context.Context, io JobIO, restarted bool, settle time.Duration, check func(context.Context) *serveragents.Connection) (last *serveragents.Connection, waited time.Duration, ok bool, err error) {
 	start := d.Now()
 	if restarted {
 		if err := d.Sleep(ctx, d.Poll); err != nil {
-			return nil, false, err
+			return nil, d.Now().Sub(start), false, err
 		}
 	}
+	var toldRetry bool
 	for {
 		c := check(ctx)
 		elapsed := d.Now().Sub(start)
 		if c.State == serveragents.ConnConnected && (!restarted || elapsed >= settle) {
-			return c, true, nil
+			return c, elapsed, true, nil
 		}
 		if c.State == serveragents.ConnConnected {
 			io.Logf("%s: connected; it counts once the agent has run %s", elapsed, settle)
 		} else {
 			io.Logf("%s: %s", elapsed, describeConnection(c))
 		}
-		if elapsed >= d.Wait && (!c.Transitional || elapsed >= d.Wait+transitionalGrace) {
-			return c, false, nil
+		if elapsed >= d.Wait {
+			switch {
+			case c.Transitional && elapsed < d.Wait+transitionalGrace:
+			case c.State == serveragents.ConnNotRegistered && elapsed < d.RegisterWait:
+				if !toldRetry {
+					io.Logf("the server has not registered this host yet — waiting for the agent's next retry")
+					toldRetry = true
+				}
+			default:
+				return c, elapsed, false, nil
+			}
 		}
 		if err := d.Sleep(ctx, d.Poll); err != nil {
-			return c, false, err
+			return c, d.Now().Sub(start), false, err
 		}
 	}
+}
+
+// notConnected is the summary of a deploy whose agent did not connect in
+// the time it was waited for.
+func notConnected(waited time.Duration, c *serveragents.Connection) string {
+	return fmt.Sprintf("not connected after %s: %s", waited.Round(time.Second), describeConnection(c))
 }
 
 // describeConnection is a connection's state, and its detail in brackets.

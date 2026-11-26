@@ -218,7 +218,7 @@ func (d *Deployer) deployWazuh(ctx context.Context, step tasks.AgentStep, io Job
 		return cancelled(changed, "checking the connection")
 	}
 	io.Logf("waiting up to %s for the agent to connect to %s", d.Wait, manager)
-	c, ok, err := d.waitConnected(ctx, io, restarted, 0, func(context.Context) *serveragents.Connection {
+	c, waited, ok, err := d.waitConnected(ctx, io, restarted, 0, func(context.Context) *serveragents.Connection {
 		if restarted {
 			return d.wazuhConnectionAfter(restartedAt)
 		}
@@ -228,7 +228,7 @@ func (d *Deployer) deployWazuh(ctx context.Context, step tasks.AgentStep, io Job
 		return cancelledWhile(changed, "waiting for the agent to connect")
 	}
 	if !ok {
-		return failed(changed, fmt.Sprintf("not connected after %s: %s", d.Wait, describeConnection(c)))
+		return failed(changed, notConnected(waited, c))
 	}
 
 	var summary strings.Builder

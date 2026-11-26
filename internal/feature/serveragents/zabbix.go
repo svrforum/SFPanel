@@ -179,14 +179,14 @@ func (d *Deployer) deployZabbix(ctx context.Context, step tasks.AgentStep, io Jo
 	host, port := s.ActiveAddress()
 	target := net.JoinHostPort(host, strconv.Itoa(port))
 	io.Logf("waiting up to %s for the agent to reach %s", d.Wait, target)
-	c, ok, err := d.waitConnected(ctx, io, restarted, d.Settle, func(ctx context.Context) *serveragents.Connection {
+	c, waited, ok, err := d.waitConnected(ctx, io, restarted, d.Settle, func(ctx context.Context) *serveragents.Connection {
 		return d.zabbixConnection(ctx, d.service(zabbixUnit), written)
 	})
 	if err != nil {
 		return cancelledWhile(changed, "waiting for the agent to connect")
 	}
 	if !ok {
-		return failed(changed, fmt.Sprintf("not connected after %s: %s", d.Wait, describeConnection(c)))
+		return failed(changed, notConnected(waited, c))
 	}
 
 	var summary strings.Builder
