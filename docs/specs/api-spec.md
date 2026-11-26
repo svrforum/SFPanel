@@ -5976,7 +5976,7 @@ CA 교체를 멈추고 현재 CA를 지킵니다. `trust`에서는 `drop`으로(
 
 ## 그룹 작업 API (`/api/v1/cluster/tasks`, `/api/v1/cluster/task-runs`)
 
-같은 단계(패키지·서비스·명령·파일·스택·재부팅)를 여러 노드에 차례로 돌리는 작업의 정의와 실행입니다. 매니저 전용 `/cluster` 그룹에 있으며 에이전트에는 없습니다. 쓰기(정의의 생성·수정·삭제, Git 가져오기, 실행 시작·중지·다시 실행)와 미리 보기(실행의 미리 보기, Git 가져오기의 미리 보기)는 리더가 처리하고 다른 매니저에서 요청하면 리더로 전달됩니다. 목록·조회·검증·YAML 변환·진행 스트림·단계 출력은 요청을 받은 매니저가 자기 복제 상태에서 답합니다. 실행은 요청·브라우저와 떨어져 리더에서 돌고, 리더가 바뀌면 새 리더가 이어받습니다. 순서, 실패와 중지, 정족수·Proxmox, 다른 클러스터 작업과의 관문, 저장과 보관은 `docs/specs/cluster-ops.md`의 "Group tasks"를 보세요. 화면은 클러스터의 그룹 작업 탭이고, CLI는 없습니다.
+같은 단계(패키지·서비스·명령·파일·스택·재부팅·에이전트)를 여러 노드에 차례로 돌리는 작업의 정의와 실행입니다. 매니저 전용 `/cluster` 그룹에 있으며 에이전트에는 없습니다. 쓰기(정의의 생성·수정·삭제, Git 가져오기, 실행 시작·중지·다시 실행)와 미리 보기(실행의 미리 보기, Git 가져오기의 미리 보기)는 리더가 처리하고 다른 매니저에서 요청하면 리더로 전달됩니다. 목록·조회·검증·YAML 변환·진행 스트림·단계 출력은 요청을 받은 매니저가 자기 복제 상태에서 답합니다. 실행은 요청·브라우저와 떨어져 리더에서 돌고, 리더가 바뀌면 새 리더가 이어받습니다. 순서, 실패와 중지, 정족수·Proxmox, 다른 클러스터 작업과의 관문, 저장과 보관은 `docs/specs/cluster-ops.md`의 "Group tasks"를 보세요. 화면은 클러스터의 그룹 작업 탭이고, CLI는 없습니다.
 
 - **인증 필요**: 예 (모두)
 - 클러스터가 아니면 `400 INVALID_REQUEST`(`Cluster not configured`) — `POST /cluster/tasks/validate`와 `POST /cluster/tasks/format`만 예외
@@ -6024,10 +6024,11 @@ steps:
 | `file` | `path`(절대 경로), `content`, `mode`(8진수 3~4자리, 권한 비트만), `owner`(`user` 또는 `user:group`) |
 | `stack` | `name`, `compose`, `up`(`true`면 `docker compose up -d`) |
 | `reboot` | `only_if_required`(기본 `true`), `wait`(기본 `10m`) |
+| `agent` | `name`(`zabbix` · `wazuh`). 그 노드에 Zabbix Agent 2나 Wazuh 에이전트를 설치하거나(없을 때) 이미 있는 것을 쓰고, 설정 파일의 연결값만 맞추고, 바뀐 것이 있거나 서비스가 멈춰 있으면 다시 시작한 뒤 실제로 서버에 붙는지 60초까지 확인. 연결값과 서버 이름은 문서에 쓰지 않습니다 — 리더가 노드마다 `node_name`(그 노드의 이름)과 `settings`(클러스터의 연결값, 아래 "서버 에이전트 API")를 채워 보내고, 문서에 이 두 키를 쓰면 거부됩니다. 에이전트를 건드리지 않는 노드에서는 건너뜁니다(`SERVER_AGENT_SKIPPED`) |
 
 `{{ 입력 }}`, `{{ node.name }}`, `{{ node.address }}`(클러스터가 그 노드에 닿는 첫 주소)는 노드마다 채웁니다. 명령에 들어가는 값은 `raw` 입력이 아니면 셸 인용을 거쳐 들어가는데, 그 인용은 셸이 단어를 읽는 자리에서만 한 단어가 됩니다. 그래서 명령 안의 참조는 인용 밖 맨 위 수준(`echo {{ x }}`, `--opt={{ x }}`, `X={{ x }}`)에만 둘 수 있고, 작은따옴표·큰따옴표, `$( )`·`$(( ))`·백틱·`${ }`, heredoc 본문, 주석 안의 참조는 그 줄 번호와 함께 거부됩니다(`400 TASK_INVALID`의 `problems`). 문자열 안에서 쓰려면 먼저 대입하고(`X={{ x }}`) `"$X"`로 씁니다. 검사가 따라가지 못하는 구문(`$'…'`, `$[…]`, `${…}` 안의 따옴표, `( )`·`$( )` 안의 `case`) 뒤의 참조도 거부되므로, 그때는 스크립트 앞쪽에서 대입합니다. `raw` 입력은 어디에 있든 검사하지 않습니다. 서비스 이름·파일의 경로·내용·소유자·스택의 이름과 compose 문서에는 인용 없이 그대로 들어갑니다. 패키지 목록의 참조 하나는 공백·쉼표로 나눠 여러 이름이 됩니다. `{{.Names}}` 같은 Go 템플릿(docker 등)은 참조가 아니어서 그대로 둡니다.
 
-**내장 작업**(읽기 전용, 저장되지 않고 모든 매니저의 바이너리에 있음): `builtin/package-update`, `builtin/package-install`, `builtin/service-restart`, `builtin/command`(입력 `command`가 `raw` — 입력한 명령 줄 그대로), `builtin/reboot`(필요할 때만). ID에 `/`가 있으므로 경로에서는 `builtin%2Fcommand`처럼 이스케이프합니다.
+**내장 작업**(읽기 전용, 저장되지 않고 모든 매니저의 바이너리에 있음): `builtin/package-update`, `builtin/package-install`, `builtin/service-restart`, `builtin/command`(입력 `command`가 `raw` — 입력한 명령 줄 그대로), `builtin/reboot`(필요할 때만), `builtin/zabbix-agent`·`builtin/wazuh-agent`(`agent` 단계 하나, `stop_on_failure: false`). ID에 `/`가 있으므로 경로에서는 `builtin%2Fcommand`처럼 이스케이프합니다.
 
 응답의 `task`(파싱된 작업)에서 `timeout`·`wait`는 나노초 단위 숫자입니다(Go `time.Duration`).
 
@@ -6325,9 +6326,9 @@ GitHub 폴더의 작업 파일을 보여 줍니다(리더, 아무것도 쓰지 �
 | `waves[][].leader` | 지금 리더. 리더는 자기 차례에 리더십을 다른 매니저 투표자에게 넘기고, 새 리더가 실행을 이어받음 |
 | `waves[][].verdicts` | 노드의 판정(`step`은 0부터). `refused`(실행하면 그 단계가 실패 — Proxmox 호스트의 재부팅만은 건너뜀)와 `code`·`reason`, 또는 `needs_confirm`(그 단계 번호를 `confirmed`에 넣어야 통과) |
 | `waves[][].check_error` | 노드가 판정을 주지 못한 이유 |
-| `left` | 빠지는 대상과 `reason`: `offline`(리더의 실시간 하트비트로 오프라인), `outdated`(하트비트에 `tasks-v1` 없음 — 업데이트 필요), `unreachable`(이 리더가 닿지 못하는 에이전트), `busy`(진행 중인 다른 실행 `run_id`가 잡고 있음), `unknown`(`targets.nodes`의 ID가 어느 노드도 아님) |
+| `left` | 빠지는 대상과 `reason`: `offline`(리더의 실시간 하트비트로 오프라인), `outdated`(하트비트에 `tasks-v1` 없음 — 업데이트 필요), `step_unsupported`(작업 잡은 돌리지만 이 작업의 단계 종류를 모두 돌리지는 못함 — 지금은 `agent` 단계가 있는데 하트비트에 `server-agent-step-v1`이 없는 노드, 업데이트 필요), `unreachable`(이 리더가 닿지 못하는 에이전트), `busy`(진행 중인 다른 실행 `run_id`가 잡고 있음), `unknown`(`targets.nodes`의 ID가 어느 노드도 아님) |
 | `plan_id` | 이 미리 보기가 보여 준 것의 이름: 작업 문서의 리비전(SHA-256), 작업에 정의된 입력의 값(준 그대로), 대상(준 것, 없으면 작업의 것)에 대한 SHA-256(hex). 단계를 확인하고 시작할 때 그대로 보냄 |
-| `managers_not_ready` | 시작이 기다릴 매니저와 이유(`TASK_MANAGERS_NOT_READY`의 `details.managers`와 같은 문구). 없으면 생략 |
+| `managers_not_ready` | 시작이 기다릴 매니저와 이유(`TASK_MANAGERS_NOT_READY`의 `details.managers`와 같은 문구). 작업에 `agent` 단계가 있으면 `server-agent-step-v1`이 없는 매니저도 — 리더가 자기 차례에 넘긴 리더십을 받은 매니저가 문서를 다시 읽어 실행을 이어 가기 때문. 없으면 생략 |
 | `steps` | 이 미리 보기가 판정한 문서의 단계마다 `{name, kind}`(`GET /cluster/task-runs/:id`의 `steps`와 같은 모양). 이름 없는 단계는 `kind`만. `verdicts[].step`이 이 목록의 번호입니다 — 화면은 판정과 확인 문구를 미리 열어 둔 작업이 아니라 이것으로 붙입니다. 그사이 작업을 Git에서 다시 받았거나 다른 곳에서 고쳤을 수 있습니다 |
 
 **에러 응답:**
@@ -6339,6 +6340,7 @@ GitHub 폴더의 작업 파일을 보여 줍니다(리더, 아무것도 쓰지 �
 | `TASK_INPUT_MISSING` | 400 | 필수 입력에 값도 기본값도 없음 (`details.input`) |
 | `TASK_TOO_LARGE` | 400 | 입력값 하나가 16 KiB 초과(`details.input`: 그 입력 이름, `details.max_kib`: `"16"`), 또는 작업의 입력값을 합쳐 64 KiB 초과(`details.input`: `"*"`, `details.max_kib`: `"64"`) |
 | `TASK_TOO_MANY_TARGETS` | 400 | 대상이 200대 초과 — 빠지는 노드를 빼기 전에 셈 (`details.max`: `"200"`) |
+| `SERVER_AGENT_NOT_CONFIGURED` | 400 | 작업에 `agent` 단계가 있는데 그 에이전트의 연결값이 저장되지 않음(Zabbix는 `server`·`server_active`, Wazuh는 `manager`) — `details.agent`, 노드에 묻거나 기록하기 전에 거부. 실행이 시작된 뒤 값이 지워지면 차례가 온 노드가 실패 |
 
 ---
 
@@ -6354,7 +6356,7 @@ GitHub 폴더의 작업 파일을 보여 줍니다(리더, 아무것도 쓰지 �
 |------|-----------|------|
 | `INVALID_REQUEST` | 400 | `confirmed`에 작업에 없는 단계 번호, 또는 `confirmed`가 있는데 `plan_id`가 없음(`confirmed steps need the preview's plan_id`) |
 | `TASK_PLAN_CHANGED` | 409 | `confirmed`가 있고 `plan_id`가 지금의 작업·입력·대상과 맞지 않음(`the task, its inputs or its targets changed since the preview: preview again`). 미리 보기를 다시 |
-| `TASK_MANAGERS_NOT_READY` | 409 | 리더 말고 모든 매니저가 온라인이고 `tasks-v1`을 알려야 함. `details.managers`: 기다리는 매니저와 이유, 쉼표로 구분(`peer-2 (offline)`, `peer-3 (not heard from)`, `peer-4 (0.80.0)`) |
+| `TASK_MANAGERS_NOT_READY` | 409 | 리더 말고 모든 매니저가 온라인이고 `tasks-v1`을(작업에 `agent` 단계가 있으면 `server-agent-step-v1`도) 알려야 함. `details.managers`: 기다리는 매니저와 이유, 쉼표로 구분(`peer-2 (offline)`, `peer-3 (not heard from)`, `peer-4 (0.80.0)`) |
 | `TASK_NO_TARGETS` | 400 | 남는 노드가 없음 |
 | `TASK_TARGET_BUSY` | 409 | 남는 노드가 없고 그중 진행 중인 다른 실행이 잡은 노드가 있음, 또는 동시에 시작한 다른 실행이 먼저 기록됨 (`details.node_id`, `details.run_id`) |
 | `TASK_REBOOT_BUSY` | 409 | 이 실행의 문서에 재부팅 단계가 있고 대상에 매니저가 있는데, 진행 중인 다른 실행도 그렇다(`details.run_id`: 그 실행). 매니저를 재부팅하는 실행은 한 번에 하나 — 각 실행이 정족수를 온라인 매니저로만 판단하므로 둘이 동시에 매니저를 하나씩 재부팅할 수 있기 때문. 에이전트만 재부팅하는 실행은 해당하지 않음 |
@@ -6426,7 +6428,7 @@ GitHub 폴더의 작업 파일을 보여 줍니다(리더, 아무것도 쓰지 �
 | `run.ended_at` | 끝난 시각 |
 | `nodes.<id>.status` | `pending`, `running`, `succeeded`, `failed`, `skipped`(정족수), `unknown`(결과를 모름), `stopped`(중지되었거나 차례가 오기 전에 실행이 끝남) |
 | `nodes.<id>.reason` | 그 노드가 그렇게 끝난 이유 |
-| `steps[].status` | `pending`, `starting`(잡 ID를 기록하고 노드에 보내는 중), `running`, `succeeded`, `failed`, `skipped`(`summary`: `quorum` · `Proxmox host`), `unknown`, `cancelled`(강제 중지) |
+| `steps[].status` | `pending`, `starting`(잡 ID를 기록하고 노드에 보내는 중), `running`, `succeeded`, `failed`, `skipped`(`summary`: `quorum` · `Proxmox host` · 에이전트를 건드리지 않은 노드의 문장 `skipped: …`), `unknown`, `cancelled`(강제 중지) |
 | `steps[].job_id` | 그 노드에서 그 단계를 돈 잡(`<실행 ID>-<단계>`) |
 | `steps[].summary` | 노드의 한 줄 요약(200바이트까지). 다시 실행에서 건너뛴 단계는 `succeeded in run <ID>` |
 | `steps[].changed` | 노드에서 무언가 바뀌었는지(명령은 늘 `true`, 내용·모드·소유자가 같았던 파일은 `false` 등) |
@@ -6467,7 +6469,7 @@ GitHub 폴더의 작업 파일을 보여 줍니다(리더, 아무것도 쓰지 �
 ---
 
 ### POST /api/v1/cluster/task-runs/:id/rerun
-끝난 실행을 고른 노드에 대해 새 실행으로 다시 돌립니다(리더). 원래 실행이 시작한 문서(지금의 작업이 아님)와 입력값, 확인한 단계, `batch`를 그대로 씁니다(`plan_id`는 필요 없음). 물결 순서는 원래 실행에서 가져오지 않고 **지금의 클러스터로 다시 정합니다**: 에이전트를 `batch`대씩 → 리더가 아닌 매니저 한 대씩 → 리더. 그 사이 리더가 바뀌었으면 새 리더가 마지막이고, 승격된 노드는 매니저로 한 대씩 돕니다. 새 실행처럼 오프라인·`tasks-v1` 없음·닿지 않음·다른 실행이 잡은 노드는 빠집니다. 노드마다 **성공하지 못한 첫 단계부터** 돌고, 그 앞 단계는 `succeeded in run <원래 ID>`로 기록됩니다. 모든 단계가 성공한 노드는 처음부터 돕니다. 새 실행은 `POST /cluster/task-runs`와 같은 관문을 거칩니다.
+끝난 실행을 고른 노드에 대해 새 실행으로 다시 돌립니다(리더). 원래 실행이 시작한 문서(지금의 작업이 아님)와 입력값, 확인한 단계, `batch`를 그대로 씁니다(`plan_id`는 필요 없음). 물결 순서는 원래 실행에서 가져오지 않고 **지금의 클러스터로 다시 정합니다**: 에이전트를 `batch`대씩 → 리더가 아닌 매니저 한 대씩 → 리더. 그 사이 리더가 바뀌었으면 새 리더가 마지막이고, 승격된 노드는 매니저로 한 대씩 돕니다. 새 실행처럼 오프라인·`tasks-v1` 없음·단계 종류를 모름(`step_unsupported`)·닿지 않음·다른 실행이 잡은 노드는 빠집니다. 노드마다 **성공하지 못한 첫 단계부터** 돌고, 그 앞 단계는 `succeeded in run <원래 ID>`로 기록됩니다. 모든 단계가 성공한 노드는 처음부터 돕니다. 새 실행은 `POST /cluster/task-runs`와 같은 관문을 거칩니다.
 
 - `?only=failed`: 성공하지 않은 모든 노드(실패·결과 모름·건너뜀·중지·시작 못 함). 본문은 읽지 않음
 - 없으면 본문 `{ "nodes": ["node-a2", "node-a3"] }` — 원래 실행이 돌지 않은 ID는 버림
@@ -6533,7 +6535,7 @@ GitHub 폴더의 작업 파일을 보여 줍니다(리더, 아무것도 쓰지 �
 | 메서드 | 경로 | 설명 |
 |--------|------|------|
 | POST | `/api/v1/task-jobs` | 잡 시작. 본문은 리더가 노드에 맞게 채운 단계(`tasks.JobSpec`: `id`=`<실행 ID>-<단계>`, `run_id`, `task`, `step`, `kind`, `confirmed`, 그리고 `kind`와 같은 이름의 설정 하나). 새 ID면 `201`, 이미 있는 ID면 `200`과 그 잡 |
-| POST | `/api/v1/task-jobs/check` | 미리 보기의 판정. 본문은 `JobSpec` 배열(50개까지), 답은 단계마다 `{step, refused, needs_confirm, code, reason}` |
+| POST | `/api/v1/task-jobs/check` | 미리 보기의 판정. 본문은 `JobSpec` 배열(50개까지), 답은 단계마다 `{step, refused, needs_confirm, code, reason, details}`(`details`는 거부의 사실들, 예: `SERVER_AGENT_SKIPPED`의 `agent`·`why`) |
 | GET | `/api/v1/task-jobs/:id?skip=` | 잡의 상태와 `skip` 바이트부터의 출력(위 출력 라우트와 같은 모양) |
 | POST | `/api/v1/task-jobs/:id/cancel` | `{ "force": true }`일 때만 돌고 있는 잡을 취소. 끝난 잡은 그대로 답함 |
 
@@ -6545,6 +6547,7 @@ GitHub 폴더의 작업 파일을 보여 줍니다(리더, 아무것도 쓰지 �
 | `TASK_NODE_BUSY` | 409 | 다른 잡이 노드를 잡고 있음 (`details.job_id`, `run_id`, `task`) |
 | `TASK_REBOOT_PVE_HOST` | 409 | Proxmox VE 호스트에 보낸 재부팅 단계. 기록하기 전에 거부(필요 여부와 상관없이) |
 | `TASK_REBOOT_UNSUPPORTED` | 409 | 재부팅을 예약해야 하는데 systemd가 없음 |
+| `SERVER_AGENT_SKIPPED` | 409 | 이 노드가 그 에이전트를 건드리지 않음 (`details.agent`, `why`, 경우에 따라 `installed`·`version`·`os` — 아래 "서버 에이전트 API"의 오류 코드). 기록하기 전에 거부 |
 | `TASK_JOB_NOT_FOUND` | 404 | 그런 잡이 없음(시작된 적 없거나 정리됨) |
 | `TASK_JOB_RUNNING` | 409 | `force` 없이 돌고 있는 잡을 취소 |
 | `DB_ERROR` | 500 | 잡 기록을 읽거나 쓰지 못함 |
@@ -6575,6 +6578,8 @@ GitHub 폴더의 작업 파일을 보여 줍니다(리더, 아무것도 쓰지 �
 | `TASK_JOB_RUNNING` | 409 | — | 돌고 있는 잡을 `force` 없이 취소 |
 | `TASK_REBOOT_PVE_HOST` | 409 | — | Proxmox VE 호스트의 재부팅 거부. 실행은 그 단계를 건너뜀(`Proxmox host`)으로 기록하고 다음 단계로 감 |
 | `TASK_REBOOT_UNSUPPORTED` | 409 | — | systemd가 없는 노드라 재부팅을 예약하지 못함. 그 단계는 실패 |
+| `SERVER_AGENT_NOT_CONFIGURED` | 400 | `agent` | `agent` 단계가 있는 작업의 미리 보기·시작인데 그 에이전트의 연결값이 저장되지 않음 |
+| `SERVER_AGENT_SKIPPED` | 409 | `agent`, `why`, 경우에 따라 `installed`·`version`·`os` | 노드가 그 에이전트를 건드리지 않음. 실행은 그 단계를 건너뜀(`summary`: 노드의 문장)으로 기록하고 다음 단계로 감 |
 
 ---
 
@@ -6836,6 +6841,160 @@ GitHub 폴더의 작업 파일을 보여 줍니다(리더, 아무것도 쓰지 �
 | `AGENT_INSTALL_STOPPED` | `registered` | 에이전트가 등록된 뒤 운영자가 설치(또는 다시 확인)를 중지함(`registered: "1"`, `status: "stopped"`, `node_id` 있음). 노드는 되돌릴 때까지 클러스터에 남음. [되돌리기]만 — 다시 확인은 없음 |
 
 어느 행이든 되돌리면 `reason_details.reverted`(`removing` · `purged` · `cleanup_failed` · `removed`)가, 원래 SFPanel이 있던 서버면 `standalone: "1"`이 더해집니다. 원래 SFPanel이 있던 서버에서 설치가 등록 없이 끝나면, 사전 점검 때 돌고 있던 패널을 다시 켜고 `reason_details.panel`(`restarted` · `restart_failed`)을 더합니다.
+
+---
+
+## 서버 에이전트 API (`/api/v1/agents`)
+
+각 서버의 모니터링·보안 에이전트 — Zabbix Agent 2와 Wazuh 에이전트 — 를 보는 API입니다. 상태는 서버마다 자기 것을 읽고, 연결값(Zabbix 서버와 Wazuh 매니저의 주소 등)은 클러스터 전체에 하나입니다. 배포와 연결값 다시 적용은 이 API가 아니라 그룹 작업의 내장 작업 `builtin/zabbix-agent`·`builtin/wazuh-agent`(단계 종류 `agent`, 위의 "그룹 작업 API")가 합니다. 화면은 `모든 서버 › 에이전트`(`/agents`)이고, CLI는 없습니다.
+
+- **인증 필요**: 예 (모두)
+- `GET /agents/status`는 매니저와 에이전트 모두에 있습니다. 화면이 서버마다 `?node=<노드 ID>`로 부르고, 그 서버가 자기 에이전트를 읽어 답합니다. 아무것도 바꾸지 않습니다. 이 라우트가 없는 옛 버전의 노드는 `404 NOT_FOUND`
+- `GET`·`PUT /agents/settings`는 매니저에만 있습니다. 클러스터가 아니면 `400 INVALID_REQUEST`(`Cluster not configured`). 읽기는 받은 매니저가 자기 복제 상태에서 답하므로 `?node=`는 필요 없습니다. 쓰기는 받은 매니저가 값을 정규화하고 검사한 뒤 리더로 전달하고, 리더가 다시 검사해 저장합니다
+- 막 뽑힌 리더는 이전 리더의 기록을 모두 적용할 때까지 쓰기에 `503 INTERNAL_ERROR`(`The cluster leader is catching up: retry in a few seconds`). 전달된 쓰기가 도착하기 전에 리더가 바뀌면 `503 INTERNAL_ERROR`(`This node is not the cluster leader: retry in a few seconds`)
+- `PUT /agents/settings`는 본문이 64 KiB를 넘으면 핸들러 전에 `413`(Echo의 `{"message":"Request Entity Too Large"}`, 응답 봉투가 아님) — 연결값은 모든 매니저에 복제됩니다
+
+### GET /api/v1/agents/status
+이 노드의 두 에이전트: 어떻게 설치됐는지, 설정 파일에 무엇이 있는지, 에이전트 쪽에서 볼 때 서버에 붙어 있는지. Zabbix 서버로의 TCP 확인은 3초까지 기다립니다.
+
+**Response (200):**
+```json
+{
+  "success": true,
+  "data": {
+    "os": { "id": "ubuntu", "id_like": "debian", "version_id": "24.04", "codename": "noble", "pretty": "Ubuntu 24.04.3 LTS" },
+    "zabbix": {
+      "state": "installed",
+      "version": "7.0.32-2+ubuntu24.04",
+      "source": "vendor",
+      "service": "active",
+      "config": { "server": "192.0.2.10", "server_active": "192.0.2.10", "hostname": "node-a", "host_metadata": "linux-fleet-auto" },
+      "connection": { "state": "unreachable", "detail": "dial tcp 192.0.2.10:10051: i/o timeout" }
+    },
+    "wazuh": {
+      "state": "installed",
+      "version": "4.14.10-1",
+      "held": true,
+      "service": "active",
+      "config": { "servers": ["192.0.2.10"], "enrollment_manager": "192.0.2.10", "groups": "default" },
+      "connection": { "state": "connected", "last_keepalive": "2026-11-26 10:00:00", "last_ack": "2026-11-26 10:00:02" }
+    },
+    "checked_at": "2026-11-26T10:00:05Z"
+  }
+}
+```
+
+| 필드 | 설명 |
+|------|------|
+| `os` | `/etc/os-release`: `id`, `id_like`, `version_id`, `codename`, `pretty` |
+| `zabbix.state`, `wazuh.state` | 설치 상태(아래 표). `none`이면 다른 필드가 없음 |
+| `version` | dpkg의 패키지 버전. Zabbix가 `legacy`면 옛 에이전트(`zabbix-agent`)의 버전 |
+| `zabbix.source` | `vendor`(repo.zabbix.com의 빌드 — 버전이 `+ubuntuNN.NN`·`+debianNN`으로 끝남), `distro`(OS 자체 저장소의 패키지), `other`(패키지 없이 설정 파일이나 유닛만) |
+| `wazuh.held` | `apt-mark hold`됨. 배포가 걸어 두어, 패키지 화면의 전체 업그레이드가 매니저보다 새 버전으로 올리지 못하게 함 |
+| `service` | `systemctl is-active zabbix-agent2`·`wazuh-agent`의 답(`active`, `inactive`, `failed` …, 답이 없으면 `unknown`). `installed`·`unmanaged`일 때만 |
+| `zabbix.config` | `/etc/zabbix/zabbix_agent2.conf`의 활성 줄: `server`, `server_active`, `hostname`, `host_metadata`, 그리고 활성 줄이 둘 이상인 키 `duplicates`. 파일이 없으면 없음 |
+| `wazuh.config` | `/var/ossec/etc/ossec.conf`: `servers`(`<client><server><address>`, 순서대로), `enrollment_manager`, `groups` |
+| `wazuh.config_error` | ossec.conf를 읽지 못한 이유 (`config` 대신) |
+| `connection` | 에이전트 쪽에서 본 연결: `state`(아래 표), `detail`(다이얼 오류나 로그 줄 — 비밀처럼 보이는 것은 지움), Wazuh는 `last_keepalive`·`last_ack`(상태 파일에 적힌 그대로). `installed`·`unmanaged`일 때만 |
+| `checked_at` | 읽은 시각 |
+
+설치 상태(`state`):
+
+| 값 | 뜻 |
+|----|----|
+| `none` | 없음 |
+| `installed` | 패키지(`zabbix-agent2`·`wazuh-agent`)로 설치됨. 배포가 값을 맞추는 대상 |
+| `legacy` | Zabbix만: 옛 에이전트(`zabbix-agent`, agentd)만 있음. 이 기능 밖이라 버전과 출처만 보이고, 배포는 그 서버의 Zabbix를 건너뜀 |
+| `unmanaged` | 패키지 밖에서 설치됨(설정 파일이나 유닛만 있음 — 지웠지만 설정이 남은 패키지도). 보기만 하고 배포는 건너뜀 |
+
+연결 상태(`connection.state`) — 서비스가 `active`여도 서버에 닿지 않으면 `connected`가 아닙니다:
+
+| 값 | 에이전트 | 뜻 |
+|----|----------|----|
+| `connected` | 둘 다 | Zabbix: 서비스가 active이고, ServerActive에 TCP로 닿고, 로그의 마지막 시작(`starting zabbix agent 2`) 뒤 마지막 active check 줄이 실패가 아님. Wazuh: 상태 파일의 `status='connected'` |
+| `not_running` | 둘 다 | 서비스가 active가 아님 |
+| `no_server` | Zabbix | 설정에 ServerActive가 없음 |
+| `unreachable` | Zabbix | ServerActive(포트가 없으면 10051)에 3초 안에 TCP로 닿지 않음. `detail`: 다이얼 오류 |
+| `not_registered` | Zabbix | 서버에 닿지만 서버가 이 호스트를 모름(로그의 `host [...] not found`) — 자동 등록이 아직 안 됨. `detail`: 그 로그 줄 |
+| `failing` | Zabbix | TCP로는 닿지만 로그의 마지막 active check가 실패(`cannot connect`, `connection refused`, `i/o timeout` 등). `detail`: 그 로그 줄 |
+| `pending` | Wazuh | 매니저를 기다리는 중(상태 파일) |
+| `disconnected` | Wazuh | 매니저와 끊김(상태 파일) |
+| `never` | Wazuh | 상태 파일(`/var/ossec/var/run/wazuh-agentd.state`)이 없음 — 연결한 적 없음 |
+| `stale` | Wazuh | 상태 파일이 2분 넘게 바뀌지 않음(돌고 있는 에이전트는 5초마다 다시 씀) |
+| `unknown` | 둘 다 | Zabbix: ServerActive가 주소 하나가 아님(서버 여럿 등 — 어느 것인지 추측하지 않음). Wazuh: 상태 파일의 `status`가 모르는 값. `detail`에 그 값 |
+
+Zabbix 로그는 `/var/log/zabbix/zabbix_agent2.log`의 마지막 64 KiB만 읽습니다.
+
+---
+
+### GET /api/v1/agents/settings
+클러스터의 연결값. 받은 매니저의 복제 상태에서 답합니다.
+
+**Response (200):**
+```json
+{
+  "success": true,
+  "data": {
+    "zabbix": { "server": "192.0.2.10", "server_active": "192.0.2.10", "host_metadata": "linux-fleet-auto" },
+    "wazuh": { "manager": "192.0.2.10", "groups": "", "version": "4.14.10" },
+    "updated_at": "2026-11-26T09:00:00Z",
+    "updated_by": "admin",
+    "saved": true
+  }
+}
+```
+
+저장한 적이 없으면 `saved: false`이고, 값은 `wazuh.version`(`"4.14.10"`)말고 모두 빈 값이며 `updated_at`·`updated_by`는 없습니다.
+
+**에러 응답:**
+| 코드 | HTTP 상태 | 조건 |
+|------|-----------|------|
+| `INVALID_REQUEST` | 400 | 클러스터가 아님(`Cluster not configured`) |
+| `INTERNAL_ERROR` | 500 | 복제 상태의 값을 읽지 못함 |
+
+---
+
+### PUT /api/v1/agents/settings
+연결값을 통째로 바꿉니다(리더). 본문에 없는 값은 빈 값이 됩니다. 값을 저장할 뿐 서버의 설정 파일은 바꾸지 않습니다 — 배포(내장 작업)를 다시 돌리면 그때 맞춥니다. Wazuh 그룹과 Zabbix HostMetadata는 새로 등록하는 서버에만 효력이 있습니다: 배포는 이미 등록된 서버를 이 값 때문에 다시 등록하지 않습니다.
+
+**Request Body:**
+```json
+{
+  "zabbix": { "server": "192.0.2.10,198.51.100.0/24", "server_active": "zbx.example.net:10051", "host_metadata": "linux-fleet-auto" },
+  "wazuh": { "manager": "192.0.2.10", "groups": "default,web", "version": "4.14.10" }
+}
+```
+
+| 필드 | 설명 |
+|------|------|
+| `zabbix.server` | passive 검사를 허용할 주소: IP(v4·v6), DNS 이름(253자까지), CIDR의 쉼표 목록(16개까지, 포트 없음) |
+| `zabbix.server_active` | active 검사를 보낼 곳 하나: `host`, `host:port`, `[IPv6]:port`(포트 1–65535, 없으면 10051) |
+| `zabbix.host_metadata` | 자동 등록 메타데이터. UTF-8 255바이트까지, 줄바꿈 같은 제어 문자 없음 |
+| `wazuh.manager` | 매니저 주소: IP 또는 DNS 이름 |
+| `wazuh.groups` | 등록 그룹의 쉼표 목록(영문자·숫자·`_`·`.`·`-`, 255자까지). 비우면 `default` |
+| `wazuh.version` | 설치할 에이전트 버전 `x.y.z`. 비우면 `4.14.10`. 매니저보다 새 에이전트는 매니저가 거부하므로 저장소의 최신이 아니라 이 버전을 깔고 hold함 |
+
+Zabbix는 셋 중 하나라도 있으면 `server`와 `server_active`가 둘 다 있어야 하고, Wazuh는 `groups`가 있으면 `manager`가 있어야 합니다. 모두 비우면 그 에이전트는 설정되지 않은 것입니다(배포가 `SERVER_AGENT_NOT_CONFIGURED`로 거부). IPv6 zone(`%eth0`)은 받지 않습니다. 검사 전에 정규화합니다: 값마다 앞뒤 공백을 지우고, 쉼표 목록의 빈 항목을 빼고, 빈 버전을 기본값으로 채웁니다. 저장하는 것도 정규화된 값입니다. `updated_at`·`updated_by`·`saved`는 본문에 있어도 쓰지 않습니다 — 리더가 저장한 시각과 요청한 운영자를 적습니다.
+
+**Response (200):** `GET /agents/settings`와 같은 모양으로 저장한 값(`saved: true`).
+
+**에러 응답:**
+| 코드 | HTTP 상태 | 조건 |
+|------|-----------|------|
+| `INVALID_REQUEST` | 400 | 클러스터가 아님(`Cluster not configured`), 읽을 수 없는 본문 |
+| `SERVER_AGENT_SETTINGS_INVALID` | 400 | 값이 규칙에 맞지 않음. `details.field`: 처음 거부한 값, `message`: `<field>: <이유>` |
+| `INTERNAL_ERROR` | 503 | 리더가 따라잡는 중, 또는 전달된 쓰기가 도착하기 전에 리더가 바뀜 |
+| `INTERNAL_ERROR` | 500 | 복제 상태에 쓰지 못함 |
+
+---
+
+### 서버 에이전트 오류 코드
+
+| 코드 | HTTP 상태 | details | 의미 |
+|------|-----------|---------|------|
+| `SERVER_AGENT_SETTINGS_INVALID` | 400 | `field` | 연결값이 규칙에 맞지 않음(`PUT /agents/settings`). `field`는 값의 JSON 경로: `zabbix.server`, `zabbix.server_active`, `zabbix.host_metadata`, `wazuh.manager`, `wazuh.groups`, `wazuh.version` |
+| `SERVER_AGENT_NOT_CONFIGURED` | 400 | `agent` | `agent` 단계가 있는 작업의 미리 보기·시작인데 그 에이전트의 연결값이 저장되지 않음(`Save the <agent> connection values on the agents page first`) |
+| `SERVER_AGENT_SKIPPED` | 409 | `agent`, `why`, 경우에 따라 `installed`·`version`·`os` | 노드가 그 에이전트를 건드리지 않음: 미리 보기의 판정(`refused`)과 노드 작업 잡의 시작 거부. 실행은 그 단계를 건너뜀(`skipped`, `summary`: 노드의 문장)으로 기록하고 다음 단계로 감. `why`: `os`(Debian·Ubuntu 계열이 아님, `os`), `legacy`(옛 Zabbix 에이전트만 있음), `unmanaged`(패키지 밖에서 설치됨), `no_package`(벤더 저장소에도 OS 저장소에도 `zabbix-agent2`가 없음, `os`), `newer`(깔린 Wazuh가 정한 버전보다 새것 — 내리지 않음, `installed`·`version`) |
 
 ---
 
@@ -7882,6 +8041,16 @@ WireGuard 키페어 생성 (`wg genkey` + `wg pubkey`).
 | POST | `/api/v1/cluster/agent-installs/:id/proceed` | O | 검토로 멈춘 서버들의 설치 계속 |
 | POST | `/api/v1/cluster/agent-installs/:id/servers/:key/recheck` | O | 연결 확인 다시 |
 | POST | `/api/v1/cluster/agent-installs/:id/servers/:key/revert` | O | 되돌리기 (노드 제거 + 이번 실행이 설치한 것 정리) |
+
+### 서버 에이전트 (3개)
+
+상태는 매니저와 에이전트 모두(서버마다 `?node=`), 연결값은 매니저 전용(쓰기는 리더). 상세는 위의 "서버 에이전트 API".
+
+| 메서드 | 경로 | 인증 | 설명 |
+|--------|------|------|------|
+| GET | `/api/v1/agents/status` | O | 이 노드의 Zabbix·Wazuh 에이전트: 설치 상태, 설정 파일의 값, 실제 연결 (읽기만) |
+| GET | `/api/v1/agents/settings` | O | 클러스터의 연결값 (저장 전이면 `saved: false`) |
+| PUT | `/api/v1/agents/settings` | O | 연결값 저장 (리더, 정규화 뒤 검사, 64 KiB) |
 
 ### 알림 시스템 (11개)
 

@@ -153,6 +153,9 @@ var expectedManagerOnlyRoutes = func() []string {
 		"POST /api/v1/cluster/agent-installs/:id/servers/:key/recheck",
 		"POST /api/v1/cluster/agent-installs/:id/servers/:key/revert",
 
+		"GET /api/v1/agents/settings",
+		"PUT /api/v1/agents/settings",
+
 		"GET /api/v1/docker/compose/cluster-stacks",
 		"POST /api/v1/docker/compose/:project/migrate/preflight",
 		"POST /api/v1/docker/compose/:project/migrate",
@@ -187,6 +190,10 @@ var taskJobRoutes = []string{
 	"GET /api/v1/task-jobs/:id",
 	"POST /api/v1/task-jobs/:id/cancel",
 }
+
+// serverAgentRoutes are a node's own reading of its Zabbix and Wazuh agents,
+// which every node serves for itself.
+var serverAgentRoutes = []string{"GET /api/v1/agents/status"}
 
 // serve sends r to e from addr and returns the recorded response.
 func serve(e *echo.Echo, addr string, r *http.Request) *httptest.ResponseRecorder {
@@ -232,6 +239,11 @@ func TestAgentRouteSet(t *testing.T) {
 	for _, r := range taskJobRoutes {
 		if !agent[r] || !manager[r] {
 			t.Fatalf("%s: served by the agent %v, by the manager %v; every node runs its own task jobs", r, agent[r], manager[r])
+		}
+	}
+	for _, r := range serverAgentRoutes {
+		if !agent[r] || !manager[r] {
+			t.Fatalf("%s: served by the agent %v, by the manager %v; every node reads its own agents", r, agent[r], manager[r])
 		}
 	}
 

@@ -85,3 +85,27 @@ func TestAgentInstallRoutesHaveABodyLimit(t *testing.T) {
 		}
 	}
 }
+
+// The server agents' connection values refuse a body over 64 KiB before
+// their handler reads it: they are replicated to every manager.
+func TestServerAgentSettingsHaveABodyLimit(t *testing.T) {
+	router := buildRouter(t, "")
+	tok, err := auth.GenerateToken("admin", testJWTKey, time.Minute)
+	if err != nil {
+		t.Fatal(err)
+	}
+	send := func(size int) *httptest.ResponseRecorder {
+		body := `{"zabbix":{"host_metadata":"` + strings.Repeat("x", size) + `"}}`
+		r := httptest.NewRequest(http.MethodPut, "/api/v1/agents/settings", strings.NewReader(body))
+		r.Header.Set("Content-Type", "application/json")
+		r.Header.Set("Authorization", "Bearer "+tok)
+		return serve(router, "127.0.0.1:5000", r)
+	}
+	if rec := send(65 << 10); rec.Code != http.StatusRequestEntityTooLarge {
+		t.Errorf("PUT /api/v1/agents/settings with a 65 KiB body = %d %s, want 413", rec.Code, rec.Body)
+	}
+	// Outside a cluster the handler answers 400 Cluster not configured.
+	if rec := send(1 << 10); rec.Code != http.StatusBadRequest || !strings.Contains(rec.Body.String(), "Cluster not configured") {
+		t.Errorf("PUT /api/v1/agents/settings with a 1 KiB body = %d %s, want its handler's 400", rec.Code, rec.Body)
+	}
+}

@@ -799,6 +799,19 @@ func NewRouter(database *sql.DB, auditWriter *sfdb.AsyncWriter, alertManager *fe
 	packages.POST("/node-install-version", packagesHandler.InstallNodeVersion)
 	packages.POST("/node-uninstall-version", packagesHandler.UninstallNodeVersion)
 
+	// Server agents (Zabbix, Wazuh): every node answers for itself, read only;
+	// the connection values are the cluster's, a manager's routes below.
+	agentsHost := featureServerAgents.NewHost(cmd)
+	agentsHandler := featureServerAgents.NewHandler(agentsHost, getMgr)
+	authorized.GET("/agents/status", agentsHandler.Status)
+	if !agent {
+		// Read from the manager asked; a write is checked there and stored
+		// by the leader. The values are replicated to every manager, so the
+		// body is capped at 64 KiB.
+		authorized.GET("/agents/settings", agentsHandler.GetSettings)
+		authorized.PUT("/agents/settings", agentsHandler.PutSettings, echoMw.BodyLimit("64KiB"))
+	}
+
 	// A node's half of a group task: the leader's engine starts each step
 	// here as a job. Managers and agents both serve it, to signed cluster
 	// calls only (the handlers check), and no manager relays it for ?node=
@@ -817,7 +830,7 @@ func NewRouter(database *sql.DB, auditWriter *sfdb.AsyncWriter, alertManager *fe
 	taskJobHandler.Register(tasks.StepFile, featureTaskJob.FileRunner{})
 	taskJobHandler.Register(tasks.StepStack, featureTaskJob.StackStepRunner{})
 	taskJobHandler.Register(tasks.StepReboot, featureTaskJob.NewRebootRunner(cmd, platform.Get))
-	taskJobHandler.Register(tasks.StepAgent, featureTaskJob.NewAgentRunner(featureServerAgents.NewDeployer(featureServerAgents.NewHost(cmd)), packagesHandler))
+	taskJobHandler.Register(tasks.StepAgent, featureTaskJob.NewAgentRunner(featureServerAgents.NewDeployer(agentsHost), packagesHandler))
 	taskJobHandler.Recover()
 	taskJobs := authorized.Group("/task-jobs")
 	taskJobs.POST("", taskJobHandler.StartJob)
