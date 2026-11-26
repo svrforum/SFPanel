@@ -63,6 +63,7 @@ export function NewSessionDialog({
   tools,
   onCreated,
   onOpenTools,
+  initialDir,
 }: {
   open: boolean
   onOpenChange: (open: boolean) => void
@@ -70,6 +71,8 @@ export function NewSessionDialog({
   tools: AITools | null
   onCreated: (s: AISession) => void
   onOpenTools?: () => void
+  /** The directory this opening starts in, over the one remembered from the last session. */
+  initialDir?: string
 }) {
   const { t, i18n } = useTranslation()
   const node = api.currentNode || 'local'
@@ -123,14 +126,14 @@ export function NewSessionDialog({
     try {
       last = JSON.parse(localStorage.getItem(lastKey(node)) || '{}') as AILastSession
     } catch { /* private mode, or a value someone else wrote */ }
-    const pre = aiPrefill(last, tools?.accounts, account)
+    const pre = aiPrefill(last, tools?.accounts, account, initialDir)
     if (!pre) return
     prefilled.current = true
     const use = untouchedPrefill(pre, touched.current)
     if (use.tool && TOOLS.includes(use.tool)) setTool(use.tool)
     if (use.cwd) setCwd(use.cwd)
     setRunAs(use.runAs)
-  }, [open, account, node, tools])
+  }, [open, account, node, tools, initialDir])
 
   // Directories and install state both belong to the chosen account, so both
   // are fetched here and both are dropped when it changes. The page's bundle

@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { useOutletContext } from 'react-router-dom'
+import { useLocation, useOutletContext, useSearchParams } from 'react-router-dom'
 import { useTranslation } from 'react-i18next'
 import { ChevronDown } from 'lucide-react'
 import { toast } from 'sonner'
@@ -8,6 +8,7 @@ import type { AISession, AITools, TerminalInfo, TerminalSession as TerminalSessi
 import { aiErrorMessage, sessionInfoLine, stripTitlePrefix, titlePrefix, waitingCount } from '@/lib/aiSessions'
 import { activeKey, buildRail, findItem, parseActiveKey, pickActive, type RailItem } from '@/lib/sessionRail'
 import { cn } from '@/lib/utils'
+import { dirParam } from '@/lib/serverLinks'
 import { OutputDialog, useSSEOutput } from '@/components/OutputDialog'
 import { useConfirm } from '@/components/ConfirmDialog'
 import type { LayoutOutletContext } from '@/components/Layout'
@@ -74,6 +75,8 @@ export default function TerminalPage() {
   const output = useSSEOutput()
   const confirm = useConfirm()
   const openMore = useOutletContext<LayoutOutletContext | undefined>()?.openMore
+  const location = useLocation()
+  const [searchParams, setSearchParams] = useSearchParams()
   const { clusterEnabled, currentName } = useServerScope()
   const [account, setAccount] = useState<string>(() => readLS(accountKey()))
   const [tools, setTools] = useState<AITools | null>(null)
@@ -83,6 +86,9 @@ export default function TerminalPage() {
   const [drawerOpen, setDrawerOpen] = useState(false)
   const [toolsOpen, setToolsOpen] = useState(() => document.documentElement.hasAttribute('data-ai-tools-open'))
   const [launcherOpen, setLauncherOpen] = useState(false)
+  // The folder the address asks a new session to start in (?dir=, from the
+  // file manager and the Docker stacks). Read on the first render only.
+  const [pendingDir, setPendingDir] = useState(() => dirParam(location.search))
   const [fontSize, setFontSize] = useState(loadFontSize)
   const [searchOpen, setSearchOpen] = useState(false)
   const [searchQuery, setSearchQuery] = useState('')
@@ -238,6 +244,25 @@ export default function TerminalPage() {
     if (fallback) openTemporaryShell()
     else { setLauncherOpen(true); setDrawerOpen(false) }
   }, [fallback, openTemporaryShell])
+  // A ?dir= is taken off the address as soon as it is seen, valid or not, by
+  // replace and keeping every other value, so neither a reload nor Back opens
+  // the dialog again. Every time it is seen: the shell may write the address
+  // back with ?node= from before this ran.
+  useEffect(() => {
+    if (!searchParams.has('dir')) return
+    const next = new URLSearchParams(searchParams)
+    next.delete('dir')
+    setSearchParams(next, { replace: true })
+  }, [searchParams, setSearchParams])
+  // The folder opens the new-session dialog once tmux is known to be there.
+  // The temporary shell does not start in a folder, so on the fallback the
+  // ask is dropped rather than kept for a later tmux.
+  useEffect(() => {
+    if (pendingDir === null || tools === null) return
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    if (fallback) setPendingDir(null)
+    else setLauncherOpen(true)
+  }, [pendingDir, tools, fallback])
   const onReattach = useCallback((sessionId: string) => {
     setActive(`pty:${pty.reattach(sessionId)}`)
     setDrawerOpen(false)
@@ -600,7 +625,8 @@ export default function TerminalPage() {
         returnFocus={() => forEachActiveSession((el) => el.__termRef?.current?.focus())} />
       {/* Focus the new session only once the list containing it has landed;
           setting the key first would be undone by the realignment above. */}
-      <NewSessionDialog open={launcherOpen} onOpenChange={setLauncherOpen} account={shownAccount} tools={tools}
+      <NewSessionDialog open={launcherOpen} account={shownAccount} tools={tools} initialDir={pendingDir ?? undefined}
+        onOpenChange={(open) => { setLauncherOpen(open); if (!open) setPendingDir(null) }}
         onCreated={(s) => { void refresh().then(() => setActive(`tmux:${s.id}`)) }}
         onOpenTools={() => setToolsOpenBoth(true)} />
       <ToolsSheet open={toolsOpen} onOpenChange={setToolsOpenBoth} tools={tools} toolsError={toolsError} account={shownAccount}

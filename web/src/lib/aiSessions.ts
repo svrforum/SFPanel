@@ -404,17 +404,21 @@ export interface AIPrefill {
  * the closed-to-open reset is the only thing that clears the name. The other
  * two fields are protected by untouchedPrefill below rather than structurally,
  * because the remembered values are worth applying when nobody has.
+ *
+ * `dir` is a folder the page was asked to start in (the terminal's ?dir=): it
+ * takes the remembered directory's place and changes nothing else.
  */
 export function aiPrefill(
   last: AILastSession,
   accounts: string[] | undefined,
-  account: string
+  account: string,
+  dir?: string
 ): AIPrefill | null {
   const runAs = last.run_as && accounts?.includes(last.run_as) ? last.run_as : account
   if (!runAs) return null
   return {
     tool: last.tool && last.tool in TOOL_META ? last.tool : undefined,
-    cwd: last.cwd || undefined,
+    cwd: dir || last.cwd || undefined,
     runAs,
   }
 }

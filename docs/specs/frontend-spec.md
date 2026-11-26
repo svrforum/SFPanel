@@ -94,7 +94,7 @@
 | `/firewall/logs` | (redirect) | O | Firewall | `/logs?source=firewall`로 리다이렉트 (방화벽 › 로그 탭은 로그 화면으로 흡수, 예전 북마크용) |
 | `/packages` | Packages | O | System | 시스템 패키지 관리 + Docker 설치. 시스템 메뉴 항목의 탭 |
 | `/tuning` | Tuning | O | System | 성능 튜닝 — 커널 sysctl 최적화(범주별 적용, 롤백). 시스템 메뉴 항목의 다섯째 탭. 아래 "Tuning (`/tuning`, 시스템 탭)" |
-| `/terminal` | Terminal | O | Layout | 터미널 — tmux 세션(셸·Claude·Codex·Gemini) 레일 + 큰 패널, tmux가 없으면 PTY 폴백 |
+| `/terminal` | Terminal | O | Layout | 터미널 — tmux 세션(셸·Claude·Codex·Gemini) 레일 + 큰 패널, tmux가 없으면 PTY 폴백. `?dir=<절대 경로>`가 있으면 그 폴더로 새 세션 창을 한 번 열고 주소에서 `dir`을 replace로 지운다(파일 관리·Docker 스택의 `여기서 터미널 열기`). |
 | `/ai` | (redirect) | O | Layout | `/terminal`로 리다이렉트 (v0.76.0 이전 북마크·Android 앱용) |
 | `/settings` | Settings | O | Layout | 계정/시스템 설정 |
 | `/settings` (내장) | AlertSettings | O | Settings 내장 | 알림 채널/규칙 관리 (Discord, Telegram) |

@@ -174,6 +174,13 @@ describe('aiPrefill', () => {
     expect(aiPrefill({ tool: 'vim' as never }, ['root'], 'root')?.tool).toBeUndefined()
     expect(aiPrefill({ tool: 'gemini' }, ['root'], 'root')?.tool).toBe('gemini')
   })
+
+  // The terminal's ?dir= (a file manager folder, a compose stack) names where
+  // the session is meant to start; the rest is still what was used last.
+  it('a folder asked for wins over the remembered one, and nothing else changes', () => {
+    expect(aiPrefill({ tool: 'codex', cwd: '/srv', run_as: 'alice' }, ['root', 'alice'], 'root', '/opt/stacks/web')).toEqual({ tool: 'codex', cwd: '/opt/stacks/web', runAs: 'alice' })
+    expect(aiPrefill({}, undefined, '', '/opt/stacks/web')).toBeNull()
+  })
 })
 
 describe('untouchedPrefill', () => {
