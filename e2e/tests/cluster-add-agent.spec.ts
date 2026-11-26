@@ -1,9 +1,10 @@
 import { test, expect, type Page } from '@playwright/test'
 
-// Adding an agent from the node list: the dialog makes an agent token, hands
-// out the two join lines `sfpanel cluster token --agent` prints, and waits for
-// the agent to show up. The old token page lives on under "Add a manager
-// instead". Mocked API.
+// Adding an agent from the node list: the dialog opens on a choice between the
+// agent install over SSH and a join command. The second makes an agent token,
+// hands out the two join lines `sfpanel cluster token --agent` prints, and
+// waits for the agent to show up. The old token page lives on under "Add a
+// manager instead". Mocked API.
 test.use({ viewport: { width: 1280, height: 900 }, locale: 'en-US' })
 
 const pin = 'sha256:' + 'ab'.repeat(32)
@@ -64,11 +65,13 @@ async function mock(page: Page, opts: Opts = {}) {
   return calls
 }
 
-async function openDialog(page: Page) {
+// 'token' picks the join command, where every token test starts.
+async function openDialog(page: Page, way: 'token' | 'choose' = 'token') {
   await page.goto('/cluster/nodes')
   await page.getByRole('button', { name: 'Add agent' }).click()
   const dialog = page.getByRole('dialog', { name: 'Add an agent' })
   await expect(dialog).toBeVisible()
+  if (way === 'token') await dialog.getByRole('button', { name: /Copy a join command \(token\)/ }).click()
   return dialog
 }
 
@@ -234,15 +237,31 @@ test('revoking a token that is gone keeps the operator signed in', async ({ page
   await expect(page.getByRole('dialog', { name: 'Add an agent' })).toBeVisible()
 })
 
+// Opening the dialog only offers the two ways: a token is a credential, made
+// when the operator asks for a command to paste and not before.
+test('opening the dialog makes no token until the token way is chosen', async ({ page }) => {
+  const calls = await mock(page)
+  const dialog = await openDialog(page, 'choose')
+  await expect(dialog.getByRole('link', { name: /Install over SSH/ })).toHaveAttribute('href', '/cluster/tasks/builtin%2Fagent-install')
+  await expect(dialog.getByRole('button', { name: /Copy a join command \(token\)/ })).toBeVisible()
+  await page.waitForTimeout(800)
+  expect(calls.filter((c) => c.path === '/cluster/token')).toHaveLength(0)
+  await dialog.getByRole('button', { name: /Copy a join command/ }).click()
+  await expect(line(page, 'sfpanel agent join 192.0.2.10:3629 tok123 --ca ' + pin).or(line(page, 'sudo sfpanel agent join 192.0.2.10:3629 tok123 --ca ' + pin))).toBeVisible()
+  expect(calls.filter((c) => c.path === '/cluster/token')).toHaveLength(1)
+})
+
 // A server the leader reaches over SSH needs no command pasted: the agent
 // install logs in and does it.
 test('leads to the agent install over SSH', async ({ page }) => {
-  await mock(page)
-  const dialog = await openDialog(page)
-  const link = dialog.getByRole('link', { name: 'Install over SSH' })
+  const calls = await mock(page)
+  const dialog = await openDialog(page, 'choose')
+  const link = dialog.getByRole('link', { name: /Install over SSH/ })
   await expect(link).toHaveAttribute('href', '/cluster/tasks/builtin%2Fagent-install')
   await link.click()
   await expect(page).toHaveURL(/\/cluster\/tasks\/builtin%2Fagent-install$/)
   await expect(page.getByTestId('task-pane-install')).toBeVisible()
   await expect(page.getByRole('dialog')).toHaveCount(0)
+  // The SSH way makes no token.
+  expect(calls.filter((c) => c.path === '/cluster/token')).toHaveLength(0)
 })

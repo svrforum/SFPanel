@@ -1221,6 +1221,11 @@
     "addAgent": {
       "button": "에이전트 추가",
       "title": "에이전트 추가",
+      "choose": "새 서버를 클러스터에 넣는 방법을 고르세요.",
+      "waySsh": "SSH로 설치",
+      "waySshHint": "클러스터 리더가 SSH로 서버에 접속해 에이전트를 설치하고 등록합니다. 붙여 넣을 명령이 없습니다.",
+      "wayToken": "가입 명령 복사(토큰)",
+      "wayTokenHint": "새 서버에서 실행할 명령을 만듭니다. 리더가 SSH로 접속할 수 없는 서버에 씁니다.",
       "intro": "새 서버에서 아래 명령 중 하나를 실행하세요. 에이전트는 여기서 관리되며 클러스터 비밀을 갖지 않습니다.",
       "installAndJoin": "SFPanel이 없는 서버",
       "join": "SFPanel이 있는 서버",
@@ -1974,8 +1979,6 @@
           "problem": "{{line}}번째 줄: {{problem}}",
           "hostTwice": "이 서버는 이미 {{other}}번째 줄에 있습니다."
         },
-        "addAgentHint": "또는 클러스터 리더가 SSH로 서버에 접속해 에이전트를 설치하게 할 수 있습니다:",
-        "addAgentLink": "SSH로 설치",
         "tailnet": {
           "title": "Tailscale에서 고르기",
           "description": "클러스터 리더의 tailnet에 있는 Linux 기기입니다. 이미 클러스터에 있거나 오프라인인 기기는 고를 수 없습니다(설치는 지금 접속합니다).",

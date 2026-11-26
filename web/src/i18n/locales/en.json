@@ -1224,6 +1224,11 @@
     "addAgent": {
       "button": "Add agent",
       "title": "Add an agent",
+      "choose": "Choose how the new server joins.",
+      "waySsh": "Install over SSH",
+      "waySshHint": "The cluster leader logs in to the server over SSH, installs the agent and registers it. Nothing to paste.",
+      "wayToken": "Copy a join command (token)",
+      "wayTokenHint": "Makes a command to run on the new server, for a server the leader cannot reach over SSH.",
       "intro": "Run one of these on the new server. An agent is managed from here and holds none of the cluster's secrets.",
       "installAndJoin": "Server without SFPanel",
       "join": "Server with SFPanel",
@@ -1985,8 +1990,6 @@
           "problem": "Line {{line}}: {{problem}}",
           "hostTwice": "This server is already on line {{other}}."
         },
-        "addAgentHint": "Or let the cluster leader log in to the server over SSH and install the agent for you:",
-        "addAgentLink": "Install over SSH",
         "tailnet": {
           "title": "Pick from Tailscale",
           "description": "The Linux devices in the cluster leader's tailnet. A device already in the cluster, or offline, cannot be picked: the install connects to it now.",

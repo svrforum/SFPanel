@@ -35,38 +35,60 @@ interface Minted {
   revoked: boolean
 }
 
-// The add-agent dialog. Each opening makes an agent token (the server's
-// default lifetime), shows the two lines that join a server with it, and
-// watches the node list until an agent that was not there turns up. Closing
-// it leaves the token valid: a command copied now may be pasted later, and the
-// pending list under "Add a manager instead" is where it is taken back.
+// The add-agent dialog. It opens on a choice: a server the leader reaches over
+// SSH is installed by the agent install task, with nothing to paste; any other
+// server gets a join command. Only that second way makes an agent token (the
+// server's default lifetime); it then shows the two lines that join a server
+// with it and watches the node list until an agent that was not there turns up.
+// Closing it leaves the token valid: a command copied now may be pasted later,
+// and the pending list under "Add a manager instead" is where it is taken back.
 export function AddAgentDialog({ open, onOpenChange, onJoined }: {
   open: boolean
   onOpenChange: (open: boolean) => void
   /** The agent is in: the page reloads its list and tells the shell. */
   onJoined: () => void
 }) {
-  const { t } = useTranslation()
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="sm:max-w-2xl">
-        <DialogHeader>
-          <DialogTitle className="text-[15px]">{t('cluster.addAgent.title')}</DialogTitle>
-          <DialogDescription className="text-[13px]">{t('cluster.addAgent.intro')}</DialogDescription>
-          {/* A server the leader reaches over SSH needs nothing pasted: the
-              agent install logs in and does it. Leaving the page closes this. */}
-          <p className="text-[13px] text-muted-foreground">
-            {t('cluster.tasks.install.addAgentHint')}{' '}
-            <Link to={`/cluster/tasks/${encodeURIComponent(AGENT_INSTALL_TASK_ID)}`} className="font-medium text-primary underline underline-offset-2">
-              {t('cluster.tasks.install.addAgentLink')}
-            </Link>
-          </p>
-        </DialogHeader>
-        {/* Inside the content, so it mounts on every opening: a fresh token,
-            a fresh baseline and no name left over from the last time. */}
-        <AddAgentBody onJoined={onJoined} onClose={() => onOpenChange(false)} />
+        {/* Inside the content, so it mounts on every opening: the choice
+            again, and from there a fresh token, a fresh baseline and no name
+            left over from the last time. */}
+        <AddAgentWays onJoined={onJoined} onClose={() => onOpenChange(false)} />
       </DialogContent>
     </Dialog>
+  )
+}
+
+const wayClass = 'flex min-h-14 w-full flex-col justify-center gap-0.5 rounded-xl bg-secondary/50 px-4 py-3 text-left transition-colors hover:bg-secondary outline-none focus-visible:ring-2 focus-visible:ring-ring'
+
+function AddAgentWays({ onJoined, onClose }: { onJoined: () => void; onClose: () => void }) {
+  const { t } = useTranslation()
+  const [way, setWay] = useState<'choose' | 'token'>('choose')
+  return (
+    <>
+      <DialogHeader>
+        <DialogTitle className="text-[15px]">{t('cluster.addAgent.title')}</DialogTitle>
+        <DialogDescription className="text-[13px]">
+          {way === 'choose' ? t('cluster.addAgent.choose') : t('cluster.addAgent.intro')}
+        </DialogDescription>
+      </DialogHeader>
+      {way === 'choose' ? (
+        <div className="space-y-2">
+          {/* Leaving the page closes the dialog. */}
+          <Link to={`/cluster/tasks/${encodeURIComponent(AGENT_INSTALL_TASK_ID)}`} className={wayClass}>
+            <span className="text-[13px] font-medium">{t('cluster.addAgent.waySsh')}</span>
+            <span className="text-[12px] text-muted-foreground">{t('cluster.addAgent.waySshHint')}</span>
+          </Link>
+          <button type="button" onClick={() => setWay('token')} className={wayClass}>
+            <span className="text-[13px] font-medium">{t('cluster.addAgent.wayToken')}</span>
+            <span className="text-[12px] text-muted-foreground">{t('cluster.addAgent.wayTokenHint')}</span>
+          </button>
+        </div>
+      ) : (
+        <AddAgentBody onJoined={onJoined} onClose={onClose} />
+      )}
+    </>
   )
 }
 
