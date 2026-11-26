@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback, useRef, useMemo, Fragment, lazy, Suspense } from 'react'
 import { useTranslation } from 'react-i18next'
-import { useSearchParams } from 'react-router-dom'
+import { Link, useNavigate, useSearchParams } from 'react-router-dom'
 import {
   Folder,
   File,
@@ -31,9 +31,12 @@ import {
   Eye,
   EyeOff,
   ChevronDown,
+  SquareTerminal,
 } from 'lucide-react'
 import { toast } from 'sonner'
 import { api, type ApiError } from '@/lib/api'
+import { terminalDirHref } from '@/lib/serverLinks'
+import { useServerScope } from '@/hooks/useServerScope'
 import { useConfirm } from '@/components/ConfirmDialog'
 import { usePrompt } from '@/components/PromptDialog'
 import { TypeToConfirmDialog } from '@/components/TypeToConfirmDialog'
@@ -125,6 +128,8 @@ export default function Files() {
   const { t } = useTranslation()
   const confirm = useConfirm()
   const prompt = usePrompt()
+  const navigate = useNavigate()
+  const { href } = useServerScope()
   const fileInputRef = useRef<HTMLInputElement>(null)
 
   // The directory lives in the URL, not only in component state.
@@ -1058,6 +1063,14 @@ export default function Files() {
       onClick: () => void handleDownload(entry),
     },
     {
+      key: 'terminal',
+      Icon: SquareTerminal,
+      show: isDirLike(entry),
+      label: t('terminal.openHere'),
+      menuLabel: t('terminal.openHere'),
+      onClick: () => navigate(href(terminalDirHref(entryPath(entry)))),
+    },
+    {
       key: 'copy',
       Icon: Copy,
       show: true,
@@ -1311,6 +1324,12 @@ export default function Files() {
               <LayoutGrid />
             </Button>
           </div>
+          <Button asChild variant="outline" size="sm" className="rounded-xl">
+            <Link to={href(terminalDirHref(currentPath))} title={t('terminal.openHere')}>
+              <SquareTerminal />
+              <span className="hidden sm:inline">{t('terminal.openHere')}</span>
+            </Link>
+          </Button>
           <Button
             variant="outline"
             size="sm"

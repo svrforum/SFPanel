@@ -153,6 +153,18 @@ test('a link to a directory is a folder: no editor, and a click goes into it', a
   await expect(f.nameOf(0)).toHaveText('compose.yml')
 })
 
+test('the folder on screen and each folder row offer a terminal opened there', async ({ page }) => {
+  await page.addInitScript(() => { const push = history.pushState.bind(history); (window as any).__pushed = []; history.pushState = (s, u, url) => { (window as any).__pushed.push(String(url)); push(s, u, url) } })
+  const { table } = await openFiles(page)
+  await expect(page.getByRole('link', { name: 'Open a terminal here' })).toHaveAttribute('href', '/terminal?dir=%2Fsrv')
+  await table.getByRole('row', { name: /notes\.txt/ }).getByRole('button', { name: 'Actions' }).click()
+  await expect(page.getByRole('menuitem', { name: 'Open a terminal here' })).toHaveCount(0)
+  await page.keyboard.press('Escape')
+  await table.getByRole('row', { name: /\bdata\b/ }).getByRole('button', { name: 'Actions' }).click()
+  await page.getByRole('menuitem', { name: 'Open a terminal here' }).click()
+  await expect.poll(() => page.evaluate(() => (window as any).__pushed)).toContain('/terminal?dir=%2Fsrv%2Fdata')
+})
+
 // The toolbar is wider than a laptop's window once a sidebar is beside it. It
 // is meant to wrap; it did not, and its buttons were drawn over the search box.
 test('at a laptop width the toolbar wraps instead of covering the search box', async ({ page }) => {

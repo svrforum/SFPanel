@@ -91,6 +91,11 @@ test('stop preserves containers; teardown requires a separate confirmation', asy
  expect(state.requests.some(r => r.path.endsWith('/down'))).toBe(false)
 })
 
+test('a stack opens a terminal in its folder', async ({ page, context }) => {
+  await fixture(context); await page.goto('/docker/stacks/alpha')
+  await expect(page.getByRole('link', { name: 'Open a terminal here' })).toHaveAttribute('href', '/terminal?dir=%2Fopt%2Fstacks%2Falpha')
+})
+
 for (const width of [390, 1440]) {
  test(`Docker resources stay usable at ${width}px`, async ({ page, context }) => {
   await fixture(context)

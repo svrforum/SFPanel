@@ -1,11 +1,11 @@
 import { useState, useEffect, useCallback, useRef, lazy, Suspense } from 'react'
 import { useTranslation } from 'react-i18next'
-import { useParams, useNavigate, useSearchParams, useLocation } from 'react-router-dom'
+import { Link, useParams, useNavigate, useSearchParams, useLocation } from 'react-router-dom'
 import {
   Plus, Play, Square, RotateCw, RefreshCw,
   Trash2, Terminal, ScrollText, FileCode, Loader2,
   CheckCircle2, XCircle, Download, Undo2, Search, ChevronLeft,
-  HeartPulse, Info, ArrowRightLeft, Monitor, AlertCircle,
+  HeartPulse, Info, ArrowRightLeft, Monitor, AlertCircle, SquareTerminal,
 } from 'lucide-react'
 import { HealthcheckComposerDialog } from '@/components/compose/HealthcheckComposerDialog'
 import { MigrateStackDialog } from '@/pages/docker/components/MigrateStackDialog'
@@ -14,6 +14,8 @@ import { toast } from 'sonner'
 import ResourceStatus from '@/components/ResourceStatus'
 import { Input } from '@/components/ui/input'
 import { useVisibleInterval } from '@/hooks/useVisibleInterval'
+import { useServerScope } from '@/hooks/useServerScope'
+import { terminalDirHref } from '@/lib/serverLinks'
 import { ContainerStateBadge } from '@/components/docker/ContainerStateBadge'
 import { api } from '@/lib/api'
 import { cn } from '@/lib/utils'
@@ -175,6 +177,7 @@ export default function DockerStacks() {
   const navigate = useNavigate()
   const location = useLocation()
   const [searchParams, setSearchParams] = useSearchParams()
+  const { href } = useServerScope()
   const basePath = '/docker/stacks'
 
   const [updatedAt, setUpdatedAt] = useState<number | null>(null)
@@ -855,6 +858,14 @@ export default function DockerStacks() {
                   )}
                   {t('docker.stacks.checkUpdates')}
                 </Button>
+                {selectedProject && (
+                  <Button asChild variant="outline" size="sm" className="rounded-xl">
+                    <Link to={href(terminalDirHref(selectedProject.path))}>
+                      <SquareTerminal className="h-3.5 w-3.5" />
+                      {t('terminal.openHere')}
+                    </Link>
+                  </Button>
+                )}
                 {clusterNodeCount > 1 && (
                   <Button
                     variant="outline" size="sm" className="rounded-xl"

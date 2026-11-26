@@ -28,6 +28,7 @@ const KO: Record<string, string> = {
   'cluster.tasks.fleet.onMany': '여러 서버에서…', 'cluster.tasks.fleet.runSnippet': '여러 서버에서 실행',
   'cluster.tasks.run.toTerminal': '이 서버 터미널', 'cluster.tasks.run.toServer': '이 서버 열기',
   'cluster.addAgent.waySsh': 'SSH로 설치', 'cluster.addAgent.wayToken': '가입 명령 복사(토큰)',
+  'terminal.openHere': '여기서 터미널 열기',
 }
 // A page's <h1> is its menu label.
 const H1: [string, string][] = [

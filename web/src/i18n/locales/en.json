@@ -2627,6 +2627,7 @@
     "shellBadgeRootHint": "Running as root on {{host}} — commands here are unrestricted",
     "copyFailed": "Could not copy to clipboard",
     "copyBlocked": "The browser blocked the copy. Press Copy to copy it.",
+    "openHere": "Open a terminal here",
     "rail": {
       "sessions": "Sessions",
       "newSession": "New session",
