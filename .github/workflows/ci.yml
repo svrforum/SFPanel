@@ -232,7 +232,7 @@ jobs:
             tests/disk-tabs.spec.ts \
             tests/fleet-links.spec.ts \
             tests/packages-actions.spec.ts \
-            tests/terminal-input.spec.ts
+            tests/files-manager.spec.ts
       - name: Dump panel log on failure
         if: failure()
         run: cat "$E2E_DIR/panel.log" || true
