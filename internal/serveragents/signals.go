@@ -118,6 +118,12 @@ func ClassifyZabbixLog(tail []byte, now time.Time, refresh time.Duration) (LogCl
 	return l.class, cutLogLine(l.line)
 }
 
+// ZabbixLogHasStart reports whether a tail of an agent 2 log holds the line
+// a run of the agent starts with.
+func ZabbixLogHasStart(tail []byte) bool {
+	return bytes.Contains(bytes.ToLower(tail), []byte(zabbixStartMarker))
+}
+
 // zabbixLogLine is the kind of an agent 2 log line about its active checks.
 type zabbixLogLine int
 

@@ -6924,7 +6924,7 @@ GitHub 폴더의 작업 파일을 보여 줍니다(리더, 아무것도 쓰지 �
 | `stale` | Wazuh | 상태 파일이 2분 넘게 바뀌지 않음(돌고 있는 에이전트는 5초마다 다시 씀) |
 | `unknown` | 둘 다 | 서비스가 시작·다시 읽는 중(`activating`·`reloading` — `detail`: `<유닛> is reloading`; 배포는 계속 기다림. Wazuh는 처음 붙은 몇 초 뒤 매니저의 공유 설정 때문에 스스로 다시 읽음). Zabbix: ServerActive가 주소 하나가 아님(서버 여럿 등 — 어느 것인지 추측하지 않음), 또는 읽을 로그가 없음(파일이 없거나 `LogType`이 `system`·`console` — 로그 없이는 붙었다고 하지 않음). Wazuh: 상태 파일의 `status`가 모르는 값. `detail`에 그 까닭 |
 
-Zabbix 로그는 설정 파일의 `LogFile`(없으면 에이전트 기본값 `/tmp/zabbix_agent2.log`)의 마지막 64 KiB만 읽습니다. 배포판과 벤더의 설정은 `/var/log/zabbix/zabbix_agent2.log`입니다.
+Zabbix 로그는 설정 파일의 `LogFile`(없으면 에이전트 기본값 `/tmp/zabbix_agent2.log`)의 마지막 64 KiB만 읽습니다. 배포판과 벤더의 설정은 `/var/log/zabbix/zabbix_agent2.log`입니다. 그 끝에 에이전트의 시작 줄이 없으면 logrotate가 옮긴 `<LogFile>.1`(압축된 것은 아님)의 마지막 64 KiB를 앞에 붙여 읽습니다 — 에이전트는 거절·실패를 처음 한 번만 쓰므로, 회전 뒤의 지금 로그만으로는 붙지 않은 에이전트가 붙은 것처럼 읽힙니다. 둘 다 시작 줄이 없으면 지금 로그만 읽습니다.
 
 ---
 

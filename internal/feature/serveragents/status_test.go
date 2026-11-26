@@ -425,3 +425,30 @@ func TestAnUnreadableOssecConf(t *testing.T) {
 		t.Errorf("wazuh connection = %+v, want it still read from the state file", w.Connection)
 	}
 }
+
+func TestARotatedLogIsReadWhenTheCurrentOneHasNoStart(t *testing.T) {
+	// logrotate moved the agent's run to zabbix_agent2.log.1; since then it
+	// wrote only lines that say nothing about its server.
+	unrelated := "2026/11/26 13:00:00.000000 using plugin 'Uptime' (built-in) providing following interfaces: exporter\n"
+	for _, tc := range []struct {
+		name, rotated, current string
+		want                   string
+	}{
+		{"refused before the rotation", agentLog(t, "7.0.32-ubuntu-notfound"), unrelated, serveragents.ConnNotRegistered},
+		// The outage's log as it stood before the server came back.
+		{"failing before the rotation", strings.Split(agentLog(t, "7.0.32-ubuntu-outage-recovered"), "2026/11/26 12:16:11")[0], unrelated, serveragents.ConnFailing},
+		{"taken before the rotation", agentLog(t, "7.0.32-ubuntu-notfound-recovered"), unrelated, serveragents.ConnConnected},
+		// The current log has the start: the rotated one is from a run before.
+		{"started since the rotation", agentLog(t, "7.0.32-ubuntu-notfound"), agentLog(t, "7.0.32-ubuntu-ok"), serveragents.ConnConnected},
+		// Neither has a start: the current tail alone decides, as it did.
+		{"no start in either", agentLog(t, "7.0.32-ubuntu-unreachable"), unrelated, serveragents.ConnConnected},
+	} {
+		f, h := installedHost(t, "192.0.2.10")
+		f.write(zabbixLogRel+".1", tc.rotated)
+		f.write(zabbixLogRel, tc.current)
+
+		if c := h.Status(context.Background()).Zabbix.Connection; c == nil || c.State != tc.want {
+			t.Errorf("%s: zabbix connection = %+v, want %s", tc.name, c, tc.want)
+		}
+	}
+}

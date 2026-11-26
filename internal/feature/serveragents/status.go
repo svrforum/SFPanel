@@ -96,6 +96,7 @@ func (h *Host) zabbixConnection(ctx context.Context, service string, conf server
 	if !ok {
 		return &serveragents.Connection{State: serveragents.ConnUnknown, Detail: response.SanitizeOutput("the agent's log, " + logPath + ", cannot be read")}
 	}
+	tail = h.withRotatedLog(logPath, tail)
 	switch class, line := serveragents.ClassifyZabbixLog(tail, h.Now(), conf.Refresh()); class {
 	case serveragents.LogNotFound:
 		return &serveragents.Connection{State: serveragents.ConnNotRegistered, Detail: response.SanitizeOutput(line)}
@@ -103,6 +104,26 @@ func (h *Host) zabbixConnection(ctx context.Context, service string, conf server
 		return &serveragents.Connection{State: serveragents.ConnFailing, Detail: response.SanitizeOutput(line)}
 	}
 	return &serveragents.Connection{State: serveragents.ConnConnected}
+}
+
+// withRotatedLog is tail, the end of the agent's current log, preceded by
+// the end of the log logrotate moved aside (<log>.1, not a compressed one)
+// when only that holds the start of the agent's run: the agent writes a
+// refusal or a failure once, when it begins, so after a rotation the current
+// log alone would say nothing against it. Without a start in either, tail is
+// read alone, as it is when it has one.
+func (h *Host) withRotatedLog(logPath string, tail []byte) []byte {
+	if serveragents.ZabbixLogHasStart(tail) {
+		return tail
+	}
+	rotated, ok := h.readTail(logPath+".1", logTail)
+	if !ok || !serveragents.ZabbixLogHasStart(rotated) {
+		return tail
+	}
+	if len(rotated) > 0 && rotated[len(rotated)-1] != '\n' {
+		rotated = append(rotated, '\n')
+	}
+	return append(rotated, tail...)
 }
 
 func (h *Host) wazuhStatus() serveragents.WazuhStatus {
