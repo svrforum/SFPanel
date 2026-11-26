@@ -88,6 +88,44 @@ func TestStartJobTransactionInstallsSeveralPackagesInOneTransaction(t *testing.T
 	}
 }
 
+// An install job may name one exact version, as apt reads it: name=version.
+func TestAJobInstallTakesAPinnedVersion(t *testing.T) {
+	h, f, _ := txSetup(t, false)
+	id, err := h.StartJobTransaction("install", []string{"wazuh-agent=4.14.10-1"}, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	settle(t, h)
+
+	want := append([]string{"/bin/sh", "-c", txScript, "sh", "apt-get"}, exec.AptDpkgOptions...)
+	want = append(want, "install", "-y", "--", "wazuh-agent=4.14.10-1")
+	if got := unitCommand(t, f); !reflect.DeepEqual(got, want) {
+		t.Errorf("unit runs %q\nwant      %q", got, want)
+	}
+	if _, result, code, _, _ := h.JobTransaction(id); result != txSuccess || code != 0 {
+		t.Errorf("result %q code %d, want a success", result, code)
+	}
+}
+
+// A pinned version still names its package on a Proxmox VE host. Lists that
+// do not have the version yet fail the simulation, and the job's own refresh
+// would bring it before apt-get install runs: the engine is refused by the
+// name before the "=".
+func TestAPinnedDockerEngineIsRefusedOnPVEWhenTheSimulationFails(t *testing.T) {
+	h, f, _ := txSetup(t, true)
+	const pinned = "docker-ce=5:27.5.1-1~debian.13~trixie"
+	f.setArgs("apt-get -s install -- "+pinned, "E: Version '5:27.5.1-1~debian.13~trixie' for 'docker-ce' was not found\n", errors.New("exit status 100"))
+
+	_, err := h.StartJobTransaction("install", []string{pinned}, true)
+	r := refusal(t, err)
+	if r.Status != http.StatusConflict || r.Code != response.ErrDockerOnPVE || r.Details["package"] != "docker-ce" {
+		t.Errorf("got %+v, want 409 %s naming docker-ce", r, response.ErrDockerOnPVE)
+	}
+	if len(f.calls("systemd-run")) != 0 || slices.ContainsFunc(f.calls("apt-get"), func(c exec.MockCall) bool { return slices.Equal(c.Args, []string{"update"}) }) {
+		t.Errorf("something ran after the refusal: %+v", f.all())
+	}
+}
+
 // remove takes several names as well, the way exec.AptRemove runs it.
 func TestStartJobTransactionRemovesSeveralPackages(t *testing.T) {
 	h, f, _ := txSetup(t, false)
@@ -166,6 +204,10 @@ func TestStartJobTransactionRefusesForTheEndpointsReasons(t *testing.T) {
 		{"a removal of nothing", "remove", []string{}, false, http.StatusBadRequest, response.ErrMissingFields},
 		{"a name shaped like a flag", "install", []string{"htop", "--reinstall"}, false, http.StatusBadRequest, response.ErrInvalidPackageName},
 		{"a name with a space", "upgrade", []string{"bad name"}, false, http.StatusBadRequest, response.ErrInvalidPackageName},
+		{"a version shaped like a flag", "install", []string{"wazuh-agent=-1"}, false, http.StatusBadRequest, response.ErrInvalidPackageName},
+		{"a version with a space", "install", []string{"wazuh-agent=4.14 10"}, false, http.StatusBadRequest, response.ErrInvalidPackageName},
+		{"a version with no name", "install", []string{"=4.14.10-1"}, false, http.StatusBadRequest, response.ErrInvalidPackageName},
+		{"a version outside an install", "remove", []string{"wazuh-agent=4.14.10-1"}, false, http.StatusBadRequest, response.ErrInvalidPackageName},
 		{"dpkg held by another process (install)", "install", []string{"htop"}, true, http.StatusConflict, response.ErrAPTInstallError},
 		{"dpkg held by another process (upgrade)", "upgrade", nil, true, http.StatusConflict, response.ErrAPTUpgradeError},
 		{"dpkg held by another process (remove)", "remove", []string{"htop"}, true, http.StatusConflict, response.ErrAPTRemoveError},

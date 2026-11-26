@@ -459,8 +459,9 @@ var aptSimInstall = regexp.MustCompile(`(?m)^Inst (\S+) \(`)
 // can bring the engine as a dependency or a recommendation (on Ubuntu,
 // docker-buildx depends on docker.io and docker-compose-v2 recommends it),
 // which a list of names would let through. Several names are one simulation,
-// as they are one install. A simulation that fails (no such package) leaves
-// the names themselves to go by.
+// as they are one install. A simulation that fails (no such package, or no
+// such version yet) leaves the names themselves to go by, a pinned one by
+// the name before its "=".
 func (h *Handler) dockerEngineOnPVE(names ...string) string {
 	if !platform.Get().PVE {
 		return ""
@@ -468,8 +469,8 @@ func (h *Handler) dockerEngineOnPVE(names ...string) string {
 	out, err := h.Cmd.RunWithEnv(exec.AptParseEnv(), "apt-get", append([]string{"-s", "install", "--"}, names...)...)
 	if err != nil {
 		for _, name := range names {
-			if dockerEngines[name] {
-				return name
+			if pkg, _, _ := strings.Cut(name, "="); dockerEngines[pkg] {
+				return pkg
 			}
 		}
 	}

@@ -13,6 +13,7 @@ import (
 	"os"
 	"regexp"
 	"strconv"
+	"strings"
 
 	"github.com/labstack/echo/v4"
 	"github.com/svrforum/SFPanel/internal/api/response"
@@ -81,6 +82,21 @@ func dockerOnPVERefusal(engine string) *Refusal {
 		Details: map[string]string{"package": engine}}
 }
 
+// jobPackageVersion is the version an install job may pin with name=version,
+// in the shape dpkg gives one: a digit first (an epoch's too), then letters,
+// digits and . + ~ : -.
+var jobPackageVersion = regexp.MustCompile(`^[0-9][A-Za-z0-9.+~:-]*$`)
+
+// validJobPackage is the endpoints' package-name rule, and for an install
+// also name=version, which installs exactly that version.
+func validJobPackage(kind, name string) bool {
+	pkg, version, pinned := strings.Cut(name, "=")
+	if !pinned {
+		return validatePackageName(name)
+	}
+	return kind == txInstall && validatePackageName(pkg) && jobPackageVersion.MatchString(version)
+}
+
 // StartJobTransaction starts a package transaction for a task job and returns
 // its id; the transaction goes on without the caller, which reads how it
 // ended with JobTransaction. kind is one of
@@ -88,7 +104,8 @@ func dockerOnPVERefusal(engine string) *Refusal {
 //   - "update": apt-get update alone, run in the panel as before an upgrade,
 //     so a repository that refused stays a warning;
 //   - "upgrade": every package with the platform's verb, or only those named;
-//   - "install": every named package in one apt-get install;
+//   - "install": every named package in one apt-get install, a name=version
+//     installing exactly that version;
 //   - "remove": every named package in one apt-get remove.
 //
 // update refreshes the lists first, as the Packages page's upgrade does. apt
@@ -113,7 +130,7 @@ func (h *Handler) StartJobTransaction(kind string, packages []string, update boo
 			Message: "Package name is required"}
 	}
 	for _, name := range packages {
-		if !validatePackageName(name) {
+		if !validJobPackage(kind, name) {
 			return "", &Refusal{Status: http.StatusBadRequest, Code: response.ErrInvalidPackageName,
 				Message: "Package name contains invalid characters (allowed: a-zA-Z0-9._+-)"}
 		}
