@@ -151,7 +151,7 @@ func TestSettingsAreReadFromTheManagerAsked(t *testing.T) {
 	if code != http.StatusOK {
 		t.Fatalf("GET on a follower: %d %+v, want 200", code, env)
 	}
-	if v := env.view(t); !v.Saved || v.Settings.Zabbix != saved.Zabbix || v.Settings.Wazuh != saved.Wazuh || !v.UpdatedAt.Equal(fixtureNow) || v.UpdatedBy != "admin" {
+	if v := env.view(t); !v.Saved || v.Zabbix != saved.Zabbix || v.Wazuh != saved.Wazuh || !v.UpdatedAt.Equal(fixtureNow) || v.UpdatedBy != "admin" {
 		t.Errorf("GET on a follower = %+v, want the saved values %+v with saved true", v, saved)
 	}
 	if len(f.sent) != 0 {
@@ -216,7 +216,7 @@ func TestPuttingSettingsStoresThemNormalised(t *testing.T) {
 	if got.Zabbix != want.Zabbix || got.Wazuh != want.Wazuh || !got.UpdatedAt.Equal(want.UpdatedAt) || got.UpdatedBy != want.UpdatedBy {
 		t.Errorf("stored %+v, want %+v", got, want)
 	}
-	if v := env.view(t); !v.Saved || v.Settings.Zabbix != want.Zabbix || v.Settings.Wazuh != want.Wazuh || !v.UpdatedAt.Equal(fixtureNow) || v.UpdatedBy != "admin" {
+	if v := env.view(t); !v.Saved || v.Zabbix != want.Zabbix || v.Wazuh != want.Wazuh || !v.UpdatedAt.Equal(fixtureNow) || v.UpdatedBy != "admin" {
 		t.Errorf("answered %+v, want the stored values with saved true", v)
 	}
 	if len(f.sent) != 0 {
