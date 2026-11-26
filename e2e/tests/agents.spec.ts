@@ -71,8 +71,18 @@ const STATUS: Record<string, unknown> = {
 interface Opts {
   /** GET /agents/settings answers that nothing has been saved yet. */
   unsaved?: boolean
+  /** GET /agents/settings answers these saved values instead. */
+  settings?: unknown
   /** The server the operator looked at last, which the shell keeps for server pages. */
   current?: string
+  /** These servers' answers instead of STATUS's. */
+  status?: Record<string, unknown>
+  /** These servers answer their first status read only; every later one fails. */
+  failAfterFirst?: string[]
+  /** The node list answers once; every later read of it fails. */
+  overviewOnce?: boolean
+  /** Every status read answers this many ms late. */
+  statusDelay?: number
 }
 
 interface Call { method: string; search: string; body: unknown }
@@ -84,7 +94,9 @@ interface Call { method: string; search: string; body: unknown }
 async function mock(page: Page, opts: Opts = {}) {
   const asked: string[] = []
   const settings: Call[] = []
-  let saved: unknown = opts.unsaved ? UNSAVED : SETTINGS
+  let saved: unknown = opts.settings ?? (opts.unsaved ? UNSAVED : SETTINGS)
+  const status = { ...STATUS, ...opts.status }
+  let overviews = 0
   await page.addInitScript((current) => {
     sessionStorage.setItem('token', 'fixture-token')
     localStorage.setItem('sfpanel_language', 'ko')
@@ -106,16 +118,19 @@ async function mock(page: Page, opts: Opts = {}) {
       data = { nodes: NODES, local_id: 'm-1', is_leader: true }
     } else if (path === '/cluster/overview') {
       await late()
+      if (opts.overviewOnce && overviews++ > 0) return fail(503, 'INTERNAL_ERROR', 'No cluster leader available')
       data = { name: 'lab', node_count: NODES.length, leader_id: 'm-1', nodes: NODES, metrics: [] }
     } else if (path === '/cluster/events') data = { events: [] }
     else if (path === '/cluster/tasks' || path === '/cluster/task-runs') data = []
     else if (path === '/agents/status') {
       const node = url.searchParams.get('node') ?? ''
+      const before = asked.includes(node)
       asked.push(node)
+      if (opts.statusDelay) await new Promise((resolve) => setTimeout(resolve, opts.statusDelay))
       // node-b's panel predates the route: its router answers as for any unknown path.
       if (node === 'm-2') return fail(404, 'NOT_FOUND', 'No such endpoint')
-      if (!STATUS[node]) return fail(502, 'CLUSTER_NODE_UNREACHABLE', 'The node could not be reached')
-      data = STATUS[node]
+      if (!status[node] || (before && opts.failAfterFirst?.includes(node))) return fail(502, 'CLUSTER_NODE_UNREACHABLE', 'The node could not be reached')
+      data = status[node]
     } else if (path === '/agents/settings') {
       const method = req.method()
       const body = req.postData() ? req.postDataJSON() : null
@@ -167,6 +182,8 @@ test('an agent that runs but does not reach its server reads as not connected', 
   const m1 = row(page, 'm-1')
   await expect(m1.getByText('연결됨', { exact: true })).toHaveCount(2)
   await expect(m1).toContainText('고정됨(hold)')
+  // What the match compares: the addresses, not the group or metadata.
+  await expect(m1.getByText('주소가 중앙 값과 같음', { exact: true })).toHaveCount(2)
   await expect(m1).toContainText('마지막 keepalive 2026-11-26 10:00:00')
 
   await expect(row(page, 'a-2')).toContainText('오프라인')
@@ -251,8 +268,132 @@ test('without saved values deploying is off and says why', async ({ page }) => {
   await row(page, 'm-1').getByRole('checkbox').click()
   const deploy = page.getByRole('button', { name: 'Zabbix 배포', exact: true })
   await expect(deploy).toBeDisabled()
-  await expect(deploy).toHaveAccessibleDescription('먼저 연결값을 저장하세요')
-  await expect(page.getByText('먼저 연결값을 저장하세요')).toBeVisible()
+  await expect(deploy).toHaveAccessibleDescription('먼저 Zabbix 연결값을 저장하세요')
+  await expect(page.getByRole('button', { name: 'Wazuh 배포', exact: true })).toHaveAccessibleDescription('먼저 Wazuh 연결값을 저장하세요')
+  // Off, and still reached from the keyboard, where its reason is heard.
+  await deploy.focus()
+  await expect(deploy).toBeFocused()
+})
+
+test('an agent whose values are saved deploys; the other says it has none', async ({ page }) => {
+  await mock(page, { settings: { ...UNSAVED, saved: true, zabbix: SETTINGS.zabbix } })
+  await page.goto('/agents')
+  await row(page, 'm-1').getByRole('checkbox').click()
+  await expect(page.getByRole('link', { name: 'Zabbix 배포', exact: true })).toBeVisible()
+  const wazuh = page.getByRole('button', { name: 'Wazuh 배포', exact: true })
+  await expect(wazuh).toBeDisabled()
+  await expect(wazuh).toHaveAccessibleDescription('먼저 Wazuh 연결값을 저장하세요')
+  const servers = page.getByRole('region', { name: '서버별 상태' })
+  await expect(servers.getByText('먼저 Wazuh 연결값을 저장하세요')).toBeVisible()
+  await expect(servers.getByText('먼저 Zabbix 연결값을 저장하세요')).toHaveCount(0)
+})
+
+// A run takes the saved values: values typed and not saved would be dropped
+// without a word by a deploy or a re-apply opened now.
+test('values typed and not saved hold deploying and re-applying until they are saved', async ({ page }) => {
+  await mock(page)
+  await page.goto('/agents')
+  await row(page, 'm-1').getByRole('checkbox').click()
+  await expect(page.getByRole('link', { name: 'Wazuh 배포', exact: true })).toBeVisible()
+  await expect(page.getByRole('link', { name: 'Wazuh 연결값 다시 적용 (2대)', exact: true })).toBeVisible()
+
+  await field(page, FIELDS.wazuhManager).fill('192.0.2.11')
+  const unsaved = '저장하지 않은 변경이 있습니다 — 먼저 저장하세요'
+  for (const name of ['Zabbix 배포', 'Wazuh 배포', 'Zabbix 연결값 다시 적용 (2대)', 'Wazuh 연결값 다시 적용 (2대)']) {
+    const off = page.getByRole('button', { name, exact: true })
+    await expect(off, name).toBeDisabled()
+    await expect(off, name).toHaveAccessibleDescription(unsaved)
+    await expect(page.getByRole('link', { name, exact: true }), name).toHaveCount(0)
+  }
+  await page.getByRole('button', { name: 'Wazuh 배포', exact: true }).focus()
+  await expect(page.getByRole('button', { name: 'Wazuh 배포', exact: true })).toBeFocused()
+
+  // Typed back to the saved value: nothing is unsaved.
+  await field(page, FIELDS.wazuhManager).fill('192.0.2.10')
+  await expect(page.getByRole('link', { name: 'Wazuh 배포', exact: true })).toBeVisible()
+  await expect(page.getByText(unsaved)).toHaveCount(0)
+
+  await field(page, FIELDS.wazuhManager).fill('192.0.2.11')
+  await expect(page.getByRole('button', { name: 'Wazuh 배포', exact: true })).toBeDisabled()
+  await page.getByRole('button', { name: '저장', exact: true }).click()
+  await expect(page.getByText('저장했습니다')).toBeVisible()
+  await expect(page.getByRole('link', { name: 'Wazuh 배포', exact: true })).toBeVisible()
+  await expect(page.getByRole('link', { name: 'Wazuh 연결값 다시 적용 (2대)', exact: true })).toBeVisible()
+})
+
+// "Connected" shown for something no longer known is the gone-server failure
+// in another form.
+test('an answer a refresh could not replace is dimmed, with when it was read', async ({ page }) => {
+  const { asked } = await mock(page, { failAfterFirst: ['m-1'] })
+  await page.goto('/agents')
+  const m1 = row(page, 'm-1')
+  const pills = m1.getByText('연결됨', { exact: true })
+  await expect(pills).toHaveCount(2)
+  for (const pill of await pills.all()) await expect(pill).toHaveClass(/text-success/)
+  await expect(m1).not.toContainText('에 읽은 값')
+
+  await page.getByRole('button', { name: '새로고침', exact: true }).click()
+  await expect.poll(() => asked.filter((n) => n === 'm-1').length).toBe(2)
+  await expect(m1).toContainText('읽지 못함: 이 매니저에서는 그 서버에 닿지 않습니다')
+  await expect(m1.getByText(/^.+에 읽은 값$/)).toHaveCount(2)
+  for (const pill of await pills.all()) {
+    await expect(pill).not.toHaveClass(/text-success/)
+    await expect(pill).toHaveClass(/text-muted-foreground/)
+  }
+  // A server whose refresh answered keeps its colours.
+  await expect(row(page, 'a-1').getByText('서버에 닿지 않음', { exact: true })).toHaveClass(/text-destructive/)
+})
+
+test('a service starting or reloading is not read as stopped', async ({ page }) => {
+  const a1 = STATUS['a-1'] as { zabbix: Record<string, unknown>; wazuh: Record<string, unknown> }
+  await mock(page, {
+    status: {
+      'a-1': {
+        ...a1,
+        zabbix: {
+          ...a1.zabbix, service: 'activating', connection: { state: 'unknown', detail: 'zabbix-agent2 is activating' },
+          config: { server: '192.0.2.10', server_active: '192.0.2.10', hostname: 'agent-1', host_metadata: '', duplicates: ['Server'] },
+        },
+        wazuh: { ...a1.wazuh, service: 'reloading', connection: { state: 'unknown', detail: 'wazuh-agent is reloading' } },
+      },
+    },
+  })
+  await page.goto('/agents')
+  const r = row(page, 'a-1')
+  await expect(r).toContainText('시작하는 중')
+  await expect(r).toContainText('다시 읽는 중')
+  await expect(r.getByText('알 수 없음', { exact: true })).toHaveCount(2)
+  await expect(r).toContainText('zabbix-agent2 is activating')
+  await expect(r).not.toContainText('멈춤')
+  // Keys set twice: the agent reads one of them, and which one is not this page's to say.
+  await expect(r).toContainText('설정 파일에 두 번 이상 적힌 키: Server')
+})
+
+test('the server table is a section with a heading, a select column and one loading status', async ({ page }) => {
+  await mock(page, { statusDelay: 4000 })
+  await page.goto('/agents')
+  const servers = page.getByRole('region', { name: '서버별 상태' })
+  await expect(row(page, 'm-1')).toContainText('로딩 중…')
+  // While the rows are read: one region says so, not one per row. Counted
+  // now, not retried: a retry would pass once the rows are read.
+  expect(await servers.getByRole('status').count()).toBe(1)
+  await expect(servers.getByRole('status')).toHaveText('로딩 중…')
+  await expect(servers.getByRole('heading', { level: 2, name: '서버별 상태' })).toBeVisible()
+  await expect(servers.getByRole('columnheader', { name: '선택', exact: true })).toHaveCount(1)
+  await expect(row(page, 'm-1')).toContainText('연결됨')
+  await expect(servers.getByRole('status')).toHaveText('')
+  // The group and metadata note sits under the table too: "matches" says nothing of them.
+  await expect(servers).toContainText('그룹·메타데이터는 새로 등록하는 서버에만 적용됩니다')
+})
+
+test('a server list that cannot be read again says what failed', async ({ page }) => {
+  await mock(page, { overviewOnce: true })
+  await page.goto('/agents')
+  await expect(row(page, 'm-1')).toContainText('연결됨')
+  await page.getByRole('button', { name: '새로고침', exact: true }).click()
+  await expect(page.getByRole('alert').filter({ hasText: '서버 목록' })).toHaveText('클러스터의 서버 목록을 다시 불러오지 못했습니다: No cluster leader available')
+  // The list seen before stays.
+  await expect(row(page, 'm-1')).toContainText('연결됨')
 })
 
 test('on a phone each server is a card', async ({ page }) => {

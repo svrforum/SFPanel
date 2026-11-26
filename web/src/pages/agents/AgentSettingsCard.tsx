@@ -7,8 +7,8 @@ import { Input } from '@/components/ui/input'
 import { api, type ApiError } from '@/lib/api'
 import { agentLabel } from '@/lib/codeMessages'
 import type { AgentSettingsInput, AgentSettingsView } from '@/types/api'
-import { configured, deployHref, type AgentName } from './agentsModel'
-import { ActionLink } from './AgentServerTable'
+import { actionState, deployHref, holdsDescribedBy, type ActionHold, type AgentName } from './agentsModel'
+import { ActionLink, HoldLines } from './AgentServerTable'
 
 /** A connection value by the name a refusal gives it in details.field. */
 type Field = 'zabbix.server' | 'zabbix.server_active' | 'zabbix.host_metadata' | 'wazuh.manager' | 'wazuh.groups' | 'wazuh.version'
@@ -54,27 +54,31 @@ function refusal(err: unknown): Refusal {
 /**
  * The cluster's connection values, one set for every server, saved with one
  * press; below them, a re-apply of each agent's values to every server that
- * has it.
+ * has it. A run takes the saved values, so while the card holds others the
+ * re-apply (and the table's deploy) is off and says why.
  */
-export function AgentSettingsCard({ settings, loadError, onRetry, onSaved, reapply }: {
+export function AgentSettingsCard({ settings, loadError, onRetry, onSaved, draft, onDraft, dirty, reapply }: {
   settings: AgentSettingsView | null
   loadError: string | null
   onRetry: () => void
   onSaved: (view: AgentSettingsView) => void
+  /** Edited and not yet saved; null shows the saved values. */
+  draft: AgentSettingsInput | null
+  onDraft: (draft: AgentSettingsInput | null) => void
+  /** The draft differs from the saved values. */
+  dirty: boolean
   /** The servers each agent's re-apply would run on. */
   reapply: Record<AgentName, string[]>
 }) {
   const { t } = useTranslation()
   const ids = useId()
-  // Edited and not yet saved; null shows the saved values.
-  const [draft, setDraft] = useState<AgentSettingsInput | null>(null)
   const [saving, setSaving] = useState(false)
   const [saved, setSaved] = useState(false)
   const [refused, setRefused] = useState<Refusal | null>(null)
   const values = draft ?? (settings ? inputOf(settings) : EMPTY)
 
   const change = (f: Field, value: string) => {
-    setDraft(write(values, f, value))
+    onDraft(write(values, f, value))
     setSaved(false)
     setRefused(null)
   }
@@ -87,7 +91,7 @@ export function AgentSettingsCard({ settings, loadError, onRetry, onSaved, reapp
     try {
       const view = await api.putAgentSettings(values)
       onSaved(view)
-      setDraft(null)
+      onDraft(null)
       setSaved(true)
     } catch (err) {
       setRefused(refusal(err))
@@ -128,8 +132,16 @@ export function AgentSettingsCard({ settings, loadError, onRetry, onSaved, reapp
     )
   }
 
+  // A re-apply with no server says so in its own label (0); the other reasons have a line.
+  const reapplyState = {
+    zabbix: actionState('zabbix', { settings, dirty, servers: reapply.zabbix.length }),
+    wazuh: actionState('wazuh', { settings, dirty, servers: reapply.wazuh.length }),
+  }
+  const unsavedId = `${ids}-unsaved`
+  const valuesId = (agent: AgentName) => `${ids}-values-${agent}`
+  const lineOf = (agent: AgentName) => (hold: ActionHold) => (hold === 'unsaved' ? unsavedId : hold === 'values' ? valuesId(agent) : undefined)
   const reapplyLink = (agent: AgentName, label: string) => (
-    <ActionLink to={deployHref(agent, reapply[agent])} enabled={reapply[agent].length > 0 && configured(settings, agent)}>
+    <ActionLink to={deployHref(agent, reapply[agent])} enabled={reapplyState[agent].enabled} describedBy={holdsDescribedBy(reapplyState[agent].holds, lineOf(agent))}>
       {label}
     </ActionLink>
   )
@@ -177,9 +189,12 @@ export function AgentSettingsCard({ settings, loadError, onRetry, onSaved, reapp
         </form>
       )}
 
-      <div className="flex flex-wrap gap-2 border-t border-border pt-4">
-        {reapplyLink('zabbix', t('agents.actions.reapplyZabbix', { count: reapply.zabbix.length }))}
-        {reapplyLink('wazuh', t('agents.actions.reapplyWazuh', { count: reapply.wazuh.length }))}
+      <div className="space-y-1.5 border-t border-border pt-4">
+        <div className="flex flex-wrap gap-2">
+          {reapplyLink('zabbix', t('agents.actions.reapplyZabbix', { count: reapply.zabbix.length }))}
+          {reapplyLink('wazuh', t('agents.actions.reapplyWazuh', { count: reapply.wazuh.length }))}
+        </div>
+        <HoldLines holds={{ zabbix: reapplyState.zabbix.holds, wazuh: reapplyState.wazuh.holds }} unsavedId={unsavedId} valuesId={valuesId} />
       </div>
     </section>
   )

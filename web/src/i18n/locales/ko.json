@@ -4978,6 +4978,8 @@
     "title": "에이전트",
     "subtitle": "Zabbix·Wazuh 에이전트를 모든 서버에 배포하고, 실제로 서버에 붙어 있는지 확인합니다.",
     "server": "서버",
+    "serversTitle": "서버별 상태",
+    "select": "선택",
     "settings": {
       "title": "연결값",
       "shared": "클러스터 공통",
@@ -4988,7 +4990,7 @@
       "wazuhGroups": "Wazuh 그룹 (비우면 default)",
       "wazuhVersion": "Wazuh 에이전트 버전",
       "enrollNote": "그룹·메타데이터는 새로 등록하는 서버에만 적용됩니다 — 이미 등록된 서버의 그룹 변경은 서버 쪽(API) 작업에서 합니다.",
-      "versionNote": "이 버전으로 깔고 고정(hold)합니다. 매니저보다 새 버전은 깔지 않습니다.",
+      "versionNote": "이 버전으로 설치하고 고정(hold)합니다. 매니저보다 새 버전은 설치하지 않습니다.",
       "save": "저장",
       "saved": "저장했습니다"
     },
@@ -4997,13 +4999,18 @@
       "deployWazuh": "Wazuh 배포",
       "reapplyZabbix": "Zabbix 연결값 다시 적용 ({{count}}대)",
       "reapplyWazuh": "Wazuh 연결값 다시 적용 ({{count}}대)",
-      "needValues": "먼저 연결값을 저장하세요",
+      "needValues": "먼저 {{agent}} 연결값을 저장하세요",
+      "unsaved": "저장하지 않은 변경이 있습니다 — 먼저 저장하세요",
       "needSelection": "배포할 서버를 고르세요"
     },
     "install": {
       "none": "없음",
       "running": "실행 중",
       "stopped": "멈춤",
+      "activating": "시작하는 중",
+      "reloading": "다시 읽는 중",
+      "serviceUnknown": "서비스 상태를 알 수 없음",
+      "serviceOther": "서비스: {{state}}",
       "legacy": "옛 에이전트(agentd) — 이 기능 밖",
       "unmanaged": "패키지 밖 설치 — 건드리지 않음"
     },
@@ -5014,11 +5021,12 @@
     },
     "held": "고정됨(hold)",
     "match": {
-      "same": "중앙 값과 같음",
+      "same": "주소가 중앙 값과 같음",
       "different": "다름: {{value}}",
       "noConfig": "설정 파일 없음",
       "unset": "중앙 값 없음"
     },
+    "duplicates": "설정 파일에 두 번 이상 적힌 키: {{keys}}",
     "connection": {
       "connected": "연결됨",
       "pending": "대기(pending)",
@@ -5033,9 +5041,11 @@
       "unknown": "알 수 없음"
     },
     "lastKeepalive": "마지막 keepalive {{time}}",
+    "readAt": "{{time}}에 읽은 값",
     "offline": "오프라인",
     "absent": "이 서버의 패널이 이 기능을 모르는 버전 — 업데이트하세요",
     "readError": "읽지 못함: {{error}}",
+    "overviewError": "클러스터의 서버 목록을 다시 불러오지 못했습니다: {{error}}",
     "retry": "다시 시도",
     "errors": {
       "notConfigured": "{{agent}} 연결값을 먼저 에이전트 화면에서 저장하세요",

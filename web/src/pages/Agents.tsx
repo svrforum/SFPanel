@@ -6,10 +6,10 @@ import { ListLoadState } from '@/components/ListLoadState'
 import { Button } from '@/components/ui/button'
 import { useServerScope } from '@/hooks/useServerScope'
 import { api } from '@/lib/api'
-import type { AgentSettingsView } from '@/types/api'
+import type { AgentSettingsInput, AgentSettingsView } from '@/types/api'
 import { AgentServerTable } from './agents/AgentServerTable'
 import { AgentSettingsCard } from './agents/AgentSettingsCard'
-import { reapplyNodes } from './agents/agentsModel'
+import { reapplyNodes, settingsDirty } from './agents/agentsModel'
 import { useAgentStatuses } from './agents/useAgentStatuses'
 
 const message = (err: unknown) => (err instanceof Error ? err.message : String(err))
@@ -41,6 +41,10 @@ function AgentsPage() {
   const { t } = useTranslation()
   const { nodes, leaderId, loads, overviewError, refresh, retry } = useAgentStatuses()
   const settings = useAgentSettings()
+  // The card's values typed and not saved: here, because the table's deploy
+  // is held by them too.
+  const [draft, setDraft] = useState<AgentSettingsInput | null>(null)
+  const dirty = settingsDirty(draft, settings.view)
 
   // Re-applying reaches the servers last seen online with the agent as its package.
   const reapply = useMemo(() => {
@@ -64,14 +68,23 @@ function AgentsPage() {
         </Button>
       </header>
 
-      <AgentSettingsCard settings={settings.view} loadError={settings.error} onRetry={settings.reload} onSaved={settings.set} reapply={reapply} />
+      <AgentSettingsCard
+        settings={settings.view}
+        loadError={settings.error}
+        onRetry={settings.reload}
+        onSaved={settings.set}
+        draft={draft}
+        onDraft={setDraft}
+        dirty={dirty}
+        reapply={reapply}
+      />
 
       {nodes.length === 0 ? (
         <ListLoadState loading={!overviewError} error={overviewError} errorTitle={t('running.overviewError')} onRetry={refresh} skeletonCount={3} />
       ) : (
         <>
-          {overviewError && <p role="alert" className="break-words text-[12px] text-destructive">{t('agents.readError', { error: overviewError })}</p>}
-          <AgentServerTable nodes={nodes} leaderId={leaderId} loads={loads} settings={settings.view} retry={retry} />
+          {overviewError && <p role="alert" className="break-words text-[12px] text-destructive">{t('agents.overviewError', { error: overviewError })}</p>}
+          <AgentServerTable nodes={nodes} leaderId={leaderId} loads={loads} settings={settings.view} dirty={dirty} retry={retry} />
         </>
       )}
     </div>

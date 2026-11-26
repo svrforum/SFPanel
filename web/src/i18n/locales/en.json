@@ -4999,6 +4999,8 @@
     "title": "Agents",
     "subtitle": "Deploy the Zabbix and Wazuh agents to every server and see whether each really reaches its server.",
     "server": "Server",
+    "serversTitle": "By server",
+    "select": "Select",
     "settings": {
       "title": "Connection values",
       "shared": "Cluster-wide",
@@ -5018,13 +5020,18 @@
       "deployWazuh": "Deploy Wazuh",
       "reapplyZabbix": "Re-apply Zabbix values ({{count}})",
       "reapplyWazuh": "Re-apply Wazuh values ({{count}})",
-      "needValues": "Save the connection values first",
+      "needValues": "Save the {{agent}} connection values first",
+      "unsaved": "Unsaved changes — save them first",
       "needSelection": "Choose servers to deploy to"
     },
     "install": {
       "none": "None",
       "running": "Running",
       "stopped": "Stopped",
+      "activating": "Starting",
+      "reloading": "Reloading",
+      "serviceUnknown": "Service state unknown",
+      "serviceOther": "Service: {{state}}",
       "legacy": "Old agent (agentd) — not covered",
       "unmanaged": "Not a package — left alone"
     },
@@ -5035,11 +5042,12 @@
     },
     "held": "Held",
     "match": {
-      "same": "Matches",
+      "same": "Addresses match the central values",
       "different": "Differs: {{value}}",
       "noConfig": "No config file",
       "unset": "No central value"
     },
+    "duplicates": "Keys set on more than one line of the file: {{keys}}",
     "connection": {
       "connected": "Connected",
       "pending": "Pending",
@@ -5054,9 +5062,11 @@
       "unknown": "Unknown"
     },
     "lastKeepalive": "Last keepalive {{time}}",
+    "readAt": "Read at {{time}}",
     "offline": "Offline",
     "absent": "This server's panel predates this page — update it",
     "readError": "Could not read: {{error}}",
+    "overviewError": "Could not reload the cluster's servers: {{error}}",
     "retry": "Retry",
     "errors": {
       "notConfigured": "Save the {{agent}} connection values on the Agents page first",

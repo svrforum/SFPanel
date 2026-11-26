@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest'
 import { taskRunHref } from '@/lib/taskPrefill'
 import type { AgentConnectionState, AgentSettingsView, AgentStatus, WazuhAgentStatus, ZabbixAgentStatus } from '@/types/api'
 import {
-  configured, connectionTone, deployHref, reapplyNodes, sameActive, sameHost, sameServers, wazuhCell, zabbixCell,
+  actionState, configured, connectionTone, deployHref, reapplyNodes, sameActive, sameHost, sameServers, settingsDirty, staleCell, wazuhCell, zabbixCell,
 } from './agentsModel'
 
 const settings: AgentSettingsView = { saved: true, zabbix: { server: '192.0.2.10', server_active: '192.0.2.10', host_metadata: 'linux-fleet-auto' }, wazuh: { manager: '192.0.2.10', groups: '', version: '4.14.10' } }
@@ -60,7 +60,28 @@ describe('an agent cell', () => {
     expect(zabbixCell(installedZabbix, settings).install).toBe('running')
     expect(zabbixCell({ ...installedZabbix, service: 'inactive' }, settings).install).toBe('stopped')
     expect(wazuhCell({ ...installedWazuh, service: 'failed' }, settings).install).toBe('stopped')
-    expect(wazuhCell({ ...installedWazuh, service: undefined }, settings).install).toBe('stopped')
+  })
+
+  // Stopped is a claim: only systemd's inactive and failed make it.
+  it('a service starting or reloading is not stopped', () => {
+    expect(zabbixCell({ ...installedZabbix, service: 'activating' }, settings).install).toBe('activating')
+    expect(wazuhCell({ ...installedWazuh, service: 'reloading' }, settings).install).toBe('reloading')
+  })
+
+  it('a service systemd gave no word for is unknown, and any other word is shown as sent', () => {
+    expect(zabbixCell({ ...installedZabbix, service: 'unknown' }, settings).install).toBe('serviceUnknown')
+    expect(wazuhCell({ ...installedWazuh, service: undefined }, settings).install).toBe('serviceUnknown')
+    expect(wazuhCell({ ...installedWazuh, service: 'deactivating' }, settings)).toMatchObject({ install: 'serviceOther', service: 'deactivating' })
+    expect(zabbixCell(installedZabbix, settings).service).toBeUndefined()
+  })
+
+  it('names the keys its config file sets more than once', () => {
+    const twice = { ...installedZabbix.config!, duplicates: ['Server', 'Hostname'] }
+    expect(zabbixCell({ ...installedZabbix, config: twice }, settings).duplicates).toEqual(['Server', 'Hostname'])
+    // Whether or not the cluster has values to compare with.
+    expect(zabbixCell({ ...installedZabbix, config: twice }, null).duplicates).toEqual(['Server', 'Hostname'])
+    expect(zabbixCell(installedZabbix, settings).duplicates).toBeUndefined()
+    expect(zabbixCell({ ...installedZabbix, config: { ...twice, duplicates: [] } }, settings).duplicates).toBeUndefined()
   })
 
   it('names the states it leaves alone as they are', () => {
@@ -123,6 +144,26 @@ describe('an agent cell', () => {
   })
 })
 
+// What a refresh that failed left on screen: the agent may have gone since.
+describe('a cell read from a stale answer', () => {
+  const at = Date.UTC(2026, 10, 26, 1, 2, 3)
+
+  it('a connected agent is not shown in the bright colour of one', () => {
+    const cell = staleCell(wazuhCell(installedWazuh, settings), at)
+    expect(cell.connection).toMatchObject({ state: 'connected', tone: 'muted' })
+    expect(cell.readAt).toBe(at)
+  })
+
+  it('every connection is dimmed, and the rest of the cell stays', () => {
+    const fresh = zabbixCell({ ...installedZabbix, connection: { state: 'unreachable', detail: 'dial tcp 192.0.2.19:10051: i/o timeout' } }, settings)
+    const cell = staleCell(fresh, at)
+    expect(cell).toEqual({ ...fresh, connection: { ...fresh.connection, tone: 'muted' }, readAt: at })
+  })
+
+  it('a cell with no connection only says when it was read', () =>
+    expect(staleCell(zabbixCell({ state: 'none' }, settings), at)).toEqual({ ...zabbixCell({ state: 'none' }, settings), readAt: at }))
+})
+
 describe('comparing addresses', () => {
   it('the same servers in another order and spacing match', () => expect(sameServers('192.0.2.10, zbx.example.net', 'ZBX.example.net,192.0.2.10')).toBe(true))
 
@@ -169,4 +210,42 @@ describe('what can be deployed', () => {
     expect(deployHref('wazuh', ['a-1'])).toBe('/cluster/tasks/builtin%2Fwazuh-agent?nodes=a-1')
     expect(deployHref('zabbix', ['m-1', 'a-1'])).toBe('/cluster/tasks/builtin%2Fzabbix-agent?nodes=m-1%2Ca-1')
   })
+})
+
+describe('unsaved values', () => {
+  const input = { zabbix: { ...settings.zabbix }, wazuh: { ...settings.wazuh } }
+
+  it('nothing typed is nothing unsaved', () => expect(settingsDirty(null, settings)).toBe(false))
+
+  it('values typed back to the saved ones are not unsaved', () => expect(settingsDirty(input, settings)).toBe(false))
+
+  it('any value that differs from the saved one is unsaved', () => {
+    expect(settingsDirty({ ...input, wazuh: { ...input.wazuh, manager: '192.0.2.11' } }, settings)).toBe(true)
+    expect(settingsDirty({ ...input, zabbix: { ...input.zabbix, host_metadata: 'linux' } }, settings)).toBe(true)
+    expect(settingsDirty({ ...input, wazuh: { ...input.wazuh, version: '4.14.9' } }, settings)).toBe(true)
+  })
+})
+
+// A deploy or re-apply runs with the saved values: never while the card
+// holds others, never without them, never on no server.
+describe('when a deploy or a re-apply can open', () => {
+  it('opens with saved values, nothing unsaved and a server', () =>
+    expect(actionState('zabbix', { settings, dirty: false, servers: 2 })).toEqual({ enabled: true, holds: [] }))
+
+  it('holds while the card has unsaved values, and says so', () =>
+    expect(actionState('wazuh', { settings, dirty: true, servers: 2 })).toEqual({ enabled: false, holds: ['unsaved'] }))
+
+  it('holds an agent without values, and says which', () => {
+    const noZabbix = { ...settings, zabbix: { server: '', server_active: '', host_metadata: '' } }
+    expect(actionState('zabbix', { settings: noZabbix, dirty: false, servers: 1 })).toEqual({ enabled: false, holds: ['values'] })
+    expect(actionState('wazuh', { settings: noZabbix, dirty: false, servers: 1 })).toEqual({ enabled: true, holds: [] })
+  })
+
+  it('holds with no server, and gives every reason at once', () =>
+    expect(actionState('wazuh', { settings: { ...settings, wazuh: { ...settings.wazuh, manager: '' } }, dirty: true, servers: 0 }))
+      .toEqual({ enabled: false, holds: ['unsaved', 'values', 'servers'] }))
+
+  // Until the values are read nothing is known to be missing: off, with no reason yet.
+  it('stays off while the values are not read', () =>
+    expect(actionState('zabbix', { settings: null, dirty: false, servers: 1 })).toEqual({ enabled: false, holds: [] }))
 })

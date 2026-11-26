@@ -12,18 +12,23 @@ import { cn } from '@/lib/utils'
 import { KindBadge } from '@/pages/cluster/components/KindBadge'
 import type { AgentSettingsView, ClusterNode } from '@/types/api'
 import {
-  configured, connectionText, deployHref, installText, matchText, sourceText, wazuhCell, zabbixCell, type AgentCell, type AgentName,
+  actionState, connectionText, deployHref, holdsDescribedBy, installText, matchText, sourceText, staleCell, wazuhCell, zabbixCell,
+  type ActionHold, type AgentCell, type AgentName,
 } from './agentsModel'
 import type { StatusLoad } from './useAgentStatuses'
 
+const AGENTS: readonly AgentName[] = ['zabbix', 'wazuh']
+
 /**
  * A link that opens a group task's run setup, or, while there is nothing to
- * open it with, a button that says it is off and points at why.
+ * open it with, a button that says it is off and points at why. The button
+ * stays in the tab order (aria-disabled, not disabled), so a keyboard user
+ * reaches it and hears the reason.
  */
 export function ActionLink({ to, enabled, describedBy, children }: { to: string; enabled: boolean; describedBy?: string; children: ReactNode }) {
   if (!enabled) {
     return (
-      <Button type="button" variant="outline" size="sm" className="rounded-xl" disabled aria-describedby={describedBy}>
+      <Button type="button" variant="outline" size="sm" className="rounded-xl aria-disabled:pointer-events-none aria-disabled:opacity-50" aria-disabled="true" aria-describedby={describedBy}>
         <ListChecks aria-hidden="true" />
         {children}
       </Button>
@@ -39,15 +44,37 @@ export function ActionLink({ to, enabled, describedBy, children }: { to: string;
   )
 }
 
+/**
+ * The lines that say why a deploy or re-apply is off, each with the id its
+ * controls point at: values typed and not saved, and an agent without saved
+ * values (one line per agent).
+ */
+export function HoldLines({ holds, unsavedId, valuesId }: {
+  holds: Record<AgentName, ActionHold[]>
+  unsavedId: string
+  valuesId: (agent: AgentName) => string
+}) {
+  const { t } = useTranslation()
+  const unsaved = AGENTS.some((a) => holds[a].includes('unsaved'))
+  return (
+    <>
+      {unsaved && <p id={unsavedId} className="text-[12px] text-warning">{t('agents.actions.unsaved')}</p>}
+      {AGENTS.filter((a) => holds[a].includes('values')).map((a) => (
+        <p key={a} id={valuesId(a)} className="text-[12px] text-muted-foreground">{t('agents.actions.needValues', { agent: agentLabel(a) })}</p>
+      ))}
+    </>
+  )
+}
+
 /** One agent on one server: how it is installed, whether its file holds the central values, and whether it reaches its server. */
 function AgentCellView({ cell }: { cell: AgentCell }) {
-  const { t } = useTranslation()
+  const { t, i18n } = useTranslation()
   // An agent that is not there, or the old Zabbix agent, has no agent config to compare and no connection to judge.
   const judged = cell.install !== 'none' && cell.install !== 'legacy'
   return (
     <div className="space-y-1.5 text-[13px]">
       <p className="flex flex-wrap items-center gap-x-2 gap-y-1">
-        <span className="font-medium">{installText(cell.install, t)}</span>
+        <span className="font-medium">{installText(cell, t)}</span>
         {cell.version && <span className="break-all text-muted-foreground">{cell.version}</span>}
         {cell.source && <span className="text-muted-foreground">{sourceText(cell.source, t)}</span>}
         {cell.held && <StatusPill tone="secondary">{t('agents.held')}</StatusPill>}
@@ -57,6 +84,7 @@ function AgentCellView({ cell }: { cell: AgentCell }) {
       ) : (
         <p className={cn('break-words text-[12px]', cell.match === 'different' ? 'text-warning' : 'text-muted-foreground')}>{matchText(cell, t)}</p>
       ))}
+      {judged && cell.duplicates && <p className="break-words text-[12px] text-warning">{t('agents.duplicates', { keys: cell.duplicates.join(', ') })}</p>}
       {cell.connection && (
         <div className="space-y-0.5">
           <StatusPill tone={cell.connection.tone}>{connectionText(cell.connection.state, t)}</StatusPill>
@@ -64,6 +92,7 @@ function AgentCellView({ cell }: { cell: AgentCell }) {
           {cell.connection.lastKeepalive && <p className="text-[12px] text-muted-foreground">{t('agents.lastKeepalive', { time: cell.connection.lastKeepalive })}</p>}
         </div>
       )}
+      {cell.readAt !== undefined && <p className="text-[12px] text-muted-foreground">{t('agents.readAt', { time: new Date(cell.readAt).toLocaleTimeString(i18n.language) })}</p>}
     </div>
   )
 }
@@ -72,7 +101,8 @@ function AgentCellView({ cell }: { cell: AgentCell }) {
 function NodeState({ online, load, onRetry }: { online: boolean; load?: StatusLoad; onRetry: () => void }) {
   const { t } = useTranslation()
   if (!online) return <p className="text-[13px] text-muted-foreground">{t('agents.offline')}</p>
-  if (!load || load.phase === 'loading') return <p role="status" className="text-[13px] text-muted-foreground">{t('common.loading')}</p>
+  // The table's one status region says that servers are being read.
+  if (!load || load.phase === 'loading') return <p className="text-[13px] text-muted-foreground">{t('common.loading')}</p>
   if (load.phase === 'absent') return <p className="text-[13px] text-warning">{t('agents.absent')}</p>
   if (load.phase === 'error') {
     return (
@@ -113,11 +143,13 @@ function ServerName({ row, leaderId, id }: { row: Row; leaderId: string; id: str
  * Every server with its two agents: a table from md up, a card per server
  * below. Servers are picked for a deployment here; only online ones can be.
  */
-export function AgentServerTable({ nodes, leaderId, loads, settings, retry }: {
+export function AgentServerTable({ nodes, leaderId, loads, settings, dirty, retry }: {
   nodes: ClusterNode[]
   leaderId: string
   loads: Record<string, StatusLoad>
   settings: AgentSettingsView | null
+  /** The connection values card holds values not saved yet: a run would not use them. */
+  dirty: boolean
   retry: (id: string) => void
 }) {
   const { t } = useTranslation()
@@ -128,11 +160,13 @@ export function AgentServerTable({ nodes, leaderId, loads, settings, retry }: {
     const online = node.status === 'online'
     const load = online ? loads[node.id] : undefined
     const ready = load?.phase === 'ready' ? load : null
+    // An answer a later refresh could not replace is shown dimmed, with when it was read.
+    const shown = (cell: AgentCell) => (ready?.refreshError ? staleCell(cell, ready.at) : cell)
     return {
       node,
       online,
       load,
-      cells: ready ? { zabbix: zabbixCell(ready.status.zabbix, settings), wazuh: wazuhCell(ready.status.wazuh, settings) } : null,
+      cells: ready ? { zabbix: shown(zabbixCell(ready.status.zabbix, settings)), wazuh: shown(wazuhCell(ready.status.wazuh, settings)) } : null,
       refreshError: ready?.refreshError,
     }
   }), [nodes, loads, settings])
@@ -144,13 +178,14 @@ export function AgentServerTable({ nodes, leaderId, loads, settings, retry }: {
     else next.delete(id)
     return next
   })
+  const reading = rows.some((r) => r.online && (!r.load || r.load.phase === 'loading'))
 
-  const valuesId = `${ids}-values`
+  const titleId = `${ids}-title`
+  const unsavedId = `${ids}-unsaved`
+  const valuesId = (agent: AgentName) => `${ids}-values-${agent}`
   const pickId = `${ids}-pick`
-  // Said once the values have been read: until then nothing is known to be missing.
-  const needsValues = (agent: AgentName) => settings !== null && !configured(settings, agent)
-  const missingValues = needsValues('zabbix') || needsValues('wazuh')
-  const why = (agent: AgentName) => [needsValues(agent) ? valuesId : '', chosen.length === 0 ? pickId : ''].filter(Boolean).join(' ') || undefined
+  const deploy = Object.fromEntries(AGENTS.map((a) => [a, actionState(a, { settings, dirty, servers: chosen.length })])) as Record<AgentName, ReturnType<typeof actionState>>
+  const lineOf = (agent: AgentName) => (hold: ActionHold) => (hold === 'unsaved' ? unsavedId : hold === 'values' ? valuesId(agent) : pickId)
 
   const pick = (row: Row, nameId: string) => (
     <Checkbox
@@ -162,25 +197,28 @@ export function AgentServerTable({ nodes, leaderId, loads, settings, retry }: {
   )
 
   return (
-    <section className="space-y-3">
+    <section aria-labelledby={titleId} className="space-y-3">
+      <h2 id={titleId} className="text-[15px] font-semibold">{t('agents.serversTitle')}</h2>
       <div className="space-y-1.5">
         <div className="flex flex-wrap gap-2">
-          <ActionLink to={deployHref('zabbix', chosen)} enabled={chosen.length > 0 && configured(settings, 'zabbix')} describedBy={why('zabbix')}>
-            {t('agents.actions.deployZabbix')}
-          </ActionLink>
-          <ActionLink to={deployHref('wazuh', chosen)} enabled={chosen.length > 0 && configured(settings, 'wazuh')} describedBy={why('wazuh')}>
-            {t('agents.actions.deployWazuh')}
-          </ActionLink>
+          {AGENTS.map((agent) => (
+            <ActionLink key={agent} to={deployHref(agent, chosen)} enabled={deploy[agent].enabled} describedBy={holdsDescribedBy(deploy[agent].holds, lineOf(agent))}>
+              {agent === 'zabbix' ? t('agents.actions.deployZabbix') : t('agents.actions.deployWazuh')}
+            </ActionLink>
+          ))}
         </div>
-        {missingValues && <p id={valuesId} className="text-[12px] text-muted-foreground">{t('agents.actions.needValues')}</p>}
+        <HoldLines holds={{ zabbix: deploy.zabbix.holds, wazuh: deploy.wazuh.holds }} unsavedId={unsavedId} valuesId={valuesId} />
         {chosen.length === 0 && <p id={pickId} className="text-[12px] text-muted-foreground">{t('agents.actions.needSelection')}</p>}
       </div>
+
+      {/* One region for every row still being read, not one per row. */}
+      <p role="status" className="sr-only">{reading ? t('common.loading') : ''}</p>
 
       <div className="hidden overflow-hidden rounded-2xl bg-card card-shadow md:block">
         <Table>
           <TableHeader>
             <TableRow>
-              <TableHead className="w-10" />
+              <TableHead className="w-10"><span className="sr-only">{t('agents.select')}</span></TableHead>
               <TableHead>{t('agents.server')}</TableHead>
               <TableHead>{agentLabel('zabbix')}</TableHead>
               <TableHead>{agentLabel('wazuh')}</TableHead>
@@ -223,7 +261,7 @@ export function AgentServerTable({ nodes, leaderId, loads, settings, retry }: {
               </div>
               {cells ? (
                 <div className="space-y-3">
-                  {(['zabbix', 'wazuh'] as const).map((agent) => (
+                  {AGENTS.map((agent) => (
                     <div key={agent} className="space-y-1.5">
                       <p className="text-[12px] font-semibold text-muted-foreground">{agentLabel(agent)}</p>
                       <AgentCellView cell={cells[agent]} />
@@ -237,6 +275,9 @@ export function AgentServerTable({ nodes, leaderId, loads, settings, retry }: {
           )
         })}
       </div>
+
+      {/* "Matches" compares addresses; these two take effect only at enrollment. */}
+      <p className="text-[12px] text-muted-foreground">{t('agents.settings.enrollNote')}</p>
     </section>
   )
 }
