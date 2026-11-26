@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import type { TFunction } from 'i18next'
 import type { PlanNode, TaskPlan } from '@/types/api'
-import { agentLabel, confirmSteps, leftReasonText, planBlocked, runErrorText, verdictText } from './taskPlan'
+import { agentLabel, agentSkipWhy, confirmSteps, leftReasonText, planBlocked, runErrorText, stepSummaryText, verdictText } from './taskPlan'
 
 // A translator that names the key it was asked for, and its values.
 const t = ((key: string, opts?: Record<string, unknown>) => {
@@ -81,6 +81,63 @@ describe('verdictText', () => {
     expect(verdictText(v, t)).toBe('skipped: the disk is full')
     expect(verdictText({ ...v, details: undefined }, t)).toBe('skipped: the disk is full')
   })
+})
+
+describe('agentSkipWhy', () => {
+  // 4.14.11 against 4.14.10 is the case the version rule is for: the operator
+  // sees which two versions, not only that one is newer.
+  it('names the version installed and the one set', () =>
+    expect(agentSkipWhy({ agent: 'wazuh', why: 'newer', installed: '4.14.11-1', version: '4.14.10' }, t))
+      .toBe('cluster.tasks.plan.agentSkipWhy.newerThan {"installed":"4.14.11-1","version":"4.14.10"}'))
+
+  it('names the OS', () => {
+    expect(agentSkipWhy({ agent: 'zabbix', why: 'os', os: 'Fedora Linux 41' }, t)).toBe('cluster.tasks.plan.agentSkipWhy.osNamed {"os":"Fedora Linux 41"}')
+    expect(agentSkipWhy({ agent: 'zabbix', why: 'no_package', os: 'Ubuntu 26.10' }, t)).toBe('cluster.tasks.plan.agentSkipWhy.noPackageFor {"os":"Ubuntu 26.10"}')
+  })
+
+  // A value left out is not printed as its placeholder: the sentence without it.
+  it('words a reason whose facts are missing without them', () => {
+    expect(agentSkipWhy({ agent: 'wazuh', why: 'newer', installed: '4.14.11-1' }, t)).toBe('cluster.tasks.plan.agentSkipWhy.newer')
+    expect(agentSkipWhy({ agent: 'zabbix', why: 'os' }, t)).toBe('cluster.tasks.plan.agentSkipWhy.os')
+    expect(agentSkipWhy({ agent: 'zabbix', why: 'no_package', os: '' }, t)).toBe('cluster.tasks.plan.agentSkipWhy.no_package')
+  })
+
+  it('has no words for a reason it does not know, or none', () => {
+    expect(agentSkipWhy({ agent: 'zabbix', why: 'disk' }, t)).toBeNull()
+    expect(agentSkipWhy(undefined, t)).toBeNull()
+  })
+})
+
+// A step as a run recorded it: one a node's own rule skipped says why in the
+// operator's language, from the code and details the run now keeps.
+describe('stepSummaryText', () => {
+  const summary = 'skipped: the old Zabbix agent (zabbix-agent) is here; only Zabbix Agent 2 is set up, and not beside it'
+
+  it('words a skipped agent step with its reason', () =>
+    expect(stepSummaryText({ status: 'skipped', summary, code: 'SERVER_AGENT_SKIPPED', details: { agent: 'zabbix', why: 'legacy' } }, t))
+      .toBe('cluster.tasks.plan.agentSkipped {"agent":"Zabbix","why":"cluster.tasks.plan.agentSkipWhy.legacy"}'))
+
+  it('words a skipped agent step with the versions it names', () =>
+    expect(stepSummaryText({ status: 'skipped', summary: 'skipped: …', code: 'SERVER_AGENT_SKIPPED', details: { agent: 'wazuh', why: 'newer', installed: '4.14.11-1', version: '4.14.10' } }, t))
+      .toBe(`cluster.tasks.plan.agentSkipped {"agent":"Wazuh","why":${JSON.stringify('cluster.tasks.plan.agentSkipWhy.newerThan {"installed":"4.14.11-1","version":"4.14.10"}')}}`))
+
+  it("words a Proxmox host's skipped reboot", () =>
+    expect(stepSummaryText({ status: 'skipped', summary: 'skipped: a Proxmox VE host is not rebooted by a task', code: 'TASK_REBOOT_PVE_HOST' }, t)).toBe('cluster.tasks.plan.skippedPve'))
+
+  // A run recorded before the code was kept, and a reason a newer node gives.
+  it("keeps the node's sentence when it has no code, or a reason it has no words for", () => {
+    expect(stepSummaryText({ status: 'skipped', summary }, t)).toBe(summary)
+    expect(stepSummaryText({ status: 'skipped', summary: 'skipped: the disk is full', code: 'SERVER_AGENT_SKIPPED', details: { agent: 'zabbix', why: 'disk' } }, t)).toBe('skipped: the disk is full')
+  })
+
+  it('keeps any other summary as the node wrote it, and has none to show for none', () => {
+    expect(stepSummaryText({ status: 'failed', summary: 'exit 1' }, t)).toBe('exit 1')
+    expect(stepSummaryText({ status: 'succeeded' }, t)).toBe('')
+  })
+
+  // The code is the node's refusal of a skipped step; on any other it is not a skip.
+  it('reads the code only on a skipped step', () =>
+    expect(stepSummaryText({ status: 'failed', summary: 'exit 1', code: 'TASK_REBOOT_PVE_HOST' }, t)).toBe('exit 1'))
 })
 
 describe('agentLabel', () => {

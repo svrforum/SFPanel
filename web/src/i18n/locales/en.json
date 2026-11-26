@@ -1587,10 +1587,13 @@
         "agentSkipped": "{{agent}} skipped — {{why}}",
         "agentSkipWhy": {
           "os": "unsupported OS",
+          "osNamed": "unsupported OS ({{os}})",
           "legacy": "the old Zabbix agent (agentd) is installed; agent 2 is not added beside it",
           "unmanaged": "not installed as a package; left alone",
           "no_package": "no package for this OS",
-          "newer": "the installed version is newer than the one set; left alone"
+          "noPackageFor": "no package for {{os}}",
+          "newer": "the installed version is newer than the one set; left alone",
+          "newerThan": "the installed version, {{installed}}, is newer than {{version}}, the one set; left alone"
         },
         "left": "Left out",
         "confirm": "Confirmations",

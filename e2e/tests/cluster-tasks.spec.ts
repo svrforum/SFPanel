@@ -1225,6 +1225,39 @@ test.describe('run progress', () => {
     expect(asked()).toHaveLength(2)
   })
 
+  // A node that leaves an agent alone records the step skipped with the
+  // refusal's code and details; the output pane says why in the screen's
+  // words, as the preview did. A run recorded before them keeps the node's sentence.
+  test('a skipped agent step says why in the screen\'s words, from its code and details', async ({ page }) => {
+    const steps = [{ name: 'Zabbix agent 2', kind: 'agent' }, { name: 'Wazuh agent', kind: 'agent' }]
+    const nodes = {
+      'a-1': rec('succeeded', [
+        st('skipped', { summary: 'skipped: the old Zabbix agent (zabbix-agent) is here; only Zabbix Agent 2 is set up, and not beside it', code: 'SERVER_AGENT_SKIPPED', details: { agent: 'zabbix', why: 'legacy' }, ended_at: seen }),
+        st('skipped', { summary: 'skipped: the Wazuh agent here, 4.14.11-1, is newer than 4.14.10, the version set for the cluster; it is left as it is', code: 'SERVER_AGENT_SKIPPED', details: { agent: 'wazuh', why: 'newer', installed: '4.14.11-1', version: '4.14.10' }, ended_at: seen }),
+      ]),
+      'a-2': rec('succeeded', [st('skipped', { summary: 'skipped: an older node’s sentence', ended_at: seen }), st('succeeded', { job_id: 'j-a2-1' })]),
+      'm-1': rec('succeeded', [st('succeeded', { job_id: 'j-m1-0' }), st('succeeded', { job_id: 'j-m1-1' })]),
+    }
+    const run = liveRun({ status: 'succeeded', ended_at: seen })
+    await mock(page, {
+      runDetails: { [RUN_ID]: runDetail(run, nodes, { steps }) },
+      streams: { [RUN_ID]: [sse(snapshot(run, nodes), { type: 'end' })] },
+    })
+    await page.goto(`/cluster/tasks/runs/${RUN_ID}`)
+    const output = page.getByTestId('task-node-output')
+
+    await cell(page, 'a-1', 0).getByRole('button').click()
+    await expect(output.getByRole('heading')).toHaveText('agent-01 · Zabbix agent 2')
+    await expect(output).toContainText('Zabbix skipped — the old Zabbix agent (agentd) is installed; agent 2 is not added beside it')
+    await expect(output).not.toContainText('zabbix-agent) is here')
+
+    await cell(page, 'a-1', 1).getByRole('button').click()
+    await expect(output).toContainText('Wazuh skipped — the installed version, 4.14.11-1, is newer than 4.14.10, the one set; left alone')
+
+    await cell(page, 'a-2', 0).getByRole('button').click()
+    await expect(output).toContainText('skipped: an older node’s sentence')
+  })
+
   test('Stop and Force stop ask first, and send force false and true', async ({ page }) => {
     const { calls } = await mock(page, {
       runDetails: { [RUN_ID]: runDetail(liveRun(), FIRST_BATCH) },

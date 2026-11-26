@@ -1581,10 +1581,13 @@
         "agentSkipped": "{{agent}} 건너뜀 — {{why}}",
         "agentSkipWhy": {
           "os": "지원하지 않는 OS",
-          "legacy": "옛 Zabbix 에이전트(agentd)가 있어 agent2를 깔지 않음",
-          "unmanaged": "패키지로 깔리지 않은 에이전트라 건드리지 않음",
+          "osNamed": "지원하지 않는 OS({{os}})",
+          "legacy": "옛 Zabbix 에이전트(agentd)가 있어 agent2를 설치하지 않음",
+          "unmanaged": "패키지로 설치되지 않은 에이전트라 건드리지 않음",
           "no_package": "이 OS에는 설치할 패키지가 없음",
-          "newer": "깔린 버전이 정한 버전보다 새것이라 건드리지 않음"
+          "noPackageFor": "{{os}}에는 설치할 패키지가 없음",
+          "newer": "설치된 버전이 정한 버전보다 새것이라 건드리지 않음",
+          "newerThan": "설치된 버전({{installed}})이 정한 버전({{version}})보다 새것이라 건드리지 않음"
         },
         "left": "빠지는 서버",
         "confirm": "확인",

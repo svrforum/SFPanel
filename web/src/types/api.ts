@@ -1440,7 +1440,10 @@ export type RunStatus = 'running' | 'stopping' | 'handing_over' | 'succeeded' | 
 export type RunNodeStatus = 'pending' | 'running' | 'succeeded' | 'failed' | 'skipped' | 'unknown' | 'stopped'
 export type RunStepStatus = 'pending' | 'starting' | 'running' | 'succeeded' | 'failed' | 'skipped' | 'unknown' | 'cancelled'
 
-// changed is left out when false.
+// changed is left out when false. code and details are on a step the node's
+// own rule skipped (SERVER_AGENT_SKIPPED with agent, why and the facts behind
+// it; TASK_REBOOT_PVE_HOST): a run recorded before they were kept has only
+// the node's English summary.
 export interface RunStepRecord {
   status: RunStepStatus
   job_id?: string
@@ -1448,6 +1451,8 @@ export interface RunStepRecord {
   changed?: boolean
   started_at?: string
   ended_at?: string
+  code?: string
+  details?: Record<string, string>
 }
 
 // A node not started yet is {status: 'pending'} with no steps.

@@ -3,7 +3,7 @@ import type { ApiError } from '@/lib/api'
 import { agentLabel } from '@/lib/codeMessages'
 import { taskErrorMessage } from '@/lib/taskErrors'
 import { warningText } from '@/lib/warnings'
-import type { CheckVerdict, PlanLeftReason, PlanNode, TaskPlan } from '@/types/api'
+import type { CheckVerdict, PlanLeftReason, PlanNode, RunStepRecord, TaskPlan } from '@/types/api'
 
 // Reading a preview (POST /cluster/task-runs/plan): what needs confirming,
 // and whether it may start.
@@ -70,17 +70,31 @@ const VERDICT_TEXT: Record<string, (t: TFunction) => string> = {
   SERVICE_PROTECTED: (t) => t('cluster.tasks.plan.verdict.serviceProtected'),
 }
 
-// Why a node leaves an agent alone (its details' why), in the screen's words;
-// null for a reason this screen does not know.
-function agentSkipWhy(why: string | undefined, t: TFunction): string | null {
-  switch (why) {
-    case 'os': return t('cluster.tasks.plan.agentSkipWhy.os')
+/**
+ * Why a node leaves an agent alone (its details' why), in the screen's words,
+ * with the facts the node gives: the version installed and the one set, the
+ * OS. A reason whose facts are missing is worded without them; null for a
+ * reason this screen does not know.
+ */
+export function agentSkipWhy(details: Record<string, string> | undefined, t: TFunction): string | null {
+  const { installed, version, os } = details ?? {}
+  switch (details?.why) {
+    case 'os': return os ? t('cluster.tasks.plan.agentSkipWhy.osNamed', { os }) : t('cluster.tasks.plan.agentSkipWhy.os')
     case 'legacy': return t('cluster.tasks.plan.agentSkipWhy.legacy')
     case 'unmanaged': return t('cluster.tasks.plan.agentSkipWhy.unmanaged')
-    case 'no_package': return t('cluster.tasks.plan.agentSkipWhy.no_package')
-    case 'newer': return t('cluster.tasks.plan.agentSkipWhy.newer')
+    case 'no_package': return os ? t('cluster.tasks.plan.agentSkipWhy.noPackageFor', { os }) : t('cluster.tasks.plan.agentSkipWhy.no_package')
+    case 'newer': return installed && version ? t('cluster.tasks.plan.agentSkipWhy.newerThan', { installed, version }) : t('cluster.tasks.plan.agentSkipWhy.newer')
     default: return null
   }
+}
+
+// A refusal a run skips past, in words: a Proxmox host's reboot, an agent the
+// node leaves alone; null for any other code, and for a reason with no words.
+function skipText(code: string, details: Record<string, string> | undefined, t: TFunction): string | null {
+  if (code === PVE_REBOOT_CODE) return t('cluster.tasks.plan.skippedPve')
+  if (code !== AGENT_SKIP_CODE) return null
+  const why = agentSkipWhy(details, t)
+  return why === null ? null : t('cluster.tasks.plan.agentSkipped', { agent: agentLabel(details?.agent ?? ''), why })
 }
 
 /**
@@ -92,13 +106,20 @@ function agentSkipWhy(why: string | undefined, t: TFunction): string | null {
  */
 export function verdictText(v: CheckVerdict, t: TFunction): string {
   const code = v.code ?? ''
-  if (code === PVE_REBOOT_CODE) return t('cluster.tasks.plan.skippedPve')
-  if (code === AGENT_SKIP_CODE) {
-    const why = agentSkipWhy(v.details?.why, t)
-    return why === null ? v.reason || code : t('cluster.tasks.plan.agentSkipped', { agent: agentLabel(v.details?.agent ?? ''), why })
-  }
+  if (code === PVE_REBOOT_CODE || code === AGENT_SKIP_CODE) return skipText(code, v.details, t) ?? (v.reason || code)
   if (Object.hasOwn(VERDICT_TEXT, code)) return VERDICT_TEXT[code](t)
   return warningText({ code, message: v.reason || code }, t)
+}
+
+/**
+ * A step's summary as a run recorded it: a step the node's own rule skipped
+ * says why in the screen's words, as the preview did, from the code and
+ * details the record keeps. A run recorded before it kept them, a reason with
+ * no words, and every other summary read as the node wrote them.
+ */
+export function stepSummaryText(r: Pick<RunStepRecord, 'status' | 'summary' | 'code' | 'details'>, t: TFunction): string {
+  const skip = r.status === 'skipped' && r.code ? skipText(r.code, r.details, t) : null
+  return skip ?? r.summary ?? ''
 }
 
 /** A failed preview or start in words, and the server's own sentence when it carries more. */

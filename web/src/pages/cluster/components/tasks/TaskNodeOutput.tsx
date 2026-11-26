@@ -7,6 +7,7 @@ import { useVisibleInterval } from '@/hooks/useVisibleInterval'
 import { Button } from '@/components/ui/button'
 import { StatusPill } from '@/components/StatusPill'
 import type { RunStepRecord } from '@/types/api'
+import { stepSummaryText } from './taskPlan'
 import { cellState } from './taskRunProgress'
 import { appendOutput, cellText, cellTone, emptyOutput, type OutputState } from './taskRunViewModel'
 
@@ -76,6 +77,7 @@ export function TaskNodeOutput({ runId, nodeId, nodeName, step, stepName, record
   }
 
   const cell = cellState(record)
+  const summary = record ? stepSummaryText(record, t) : ''
   let note: string | null = null
   if (!job) {
     note = cell === 'pending' || cell === 'running' ? t('cluster.tasks.output.notStarted') : t('cluster.tasks.output.noJob')
@@ -92,7 +94,7 @@ export function TaskNodeOutput({ runId, nodeId, nodeName, step, stepName, record
           <X className="h-4 w-4" />
         </Button>
       </div>
-      {record?.summary && <p className="text-[12px] text-muted-foreground break-words">{record.summary}</p>}
+      {summary && <p className="text-[12px] text-muted-foreground break-words">{summary}</p>}
       {note ? (
         <p className="text-[13px] text-muted-foreground">{note}</p>
       ) : (
