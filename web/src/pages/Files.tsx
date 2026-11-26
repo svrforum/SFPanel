@@ -1242,9 +1242,11 @@ export default function Files() {
           Wraps, and the search box is fluid below sm. It used to be a single
           non-wrapping row holding a fixed 224px input and four buttons, which
           pushed Upload off the right edge of a 390px screen entirely — the
-          control was not small, it was unreachable. */}
+          control was not small, it was unreachable. The left half grows from
+          its own width, not from zero: from zero it never wrapped, and at a
+          laptop's width the buttons were drawn over the search box. */}
       <div className="flex flex-wrap items-center justify-between gap-2">
-        <div className="flex flex-1 items-center gap-2 min-w-0">
+        <div className="flex flex-auto items-center gap-2 min-w-0">
           <span className="inline-flex items-center px-3 py-1 rounded-full text-[13px] font-semibold bg-primary/10 text-primary shrink-0">
             {searchActive
               ? t('files.searchResultCount', { count: searchCount })

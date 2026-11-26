@@ -152,3 +152,23 @@ test('a link to a directory is a folder: no editor, and a click goes into it', a
   await expect.poll(() => new URL(page.url()).searchParams.get('path')).toBe('/srv/web')
   await expect(f.nameOf(0)).toHaveText('compose.yml')
 })
+
+// The toolbar is wider than a laptop's window once a sidebar is beside it. It
+// is meant to wrap; it did not, and its buttons were drawn over the search box.
+test('at a laptop width the toolbar wraps instead of covering the search box', async ({ page }) => {
+  await openFiles(page)
+  const search = page.getByRole('textbox', { name: 'Search this folder' })
+  await expect(search).toBeVisible()
+  // The controls whose boxes fall on the search box's, other than its own.
+  const covered = await search.evaluate((input) => {
+    const r = input.getBoundingClientRect()
+    return [...document.querySelectorAll('button, a')]
+      .filter((el) => !input.parentElement!.contains(el))
+      .filter((el) => {
+        const b = el.getBoundingClientRect()
+        return b.width > 0 && b.left < r.right && b.right > r.left && b.top < r.bottom && b.bottom > r.top
+      })
+      .map((el) => el.getAttribute('aria-label') || el.textContent?.trim() || el.tagName)
+  })
+  expect(covered).toEqual([])
+})
