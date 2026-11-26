@@ -161,8 +161,11 @@ export function ToolsSheet({ open, onOpenChange, tools, toolsError, account, onA
               </div>
             )
           })}
+          {/* Closed as it is followed: its open state is kept on <html>,
+              which outlives this page, and the terminal reads it when it
+              mounts, so the sheet would be open over it on the next visit. */}
           <p className="text-[12px] text-muted-foreground">
-            {t('terminal.tools.nodeVersions')} <Link to={href('/packages')} className="text-primary hover:underline">{t('layout.nav.packages')}</Link>
+            {t('terminal.tools.nodeVersions')} <Link to={href('/packages')} onClick={() => onOpenChange(false)} className="text-primary hover:underline">{t('layout.nav.packages')}</Link>
           </p>
 
           {/* The emergency door: a PTY shell as the panel account, outside

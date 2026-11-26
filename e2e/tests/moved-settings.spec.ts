@@ -126,6 +126,22 @@ test('the tools sheet leads to the Node.js version in packages', async ({ page }
   await expect(page.getByRole('dialog', { name: 'Tools & accounts' }).getByRole('link', { name: 'Packages', exact: true })).toHaveAttribute('href', '/packages')
 })
 
+// The sheet's open state is kept on <html data-ai-tools-open>, which the
+// Android app reads and which outlives the page: left set by the link, it
+// opened the sheet over the terminal on the next visit.
+test('following the link closes the sheet, so the terminal opens without it next time', async ({ page }) => {
+  await mock(page); await page.goto('/terminal')
+  await page.getByRole('button', { name: 'Tools & accounts' }).first().click()
+  const sheet = page.getByRole('dialog', { name: 'Tools & accounts' })
+  await sheet.getByRole('link', { name: 'Packages', exact: true }).click()
+  await expect(page).toHaveURL(/\/packages$/)
+  await expect(page.locator('html')).not.toHaveAttribute('data-ai-tools-open')
+  await page.goBack()
+  await expect(page).toHaveURL(/\/terminal$/)
+  await expect(page.locator('[data-ai-workspace]')).toBeVisible()
+  await expect(sheet).toHaveCount(0)
+})
+
 test("on another server the tools sheet leads to that server's packages", async ({ page }) => {
   await mock(page, { cluster: true, current: 'agent-1' }); await page.goto('/terminal?node=agent-1')
   await page.getByRole('button', { name: 'Tools & accounts' }).first().click()
