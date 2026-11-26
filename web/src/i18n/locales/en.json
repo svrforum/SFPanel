@@ -918,7 +918,7 @@
       "discard": "Discard draft",
       "discardConfirm": "Discard unsaved changes and reload the files from the server."
     },
-    "unavailable": "Docker is not available on this node. Install it from Packages, or check that the daemon is running."
+    "unavailable": "Docker is not available on this node. Install Docker, or check that the daemon is running."
   },
   "compose": {
     "healthcheck": {
