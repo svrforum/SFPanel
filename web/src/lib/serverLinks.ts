@@ -32,12 +32,13 @@ export function dirParam(search: string): string | null {
 export type FleetRunHref = (taskId: string, inputs?: Record<string, string>) => string
 
 /**
- * Where "on several servers…" leads from a server's screen: in a cluster, the
- * task's run setup with the server shown picked, for the operator to add the
- * rest. Null on a single server, or while the server shown is not known yet:
- * there is nothing to run it on but this one.
+ * Where "on several servers…" leads from a server's screen: in a cluster of
+ * more than one server, the task's run setup with the server shown picked,
+ * for the operator to add the rest. Null on a single server, in a cluster of
+ * one (as moving a Docker stack is offered), or while the server shown or the
+ * node list is not known yet: there is nothing to run it on but this one.
  */
-export function fleetRunHrefFor(clusterEnabled: boolean | null, currentId: string): FleetRunHref | null {
-  if (clusterEnabled !== true || !currentId) return null
+export function fleetRunHrefFor(clusterEnabled: boolean | null, currentId: string, serverCount: number): FleetRunHref | null {
+  if (clusterEnabled !== true || !currentId || serverCount <= 1) return null
   return (taskId, inputs) => taskRunHref(taskId, { nodes: [currentId], inputs })
 }

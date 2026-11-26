@@ -41,7 +41,8 @@ const PACKAGE_INSTALL = {
  * Mocks the panel's API. plans has the body of every run preview asked for,
  * each answered 500, so nothing runs.
  */
-async function mock(page: Page, opts: { standalone?: boolean } = {}) {
+async function mock(page: Page, opts: { standalone?: boolean; nodes?: typeof nodes } = {}) {
+  const listed = opts.nodes ?? nodes
   const plans: unknown[] = []
   await page.addInitScript(() => {
     sessionStorage.setItem('token', 'fixture-token')
@@ -62,12 +63,12 @@ async function mock(page: Page, opts: { standalone?: boolean } = {}) {
     else if (path === '/auth/ws-ticket') data = { ticket: 'fixture-ticket' }
     else if (path === '/cluster/status') data = opts.standalone
       ? { enabled: false }
-      : { enabled: true, name: 'lab', node_count: 2, leader_id: 'm-1', local_id: 'm-1', is_leader: true }
+      : { enabled: true, name: 'lab', node_count: listed.length, leader_id: 'm-1', local_id: 'm-1', is_leader: true }
     else if (path === '/cluster/nodes') {
       await new Promise((resolve) => setTimeout(resolve, 800))
-      data = { nodes, local_id: 'm-1', is_leader: true }
+      data = { nodes: listed, local_id: 'm-1', is_leader: true }
     }
-    else if (path === '/cluster/overview') data = { name: 'lab', node_count: 2, leader_id: 'm-1', nodes, metrics: [] }
+    else if (path === '/cluster/overview') data = { name: 'lab', node_count: listed.length, leader_id: 'm-1', nodes: listed, metrics: [] }
     else if (path === '/cluster/events') data = { events: [] }
     else if (path === '/packages/docker-status') data = { installed: true, version: '27.0.0', running: true, compose_available: true }
     else if (path === '/packages/node-status') data = { installed: false, version: '', nvm_installed: false, npm_version: '' }
@@ -144,6 +145,26 @@ test('a single server offers no group task', async ({ page }) => {
   await expect(page.getByRole('row', { name: /nginx/ })).toBeVisible()
   await expect(page.getByRole('link', { name: /on several servers/i })).toHaveCount(0)
   await page.goto('/services')
+  await page.getByRole('button', { name: 'Actions for cron.service' }).click()
+  await expect(page.getByRole('menuitem', { name: 'Restart' })).toBeVisible()
+  await expect(page.getByRole('menuitem', { name: /several servers/ })).toHaveCount(0)
+})
+
+// A cluster of one server has no other to add: the run setup would be a form
+// with one box. The links wait for the node list, as moving a stack does.
+test('a cluster of one server offers no group task', async ({ page }) => {
+  await mock(page, { nodes: [nodes[0]] })
+  await page.goto('/packages')
+  // The list names the server: by then a link would be drawn.
+  await expect(page.getByRole('button', { name: 'Choose a server: node-a' })).toBeVisible()
+  await expect(page.getByRole('button', { name: 'Upgrade All' })).toBeVisible()
+  await expect(page.getByRole('link', { name: /on several servers/i })).toHaveCount(0)
+  await page.getByRole('textbox', { name: 'Search packages' }).fill('nginx')
+  await page.getByRole('button', { name: 'Search', exact: true }).click()
+  await expect(page.getByRole('row', { name: /nginx/ })).toBeVisible()
+  await expect(page.getByRole('link', { name: /on several servers/i })).toHaveCount(0)
+  await page.goto('/services')
+  await expect(page.getByRole('button', { name: 'Choose a server: node-a' })).toBeVisible()
   await page.getByRole('button', { name: 'Actions for cron.service' }).click()
   await expect(page.getByRole('menuitem', { name: 'Restart' })).toBeVisible()
   await expect(page.getByRole('menuitem', { name: /several servers/ })).toHaveCount(0)

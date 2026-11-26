@@ -35,16 +35,23 @@ describe('terminal folder', () => {
 
 describe('group task links', () => {
   it('a group task is offered only in a cluster, for the server on screen', () => {
-    expect(fleetRunHrefFor(false, 'm-1')).toBeNull()
-    expect(fleetRunHrefFor(null, 'm-1')).toBeNull()
-    expect(fleetRunHrefFor(true, '')).toBeNull()
-    const u = at(fleetRunHrefFor(true, 'agent-1')!('builtin/service-restart', { service: 'cron.service' }))
+    expect(fleetRunHrefFor(false, 'm-1', 2)).toBeNull()
+    expect(fleetRunHrefFor(null, 'm-1', 2)).toBeNull()
+    expect(fleetRunHrefFor(true, '', 2)).toBeNull()
+    const u = at(fleetRunHrefFor(true, 'agent-1', 2)!('builtin/service-restart', { service: 'cron.service' }))
     expect(u.pathname).toBe('/cluster/tasks/builtin%2Fservice-restart')
     expect(Object.fromEntries(u.searchParams)).toEqual({ nodes: 'agent-1', 'input.service': 'cron.service' })
   })
 
+  // A cluster of one has no other server to add; an empty list is not known yet.
+  it('a cluster of one server, or one whose list has not come, is offered none', () => {
+    expect(fleetRunHrefFor(true, 'm-1', 1)).toBeNull()
+    expect(fleetRunHrefFor(true, 'm-1', 0)).toBeNull()
+    expect(fleetRunHrefFor(true, 'm-1', 2)).not.toBeNull()
+  })
+
   it('a task without inputs is opened with the server alone', () => {
-    const u = at(fleetRunHrefFor(true, 'agent-1')!('builtin/package-update'))
+    const u = at(fleetRunHrefFor(true, 'agent-1', 2)!('builtin/package-update'))
     expect(u.pathname).toBe('/cluster/tasks/builtin%2Fpackage-update')
     expect(Object.fromEntries(u.searchParams)).toEqual({ nodes: 'agent-1' })
   })
