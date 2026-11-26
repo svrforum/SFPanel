@@ -1325,7 +1325,7 @@ export default function Files() {
             </Button>
           </div>
           <Button asChild variant="outline" size="sm" className="rounded-xl">
-            <Link to={href(terminalDirHref(currentPath))} title={t('terminal.openHere')}>
+            <Link to={href(terminalDirHref(currentPath))} title={t('terminal.openHere')} aria-label={t('terminal.openHere')}>
               <SquareTerminal />
               <span className="hidden sm:inline">{t('terminal.openHere')}</span>
             </Link>

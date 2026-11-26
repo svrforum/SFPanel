@@ -165,6 +165,17 @@ test('the folder on screen and each folder row offer a terminal opened there', a
   await expect.poll(() => page.evaluate(() => (window as any).__pushed)).toContain('/terminal?dir=%2Fsrv%2Fdata')
 })
 
+// Below the small breakpoint the link shows only its icon; a title alone is a
+// tooltip, which not every screen reader reads as the name.
+test('on a narrow screen the toolbar terminal link keeps its name with its text hidden', async ({ page }) => {
+  await page.setViewportSize({ width: 600, height: 800 })
+  await openFiles(page)
+  const link = page.locator('a[href="/terminal?dir=%2Fsrv"]')
+  await expect(link).toBeVisible()
+  await expect(link.getByText('Open a terminal here')).toBeHidden()
+  await expect(link).toHaveAttribute('aria-label', 'Open a terminal here')
+})
+
 // The toolbar is wider than a laptop's window once a sidebar is beside it. It
 // is meant to wrap; it did not, and its buttons were drawn over the search box.
 test('at a laptop width the toolbar wraps instead of covering the search box', async ({ page }) => {

@@ -8,6 +8,7 @@ import { Button } from '@/components/ui/button'
 import { streamErrorMessage, StreamReportedError, type SSEOutput } from '@/components/OutputDialog'
 import { DevToolCard } from '@/pages/packages/components/DevToolCard'
 import { NodeVersionDialog } from '@/pages/packages/components/NodeVersionDialog'
+import { useServerScope } from '@/hooks/useServerScope'
 
 export interface DevToolStatus {
   installed: boolean
@@ -41,6 +42,7 @@ const TOOLS: {
 // left this card for the AI page, which installs them per account.
 export function DevToolsCard({ output }: { output: SSEOutput }) {
   const { t } = useTranslation()
+  const { href } = useServerScope()
   const [statuses, setStatuses] = useState<Record<ToolId, DevToolStatus | null>>({
     node: null,
   })
@@ -135,7 +137,7 @@ export function DevToolsCard({ output }: { output: SSEOutput }) {
         </h3>
         <p className="text-[13px] text-muted-foreground mt-1">
           {t('packages.devToolsDescription')}{' '}
-          <Link to="/terminal" className="text-primary hover:underline">{t('packages.devToolsAiLink')}</Link>
+          <Link to={href('/terminal')} className="text-primary hover:underline">{t('packages.devToolsAiLink')}</Link>
         </p>
       </div>
       <div className="px-6 pb-5 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-2 gap-4">

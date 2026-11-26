@@ -183,3 +183,11 @@ test("the tools installed elsewhere lead to the same server's screens", async ({
     '/disk/overview?node=agent-1', '/disk/network-shares?node=agent-1', '/map',
   ])
 })
+
+// The dev tools card points to the terminal for the AI CLIs: in a cluster, the
+// terminal of the server whose packages are shown.
+test("the dev tools card leads to the terminal of the server shown", async ({ page }) => {
+  await mock(page)
+  await page.goto('/packages?node=agent-1')
+  await expect(page.getByRole('link', { name: /^Claude, Codex and Gemini CLI are installed/ })).toHaveAttribute('href', '/terminal?node=agent-1')
+})
