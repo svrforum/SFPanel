@@ -42,6 +42,7 @@ import (
 	featurePackages "github.com/svrforum/SFPanel/internal/feature/packages"
 	"github.com/svrforum/SFPanel/internal/feature/portmap"
 	featureProcess "github.com/svrforum/SFPanel/internal/feature/process"
+	featureServerAgents "github.com/svrforum/SFPanel/internal/feature/serveragents"
 	featureServices "github.com/svrforum/SFPanel/internal/feature/services"
 	featureSettings "github.com/svrforum/SFPanel/internal/feature/settings"
 	featureSystem "github.com/svrforum/SFPanel/internal/feature/system"
@@ -804,8 +805,10 @@ func NewRouter(database *sql.DB, auditWriter *sfdb.AsyncWriter, alertManager *fe
 	// (ClusterProxyMiddleware). Command and packages steps run in units of
 	// their own; service, file and stack steps go through the guards of the
 	// Services page, the file manager and the compose endpoints; a reboot
-	// waits for the next boot. The jobs the last process left running are
-	// taken back, or settled, once the runners are registered.
+	// waits for the next boot; an agent step deploys Zabbix Agent 2 or the
+	// Wazuh agent, its apt through the Packages page's transactions. The jobs
+	// the last process left running are taken back, or settled, once the
+	// runners are registered.
 	taskJobHandler := featureTaskJob.New(database, cmd, featureTaskJob.DefaultLogDir, platform.Get)
 	taskJobHandler.Compose = composeManager
 	taskJobHandler.Register(tasks.StepCommand, featureTaskJob.NewCommandRunner(cmd))
@@ -814,6 +817,7 @@ func NewRouter(database *sql.DB, auditWriter *sfdb.AsyncWriter, alertManager *fe
 	taskJobHandler.Register(tasks.StepFile, featureTaskJob.FileRunner{})
 	taskJobHandler.Register(tasks.StepStack, featureTaskJob.StackStepRunner{})
 	taskJobHandler.Register(tasks.StepReboot, featureTaskJob.NewRebootRunner(cmd, platform.Get))
+	taskJobHandler.Register(tasks.StepAgent, featureTaskJob.NewAgentRunner(featureServerAgents.NewDeployer(featureServerAgents.NewHost(cmd)), packagesHandler))
 	taskJobHandler.Recover()
 	taskJobs := authorized.Group("/task-jobs")
 	taskJobs.POST("", taskJobHandler.StartJob)

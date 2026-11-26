@@ -152,6 +152,7 @@ type envelope struct {
 	Data    json.RawMessage `json:"data"`
 	Error   *struct {
 		Code    string            `json:"code"`
+		Message string            `json:"message"`
 		Details map[string]string `json:"details"`
 	} `json:"error"`
 }

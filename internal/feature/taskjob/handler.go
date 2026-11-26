@@ -86,6 +86,9 @@ type Refusal struct {
 	Status  int
 	Code    string
 	Message string
+	// Details are the facts behind the refusal, by name, for the screen to
+	// word in the operator's language.
+	Details map[string]string
 }
 
 // Handler serves /api/v1/task-jobs.
@@ -205,7 +208,7 @@ func (h *Handler) StartJob(c echo.Context) error {
 	if refuser, ok := runner.(Refuser); ok {
 		if ref := refuser.Refuse(spec); ref != nil {
 			h.startMu.Unlock()
-			return response.Fail(c, ref.Status, ref.Code, ref.Message)
+			return response.FailWith(c, ref.Status, ref.Code, ref.Message, ref.Details)
 		}
 	}
 	if holder, err := h.active(); err != nil {
@@ -276,6 +279,7 @@ func checkSettings(s tasks.JobSpec) string {
 		tasks.StepFile:     s.File != nil,
 		tasks.StepStack:    s.Stack != nil,
 		tasks.StepReboot:   s.Reboot != nil,
+		tasks.StepAgent:    s.Agent != nil,
 	}
 	if !set[s.Kind] {
 		return "The job has no " + s.Kind + " settings"

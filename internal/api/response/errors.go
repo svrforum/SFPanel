@@ -694,6 +694,18 @@ const (
 	ErrTaskClusterChanging = "TASK_CLUSTER_CHANGING"
 )
 
+// Server agent (Zabbix, Wazuh) error codes: the /agents routes and the group
+// task's agent step. "Server agent" keeps them apart from the cluster's own
+// agent nodes (AGENT_INSTALL_*).
+const (
+	// 400: a connection value that is not one. Details: field (zabbix.server …).
+	ErrServerAgentSettingsInvalid = "SERVER_AGENT_SETTINGS_INVALID"
+	// 400: a plan or start of an agent step whose agent has no saved values. Details: agent.
+	ErrServerAgentNotConfigured = "SERVER_AGENT_NOT_CONFIGURED"
+	// 409: a node leaves an agent alone (the run records the step skipped). Details: agent, why, and installed/version/os.
+	ErrServerAgentSkipped = "SERVER_AGENT_SKIPPED"
+)
+
 // Agent install row reasons: why the installer stopped at one server of an
 // install run. They are never an HTTP answer's code: a row of the run record
 // carries one, with its details, and the screen words it.
