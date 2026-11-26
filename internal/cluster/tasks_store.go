@@ -24,6 +24,13 @@ import (
 // reports it (TasksReady), and leaves out a target that does not.
 const CapTasks = "tasks-v1"
 
+// CapServerAgentStep is the heartbeat capability of a node whose code runs a
+// task's agent steps (deploying Zabbix or Wazuh). Every manager and every
+// agent reports it, as CapTasks: a property of the code. A run with an agent
+// step needs it of every manager (TasksReadyFor names those that lack it)
+// and of each of its targets.
+const CapServerAgentStep = "server-agent-step-v1"
+
 // The task store lives in the replicated config map, under three prefixes,
 // written with CmdSetConfig and CmdDeleteConfig only so that a manager of any
 // version applies them:
@@ -282,10 +289,18 @@ func validNodeSegment(id string) bool {
 // hold runs back; a run leaves out one that does not report it. On a node
 // with no Raft it names none: the writes a run starts with refuse there.
 func (m *Manager) TasksReady() []string {
+	return m.TasksReadyFor(CapTasks)
+}
+
+// TasksReadyFor names the managers other than this leader that are not
+// online with capability, each with why, as TasksReady does for CapTasks:
+// for a run whose steps need more than task jobs, as an agent step needs
+// CapServerAgentStep.
+func (m *Manager) TasksReadyFor(capability string) []string {
 	if m.raft == nil {
 		return nil
 	}
-	return m.nodesNotReady(m.raft.GetFSM().GetState(), CapTasks, false)
+	return m.nodesNotReady(m.raft.GetFSM().GetState(), capability, false)
 }
 
 // taskLeader reports whether this manager may write the task store: only the
