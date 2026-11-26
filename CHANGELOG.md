@@ -6,6 +6,29 @@ The format is loosely based on [Keep a Changelog](https://keepachangelog.com/), 
 
 ---
 
+## [0.97.0] – 2026-11-26
+
+Screens that lead to each other. The last of four steps that reorganise the menus: what you start on one server can be carried to several, a folder or a stack opens a terminal in place, a missing tool installs where you need it, and the Korean screens call a machine of the cluster a server.
+
+### Changed
+
+- **On several servers.** In a cluster of more than one server, the package update card offers "Update on several servers…", a package search row "Install on several servers…", a service's menu "Restart on several servers…", and a shell snippet "Run on several servers". Each opens the matching group task with the server you are on already picked and the value filled in; you add the other servers and review before anything runs. The run form takes its servers and values from the address (`?nodes=`, `input.<name>=`), keeps a command's line breaks, and takes the values out of the address once it has read them.
+- **From a run to its server.** Each server row of a group-task run leads to that server's terminal and dashboard ("This server's terminal", "Open this server"), whichever server the shell is showing.
+- **Add an agent in one place.** Cluster › Servers › Add agent starts with a choice: install over SSH, or copy a join command (token). A token is made only once you choose that way.
+- **Open a terminal here.** A folder in Files (its menu and the toolbar) and a stack in Docker open a new terminal session in that directory (`/terminal?dir=…`). Without tmux on the server, the panel says opening a folder needs it.
+- **Install in place.** A server without Docker offers to install it from the Docker screen, and the network map installs nmap on the server that scans, not the one you are looking at. Packages lists where the tools installed elsewhere are installed, and the terminal's tools sheet says where the AI tools' Node.js version is changed (for root) or that an account uses its own nvm.
+- **The Logs links open the same server's records** (services, scheduled tasks, audit log).
+- **The Korean screens say 서버 for a machine of the cluster** (146 strings; Proxmox's own wording stays). English keeps "node".
+
+### Fixed
+
+- **The Files toolbar drew its buttons over the search box** at a laptop's width; it now wraps.
+- **Closing an output dialog left the focus on the page body** instead of on what opened it.
+
+### Upgrading
+
+- Nothing to do. The new links appear in a cluster of more than one server; a single server is unchanged apart from the Korean wording.
+
 ## [0.96.0] – 2026-11-26
 
 The network map gets a page of its own, settings are sorted by where they are saved, and the settings that belonged to one screen move to that screen. The third of four steps that reorganise the menus.
