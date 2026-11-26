@@ -11,6 +11,7 @@ import { Input } from '@/components/ui/input'
 import { hasParsedView } from '@/lib/logParsers'
 import { pickLogSource } from '@/lib/logSources'
 import { useConfirm } from '@/components/ConfirmDialog'
+import { useServerScope } from '@/hooks/useServerScope'
 import { GuideAccordion } from '@/components/GuideAccordion'
 import { ListLoadState } from '@/components/ListLoadState'
 import { LiveLogSocket } from '@/components/logviewer/LiveLogSocket'
@@ -41,6 +42,7 @@ interface LogResponse {
 export default function Logs() {
   const { t } = useTranslation()
   const confirm = useConfirm()
+  const { href } = useServerScope()
   const [searchParams, setSearchParams] = useSearchParams()
 
   // Sources
@@ -400,7 +402,8 @@ export default function Logs() {
           )}
 
           {/* Records kept elsewhere: shown whatever became of the list above.
-              Named by its heading, so a screen reader says the name once. */}
+              Named by its heading, so a screen reader says the name once.
+              Each is the server's own, so in a cluster it opens on the one shown. */}
           <nav aria-labelledby="log-other-records" className="pt-4">
             <h2 id="log-other-records" className="mb-1 text-sm font-semibold text-muted-foreground uppercase tracking-wider">
               {t('logs.otherRecords')}
@@ -413,7 +416,7 @@ export default function Logs() {
               ].map((link) => (
                 <li key={link.to}>
                   <Link
-                    to={link.to}
+                    to={href(link.to)}
                     className="flex min-h-11 items-center justify-between gap-2 rounded-xl px-3 text-[13px] font-medium text-foreground hover:bg-secondary outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-0"
                   >
                     {link.label}
