@@ -6024,7 +6024,7 @@ steps:
 | `file` | `path`(절대 경로), `content`, `mode`(8진수 3~4자리, 권한 비트만), `owner`(`user` 또는 `user:group`) |
 | `stack` | `name`, `compose`, `up`(`true`면 `docker compose up -d`) |
 | `reboot` | `only_if_required`(기본 `true`), `wait`(기본 `10m`) |
-| `agent` | `name`(`zabbix` · `wazuh`). 그 노드에 Zabbix Agent 2나 Wazuh 에이전트를 설치하거나(없을 때) 이미 있는 것을 쓰고, 설정 파일의 연결값만 맞추고, 바뀐 것이 있거나 서비스가 멈춰 있으면 다시 시작한 뒤 실제로 서버에 붙는지 60초까지 확인. 연결값과 서버 이름은 문서에 쓰지 않습니다 — 리더가 노드마다 `node_name`(그 노드의 이름)과 `settings`(클러스터의 연결값, 아래 "서버 에이전트 API")를 채워 보내고, 문서에 이 두 키를 쓰면 거부됩니다. 에이전트를 건드리지 않는 노드에서는 건너뜁니다(`SERVER_AGENT_SKIPPED`) |
+| `agent` | `name`(`zabbix` · `wazuh`). 그 노드에 Zabbix Agent 2나 Wazuh 에이전트를 설치하거나(없을 때) 이미 있는 것을 쓰고, 설정 파일의 연결값만 맞추고, 바뀐 것이 있거나 서비스가 `active`가 아니거나 지금 서버에 붙어 있지 않으면 다시 시작한 뒤 실제로 서버에 붙는지 60초까지 확인(그때 서비스가 시작·다시 읽는 중이면 30초 더). 연결값과 서버 이름은 문서에 쓰지 않습니다 — 리더가 노드마다 `node_name`(그 노드의 이름)과 `settings`(클러스터의 연결값, 아래 "서버 에이전트 API")를 채워 보내고, 문서에 이 두 키를 쓰면 거부됩니다. 에이전트를 건드리지 않는 노드에서는 건너뜁니다(`SERVER_AGENT_SKIPPED`) |
 
 `{{ 입력 }}`, `{{ node.name }}`, `{{ node.address }}`(클러스터가 그 노드에 닿는 첫 주소)는 노드마다 채웁니다. 명령에 들어가는 값은 `raw` 입력이 아니면 셸 인용을 거쳐 들어가는데, 그 인용은 셸이 단어를 읽는 자리에서만 한 단어가 됩니다. 그래서 명령 안의 참조는 인용 밖 맨 위 수준(`echo {{ x }}`, `--opt={{ x }}`, `X={{ x }}`)에만 둘 수 있고, 작은따옴표·큰따옴표, `$( )`·`$(( ))`·백틱·`${ }`, heredoc 본문, 주석 안의 참조는 그 줄 번호와 함께 거부됩니다(`400 TASK_INVALID`의 `problems`). 문자열 안에서 쓰려면 먼저 대입하고(`X={{ x }}`) `"$X"`로 씁니다. 검사가 따라가지 못하는 구문(`$'…'`, `$[…]`, `${…}` 안의 따옴표, `( )`·`$( )` 안의 `case`) 뒤의 참조도 거부되므로, 그때는 스크립트 앞쪽에서 대입합니다. `raw` 입력은 어디에 있든 검사하지 않습니다. 서비스 이름·파일의 경로·내용·소유자·스택의 이름과 compose 문서에는 인용 없이 그대로 들어갑니다. 패키지 목록의 참조 하나는 공백·쉼표로 나눠 여러 이름이 됩니다. `{{.Names}}` 같은 Go 템플릿(docker 등)은 참조가 아니어서 그대로 둡니다.
 
@@ -6429,6 +6429,7 @@ GitHub 폴더의 작업 파일을 보여 줍니다(리더, 아무것도 쓰지 �
 | `nodes.<id>.status` | `pending`, `running`, `succeeded`, `failed`, `skipped`(정족수), `unknown`(결과를 모름), `stopped`(중지되었거나 차례가 오기 전에 실행이 끝남) |
 | `nodes.<id>.reason` | 그 노드가 그렇게 끝난 이유 |
 | `steps[].status` | `pending`, `starting`(잡 ID를 기록하고 노드에 보내는 중), `running`, `succeeded`, `failed`, `skipped`(`summary`: `quorum` · `Proxmox host` · 에이전트를 건드리지 않은 노드의 문장 `skipped: …`), `unknown`, `cancelled`(강제 중지) |
+| `steps[].code`, `steps[].details` | 노드가 자기 규칙으로 건너뛴 단계(`skipped`)에만: 노드가 거부한 코드(`SERVER_AGENT_SKIPPED` · `TASK_REBOOT_PVE_HOST`)와 그 사실들(`SERVER_AGENT_SKIPPED`는 `agent`, `why`, 경우에 따라 `installed`·`version`·`os` — 미리 보기 판정의 `details`와 같음, 값마다 200바이트까지). 화면이 이것으로 운영자의 언어로 말하고, `summary`는 노드의 영어 문장 그대로. 예: `{"status": "skipped", "summary": "skipped: …", "code": "SERVER_AGENT_SKIPPED", "details": {"agent": "zabbix", "why": "legacy"}}` |
 | `steps[].job_id` | 그 노드에서 그 단계를 돈 잡(`<실행 ID>-<단계>`) |
 | `steps[].summary` | 노드의 한 줄 요약(200바이트까지). 다시 실행에서 건너뛴 단계는 `succeeded in run <ID>` |
 | `steps[].changed` | 노드에서 무언가 바뀌었는지(명령은 늘 `true`, 내용·모드·소유자가 같았던 파일은 `false` 등) |
@@ -6576,10 +6577,10 @@ GitHub 폴더의 작업 파일을 보여 줍니다(리더, 아무것도 쓰지 �
 | `TASK_NODE_BUSY` | 409 | `job_id`, `run_id`, `task` | 노드가 다른 잡을 돌리는 중. 실행은 그 노드를 실패로 기록하고 이유에 그 잡을 적음 |
 | `TASK_JOB_NOT_FOUND` | 404 | — | 노드에 그 잡이 없음. 실행은 그 단계를 결과 모름(`unknown`)으로 기록하고 다시 시작하지 않음 |
 | `TASK_JOB_RUNNING` | 409 | — | 돌고 있는 잡을 `force` 없이 취소 |
-| `TASK_REBOOT_PVE_HOST` | 409 | — | Proxmox VE 호스트의 재부팅 거부. 실행은 그 단계를 건너뜀(`Proxmox host`)으로 기록하고 다음 단계로 감 |
+| `TASK_REBOOT_PVE_HOST` | 409 | — | Proxmox VE 호스트의 재부팅 거부. 실행은 그 단계를 건너뜀(`Proxmox host`, `code`: 이 코드)으로 기록하고 다음 단계로 감 |
 | `TASK_REBOOT_UNSUPPORTED` | 409 | — | systemd가 없는 노드라 재부팅을 예약하지 못함. 그 단계는 실패 |
 | `SERVER_AGENT_NOT_CONFIGURED` | 400 | `agent` | `agent` 단계가 있는 작업의 미리 보기·시작인데 그 에이전트의 연결값이 저장되지 않음 |
-| `SERVER_AGENT_SKIPPED` | 409 | `agent`, `why`, 경우에 따라 `installed`·`version`·`os` | 노드가 그 에이전트를 건드리지 않음. 실행은 그 단계를 건너뜀(`summary`: 노드의 문장)으로 기록하고 다음 단계로 감 |
+| `SERVER_AGENT_SKIPPED` | 409 | `agent`, `why`, 경우에 따라 `installed`·`version`·`os` | 노드가 그 에이전트를 건드리지 않음. 실행은 그 단계를 건너뜀(`summary`: 노드의 문장, `code`·`details`: 이 코드와 details)으로 기록하고 다음 단계로 감 |
 
 ---
 
@@ -6905,25 +6906,25 @@ GitHub 폴더의 작업 파일을 보여 줍니다(리더, 아무것도 쓰지 �
 | `none` | 없음 |
 | `installed` | 패키지(`zabbix-agent2`·`wazuh-agent`)로 설치됨. 배포가 값을 맞추는 대상 |
 | `legacy` | Zabbix만: 옛 에이전트(`zabbix-agent`, agentd)만 있음. 이 기능 밖이라 버전과 출처만 보이고, 배포는 그 서버의 Zabbix를 건너뜀 |
-| `unmanaged` | 패키지 밖에서 설치됨(설정 파일이나 유닛만 있음 — 지웠지만 설정이 남은 패키지도). 보기만 하고 배포는 건너뜀 |
+| `unmanaged` | 패키지 밖에서 설치됨(설정 파일이나 유닛만 있음). 보기만 하고 배포는 건너뜀. `apt remove`로 지우고 설정만 남은 패키지(dpkg `config-files`)는 이것이 아니라 `none` — 배포가 다시 설치함 |
 
 연결 상태(`connection.state`) — 서비스가 `active`여도 서버에 닿지 않으면 `connected`가 아닙니다:
 
 | 값 | 에이전트 | 뜻 |
 |----|----------|----|
-| `connected` | 둘 다 | Zabbix: 서비스가 active이고, ServerActive에 TCP로 닿고, 로그의 마지막 시작(`starting zabbix agent 2`) 뒤 마지막 active check 줄이 실패가 아님. Wazuh: 상태 파일의 `status='connected'` |
+| `connected` | 둘 다 | Zabbix: 서비스가 active이고, ServerActive에 TCP로 닿고, 로그의 마지막 시작(`starting zabbix agent 2`) 뒤 마지막 active check 줄이 실패가 아님(회복 줄 `… is working again`·`active checks on server are active again`이면 붙음). Wazuh: 상태 파일의 `status='connected'` |
 | `not_running` | 둘 다 | 서비스가 active가 아님 |
 | `no_server` | Zabbix | 설정에 ServerActive가 없음 |
 | `unreachable` | Zabbix | ServerActive(포트가 없으면 10051)에 3초 안에 TCP로 닿지 않음. `detail`: 다이얼 오류 |
-| `not_registered` | Zabbix | 서버에 닿지만 서버가 이 호스트를 모름(로그의 `host [...] not found`) — 자동 등록이 아직 안 됨. `detail`: 그 로그 줄 |
-| `failing` | Zabbix | TCP로는 닿지만 로그의 마지막 active check가 실패(`cannot connect`, `connection refused`, `i/o timeout` 등). `detail`: 그 로그 줄 |
+| `not_registered` | Zabbix | 서버에 닿지만 서버가 이 호스트를 모름(로그의 `no active checks on server [...]: host [...] not found` — 7.0.22 이후는 바로 뒤에 `active checks on server started to fail`이 붙는데 그것은 실패가 아니라 같은 거절) — 자동 등록이 아직 안 됨. `detail`: 그 로그 줄. 에이전트 7.0.10은 거절을 갱신(`RefreshActiveChecks`, 기본 5초)마다 되풀이하고 받아들여지면 아무것도 쓰지 않으므로, 그렇게 되풀이하던 마지막 거절 줄이 갱신 간격의 세 배보다 오래되면(호스트의 시계, 로그 줄의 시각) `connected` |
+| `failing` | Zabbix | TCP로는 닿지만 로그의 마지막 active check가 실패: 에이전트가 서버에 닿지 못함(`cannot connect …` 다음 줄 `… started to fail` — `detail`은 그 줄에 앞 줄의 원인을 괄호로), 또는 서버가 다른 이유로 거절(`no active checks on server [...]: <이유>`). `detail`: 그 로그 줄 |
 | `pending` | Wazuh | 매니저를 기다리는 중(상태 파일) |
 | `disconnected` | Wazuh | 매니저와 끊김(상태 파일) |
 | `never` | Wazuh | 상태 파일(`/var/ossec/var/run/wazuh-agentd.state`)이 없음 — 연결한 적 없음 |
 | `stale` | Wazuh | 상태 파일이 2분 넘게 바뀌지 않음(돌고 있는 에이전트는 5초마다 다시 씀) |
-| `unknown` | 둘 다 | Zabbix: ServerActive가 주소 하나가 아님(서버 여럿 등 — 어느 것인지 추측하지 않음). Wazuh: 상태 파일의 `status`가 모르는 값. `detail`에 그 값 |
+| `unknown` | 둘 다 | 서비스가 시작·다시 읽는 중(`activating`·`reloading` — `detail`: `<유닛> is reloading`; 배포는 계속 기다림. Wazuh는 처음 붙은 몇 초 뒤 매니저의 공유 설정 때문에 스스로 다시 읽음). Zabbix: ServerActive가 주소 하나가 아님(서버 여럿 등 — 어느 것인지 추측하지 않음), 또는 읽을 로그가 없음(파일이 없거나 `LogType`이 `system`·`console` — 로그 없이는 붙었다고 하지 않음). Wazuh: 상태 파일의 `status`가 모르는 값. `detail`에 그 까닭 |
 
-Zabbix 로그는 `/var/log/zabbix/zabbix_agent2.log`의 마지막 64 KiB만 읽습니다.
+Zabbix 로그는 설정 파일의 `LogFile`(없으면 에이전트 기본값 `/tmp/zabbix_agent2.log`)의 마지막 64 KiB만 읽습니다. 배포판과 벤더의 설정은 `/var/log/zabbix/zabbix_agent2.log`입니다.
 
 ---
 
@@ -6994,7 +6995,7 @@ Zabbix는 셋 중 하나라도 있으면 `server`와 `server_active`가 둘 다 
 |------|-----------|---------|------|
 | `SERVER_AGENT_SETTINGS_INVALID` | 400 | `field` | 연결값이 규칙에 맞지 않음(`PUT /agents/settings`). `field`는 값의 JSON 경로: `zabbix.server`, `zabbix.server_active`, `zabbix.host_metadata`, `wazuh.manager`, `wazuh.groups`, `wazuh.version` |
 | `SERVER_AGENT_NOT_CONFIGURED` | 400 | `agent` | `agent` 단계가 있는 작업의 미리 보기·시작인데 그 에이전트의 연결값이 저장되지 않음(`Save the <agent> connection values on the agents page first`) |
-| `SERVER_AGENT_SKIPPED` | 409 | `agent`, `why`, 경우에 따라 `installed`·`version`·`os` | 노드가 그 에이전트를 건드리지 않음: 미리 보기의 판정(`refused`)과 노드 작업 잡의 시작 거부. 실행은 그 단계를 건너뜀(`skipped`, `summary`: 노드의 문장)으로 기록하고 다음 단계로 감. `why`: `os`(Debian·Ubuntu 계열이 아님, `os`), `legacy`(옛 Zabbix 에이전트만 있음), `unmanaged`(패키지 밖에서 설치됨), `no_package`(벤더 저장소에도 OS 저장소에도 `zabbix-agent2`가 없음, `os`), `newer`(깔린 Wazuh가 정한 버전보다 새것 — 내리지 않음, `installed`·`version`) |
+| `SERVER_AGENT_SKIPPED` | 409 | `agent`, `why`, 경우에 따라 `installed`·`version`·`os` | 노드가 그 에이전트를 건드리지 않음: 미리 보기의 판정(`refused`)과 노드 작업 잡의 시작 거부. 실행은 그 단계를 건너뜀(`skipped`, `summary`: 노드의 문장, `code`·`details`: 이 코드와 details)으로 기록하고 다음 단계로 감. `why`: `os`(Debian·Ubuntu 계열이 아님, `os`), `legacy`(옛 Zabbix 에이전트만 있음), `unmanaged`(패키지 밖에서 설치됨), `no_package`(벤더 저장소에도 OS 저장소에도 `zabbix-agent2`가 없음, `os`), `newer`(깔린 Wazuh가 정한 버전보다 새것 — 내리지 않음, `installed`·`version`) |
 
 ---
 
