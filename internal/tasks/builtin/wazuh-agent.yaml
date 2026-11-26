@@ -1,0 +1,6 @@
+name: Wazuh 에이전트 배포
+description: 정한 버전의 Wazuh 에이전트를 설치해 고정(hold)하거나 이미 있는 것을 알아보고, 에이전트 화면의 매니저 주소·그룹만 맞춘 뒤 다시 시작하고 실제로 붙었는지 확인합니다. 매니저 주소가 바뀐 서버만 다시 등록합니다.
+stop_on_failure: false
+steps:
+  - name: Wazuh 에이전트
+    agent: { name: wazuh }

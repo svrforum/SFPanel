@@ -15,6 +15,8 @@ import (
 	"time"
 
 	"gopkg.in/yaml.v3"
+
+	"github.com/svrforum/SFPanel/internal/serveragents"
 )
 
 // validPackageName is the packages module's rule, copied rather than
@@ -475,6 +477,8 @@ func (p *parser) step(n *yaml.Node, index int) (Step, bool) {
 		s.Stack = p.stack(body, what)
 	case StepReboot:
 		s.Reboot = p.reboot(body, what)
+	case StepAgent:
+		s.Agent = p.agent(body, what)
 	}
 	return s, true
 }
@@ -650,4 +654,22 @@ func (p *parser) reboot(n *yaml.Node, what string) *RebootStep {
 		OnlyIfRequired: p.boolean(f, "only_if_required", what, true),
 		Wait:           p.duration(f, "wait", "reboot", DefaultRebootWait),
 	}
+}
+
+// agent reads an agent step. A document names the agent and nothing else:
+// the server's name and the connection values are the leader's to fill in
+// for each node, so keys for them are unknown here. A reference is refused
+// along with any other name — which agent a step deploys is what the task
+// is, not a value a run picks.
+func (p *parser) agent(n *yaml.Node, what string) *AgentStep {
+	f, ok := p.fields(n, what, "name")
+	if !ok {
+		return nil
+	}
+	s := &AgentStep{}
+	var v *yaml.Node
+	if s.Name, v, ok = p.str(f, "name", what, true, n); ok && !slices.Contains(serveragents.Names, s.Name) {
+		p.addf(v.Line, "agent %q is not one of %s", s.Name, strings.Join(serveragents.Names, ", "))
+	}
+	return s
 }

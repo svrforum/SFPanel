@@ -4,7 +4,11 @@
 // plans a run and the node that executes one step share a single definition.
 package tasks
 
-import "time"
+import (
+	"time"
+
+	"github.com/svrforum/SFPanel/internal/serveragents"
+)
 
 // Limits a task document is held to.
 const (
@@ -30,10 +34,11 @@ const (
 	StepFile     = "file"
 	StepStack    = "stack"
 	StepReboot   = "reboot"
+	StepAgent    = "agent"
 )
 
 // stepKinds is the order kinds are listed in messages.
-var stepKinds = []string{StepPackages, StepService, StepCommand, StepFile, StepStack, StepReboot}
+var stepKinds = []string{StepPackages, StepService, StepCommand, StepFile, StepStack, StepReboot, StepAgent}
 
 // Service actions a service step may take.
 var serviceActions = []string{"start", "stop", "restart", "enable", "disable"}
@@ -86,6 +91,7 @@ type Step struct {
 	File            *FileStep     `json:"file,omitempty"`
 	Stack           *StackStep    `json:"stack,omitempty"`
 	Reboot          *RebootStep   `json:"reboot,omitempty"`
+	Agent           *AgentStep    `json:"agent,omitempty"`
 }
 
 // PackagesStep refreshes the package lists and/or makes one change: upgrade,
@@ -133,6 +139,15 @@ type StackStep struct {
 type RebootStep struct {
 	OnlyIfRequired bool          `json:"only_if_required"`
 	Wait           time.Duration `json:"wait"`
+}
+
+// AgentStep deploys a monitoring agent and points it at the cluster's
+// connection values. A document names the agent only; NodeName and Settings
+// are the leader's, filled in per node (Render, FillAgentSettings).
+type AgentStep struct {
+	Name     string                 `json:"name"` // serveragents.Zabbix | serveragents.Wazuh
+	NodeName string                 `json:"node_name,omitempty"`
+	Settings *serveragents.Settings `json:"settings,omitempty"`
 }
 
 // Problem is one thing wrong with a task document. Line counts from 1; 0

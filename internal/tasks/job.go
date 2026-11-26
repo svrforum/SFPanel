@@ -30,6 +30,7 @@ type JobSpec struct {
 	File      *FileStep     `json:"file,omitempty"`
 	Stack     *StackStep    `json:"stack,omitempty"`
 	Reboot    *RebootStep   `json:"reboot,omitempty"`
+	Agent     *AgentStep    `json:"agent,omitempty"`
 }
 
 // JobView is a node's answer about one job: its state and a piece of its
@@ -67,4 +68,7 @@ type CheckVerdict struct {
 	Code         string `json:"code,omitempty"`
 	Reason       string `json:"reason,omitempty"`
 	NeedsConfirm bool   `json:"needs_confirm,omitempty"`
+	// Details are the facts behind a refusal, by name, for the screen to
+	// word in the operator's language.
+	Details map[string]string `json:"details,omitempty"`
 }

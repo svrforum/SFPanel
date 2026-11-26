@@ -1,0 +1,6 @@
+name: Zabbix 에이전트 배포
+description: Zabbix 에이전트 2를 설치하거나 이미 있는 것을 알아보고, 에이전트 화면의 연결값(Server·ServerActive·HostMetadata)만 맞춘 뒤 다시 시작하고 실제로 서버에 붙었는지 확인합니다.
+stop_on_failure: false
+steps:
+  - name: Zabbix 에이전트 2
+    agent: { name: zabbix }

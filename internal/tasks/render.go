@@ -3,7 +3,10 @@ package tasks
 import (
 	"errors"
 	"fmt"
+	"slices"
 	"strings"
+
+	"github.com/svrforum/SFPanel/internal/serveragents"
 )
 
 // ErrInputMissing is a required input that was neither given nor defaulted.
@@ -44,8 +47,9 @@ func ShellQuote(s string) string {
 // applied, then node variables. A value going into a command step is
 // shell-quoted unless its input is raw; every other step gets the value as
 // typed, because the node's own guards — the same ones its endpoints use —
-// are what judge a path, a unit or a package name. The returned specs carry
-// no job or run ID; the leader assigns those.
+// are what judge a path, a unit or a package name. An agent step gets the
+// node's name and no connection values; FillAgentSettings adds those. The
+// returned specs carry no job or run ID; the leader assigns those.
 func Render(t *Task, inputs map[string]string, node NodeVars) ([]JobSpec, error) {
 	r := renderer{values: map[string]string{}, raw: map[string]bool{}}
 	for _, in := range t.Inputs {
@@ -95,6 +99,11 @@ func Render(t *Task, inputs map[string]string, node NodeVars) ([]JobSpec, error)
 		case StepReboot:
 			rb := *s.Reboot
 			spec.Reboot = &rb
+		case StepAgent:
+			a := *s.Agent
+			a.NodeName = node.Name
+			a.Settings = nil
+			spec.Agent = &a
 		}
 		if r.err != nil {
 			return nil, r.err
@@ -102,6 +111,52 @@ func Render(t *Task, inputs map[string]string, node NodeVars) ([]JobSpec, error)
 		specs = append(specs, spec)
 	}
 	return specs, nil
+}
+
+// ErrAgentSettingsMissing is an agent step whose agent has no saved
+// connection values. FillAgentSettings returns it wrapped in an
+// *AgentSettingsMissingError naming the agent.
+var ErrAgentSettingsMissing = errors.New("the agent's connection values are not set")
+
+// AgentSettingsMissingError names the agent a run would deploy with nothing
+// to point it at.
+type AgentSettingsMissingError struct {
+	Agent string
+}
+
+func (e *AgentSettingsMissingError) Error() string {
+	return fmt.Sprintf("the %s agent's connection values are not set", e.Agent)
+}
+
+// Is makes errors.Is(err, ErrAgentSettingsMissing) hold.
+func (e *AgentSettingsMissingError) Is(target error) bool { return target == ErrAgentSettingsMissing }
+
+// HasAgentSteps says whether any of a task's steps deploys an agent.
+func HasAgentSteps(t *Task) bool {
+	return t != nil && slices.ContainsFunc(t.Steps, func(s Step) bool { return s.Kind == StepAgent })
+}
+
+// FillAgentSettings gives each agent step in specs, as Render left them, the
+// cluster's connection values s. Every agent is checked before any step is
+// filled: one whose values are not set (or s nil, nothing saved) is refused,
+// since an agent deployed without them points at nothing. Each step gets its
+// own copy of *s, so no two specs, and not the caller, share one.
+func FillAgentSettings(specs []JobSpec, s *serveragents.Settings) error {
+	for _, spec := range specs {
+		if spec.Agent != nil && (s == nil || !s.Configured(spec.Agent.Name)) {
+			return &AgentSettingsMissingError{Agent: spec.Agent.Name}
+		}
+	}
+	for i := range specs {
+		if specs[i].Agent == nil {
+			continue
+		}
+		a := *specs[i].Agent
+		values := *s
+		a.Settings = &values
+		specs[i].Agent = &a
+	}
+	return nil
 }
 
 type renderer struct {

@@ -60,6 +60,15 @@ steps:
   - command:
       script: "echo crlf\r\necho next\r\n"
 `,
+	"an agent step": `name: 에이전트
+stop_on_failure: false
+steps:
+  - name: Wazuh 에이전트
+    continue_on_error: true
+    agent: { name: wazuh }
+  - agent:
+      name: zabbix
+`,
 	"values that need quoting": `name: "- not a list"
 description: "#not a comment"
 inputs:
@@ -293,7 +302,7 @@ func TestFormatIsTotal(t *testing.T) {
 	for name, task := range map[string]*Task{
 		"a command step with no command": {Name: "x", Steps: []Step{{Kind: StepCommand}}},
 		"every kind with no body": {Name: "x", Steps: []Step{
-			{Kind: StepPackages}, {Kind: StepService}, {Kind: StepCommand}, {Kind: StepFile}, {Kind: StepStack},
+			{Kind: StepPackages}, {Kind: StepService}, {Kind: StepCommand}, {Kind: StepFile}, {Kind: StepStack}, {Kind: StepAgent},
 		}},
 		"no kind":               {Name: "x", Steps: []Step{{Name: "nothing"}}},
 		"an unknown kind":       {Name: "x", Steps: []Step{{Kind: "teleport"}}},

@@ -12,7 +12,7 @@ import (
 var builtinFS embed.FS
 
 // builtinOrder is the order the built-ins are listed in, simplest first.
-var builtinOrder = []string{"package-update", "package-install", "service-restart", "command", "reboot"}
+var builtinOrder = []string{"package-update", "package-install", "service-restart", "command", "reboot", "zabbix-agent", "wazuh-agent"}
 
 // BuiltinTask is a built-in task: its ID ("builtin/<name>") and document.
 type BuiltinTask struct {

@@ -3,6 +3,8 @@ package tasks
 import (
 	"strings"
 	"testing"
+
+	"github.com/svrforum/SFPanel/internal/serveragents"
 )
 
 func TestEveryBuiltinParses(t *testing.T) {
@@ -12,6 +14,8 @@ func TestEveryBuiltinParses(t *testing.T) {
 		"builtin/service-restart",
 		"builtin/command",
 		"builtin/reboot",
+		"builtin/zabbix-agent",
+		"builtin/wazuh-agent",
 	}
 	got := Builtins()
 	if len(got) != len(want) {
@@ -68,6 +72,22 @@ func TestTheBuiltinsDoWhatTheirNamesSay(t *testing.T) {
 
 	if s := byID["builtin/reboot"].Steps; len(s) != 1 || s[0].Reboot == nil || !s[0].Reboot.OnlyIfRequired {
 		t.Errorf("reboot steps = %+v, want one reboot only when required", s)
+	}
+
+	// One server's agent failing to deploy says nothing about the next
+	// server's, so neither agent built-in stops the run at the first failure.
+	for id, agent := range map[string]string{"builtin/zabbix-agent": serveragents.Zabbix, "builtin/wazuh-agent": serveragents.Wazuh} {
+		task := byID[id]
+		if task == nil {
+			t.Errorf("%s is not a built-in", id)
+			continue
+		}
+		if s := task.Steps; len(s) != 1 || s[0].Kind != StepAgent || s[0].Agent == nil || s[0].Agent.Name != agent {
+			t.Errorf("%s steps = %+v, want one %s agent step", id, s, agent)
+		}
+		if task.StopOnFailure {
+			t.Errorf("%s stops on the first failure", id)
+		}
 	}
 
 	for id, task := range byID {

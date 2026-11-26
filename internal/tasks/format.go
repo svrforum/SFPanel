@@ -160,6 +160,12 @@ func formatStep(s Step) *yaml.Node {
 			}
 			addDuration(body, "wait", r.Wait, DefaultRebootWait)
 		}
+	case StepAgent:
+		// The agent's name only: NodeName and Settings are filled in per
+		// node and are not document keys.
+		if a := s.Agent; a != nil {
+			add(body, "name", text(a.Name))
+		}
 	}
 	add(n, s.Kind, body)
 	return n
