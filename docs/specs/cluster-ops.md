@@ -1729,9 +1729,19 @@ steps:
 ```
 
 - A step is exactly one of `packages`, `service`, `command`, `file`, `stack`,
-  `reboot`, with an optional `name` and `continue_on_error` (off by default).
-  A `packages` step takes `update` and at most one of `upgrade` (`all` or a
-  list), `install` or `remove`.
+  `reboot`, `agent`, with an optional `name` and `continue_on_error` (off by
+  default). A `packages` step takes `update` and at most one of `upgrade`
+  (`all` or a list), `install` or `remove`. An `agent` step takes the agent
+  alone (`agent: { name: zabbix }` or `wazuh`) and deploys that monitoring
+  agent: the leader fills in, for each node, the node's name and the
+  cluster's connection values saved on the Monitoring Agents page (`/agents`);
+  a document that sets either one itself is refused. A node that leaves the
+  agent alone — not Debian or Ubuntu, the old Zabbix agent, an agent not from
+  its package, no package for the OS, a Wazuh newer than the version set —
+  refuses the step (`SERVER_AGENT_SKIPPED`, with `details.agent`, `why` and,
+  for some reasons, `installed`, `version`, `os`). The preview shows it as a
+  skip with its reason, and the run records the step `skipped` with the
+  refusal's `code` and `details` and goes on to the node's next step.
 - **Targets** are the union of the nodes whose `group` label is one of
   `groups` (one group per node: set it with
   `PATCH /api/v1/cluster/nodes/<node-id>/labels`), of the node kinds in
@@ -1758,7 +1768,9 @@ steps:
 - **Built-in tasks**, read-only and carried by every manager's binary:
   `builtin/package-update`, `builtin/package-install`,
   `builtin/service-restart`, `builtin/command` (its one input is `raw`: the
-  whole command line, as typed) and `builtin/reboot` (only when required).
+  whole command line, as typed), `builtin/reboot` (only when required), and
+  `builtin/zabbix-agent` and `builtin/wazuh-agent` (one `agent` step each,
+  `stop_on_failure: false`: a server that fails does not stop the others).
   The list also carries `builtin/agent-install`, which has no document: it
   opens the agent install (§ Installing an agent over SSH). A preview or a
   start of it is `404 TASK_NOT_FOUND`, and changing or deleting it is
@@ -1844,7 +1856,9 @@ operator to retry is true.
 
 A target is left out, with the reason in the plan, when it is offline by the
 leader's live heartbeats (`offline`), reports no `tasks-v1`
-(`outdated`), is an agent this leader's probe does not reach
+(`outdated`), runs task jobs but not every kind of step the task has — today
+an `agent` step on a node that reports no `server-agent-step-v1`
+(`step_unsupported`) — is an agent this leader's probe does not reach
 (`unreachable`), is held by another run under way (`busy`), or when a node ID
 in `targets.nodes` names no node (`unknown`).
 
@@ -1922,7 +1936,8 @@ back: the new leader takes the run over (§ A new leader takes over).
 - **A Proxmox VE host refuses reboot steps** (`TASK_REBOOT_PVE_HOST`): the
   panel does not know the guests running on it, which may be this cluster's
   own nodes. The preview shows the refusal, and the run records the step
-  `skipped` (`Proxmox host`) and goes on to the node's next step.
+  `skipped` (`Proxmox host`, with the code `TASK_REBOOT_PVE_HOST`) and goes on
+  to the node's next step.
 
 ### A new leader takes over
 
@@ -2012,10 +2027,17 @@ together cannot both pass:
 ### Mixed versions
 
 Every node whose code runs task jobs says `tasks-v1` in its heartbeat. A node
-that does not is left out of a run (`outdated`: update it). A run — and a
-rerun — starts only when every manager other than the leader is online and
-says it: `409 TASK_MANAGERS_NOT_READY`, whose `details.managers` names each
-one with why (`(not heard from)`, `(offline)`, or the release it runs).
+that does not is left out of a run (`outdated`: update it). A node whose code
+also runs `agent` steps says `server-agent-step-v1`; in a task with an `agent`
+step a node that does not is left out (`step_unsupported`: update it). A run
+— and a rerun — starts only when every manager other than the leader is
+online and says `tasks-v1`, and `server-agent-step-v1` too when the task has
+an `agent` step (a manager that takes over the leadership reads the document
+again to carry the run on): `409 TASK_MANAGERS_NOT_READY`, whose
+`details.managers` names each one with why (`(not heard from)`, `(offline)`,
+or the release it runs). A run step skipped by a node's own rule carries the
+refusal's `code` and `details`; a run recorded by an older leader has only
+the node's `summary`.
 Definitions and run records are written with the config commands every
 manager release applies; there is no new Raft command.
 
