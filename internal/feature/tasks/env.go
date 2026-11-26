@@ -16,6 +16,7 @@ import (
 	"github.com/svrforum/SFPanel/internal/auth"
 	"github.com/svrforum/SFPanel/internal/cluster"
 	"github.com/svrforum/SFPanel/internal/paneltls"
+	"github.com/svrforum/SFPanel/internal/serveragents"
 	"github.com/svrforum/SFPanel/internal/tasks"
 )
 
@@ -40,8 +41,10 @@ type taskStore interface {
 	ListTasks() ([]cluster.StoredTask, error)
 	DeleteTask(id string) error
 	PutTaskRevision(yaml string) (string, error)
-	// TasksReady names the managers a run waits for, each with why.
+	// TasksReady names the managers a run waits for, each with why, and
+	// TasksReadyFor the ones a run whose steps need capability waits for.
 	TasksReady() []string
+	TasksReadyFor(capability string) []string
 }
 
 // runEnv is what planning and running a task need from the cluster, so the
@@ -57,8 +60,10 @@ type runEnv interface {
 	Nodes() []cluster.Node
 	// Health is LiveHealth: what an operator starts goes by it.
 	Health() map[string]cluster.NodeStatus
-	// Capable reports whether node id runs task jobs (CapTasks).
+	// Capable reports whether node id runs task jobs (CapTasks), and
+	// Supports whether it has capability.
 	Capable(id string) bool
+	Supports(id, capability string) bool
 	// Unreachable reports whether this leader's fresh probe found agent id
 	// out of reach.
 	Unreachable(id string) bool
@@ -73,6 +78,9 @@ type runEnv interface {
 	Store() runStore
 	// Tasks is the whole task store, for the API.
 	Tasks() taskStore
+	// AgentSettings are the agents' connection values the cluster keeps:
+	// nil, nil when they were never saved.
+	AgentSettings() (*serveragents.Settings, error)
 	// HandOver hands the leadership to another manager voter and names it,
 	// or names none and does nothing when there is none to take it.
 	HandOver() (target string, err error)
@@ -142,20 +150,26 @@ func (e clusterRunEnv) Health() map[string]cluster.NodeStatus {
 	return e.mgr.GetHeartbeat().LiveHealth()
 }
 
-// Capable is true for this node, whose own code is what runs the task, and
-// for a node whose last heartbeat said CapTasks.
-func (e clusterRunEnv) Capable(id string) bool {
+func (e clusterRunEnv) Capable(id string) bool { return e.Supports(id, cluster.CapTasks) }
+
+// Supports is true for this node, whose own code is what runs the task, and
+// for a node whose last heartbeat listed capability.
+func (e clusterRunEnv) Supports(id, capability string) bool {
 	if id == e.mgr.LocalNodeID() {
 		return true
 	}
 	met := e.mgr.GetHeartbeat().GetMetrics(id)
-	return met != nil && slices.Contains(met.Capabilities, cluster.CapTasks)
+	return met != nil && slices.Contains(met.Capabilities, capability)
 }
 
 func (e clusterRunEnv) Unreachable(id string) bool { return e.mgr.Unreachable(id) }
 
 func (e clusterRunEnv) Store() runStore  { return e.mgr }
 func (e clusterRunEnv) Tasks() taskStore { return e.mgr }
+
+func (e clusterRunEnv) AgentSettings() (*serveragents.Settings, error) {
+	return e.mgr.ServerAgentSettings()
+}
 
 // HandOver hands the leadership to the manager voter pickTransferTarget
 // takes: online, and reaching the most agents.

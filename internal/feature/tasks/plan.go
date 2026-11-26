@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/svrforum/SFPanel/internal/cluster"
+	"github.com/svrforum/SFPanel/internal/serveragents"
 	"github.com/svrforum/SFPanel/internal/tasks"
 )
 
@@ -25,11 +26,12 @@ const groupLabel = "group"
 
 // Why a target is left out of a run.
 const (
-	LeftUnknown     = "unknown"     // no node has the ID the run names
-	LeftOffline     = "offline"     // offline by the leader's live health
-	LeftOutdated    = "outdated"    // its code does not run task jobs (no CapTasks): update it
-	LeftUnreachable = "unreachable" // an agent this leader's probe does not reach
-	LeftBusy        = "busy"        // another run under way has it; RunID names that run
+	LeftUnknown         = "unknown"          // no node has the ID the run names
+	LeftOffline         = "offline"          // offline by the leader's live health
+	LeftOutdated        = "outdated"         // its code does not run task jobs (no CapTasks): update it
+	LeftStepUnsupported = "step_unsupported" // its code runs task jobs but not every kind of step the task has: update it
+	LeftUnreachable     = "unreachable"      // an agent this leader's probe does not reach
+	LeftBusy            = "busy"             // another run under way has it; RunID names that run
 )
 
 // checkTimeout is how long the plan waits on one node's verdicts, and
@@ -66,7 +68,7 @@ type Plan struct {
 	// the targets (planID). A start that confirms steps sends it back.
 	PlanID string `json:"plan_id"`
 	// ManagersNotReady are the managers a start would wait for, each with
-	// why (TasksReady): a start is refused until there are none.
+	// why (managersWaiting): a start is refused until there are none.
 	ManagersNotReady []string `json:"managers_not_ready,omitempty"`
 	// Steps are the steps of the document previewed, which the verdicts
 	// name by index: the task may have changed since the screen read it.
@@ -98,22 +100,65 @@ func (p Plan) NodeIDs() []string {
 // planRun orders a run of t: the targets are the union of the nodes in
 // targets' groups, of its kinds and the nodes it names — at most MaxTargets.
 // A target is left out when it is offline by live health, runs code without
-// task jobs, is an agent this leader cannot reach, or is held by another run
-// under way. The rest go agents first, batch at a time, so a bad step stops
-// on agents before any manager; then the other managers one at a time; then
-// this leader. Each group goes by name, then ID, so a run takes the same
-// order every time. Every node is asked for its verdicts on the steps,
-// filled in for it, under username, the operator who asked; a required
-// input left out is an error (tasks.ErrInputMissing).
+// task jobs or without one of the kinds of step t has, is an agent this
+// leader cannot reach, or is held by another run under way. The rest go
+// agents first, batch at a time, so a bad step stops on agents before any
+// manager; then the other managers one at a time; then this leader. Each
+// group goes by name, then ID, so a run takes the same order every time.
+// Every node is asked for its verdicts on the steps, filled in for it, under
+// username, the operator who asked; a required input left out is an error
+// (tasks.ErrInputMissing), as is an agent step whose agent has no connection
+// values (*tasks.AgentSettingsMissingError).
 func planRun(env runEnv, t *tasks.Task, targets tasks.Targets, inputs map[string]string, batch int, username string) (Plan, error) {
-	plan, byID, err := orderRun(env, targets, runBatch(t, batch))
+	plan, byID, err := orderRun(env, targets, runBatch(t, batch), stepCapabilities(t))
 	if err != nil {
 		return Plan{}, err
 	}
-	if err := checkPlan(env, t, inputs, byID, plan, username); err != nil {
+	agents, err := agentSettingsFor(env, t)
+	if err != nil {
+		return Plan{}, err
+	}
+	if err := checkPlan(env, t, inputs, byID, plan, agents, username); err != nil {
 		return Plan{}, err
 	}
 	return plan, nil
+}
+
+// stepCapabilities are the heartbeat capabilities a node needs, beyond
+// CapTasks, to run every step of t: an agent step needs CapServerAgentStep.
+func stepCapabilities(t *tasks.Task) []string {
+	if tasks.HasAgentSteps(t) {
+		return []string{cluster.CapServerAgentStep}
+	}
+	return nil
+}
+
+// managersWaiting names the managers a run that needs the capabilities need
+// waits for, each with why: those not ready for task jobs (TasksReady) and
+// those without one of need (TasksReadyFor), sorted, each named once.
+func managersWaiting(st taskStore, need []string) []string {
+	wait := st.TasksReady()
+	for _, c := range need {
+		wait = append(wait, st.TasksReadyFor(c)...)
+	}
+	slices.Sort(wait)
+	return slices.Compact(wait)
+}
+
+// agentSettingsFor are the connection values t's agent steps are filled
+// with: nil, nil when t has none. They are read anew at every call, so a run
+// fills each node's steps with the values saved when its turn comes, and
+// normalized, as a node checks them exactly as it gets them.
+func agentSettingsFor(env runEnv, t *tasks.Task) (*serveragents.Settings, error) {
+	if !tasks.HasAgentSteps(t) {
+		return nil, nil
+	}
+	s, err := env.AgentSettings()
+	if err != nil || s == nil {
+		return nil, err
+	}
+	n := s.Normalize()
+	return &n, nil
 }
 
 // runBatch is how many agents a run of t takes at once: batch when the
@@ -129,10 +174,11 @@ func runBatch(t *tasks.Task, batch int) int {
 }
 
 // orderRun is planRun's order without the nodes' verdicts: the targets in
-// their waves, and the ones left out with why. It asks no node, so starting
-// a run stays well inside the thirty seconds a follower's forward of it
-// gets; only the preview asks. byID is every node of the cluster.
-func orderRun(env runEnv, targets tasks.Targets, batch int) (plan Plan, byID map[string]cluster.Node, err error) {
+// their waves, and the ones left out with why. need are the capabilities the
+// task's steps need (stepCapabilities). It asks no node, so starting a run
+// stays well inside the thirty seconds a follower's forward of it gets; only
+// the preview asks. byID is every node of the cluster.
+func orderRun(env runEnv, targets tasks.Targets, batch int, need []string) (plan Plan, byID map[string]cluster.Node, err error) {
 	localID := env.LocalID()
 	byID = map[string]cluster.Node{}
 	var chosen []cluster.Node
@@ -165,6 +211,8 @@ func orderRun(env runEnv, targets tasks.Targets, batch int) (plan Plan, byID map
 			pn.Reason = LeftOffline
 		case !env.Capable(n.ID):
 			pn.Reason = LeftOutdated
+		case slices.ContainsFunc(need, func(c string) bool { return !env.Supports(n.ID, c) }):
+			pn.Reason = LeftStepUnsupported
 		case env.Unreachable(n.ID):
 			pn.Reason = LeftUnreachable
 		case held[n.ID] != "":
@@ -244,10 +292,11 @@ func sortPlanNodes(s []PlanNode) {
 
 // checkPlan fills in every planned node's verdicts, asking up to
 // checkParallel nodes at once, under the name of the operator who asked for
-// the preview. The steps are rendered for each node first:
-// a missing input fails the whole plan, before any node is asked.
-func checkPlan(env runEnv, t *tasks.Task, inputs map[string]string, byID map[string]cluster.Node, plan Plan, username string) error {
-	jobs, err := renderPlan(t, inputs, byID, plan)
+// the preview. The steps are rendered for each node first, agent steps
+// filled with agents: a missing input or agent values fail the whole plan,
+// before any node is asked.
+func checkPlan(env runEnv, t *tasks.Task, inputs map[string]string, byID map[string]cluster.Node, plan Plan, agents *serveragents.Settings, username string) error {
+	jobs, err := renderPlan(t, inputs, byID, plan, agents)
 	if err != nil {
 		return err
 	}
@@ -279,14 +328,14 @@ type planJob struct {
 	specs []tasks.JobSpec
 }
 
-// renderPlan fills the steps in for every node the plan runs: a required
-// input left out fails it (tasks.ErrInputMissing) before any node is asked
-// or any run recorded.
-func renderPlan(t *tasks.Task, inputs map[string]string, byID map[string]cluster.Node, plan Plan) ([]planJob, error) {
+// renderPlan fills the steps in for every node the plan runs (renderNode): a
+// required input left out, or an agent without connection values in agents,
+// fails it before any node is asked or any run recorded.
+func renderPlan(t *tasks.Task, inputs map[string]string, byID map[string]cluster.Node, plan Plan, agents *serveragents.Settings) ([]planJob, error) {
 	var jobs []planJob
 	for _, w := range plan.Waves {
 		for i := range w {
-			specs, err := tasks.Render(t, inputs, nodeVars(byID[w[i].ID]))
+			specs, err := renderNode(t, inputs, byID[w[i].ID], agents)
 			if err != nil {
 				return nil, err
 			}
@@ -294,6 +343,22 @@ func renderPlan(t *tasks.Task, inputs map[string]string, byID map[string]cluster
 		}
 	}
 	return jobs, nil
+}
+
+// renderNode fills t's steps in for node n: its inputs and node values
+// (tasks.Render), and its agent steps' connection values from agents
+// (tasks.FillAgentSettings), refused when the agent has none.
+func renderNode(t *tasks.Task, inputs map[string]string, n cluster.Node, agents *serveragents.Settings) ([]tasks.JobSpec, error) {
+	specs, err := tasks.Render(t, inputs, nodeVars(n))
+	if err != nil {
+		return nil, err
+	}
+	if tasks.HasAgentSteps(t) {
+		if err := tasks.FillAgentSettings(specs, agents); err != nil {
+			return nil, err
+		}
+	}
+	return specs, nil
 }
 
 // nodeVars are the values {{ node.name }} and {{ node.address }} take on n:

@@ -16,6 +16,7 @@ import (
 
 	"github.com/svrforum/SFPanel/internal/api/response"
 	"github.com/svrforum/SFPanel/internal/cluster"
+	"github.com/svrforum/SFPanel/internal/serveragents"
 	"github.com/svrforum/SFPanel/internal/tasks"
 )
 
@@ -28,8 +29,10 @@ type fakeStore struct {
 	nodes  map[string]map[string]cluster.RunNodeRecord
 	pruned []int
 	tasks  map[string]cluster.StoredTask
-	// notReady is what TasksReady names.
-	notReady []string
+	// notReady is what TasksReady names, and notReadyFor what
+	// TasksReadyFor names, by capability.
+	notReady    []string
+	notReadyFor map[string][]string
 	// afterGetRun runs once a run's head has been read, before GetRun
 	// returns it.
 	afterGetRun func(id string)
@@ -101,6 +104,12 @@ func (s *fakeStore) TasksReady() []string {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	return slices.Clone(s.notReady)
+}
+
+func (s *fakeStore) TasksReadyFor(capability string) []string {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return slices.Clone(s.notReadyFor[capability])
 }
 
 func (s *fakeStore) TaskRevision(sha string) (string, error) {
@@ -215,7 +224,12 @@ type fakeEnv struct {
 	health      map[string]cluster.NodeStatus
 	outdated    map[string]bool
 	unreachable map[string]bool
-	notLeader   bool
+	// lacks names the capabilities a node's heartbeat does not list.
+	lacks     map[string][]string
+	notLeader bool
+	// agentSettings are the agents' connection values as the cluster
+	// keeps them: nil, never saved.
+	agentSettings *serveragents.Settings
 	// behind is a leader whose FSM has not yet applied every entry the
 	// previous leader committed.
 	behind  bool
@@ -225,6 +239,8 @@ type fakeEnv struct {
 
 	checks   map[string][]tasks.CheckVerdict
 	checkErr map[string]error
+	// checked is the steps each node was last asked to check.
+	checked map[string][]tasks.JobSpec
 
 	// refuse makes StartJob answer with the error; outcome is the view a
 	// job ends with (default succeeded); polls how many polls it runs for
@@ -267,8 +283,8 @@ func newFakeEnv(t *testing.T, local string, nodes ...cluster.Node) *fakeEnv {
 	return &fakeEnv{
 		t: t, local: local, nodes: nodes, store: newFakeStore(),
 		now:    time.Date(2026, 11, 1, 12, 0, 0, 0, time.UTC),
-		health: map[string]cluster.NodeStatus{}, outdated: map[string]bool{}, unreachable: map[string]bool{},
-		checks: map[string][]tasks.CheckVerdict{}, checkErr: map[string]error{},
+		health: map[string]cluster.NodeStatus{}, outdated: map[string]bool{}, unreachable: map[string]bool{}, lacks: map[string][]string{},
+		checks: map[string][]tasks.CheckVerdict{}, checkErr: map[string]error{}, checked: map[string][]tasks.JobSpec{},
 		refuse: map[string]error{}, outcome: map[string]tasks.JobView{}, polls: map[string]int{},
 		getErrs: map[string]int{}, startStatus: map[string]string{},
 		jobs: map[string]*fakeJob{}, specs: map[string]tasks.JobSpec{}, output: map[string]string{},
@@ -315,6 +331,20 @@ func (e *fakeEnv) Unreachable(id string) bool { return e.unreachable[id] }
 func (e *fakeEnv) Store() runStore            { return e.store }
 func (e *fakeEnv) Tasks() taskStore           { return e.store }
 
+func (e *fakeEnv) Supports(id, capability string) bool {
+	return !slices.Contains(e.lacks[id], capability)
+}
+
+func (e *fakeEnv) AgentSettings() (*serveragents.Settings, error) {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	if e.agentSettings == nil {
+		return nil, nil
+	}
+	s := *e.agentSettings
+	return &s, nil
+}
+
 func (e *fakeEnv) Now() time.Time {
 	e.mu.Lock()
 	defer e.mu.Unlock()
@@ -339,6 +369,7 @@ func (e *fakeEnv) HandOver() (string, error) {
 func (e *fakeEnv) Check(_ context.Context, nodeID string, specs []tasks.JobSpec, username string) ([]tasks.CheckVerdict, error) {
 	e.mu.Lock()
 	e.checkedBy = append(e.checkedBy, nodeID+":"+username)
+	e.checked[nodeID] = specs
 	e.mu.Unlock()
 	if err := e.checkErr[nodeID]; err != nil {
 		return nil, err

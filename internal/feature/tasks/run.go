@@ -397,6 +397,8 @@ func (r *runner) fail(id string, rec cluster.RunNodeRecord, status, reason strin
 // runNode runs node id's steps in order, from the first that has not ended.
 // A step a former leader started is followed to its end first, whatever the
 // node's health: it may be rebooting, and its job is under way either way.
+// Its agent steps take the connection values saved when its turn comes; an
+// agent with none fails the node.
 func (r *runner) runNode(id string) nodeOutcome {
 	rec := r.newRecord(id)
 	if out, closed := r.closeFromRecord(id, rec); closed {
@@ -413,7 +415,11 @@ func (r *runner) runNode(id string) nodeOutcome {
 	case r.env.Unreachable(id):
 		return r.fail(id, rec, cluster.RunNodeFailed, "this leader does not reach the node")
 	}
-	specs, err := tasks.Render(r.task, r.run.Inputs, nodeVars(n))
+	agents, err := agentSettingsFor(r.env, r.task)
+	if err != nil {
+		return r.fail(id, rec, cluster.RunNodeFailed, err.Error())
+	}
+	specs, err := renderNode(r.task, r.run.Inputs, n, agents)
 	if err != nil {
 		return r.fail(id, rec, cluster.RunNodeFailed, err.Error())
 	}
@@ -649,6 +655,10 @@ func (r *runner) runStep(id string, rec *cluster.RunNodeRecord, i int, spec task
 		case errors.As(err, &ref) && ref.Code == response.ErrTaskRebootPVEHost && spec.Kind == tasks.StepReboot:
 			// The design reboots no Proxmox host: the VMs on it stop too.
 			r.endStep(step, cluster.RunStepSkipped, reasonProxmoxHost, false)
+			res = stepDone
+		case errors.As(err, &ref) && ref.Code == response.ErrServerAgentSkipped && spec.Kind == tasks.StepAgent:
+			// The node leaves an agent it must not touch alone, and says why.
+			r.endStep(step, cluster.RunStepSkipped, ref.Message, false)
 			res = stepDone
 		case errors.As(err, &ref) && ref.Code == response.ErrTaskNodeBusy:
 			r.endStep(step, cluster.RunStepFailed, err.Error(), false)

@@ -764,9 +764,13 @@ func readRunRequest(c echo.Context, st taskStore) (runRequest, runTarget, error)
 // planError answers what ordering or filling in a run refused.
 func planError(err error) error {
 	var missing *tasks.InputMissingError
+	var noValues *tasks.AgentSettingsMissingError
 	switch {
 	case errors.As(err, &missing):
 		return refusal(http.StatusBadRequest, response.ErrTaskInputMissing, missing.Error(), map[string]string{"input": missing.Name})
+	case errors.As(err, &noValues):
+		return refusal(http.StatusBadRequest, response.ErrServerAgentNotConfigured,
+			"Save the "+noValues.Agent+" connection values on the agents page first", map[string]string{"agent": noValues.Agent})
 	case errors.Is(err, ErrTooManyTargets):
 		return refusal(http.StatusBadRequest, response.ErrTaskTooManyTargets, err.Error(), map[string]string{"max": strconv.Itoa(MaxTargets)})
 	}
@@ -778,10 +782,12 @@ func busyNode(nodeID, runID string) error {
 		map[string]string{"node_id": nodeID, "run_id": runID})
 }
 
-func managersNotReady(st taskStore) error {
-	if wait := st.TasksReady(); len(wait) > 0 {
+// managersNotReady refuses a run whose steps need the capabilities need
+// while a manager is not ready for it (managersWaiting).
+func managersNotReady(st taskStore, need []string) error {
+	if wait := managersWaiting(st, need); len(wait) > 0 {
 		return refusal(http.StatusConflict, response.ErrTaskManagersNotReady,
-			"Every manager must be online and run a version that keeps group tasks: waiting for "+strings.Join(wait, ", "),
+			"Every manager must be online and run a version that keeps group tasks and every kind of step this task has: waiting for "+strings.Join(wait, ", "),
 			map[string]string{"managers": strings.Join(wait, ", ")})
 	}
 	return nil
@@ -808,14 +814,15 @@ func (h *Handler) PlanRun(c echo.Context) error {
 		return fail(c, planError(err))
 	}
 	plan.PlanID = planID(rt.doc.YAML, runInputs(rt.task, req.Inputs), rt.targets)
-	plan.ManagersNotReady = env.Tasks().TasksReady()
+	plan.ManagersNotReady = managersWaiting(env.Tasks(), stepCapabilities(rt.task))
 	plan.Steps = stepLabels(rt.task)
 	return response.OK(c, plan)
 }
 
 // StartRun answers POST /cluster/task-runs (leader): the run is judged and
 // recorded in one StartGate claim, then started; 202 {run_id}. Every
-// manager must keep task runs (TasksReady). Confirmed steps need the
+// manager must keep task runs and run every kind of step the task has
+// (managersWaiting). Confirmed steps need the
 // preview's plan_id, and one that no longer matches is 409
 // TASK_PLAN_CHANGED. The plan asks no node for its
 // verdicts, so the request stays well inside the thirty seconds a
@@ -833,7 +840,8 @@ func (h *Handler) StartRun(c echo.Context) error {
 	if err != nil {
 		return fail(c, err)
 	}
-	if err := managersNotReady(st); err != nil {
+	need := stepCapabilities(rt.task)
+	if err := managersNotReady(st, need); err != nil {
 		return fail(c, err)
 	}
 	// A confirmation is a yes to what the preview showed: the same document,
@@ -856,11 +864,15 @@ func (h *Handler) StartRun(c echo.Context) error {
 		}
 	}
 
-	plan, byID, err := orderRun(env, rt.targets, rt.batch)
+	plan, byID, err := orderRun(env, rt.targets, rt.batch, need)
 	if err != nil {
 		return fail(c, planError(err))
 	}
-	if _, err := renderPlan(rt.task, req.Inputs, byID, plan); err != nil {
+	agents, err := agentSettingsFor(env, rt.task)
+	if err != nil {
+		return fail(c, err)
+	}
+	if _, err := renderPlan(rt.task, req.Inputs, byID, plan, agents); err != nil {
 		return fail(c, planError(err))
 	}
 	if len(plan.Waves) == 0 {
@@ -1214,10 +1226,18 @@ func (h *Handler) RerunRun(c echo.Context) error {
 	if len(run.Nodes) == 0 {
 		return response.Fail(c, http.StatusBadRequest, response.ErrTaskNoTargets, "None of the nodes chosen is one the run ran, or every one succeeded")
 	}
-	if err := managersNotReady(st); err != nil {
+	doc, err := st.TaskRevision(src.Rev)
+	if err != nil {
+		return fail(c, fmt.Errorf("the run's document: %w", err))
+	}
+	// A document that no longer parses needs nothing: the run ends at once
+	// on it, as the source did.
+	t, _ := tasks.Parse([]byte(doc))
+	need := stepCapabilities(t)
+	if err := managersNotReady(st, need); err != nil {
 		return fail(c, err)
 	}
-	plan, _, err := orderRun(env, tasks.Targets{Nodes: run.Nodes}, run.Batch)
+	plan, _, err := orderRun(env, tasks.Targets{Nodes: run.Nodes}, run.Batch, need)
 	if err != nil {
 		return fail(c, planError(err))
 	}
@@ -1227,15 +1247,11 @@ func (h *Handler) RerunRun(c echo.Context) error {
 				return fail(c, busyNode(n.ID, n.RunID))
 			}
 		}
-		return response.Fail(c, http.StatusBadRequest, response.ErrTaskNoTargets, "The run would take no node: every node chosen is offline, outdated, out of reach or gone")
+		return response.Fail(c, http.StatusBadRequest, response.ErrTaskNoTargets, "The run would take no node: every node chosen is offline, outdated, unable to run its steps, out of reach or gone")
 	}
 	run.Nodes, run.Waves, run.StartAt = plan.NodeIDs(), plan.WaveIDs(), map[string]int{}
 	for _, id := range run.Nodes {
 		run.StartAt[id] = startAt[id]
-	}
-	doc, err := st.TaskRevision(src.Rev)
-	if err != nil {
-		return fail(c, fmt.Errorf("the run's document: %w", err))
 	}
 	run.StartedBy = operator(c)
 	if err := h.claim(env, &run, doc); err != nil {
