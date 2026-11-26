@@ -5,7 +5,9 @@ import (
 	"errors"
 	"fmt"
 	"slices"
+	"strconv"
 	"strings"
+	"time"
 )
 
 // ZabbixVendorHostname is the Hostname the vendor's default config ships
@@ -35,6 +37,45 @@ type ZabbixConf struct {
 	// Includes are the Include= values as written: a path or a glob,
 	// relative ones against the config file's directory.
 	Includes []string `json:"-"`
+	// LogType, LogFile and RefreshActiveChecks as the file sets them, ""
+	// when it does not: where the agent writes its log, and how often it asks
+	// its server for its active checks. LogPath and Refresh read them with
+	// the agent's defaults.
+	LogType             string `json:"-"`
+	LogFile             string `json:"-"`
+	RefreshActiveChecks string `json:"-"`
+}
+
+const (
+	// ZabbixDefaultLogFile is where agent 2 writes its log when its config
+	// names no LogFile.
+	ZabbixDefaultLogFile = "/tmp/zabbix_agent2.log"
+	// ZabbixDefaultRefresh is how often agent 2 asks its server for its
+	// active checks when its config does not say.
+	ZabbixDefaultRefresh = 5 * time.Second
+)
+
+// LogPath is the file the agent writes its log to — LogFile, or the agent's
+// default — or "" when it writes none: LogType system or console.
+func (c ZabbixConf) LogPath() string {
+	switch c.LogType {
+	case "", "file":
+		if c.LogFile != "" {
+			return c.LogFile
+		}
+		return ZabbixDefaultLogFile
+	}
+	return ""
+}
+
+// Refresh is RefreshActiveChecks, or the agent's default when the file sets
+// none or one the agent refuses (1 to 86400 seconds).
+func (c ZabbixConf) Refresh() time.Duration {
+	n, err := strconv.Atoi(c.RefreshActiveChecks)
+	if err != nil || n < 1 || n > 86400 {
+		return ZabbixDefaultRefresh
+	}
+	return time.Duration(n) * time.Second
 }
 
 // ReadZabbixConf reads a Zabbix Agent 2 config file. A key's value is that of
@@ -49,6 +90,8 @@ func ReadZabbixConf(src []byte) ZabbixConf {
 		"Hostname":     &c.Hostname,
 		"HostMetadata": &c.HostMetadata,
 	}
+	// What the agent itself reads, its first non-empty value.
+	agentFields := map[string]*string{"LogType": &c.LogType, "LogFile": &c.LogFile, "RefreshActiveChecks": &c.RefreshActiveChecks}
 	seen := map[string]int{}
 	for _, line := range bytes.Split(src, []byte("\n")) {
 		for _, key := range zabbixManagedKeys {
@@ -69,6 +112,11 @@ func ReadZabbixConf(src []byte) ZabbixConf {
 		}
 		if _, ok := activeValue(line, "HostnameItem"); ok {
 			c.HostnameItemSet = true
+		}
+		for key, field := range agentFields {
+			if v, ok := activeValue(line, key); ok && *field == "" {
+				*field = v
+			}
 		}
 	}
 	c.HostnameSet = seen["Hostname"] > 0

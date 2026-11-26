@@ -1,0 +1,50 @@
+2026/11/26 12:25:07.519379 using plugin 'WebCertificate' (built-in) providing following interfaces: exporter, maximum capacity: 1000, active checks on start enabled: false
+2026/11/26 12:25:07.519388 using plugin 'WebPage' (built-in) providing following interfaces: exporter, maximum capacity: 1000, active checks on start enabled: false
+2026/11/26 12:25:07.519397 using plugin 'ZabbixAsync' (built-in) providing following interfaces: exporter, maximum capacity: 1000, active checks on start enabled: false
+2026/11/26 12:25:07.519405 using plugin 'ZabbixStats' (built-in) providing following interfaces: exporter, configurator, maximum capacity: 1000, active checks on start enabled: false
+2026/11/26 12:25:07.519412 lowering the plugin ZabbixSync capacity to hard limit 1 as the configured capacity 1000 exceeds limits
+2026/11/26 12:25:07.519419 using plugin 'ZabbixSync' (built-in) providing following interfaces: exporter, maximum capacity: 1, active checks on start enabled: false
+2026/11/26 12:25:07.519480 Plugin communication protocol version is 6.4.0
+2026/11/26 12:25:07.519505 Zabbix Agent2 hostname: [node-u2510]
+2026/11/26 12:27:09.002040 [101] no active checks on server [zbx-fake:10051]: host [node-u2510] not found
+2026/11/26 12:27:14.002593 [101] no active checks on server [zbx-fake:10051]: host [node-u2510] not found
+2026/11/26 12:27:19.001507 [101] no active checks on server [zbx-fake:10051]: host [node-u2510] not found
+2026/11/26 12:27:24.001468 [101] no active checks on server [zbx-fake:10051]: host [node-u2510] not found
+2026/11/26 12:27:29.002048 [101] no active checks on server [zbx-fake:10051]: host [node-u2510] not found
+2026/11/26 12:27:34.002060 [101] no active checks on server [zbx-fake:10051]: host [node-u2510] not found
+2026/11/26 12:27:39.001382 [101] no active checks on server [zbx-fake:10051]: host [node-u2510] not found
+2026/11/26 12:27:44.002077 [101] no active checks on server [zbx-fake:10051]: host [node-u2510] not found
+2026/11/26 12:27:49.001716 [101] no active checks on server [zbx-fake:10051]: host [node-u2510] not found
+2026/11/26 12:27:54.001676 [101] no active checks on server [zbx-fake:10051]: host [node-u2510] not found
+2026/11/26 12:27:59.002270 [101] no active checks on server [zbx-fake:10051]: host [node-u2510] not found
+2026/11/26 12:28:04.001675 [101] no active checks on server [zbx-fake:10051]: host [node-u2510] not found
+2026/11/26 12:28:09.001479 [101] no active checks on server [zbx-fake:10051]: host [node-u2510] not found
+2026/11/26 12:28:14.001375 [101] no active checks on server [zbx-fake:10051]: host [node-u2510] not found
+2026/11/26 12:28:19.001838 [101] no active checks on server [zbx-fake:10051]: host [node-u2510] not found
+2026/11/26 12:28:24.001984 [101] no active checks on server [zbx-fake:10051]: host [node-u2510] not found
+2026/11/26 12:28:29.001879 [101] no active checks on server [zbx-fake:10051]: host [node-u2510] not found
+2026/11/26 12:28:34.001548 [101] no active checks on server [zbx-fake:10051]: host [node-u2510] not found
+2026/11/26 12:28:39.001946 [101] no active checks on server [zbx-fake:10051]: host [node-u2510] not found
+2026/11/26 12:28:44.001691 [101] no active checks on server [zbx-fake:10051]: host [node-u2510] not found
+2026/11/26 12:28:49.001705 [101] no active checks on server [zbx-fake:10051]: host [node-u2510] not found
+2026/11/26 12:28:54.001938 [101] no active checks on server [zbx-fake:10051]: host [node-u2510] not found
+2026/11/26 12:28:59.001407 [101] no active checks on server [zbx-fake:10051]: host [node-u2510] not found
+2026/11/26 12:29:04.001748 [101] no active checks on server [zbx-fake:10051]: host [node-u2510] not found
+2026/11/26 12:29:09.001883 [101] no active checks on server [zbx-fake:10051]: host [node-u2510] not found
+2026/11/26 12:29:14.002523 [101] no active checks on server [zbx-fake:10051]: host [node-u2510] not found
+2026/11/26 12:29:19.002158 [101] no active checks on server [zbx-fake:10051]: host [node-u2510] not found
+2026/11/26 12:29:24.001585 [101] no active checks on server [zbx-fake:10051]: host [node-u2510] not found
+2026/11/26 12:29:29.001867 [101] no active checks on server [zbx-fake:10051]: host [node-u2510] not found
+2026/11/26 12:29:34.002623 [101] no active checks on server [zbx-fake:10051]: host [node-u2510] not found
+2026/11/26 12:29:39.001788 [101] no active checks on server [zbx-fake:10051]: host [node-u2510] not found
+2026/11/26 12:29:44.001718 [101] no active checks on server [zbx-fake:10051]: host [node-u2510] not found
+2026/11/26 12:29:49.001818 [101] no active checks on server [zbx-fake:10051]: host [node-u2510] not found
+2026/11/26 12:29:54.001554 [101] no active checks on server [zbx-fake:10051]: host [node-u2510] not found
+2026/11/26 12:29:59.001543 [101] no active checks on server [zbx-fake:10051]: host [node-u2510] not found
+2026/11/26 12:30:04.002119 [101] no active checks on server [zbx-fake:10051]: host [node-u2510] not found
+2026/11/26 12:30:09.001500 [101] no active checks on server [zbx-fake:10051]: host [node-u2510] not found
+2026/11/26 12:30:14.001877 [101] no active checks on server [zbx-fake:10051]: host [node-u2510] not found
+2026/11/26 12:30:19.001747 [101] no active checks on server [zbx-fake:10051]: host [node-u2510] not found
+2026/11/26 12:30:24.001502 [101] no active checks on server [zbx-fake:10051]: host [node-u2510] not found
+2026/11/26 12:30:29.001982 [101] no active checks on server [zbx-fake:10051]: host [node-u2510] not found
+2026/11/26 12:30:34.001647 [101] no active checks on server [zbx-fake:10051]: host [node-u2510] not found

@@ -3,6 +3,7 @@ package serveragents
 import (
 	"strings"
 	"testing"
+	"time"
 	"unicode/utf8"
 )
 
@@ -25,6 +26,12 @@ const (
 	zabbixOther    = "2026/11/26 10:02:00.000000 [101] plugin Docker loaded\n"
 )
 
+// logNow is a second after zabbixNotFound was written: too soon for its
+// server to have taken the host since.
+var logNow = time.Date(2026, 11, 26, 10, 0, 6, 0, time.UTC)
+
+const defaultRefresh = 5 * time.Second
+
 func TestTheLastLineSinceTheAgentStartedDecides(t *testing.T) {
 	for _, tc := range []struct {
 		name, tail string
@@ -39,7 +46,7 @@ func TestTheLastLineSinceTheAgentStartedDecides(t *testing.T) {
 		{"a failure before a restart, nothing since", zabbixStart + zabbixFail + zabbixStart + zabbixOther, LogNothing, ""},
 		{"an empty log", "", LogNothing, ""},
 	} {
-		class, line := ClassifyZabbixLog([]byte(tc.tail))
+		class, line := ClassifyZabbixLog([]byte(tc.tail), logNow, defaultRefresh)
 		if class != tc.want || line != strings.TrimSpace(tc.line) {
 			t.Errorf("%s: ClassifyZabbixLog = %q, %q; want %q, %q", tc.name, class, line, tc.want, strings.TrimSpace(tc.line))
 		}
@@ -49,7 +56,7 @@ func TestTheLastLineSinceTheAgentStartedDecides(t *testing.T) {
 func TestWithoutAStartMarkerTheWholeTailDecides(t *testing.T) {
 	// A tail cut from a long-running agent's log no longer holds the line it
 	// started with; every line in it came after that start.
-	class, line := ClassifyZabbixLog([]byte(zabbixOther + zabbixFail + zabbixOther))
+	class, line := ClassifyZabbixLog([]byte(zabbixOther+zabbixFail+zabbixOther), logNow, defaultRefresh)
 	if class != LogUnreachable || line != strings.TrimSpace(zabbixFail) {
 		t.Fatalf("ClassifyZabbixLog = %q, %q; want %q and the failing line", class, line, LogUnreachable)
 	}
@@ -71,7 +78,7 @@ func TestEveryFailureWordingDecides(t *testing.T) {
 		{"[101] host [node-a] is up", LogNothing},
 		{"[101] item not found", LogNothing},
 	} {
-		class, _ := ClassifyZabbixLog([]byte(zabbixStart + tc.line + "\n"))
+		class, _ := ClassifyZabbixLog([]byte(zabbixStart+tc.line+"\n"), logNow, defaultRefresh)
 		if class != tc.want {
 			t.Errorf("ClassifyZabbixLog(%q) = %q, want %q", tc.line, class, tc.want)
 		}
@@ -86,7 +93,7 @@ func TestALongLineIsCut(t *testing.T) {
 	if len(long) < 1000 {
 		t.Fatalf("fixture is %d bytes, want at least 1000", len(long))
 	}
-	class, line := ClassifyZabbixLog([]byte(zabbixStart + long + "\n"))
+	class, line := ClassifyZabbixLog([]byte(zabbixStart+long+"\n"), logNow, defaultRefresh)
 	if class != LogUnreachable {
 		t.Fatalf("class = %q, want %q", class, LogUnreachable)
 	}

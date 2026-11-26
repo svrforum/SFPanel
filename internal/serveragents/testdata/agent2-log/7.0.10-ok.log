@@ -1,0 +1,50 @@
+2026/11/26 12:25:06.584073 using plugin 'ZabbixAsync' (built-in) providing following interfaces: exporter, maximum capacity: 1000, active checks on start enabled: false
+2026/11/26 12:25:06.584091 using plugin 'ZabbixStats' (built-in) providing following interfaces: exporter, configurator, maximum capacity: 1000, active checks on start enabled: false
+2026/11/26 12:25:06.584101 lowering the plugin ZabbixSync capacity to hard limit 1 as the configured capacity 1000 exceeds limits
+2026/11/26 12:25:06.584110 using plugin 'ZabbixSync' (built-in) providing following interfaces: exporter, maximum capacity: 1, active checks on start enabled: false
+2026/11/26 12:25:06.584177 Plugin communication protocol version is 6.4.0
+2026/11/26 12:25:06.584203 Zabbix Agent2 hostname: [Zabbix server]
+2026/11/26 12:25:07.494053 Zabbix Agent 2 stopped. (7.0.10)
+2026/11/26 12:25:07.517539 Starting Zabbix Agent 2 (7.0.10)
+2026/11/26 12:25:07.518835 OpenSSL library (OpenSSL 3.5.3 16 Sep 2025) initialized
+2026/11/26 12:25:07.518935 using configuration file: /etc/zabbix/zabbix_agent2.conf
+2026/11/26 12:25:07.519017 using plugin 'Agent' (built-in) providing following interfaces: exporter, maximum capacity: 1000, active checks on start enabled: false
+2026/11/26 12:25:07.519031 using plugin 'Ceph' (built-in) providing following interfaces: exporter, runner, configurator, maximum capacity: 1000, active checks on start enabled: false
+2026/11/26 12:25:07.519042 using plugin 'Cpu' (built-in) providing following interfaces: exporter, collector, runner, maximum capacity: 1000, active checks on start enabled: false
+2026/11/26 12:25:07.519052 using plugin 'DNS' (built-in) providing following interfaces: exporter, maximum capacity: 1000, active checks on start enabled: false
+2026/11/26 12:25:07.519061 using plugin 'Docker' (built-in) providing following interfaces: exporter, configurator, maximum capacity: 1000, active checks on start enabled: false
+2026/11/26 12:25:07.519070 using plugin 'File' (built-in) providing following interfaces: exporter, maximum capacity: 1000, active checks on start enabled: false
+2026/11/26 12:25:07.519080 using plugin 'Hw' (built-in) providing following interfaces: exporter, configurator, maximum capacity: 1000, active checks on start enabled: false
+2026/11/26 12:25:07.519099 using plugin 'Kernel' (built-in) providing following interfaces: exporter, maximum capacity: 1000, active checks on start enabled: false
+2026/11/26 12:25:07.519118 using plugin 'Log' (built-in) providing following interfaces: exporter, configurator, maximum capacity: 1000, active checks on start enabled: false
+2026/11/26 12:25:07.519126 using plugin 'MQTT' (built-in) providing following interfaces: watcher, configurator, maximum capacity: 1000, active checks on start enabled: false
+2026/11/26 12:25:07.519135 using plugin 'Memcached' (built-in) providing following interfaces: exporter, runner, configurator, maximum capacity: 1000, active checks on start enabled: false
+2026/11/26 12:25:07.519143 using plugin 'Memory' (built-in) providing following interfaces: exporter, maximum capacity: 1000, active checks on start enabled: false
+2026/11/26 12:25:07.519151 using plugin 'Modbus' (built-in) providing following interfaces: exporter, configurator, maximum capacity: 1000, active checks on start enabled: false
+2026/11/26 12:25:07.519159 using plugin 'Mysql' (built-in) providing following interfaces: exporter, runner, configurator, maximum capacity: 1000, active checks on start enabled: false
+2026/11/26 12:25:07.519173 using plugin 'NetIf' (built-in) providing following interfaces: exporter, maximum capacity: 1000, active checks on start enabled: false
+2026/11/26 12:25:07.519182 using plugin 'Oracle' (built-in) providing following interfaces: exporter, runner, configurator, maximum capacity: 1000, active checks on start enabled: false
+2026/11/26 12:25:07.519191 using plugin 'Proc' (built-in) providing following interfaces: exporter, collector, maximum capacity: 1000, active checks on start enabled: false
+2026/11/26 12:25:07.519199 using plugin 'ProcExporter' (built-in) providing following interfaces: exporter, maximum capacity: 1000, active checks on start enabled: false
+2026/11/26 12:25:07.519232 using plugin 'Redis' (built-in) providing following interfaces: exporter, runner, configurator, maximum capacity: 1000, active checks on start enabled: false
+2026/11/26 12:25:07.519242 using plugin 'Smart' (built-in) providing following interfaces: exporter, configurator, maximum capacity: 1000, active checks on start enabled: false
+2026/11/26 12:25:07.519251 using plugin 'Sw' (built-in) providing following interfaces: exporter, configurator, maximum capacity: 1000, active checks on start enabled: false
+2026/11/26 12:25:07.519259 using plugin 'Swap' (built-in) providing following interfaces: exporter, maximum capacity: 1000, active checks on start enabled: false
+2026/11/26 12:25:07.519267 using plugin 'SystemRun' (built-in) providing following interfaces: exporter, configurator, maximum capacity: 1000, active checks on start enabled: false
+2026/11/26 12:25:07.519276 using plugin 'Systemd' (built-in) providing following interfaces: exporter, maximum capacity: 1000, active checks on start enabled: false
+2026/11/26 12:25:07.519284 using plugin 'TCP' (built-in) providing following interfaces: exporter, maximum capacity: 1000, active checks on start enabled: false
+2026/11/26 12:25:07.519302 using plugin 'UDP' (built-in) providing following interfaces: exporter, maximum capacity: 1000, active checks on start enabled: false
+2026/11/26 12:25:07.519311 using plugin 'Uname' (built-in) providing following interfaces: exporter, maximum capacity: 1000, active checks on start enabled: false
+2026/11/26 12:25:07.519319 using plugin 'Uptime' (built-in) providing following interfaces: exporter, maximum capacity: 1000, active checks on start enabled: false
+2026/11/26 12:25:07.519326 using plugin 'Users' (built-in) providing following interfaces: exporter, configurator, maximum capacity: 1000, active checks on start enabled: false
+2026/11/26 12:25:07.519334 using plugin 'VFSDev' (built-in) providing following interfaces: exporter, collector, maximum capacity: 1000, active checks on start enabled: false
+2026/11/26 12:25:07.519347 using plugin 'VFSDir' (built-in) providing following interfaces: exporter, maximum capacity: 1000, active checks on start enabled: false
+2026/11/26 12:25:07.519355 using plugin 'VfsFs' (built-in) providing following interfaces: exporter, maximum capacity: 1000, active checks on start enabled: false
+2026/11/26 12:25:07.519379 using plugin 'WebCertificate' (built-in) providing following interfaces: exporter, maximum capacity: 1000, active checks on start enabled: false
+2026/11/26 12:25:07.519388 using plugin 'WebPage' (built-in) providing following interfaces: exporter, maximum capacity: 1000, active checks on start enabled: false
+2026/11/26 12:25:07.519397 using plugin 'ZabbixAsync' (built-in) providing following interfaces: exporter, maximum capacity: 1000, active checks on start enabled: false
+2026/11/26 12:25:07.519405 using plugin 'ZabbixStats' (built-in) providing following interfaces: exporter, configurator, maximum capacity: 1000, active checks on start enabled: false
+2026/11/26 12:25:07.519412 lowering the plugin ZabbixSync capacity to hard limit 1 as the configured capacity 1000 exceeds limits
+2026/11/26 12:25:07.519419 using plugin 'ZabbixSync' (built-in) providing following interfaces: exporter, maximum capacity: 1, active checks on start enabled: false
+2026/11/26 12:25:07.519480 Plugin communication protocol version is 6.4.0
+2026/11/26 12:25:07.519505 Zabbix Agent2 hostname: [node-u2510]

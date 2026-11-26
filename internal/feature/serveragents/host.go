@@ -24,7 +24,6 @@ const (
 	osReleasePath        = "/etc/os-release"
 	zabbixConfPath       = "/etc/zabbix/zabbix_agent2.conf"
 	zabbixAgentdConfPath = "/etc/zabbix/zabbix_agentd.conf"
-	zabbixLogPath        = "/var/log/zabbix/zabbix_agent2.log"
 	ossecConfPath        = "/var/ossec/etc/ossec.conf"
 	clientKeysPath       = "/var/ossec/etc/client.keys"
 	agentdStatePath      = "/var/ossec/var/run/wazuh-agentd.state"
@@ -94,28 +93,29 @@ func (h *Host) exists(p string) bool {
 }
 
 // readTail reads at most n bytes from the end of a file under the root,
-// starting at a whole line when it does not start at the beginning.
-func (h *Host) readTail(p string, n int64) []byte {
+// starting at a whole line when it does not start at the beginning; ok is
+// false when the file cannot be read.
+func (h *Host) readTail(p string, n int64) (b []byte, ok bool) {
 	f, err := os.Open(h.path(p))
 	if err != nil {
-		return nil
+		return nil, false
 	}
 	defer f.Close()
 	fi, err := f.Stat()
-	if err != nil {
-		return nil
+	if err != nil || !fi.Mode().IsRegular() {
+		return nil, false
 	}
 	off := max(fi.Size()-n, 0)
-	b, err := io.ReadAll(io.NewSectionReader(f, off, fi.Size()-off))
+	b, err = io.ReadAll(io.NewSectionReader(f, off, fi.Size()-off))
 	if err != nil {
-		return nil
+		return nil, false
 	}
 	if off > 0 {
 		if i := bytes.IndexByte(b, '\n'); i >= 0 {
 			b = b[i+1:]
 		}
 	}
-	return b
+	return b, true
 }
 
 // osRelease reads the host's os-release.

@@ -24,14 +24,16 @@ func ossecConf(t *testing.T, manager string) string {
 }
 
 // installedHost is a noble host with both agents installed from their
-// vendors' packages and running, the Zabbix agent pointed at active.
+// vendors' packages and running, the Zabbix agent pointed at active and
+// started with nothing logged since.
 func installedHost(t *testing.T, active string) (*hostFixture, *Host) {
 	t.Helper()
 	f, h := newHostFixture(t)
 	f.system(osNoble)
 	f.pkg("zabbix-agent2", "install ok installed|1:7.0.32-2+ubuntu24.04")
 	f.service("zabbix-agent2", "active")
-	f.write("etc/zabbix/zabbix_agent2.conf", "# Managed elsewhere\nServer="+active+"\nServerActive="+active+"\nHostname=node-a\n")
+	f.write("etc/zabbix/zabbix_agent2.conf", "# Managed elsewhere\nServer="+active+"\nServerActive="+active+"\nHostname=node-a\nLogFile=/var/log/zabbix/zabbix_agent2.log\n")
+	f.write(zabbixLogRel, agentLog(t, "7.0.32-ubuntu-ok"))
 	f.pkg("wazuh-agent", "install ok installed|4.14.10-1")
 	f.service("wazuh-agent", "active")
 	f.write("var/ossec/etc/ossec.conf", ossecConf(t, "198.51.100.5"))
@@ -95,15 +97,122 @@ func TestAConnectedAgentReadsConnected(t *testing.T) {
 }
 
 func TestAHostTheServerDoesNotKnowReadsNotRegistered(t *testing.T) {
-	f, h := installedHost(t, "192.0.2.10")
-	f.write("var/log/zabbix/zabbix_agent2.log", logStart+logNotFound)
+	// Agents 7.0.22 and 7.0.32 write the refusal once, followed by "active
+	// checks on server started to fail", and nothing more while it lasts.
+	for _, log := range []string{"7.0.32-ubuntu-notfound", "7.0.32-debian-notfound", "7.0.22-notfound"} {
+		f, h := installedHost(t, "192.0.2.10")
+		f.write(zabbixLogRel, agentLog(t, log))
 
-	c := h.Status(context.Background()).Zabbix.Connection
-	if c == nil || c.State != serveragents.ConnNotRegistered {
-		t.Fatalf("zabbix connection = %+v, want not_registered", c)
+		c := h.Status(context.Background()).Zabbix.Connection
+		if c == nil || c.State != serveragents.ConnNotRegistered {
+			t.Fatalf("%s: zabbix connection = %+v, want not_registered", log, c)
+		}
+		if !strings.Contains(c.Detail, "no active checks on server [zbx-fake:10051]: host [") || !strings.HasSuffix(c.Detail, "] not found") {
+			t.Errorf("%s: detail = %q, want the refusal's line", log, c.Detail)
+		}
 	}
-	if !strings.Contains(c.Detail, "host [node-a] not found") {
-		t.Errorf("detail = %q, want the log line", c.Detail)
+}
+
+func TestAHostTheServerTookReadsConnected(t *testing.T) {
+	for _, log := range []string{"7.0.32-ubuntu-notfound-recovered", "7.0.32-ubuntu-autoreg", "7.0.32-debian-notfound-recovered", "7.0.22-notfound-recovered", "7.0.32-ubuntu-outage-recovered"} {
+		f, h := installedHost(t, "192.0.2.10")
+		f.write(zabbixLogRel, agentLog(t, log))
+
+		if c := h.Status(context.Background()).Zabbix.Connection; c == nil || c.State != serveragents.ConnConnected {
+			t.Errorf("%s: zabbix connection = %+v, want connected", log, c)
+		}
+	}
+}
+
+func TestAnAgentThatRepeatsItsRefusalIsReadAgainstTheHostsClock(t *testing.T) {
+	// Agent 7.0.10 repeats the refusal at every refresh (5 seconds here),
+	// and writes nothing once its server takes the host. Its last refusal
+	// is at 12:30:34.
+	at := func(clock string) time.Time {
+		return time.Date(2026, 11, 26, 12, 30, 0, 0, time.UTC).Add(mustDuration(t, clock))
+	}
+	for _, tc := range []struct {
+		name, refresh string
+		now           time.Time
+		want          string
+	}{
+		{"refused a refresh ago", "", at("40s"), serveragents.ConnNotRegistered},
+		{"silent for more than three refreshes", "", at("50s"), serveragents.ConnConnected},
+		{"silent for less than three of its configured refreshes", "RefreshActiveChecks=30\n", at("1m"), serveragents.ConnNotRegistered},
+	} {
+		f, h := installedHost(t, "192.0.2.10")
+		f.write("etc/zabbix/zabbix_agent2.conf", "Server=192.0.2.10\nServerActive=192.0.2.10\nLogFile=/var/log/zabbix/zabbix_agent2.log\n"+tc.refresh)
+		f.write(zabbixLogRel, agentLog(t, "7.0.10-notfound"))
+		f.now = tc.now
+
+		if c := h.Status(context.Background()).Zabbix.Connection; c == nil || c.State != tc.want {
+			t.Errorf("%s: zabbix connection = %+v, want %s", tc.name, c, tc.want)
+		}
+	}
+}
+
+func mustDuration(t *testing.T, s string) time.Duration {
+	t.Helper()
+	d, err := time.ParseDuration(s)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return d
+}
+
+func TestTheAgentsLogIsWhereItsConfigSays(t *testing.T) {
+	t.Run("LogFile", func(t *testing.T) {
+		f, h := installedHost(t, "192.0.2.10")
+		f.write("etc/zabbix/zabbix_agent2.conf", "Server=192.0.2.10\nServerActive=192.0.2.10\nLogFile=/srv/agent2/agent.log\n")
+		f.write("srv/agent2/agent.log", agentLog(t, "7.0.32-ubuntu-notfound"))
+
+		if c := h.Status(context.Background()).Zabbix.Connection; c == nil || c.State != serveragents.ConnNotRegistered {
+			t.Fatalf("zabbix connection = %+v, want not_registered from the log LogFile names", c)
+		}
+	})
+	t.Run("no LogFile", func(t *testing.T) {
+		f, h := installedHost(t, "192.0.2.10")
+		f.write("etc/zabbix/zabbix_agent2.conf", "Server=192.0.2.10\nServerActive=192.0.2.10\n")
+		f.write("tmp/zabbix_agent2.log", agentLog(t, "7.0.32-ubuntu-notfound"))
+
+		if c := h.Status(context.Background()).Zabbix.Connection; c == nil || c.State != serveragents.ConnNotRegistered {
+			t.Fatalf("zabbix connection = %+v, want not_registered from the agent's default log", c)
+		}
+	})
+	// Without a log to read, an agent that reaches its server's port is not
+	// known to be connected.
+	for _, tc := range []struct{ name, conf, detail string }{
+		{"no such file", "LogFile=/srv/agent2/none.log\n", "/srv/agent2/none.log, cannot be read"},
+		{"LogType system", "LogType=system\nLogFile=/var/log/zabbix/zabbix_agent2.log\n", "LogType=system"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			f, h := installedHost(t, "192.0.2.10")
+			f.write("etc/zabbix/zabbix_agent2.conf", "Server=192.0.2.10\nServerActive=192.0.2.10\n"+tc.conf)
+
+			c := h.Status(context.Background()).Zabbix.Connection
+			if c == nil || c.State != serveragents.ConnUnknown || !strings.Contains(c.Detail, tc.detail) {
+				t.Fatalf("zabbix connection = %+v, want unknown saying %q", c, tc.detail)
+			}
+		})
+	}
+}
+
+func TestAnAgentStartingOrReloadingIsNotStopped(t *testing.T) {
+	f, h := installedHost(t, "192.0.2.10")
+	f.service("zabbix-agent2", "activating")
+	f.service("wazuh-agent", "reloading")
+	f.agentdState("connected", "2031-03-04 09:59:58", "")
+
+	st := h.Status(context.Background())
+
+	if c := st.Zabbix.Connection; c == nil || c.State != serveragents.ConnUnknown || c.Detail != "zabbix-agent2 is activating" {
+		t.Errorf("zabbix connection = %+v, want unknown while it is activating", c)
+	}
+	if c := st.Wazuh.Connection; c == nil || c.State != serveragents.ConnUnknown || c.Detail != "wazuh-agent is reloading" {
+		t.Errorf("wazuh connection = %+v, want unknown while it is reloading", c)
+	}
+	if got := f.dialedAddrs(); len(got) != 0 {
+		t.Errorf("dialled %q, want nothing while the service is between states", got)
 	}
 }
 
@@ -268,6 +377,7 @@ func TestAgentsNotInstalledAsPackagesAreRecognised(t *testing.T) {
 	f.system(osNoble)
 	f.noPkg("zabbix-agent2", "zabbix-agent", "wazuh-agent")
 	f.write("etc/zabbix/zabbix_agent2.conf", "Server=192.0.2.10\nServerActive=192.0.2.10\n")
+	f.write("tmp/zabbix_agent2.log", agentLog(t, "7.0.32-ubuntu-ok"))
 	f.service("zabbix-agent2", "active")
 	f.write("var/ossec/etc/ossec.conf", ossecConf(t, "198.51.100.5"))
 	f.service("wazuh-agent", "inactive")

@@ -7,6 +7,7 @@ import (
 	"slices"
 	"strings"
 	"testing"
+	"time"
 )
 
 const managedBanner = "# Managed by Semaphore / Ansible."
@@ -238,5 +239,35 @@ func TestSetsManagedKey(t *testing.T) {
 	}
 	if got := SetsManagedKey([]byte("Plugins.Docker.Endpoint=unix:///var/run/docker.sock\n")); got != nil {
 		t.Fatalf("got %v, want nil", got)
+	}
+}
+
+func TestWhereTheAgentLogsAndHowOftenItAsks(t *testing.T) {
+	vendor := ReadZabbixConf(zabbixFixture(t))
+	if got := vendor.LogPath(); got != "/var/log/zabbix/zabbix_agent2.log" {
+		t.Errorf("vendor LogPath = %q, want its LogFile, not LogFileSize's line", got)
+	}
+	if got := vendor.Refresh(); got != ZabbixDefaultRefresh {
+		t.Errorf("vendor Refresh = %v, want the agent's default %v", got, ZabbixDefaultRefresh)
+	}
+	for _, tc := range []struct {
+		conf, path string
+		refresh    time.Duration
+	}{
+		{"", ZabbixDefaultLogFile, 5 * time.Second},
+		{"LogType=file\nLogFile=/srv/log/agent2.log\nRefreshActiveChecks=60\n", "/srv/log/agent2.log", time.Minute},
+		{"LogType=system\nLogFile=/srv/log/agent2.log\n", "", 5 * time.Second},
+		{"LogType=console\n", "", 5 * time.Second},
+		{"# LogFile=/srv/log/agent2.log\nRefreshActiveChecks=0\n", ZabbixDefaultLogFile, 5 * time.Second},
+		{"RefreshActiveChecks=86401\n", ZabbixDefaultLogFile, 5 * time.Second},
+		{"RefreshActiveChecks=often\n", ZabbixDefaultLogFile, 5 * time.Second},
+	} {
+		c := ReadZabbixConf([]byte(tc.conf))
+		if got := c.LogPath(); got != tc.path {
+			t.Errorf("%q: LogPath = %q, want %q", tc.conf, got, tc.path)
+		}
+		if got := c.Refresh(); got != tc.refresh {
+			t.Errorf("%q: Refresh = %v, want %v", tc.conf, got, tc.refresh)
+		}
 	}
 }

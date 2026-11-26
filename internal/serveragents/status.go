@@ -22,7 +22,7 @@ const (
 	ConnFailing       = "failing" // Zabbix: TCP connects, the active checks fail
 	ConnNotRunning    = "not_running"
 	ConnNoServer      = "no_server" // Zabbix: no ServerActive to reach
-	ConnUnknown       = "unknown"
+	ConnUnknown       = "unknown"   // cannot be told: the service is starting or reloading, Zabbix has no log to read or several servers, Wazuh a status it does not know
 )
 
 // Connection is whether an agent reaches its server, judged from the agent's
@@ -34,6 +34,9 @@ type Connection struct {
 	Detail        string `json:"detail,omitempty"`
 	LastKeepalive string `json:"last_keepalive,omitempty"`
 	LastAck       string `json:"last_ack,omitempty"`
+	// Transitional reports an agent whose service is starting or reloading:
+	// how it connects is about to be known, so a wait for it goes on.
+	Transitional bool `json:"-"`
 }
 
 // ZabbixStatus is a host's Zabbix agent.

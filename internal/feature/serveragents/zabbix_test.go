@@ -41,10 +41,19 @@ func zabbixConf(t *testing.T, server, active, hostname, metadata string) string 
 	).Replace(testdata(t, "zabbix_agent2.conf"))
 }
 
-// restartable scripts systemctl enable and restart of the Zabbix agent.
+// restartable scripts systemctl enable and restart of the Zabbix agent; a
+// restarted agent logs its start, as the real one does, and nothing else
+// yet.
 func (f *deployFixture) restartable() {
 	f.cmd.on("systemctl enable zabbix-agent2", "", nil)
 	f.cmd.on("systemctl restart zabbix-agent2", "Created symlink …\n", nil)
+	f.restartLogs("7.0.32-ubuntu-ok")
+}
+
+// restartLogs makes a restart of the Zabbix agent leave this real log.
+func (f *deployFixture) restartLogs(log string) {
+	content := agentLog(f.t, log)
+	f.cmd.does("systemctl restart zabbix-agent2", func() { f.write(zabbixLogRel, content) })
 }
 
 // freshZabbixHost is a host without any Zabbix agent, whose apt installs
@@ -66,7 +75,8 @@ func freshZabbixHost(t *testing.T, osRelease, version string) *deployFixture {
 }
 
 // installedZabbixHost is a noble host with agent2 installed at version,
-// running, with this config file.
+// running since it last started with nothing logged since, with this
+// config file.
 func installedZabbixHost(t *testing.T, version, conf string) *deployFixture {
 	t.Helper()
 	f := newDeployFixture(t)
@@ -75,6 +85,7 @@ func installedZabbixHost(t *testing.T, version, conf string) *deployFixture {
 	f.service("zabbix-agent2", "active")
 	f.restartable()
 	f.write(zabbixConfRel, conf)
+	f.write(zabbixLogRel, agentLog(t, "7.0.32-ubuntu-ok"))
 	return f
 }
 
@@ -348,12 +359,15 @@ func TestTheAgentMustReallyConnect(t *testing.T) {
 	}
 }
 
-func TestAHostNotFoundAtFirstConnectsOnceRegistered(t *testing.T) {
-	f := settledZabbixHost(t, "192.0.2.10")
-	f.write("var/log/zabbix/zabbix_agent2.log", logStart+logNotFound)
+func TestAHostTheServerRegistersAtItsFirstRequestConnects(t *testing.T) {
+	// A server that registers a host it does not know (autoregistration)
+	// refuses its first request; agent 7.0.32 logs the refusal and "started
+	// to fail", then "are active again" once a later request is taken.
+	f := installedZabbixHost(t, zabbixVendorVersion, zabbixConf(t, "192.0.2.19", "192.0.2.19", "node-a", ""))
+	f.restartLogs("7.0.32-ubuntu-notfound")
 	f.onSleep = func(n int) {
 		if n == 2 {
-			f.write("var/log/zabbix/zabbix_agent2.log", logStart+logNotFound+logAgain)
+			f.write(zabbixLogRel, agentLog(t, "7.0.32-ubuntu-notfound-recovered"))
 		}
 	}
 
@@ -363,8 +377,47 @@ func TestAHostNotFoundAtFirstConnectsOnceRegistered(t *testing.T) {
 	if f.sleeps != 2 {
 		t.Errorf("succeeded after %d waits, want 2: not while the server did not know the host", f.sleeps)
 	}
-	if !f.io.logged("not_registered") {
-		t.Errorf("log %q, want the waits to say not_registered", f.io.logs)
+	if !f.io.logged("5s: not_registered") {
+		t.Errorf("log %q, want the first wait to say not_registered", f.io.logs)
+	}
+}
+
+// at10 is when the 7.0.10 agent of testdata/agent2-log/7.0.10-autoreg.log
+// started; it was refused at 12:33:51 and taken at its next request.
+var at10 = time.Date(2026, 11, 26, 12, 33, 49, 0, time.UTC)
+
+func TestAnAgentThatSaysNothingOnceTakenConnectsWhenItFallsSilent(t *testing.T) {
+	f := installedZabbixHost(t, "1:7.0.10+dfsg-2build1", zabbixConf(t, "192.0.2.19", "192.0.2.19", "node-a", ""))
+	f.restartLogs("7.0.10-autoreg")
+	f.now = at10
+
+	out := f.deploy(context.Background(), zabbixStep("192.0.2.10", "192.0.2.10", ""))
+
+	f.mustSucceed(out)
+	// Refused at 12:33:51, silent since: three refreshes of 5s later it is
+	// taken, read at the poll of 12:34:09.
+	if waited := f.now.Sub(at10); waited != 20*time.Second {
+		t.Errorf("succeeded %v after the restart, want 20s", waited)
+	}
+	if !f.io.logged("15s: not_registered") {
+		t.Errorf("log %q, want not_registered until it had been silent long enough", f.io.logs)
+	}
+}
+
+func TestAnAgentThatKeepsBeingRefusedNeverConnects(t *testing.T) {
+	f := installedZabbixHost(t, "1:7.0.10+dfsg-2build1", zabbixConf(t, "192.0.2.19", "192.0.2.19", "node-a", ""))
+	f.restartLogs("7.0.10-autoreg")
+	f.now = at10
+	refused := "[101] no active checks on server [zbx-fake:10051]: host [node-u2510] not found\n"
+	f.onSleep = func(int) {
+		// The refusal again, a second ago, as at every refresh.
+		f.write(zabbixLogRel, f.read(zabbixLogRel)+f.now.Add(-time.Second).Format("2006/01/02 15:04:05.000000 ")+refused)
+	}
+
+	out := f.deploy(context.Background(), zabbixStep("192.0.2.10", "192.0.2.10", ""))
+
+	if out.Status != tasks.JobFailed || !strings.HasPrefix(out.Summary, "not connected after 1m0s: not_registered") {
+		t.Fatalf("outcome %+v, want failed, not connected after 1m0s: not_registered", out)
 	}
 }
 

@@ -25,12 +25,15 @@ type argvCmd struct {
 	*exec.MockCommander
 	mu      sync.Mutex
 	answers map[string]exec.MockResult
-	run     []string            // every command line, in order
-	envs    map[string][]string // the environment each line last ran with
+	queued  map[string][]exec.MockResult // answers given once each, before answers'
+	effects map[string]func()            // what running a line does to the host
+	run     []string                     // every command line, in order
+	envs    map[string][]string          // the environment each line last ran with
 }
 
 func newArgvCmd() *argvCmd {
-	return &argvCmd{MockCommander: exec.NewMockCommander(), answers: map[string]exec.MockResult{}, envs: map[string][]string{}}
+	return &argvCmd{MockCommander: exec.NewMockCommander(), answers: map[string]exec.MockResult{},
+		queued: map[string][]exec.MockResult{}, effects: map[string]func(){}, envs: map[string][]string{}}
 }
 
 // on scripts the answer to one command line.
@@ -40,13 +43,39 @@ func (c *argvCmd) on(line, out string, err error) {
 	c.answers[line] = exec.MockResult{Output: out, Err: err}
 }
 
+// once scripts the next answer to a command line; the one on scripts comes
+// after every answer once scripts.
+func (c *argvCmd) once(line, out string, err error) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.queued[line] = append(c.queued[line], exec.MockResult{Output: out, Err: err})
+}
+
+// does scripts what running a command line does to the host; it runs before
+// the line answers.
+func (c *argvCmd) does(line string, effect func()) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.effects[line] = effect
+}
+
 func (c *argvCmd) answer(env []string, name string, args ...string) (string, error) {
 	_, _ = c.MockCommander.Run(name, args...)
 	line := strings.Join(append([]string{name}, args...), " ")
 	c.mu.Lock()
-	defer c.mu.Unlock()
 	c.run = append(c.run, line)
 	c.envs[line] = env
+	effect := c.effects[line]
+	c.mu.Unlock()
+	if effect != nil {
+		effect()
+	}
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if q := c.queued[line]; len(q) > 0 {
+		c.queued[line] = q[1:]
+		return q[0].Output, q[0].Err
+	}
 	if r, ok := c.answers[line]; ok {
 		return r.Output, r.Err
 	}
@@ -221,6 +250,17 @@ func (f *hostFixture) unit(loadState string) {
 // agentdState writes wazuh-agentd.state with a status and keepalive.
 func (f *hostFixture) agentdState(status, keepalive, ack string) {
 	f.write("var/ossec/var/run/wazuh-agentd.state", "# State file for wazuh-agentd\n# THIS FILE WILL BE OVERWRITTEN.\n\nstatus='"+status+"'\nlast_keepalive='"+keepalive+"'\nlast_ack='"+ack+"'\nmsg_count='12'\nmsg_sent='12'\n")
+}
+
+// zabbixLogRel is where the vendor's and the distributions' configs have
+// agent 2 write its log.
+const zabbixLogRel = "var/log/zabbix/zabbix_agent2.log"
+
+// agentLog is the end of a real agent 2 log (see the pure package's
+// testdata/agent2-log): <version>-<os>-<what happened>.
+func agentLog(t *testing.T, name string) string {
+	t.Helper()
+	return testdata(t, "agent2-log/"+name+".log")
 }
 
 // testdata reads one of the pure package's fixtures.

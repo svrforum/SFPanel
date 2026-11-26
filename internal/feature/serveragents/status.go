@@ -51,11 +51,27 @@ func (h *Host) zabbixStatus(ctx context.Context) serveragents.ZabbixStatus {
 	return st
 }
 
+// transitional reports a service systemd is starting or reloading: it is
+// neither running nor stopped, and soon will be one of them. The Wazuh agent
+// reloads itself a few seconds after it first connects, for the shared
+// config its manager sends.
+func transitional(service string) bool { return service == "activating" || service == "reloading" }
+
+// notYet is the connection of an agent whose service is starting or
+// reloading.
+func notYet(unit, service string) *serveragents.Connection {
+	return &serveragents.Connection{State: serveragents.ConnUnknown, Detail: unit + " is " + service, Transitional: true}
+}
+
 // zabbixConnection judges whether an agent with this config reaches its
 // server: the service has to be active, ServerActive has to accept a TCP
-// connection, and the agent's own log since it last started must not end in
-// a failure.
+// connection, and the agent's own log — where its config says it writes
+// one — since it last started must not end in a failure. With no log to
+// read it cannot be told, which is never connected.
 func (h *Host) zabbixConnection(ctx context.Context, service string, conf serveragents.ZabbixConf) *serveragents.Connection {
+	if transitional(service) {
+		return notYet(zabbixUnit, service)
+	}
 	if service != "active" {
 		return &serveragents.Connection{State: serveragents.ConnNotRunning}
 	}
@@ -72,10 +88,18 @@ func (h *Host) zabbixConnection(ctx context.Context, service string, conf server
 	if err := h.dial(ctx, addr); err != nil {
 		return &serveragents.Connection{State: serveragents.ConnUnreachable, Detail: response.SanitizeOutput(err.Error())}
 	}
-	switch class, line := serveragents.ClassifyZabbixLog(h.readTail(zabbixLogPath, logTail)); class {
+	logPath := conf.LogPath()
+	if logPath == "" {
+		return &serveragents.Connection{State: serveragents.ConnUnknown, Detail: response.SanitizeOutput("LogType=" + conf.LogType + ": the agent writes no log file to tell from")}
+	}
+	tail, ok := h.readTail(logPath, logTail)
+	if !ok {
+		return &serveragents.Connection{State: serveragents.ConnUnknown, Detail: response.SanitizeOutput("the agent's log, " + logPath + ", cannot be read")}
+	}
+	switch class, line := serveragents.ClassifyZabbixLog(tail, h.Now(), conf.Refresh()); class {
 	case serveragents.LogNotFound:
 		return &serveragents.Connection{State: serveragents.ConnNotRegistered, Detail: response.SanitizeOutput(line)}
-	case serveragents.LogUnreachable:
+	case serveragents.LogUnreachable, serveragents.LogRefused:
 		return &serveragents.Connection{State: serveragents.ConnFailing, Detail: response.SanitizeOutput(line)}
 	}
 	return &serveragents.Connection{State: serveragents.ConnConnected}
@@ -107,6 +131,9 @@ func (h *Host) wazuhStatus() serveragents.WazuhStatus {
 // wazuhConnection reads what the agent says about its own connection to the
 // manager, in a state file it rewrites while it runs.
 func (h *Host) wazuhConnection(service string) *serveragents.Connection {
+	if transitional(service) {
+		return notYet(wazuhUnit, service)
+	}
 	if service != "active" {
 		return &serveragents.Connection{State: serveragents.ConnNotRunning}
 	}
