@@ -6999,7 +6999,7 @@ WireGuard 키페어 생성 (`wg genkey` + `wg pubkey`).
 
 | 필드 | 설명 |
 |------|------|
-| `installed` | nmap이 PATH에 있는지. `false`면 화면은 그 노드의 패키지 화면으로 보낸다 |
+| `installed` | nmap이 PATH에 있는지. `false`면 화면은 그 자리에서 그 노드에 nmap을 설치한다(`POST /packages/install`, 클러스터에서는 브라우저가 고른 노드가 아니라 이 노드의 `?node=`로) |
 | `networks` | 위 규칙의 망 목록, 인터페이스 순. null이 아님. `mac`은 인터페이스의 MAC(소문자), `gateway`는 없으면 `""`, `reason`은 스캔 가능하면 `""` |
 | `running` | 진행 중인 스캔, 없으면 `null`. `scheduled`: 주기가 시작한 스캔이면 `true` |
 | `last` | 패널이 켜진 뒤 마지막 스캔이 어떻게 끝났는지, 없으면 `null`. 메모리에만 있다. `state`: `done` \| `failed` \| `timeout` \| `cancelled`, `at`: 끝난 시각, `scheduled`: 주기가 시작한 스캔이면 `true`. `last`가 끝났다고 말하면 그 결과는 이미 `results`에 있다 |

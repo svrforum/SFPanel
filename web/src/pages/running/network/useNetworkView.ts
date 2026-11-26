@@ -59,6 +59,11 @@ export interface NetworkModel {
   start: (nodeId: string, network: string, ports: boolean) => Promise<string | null>
   cancel: (nodeId: string) => Promise<void>
   /**
+   * Installs nmap on a node — the node that lacks it, not the one the browser
+   * has selected — and reads its scans again. Resolves to what went wrong, or null.
+   */
+  installScanner: (nodeId: string) => Promise<string | null>
+  /**
    * Writes what the operator said of a device to every node on its network
    * that keeps a registry — one node going away does not take the label with
    * it — all with the same time, so the nodes agree which label is the last.
@@ -218,6 +223,18 @@ export function useNetworkView(sections: BoardSection[], round: number): Network
     await readScan(t)
   }, [readScan])
 
+  const installScanner = useCallback(async (nodeId: string) => {
+    const t = targetOf.current.get(nodeId)
+    if (!t) return null
+    try {
+      await api.installPackage('nmap', t.node)
+    } catch (err) {
+      return message(err)
+    }
+    await readScan(t)
+    return null
+  }, [readScan])
+
   const dismissEnded = useCallback(() => setEnded(null), [])
 
   // The same request to each node of a network; done when every node has
@@ -320,11 +337,12 @@ export function useNetworkView(sections: BoardSection[], round: number): Network
       dismissEnded,
       start,
       cancel,
+      installScanner,
       saveDevice,
       ackDevice,
       forgetDevice,
       wakeDevice,
       setSchedule,
     }
-  }, [sections, nodes, scans, interfaces, ports, ended, dismissEnded, start, cancel, readDetails, saveDevice, ackDevice, forgetDevice, wakeDevice, setSchedule])
+  }, [sections, nodes, scans, interfaces, ports, ended, dismissEnded, start, cancel, installScanner, readDetails, saveDevice, ackDevice, forgetDevice, wakeDevice, setSchedule])
 }

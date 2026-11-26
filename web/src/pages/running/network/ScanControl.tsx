@@ -1,10 +1,8 @@
 import { useEffect, useId, useState } from 'react'
 import { useTranslation } from 'react-i18next'
-import { AlertTriangle, Radar, Square } from 'lucide-react'
+import { AlertTriangle, Download, Loader2, Radar, Square } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { canScan, defaultScanner, prefixOf, type NetworkEntry } from '@/lib/netmap'
-import { NodeLink } from '../NodeLink'
-import type { Scope } from '../targets'
 
 const PORTS_KEY = 'sfpanel-netmap-ports'
 
@@ -115,11 +113,12 @@ function Schedule({ entry, nodeId, nodeName, onSchedule }: {
   )
 }
 
-export function ScanControl({ entry, scope, onStart, onCancel, onSchedule }: {
+export function ScanControl({ entry, onStart, onCancel, onInstall, onSchedule }: {
   entry: NetworkEntry
-  scope: Scope
   onStart: (nodeId: string, network: string, ports: boolean) => Promise<string | null>
   onCancel: (nodeId: string) => Promise<void>
+  /** Installs nmap on the node; resolves to what went wrong, or null. */
+  onInstall: (nodeId: string) => Promise<string | null>
   onSchedule: (nodeId: string, intervalMinutes: number, portsDaily: boolean) => Promise<string | null>
 }) {
   const { t } = useTranslation()
@@ -128,6 +127,7 @@ export function ScanControl({ entry, scope, onStart, onCancel, onSchedule }: {
   const [ports, setPorts] = usePortsChoice()
   const [busy, setBusy] = useState(false)
   const [problem, setProblem] = useState<string | null>(null)
+  const [installProblem, setInstallProblem] = useState<string | null>(null)
 
   if (entry.running) {
     const run = entry.running
@@ -152,18 +152,23 @@ export function ScanControl({ entry, scope, onStart, onCancel, onSchedule }: {
     const online = entry.scanners.filter((s) => s.online)
     const noTool = online.find((s) => s.scannable && !s.installed)
     const tooLarge = online.length > 0 && online.every((s) => !s.scannable)
+    // Installed here, on the node that lacks it: once it has nmap, its next read offers the scan.
+    const install = async (nodeId: string) => {
+      setBusy(true)
+      setInstallProblem(null)
+      setInstallProblem(await onInstall(nodeId))
+      setBusy(false)
+    }
     return (
       <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-[13px] text-muted-foreground">
         {noTool ? (
           <>
             <p>{t('running.network.scan.noTool', { node: noTool.nodeName })}</p>
-            <NodeLink
-              target={{ to: '/packages', onNode: scope === 'cluster' }}
-              nodeId={noTool.nodeId}
-              className="inline-flex min-h-11 items-center rounded-md px-1 font-medium text-primary hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-            >
-              {t('running.network.scan.openPackages')}
-            </NodeLink>
+            <Button variant="outline" size="sm" className="rounded-xl" disabled={busy} onClick={() => void install(noTool.nodeId)}>
+              {busy ? <Loader2 className="animate-spin" aria-hidden="true" /> : <Download aria-hidden="true" />}
+              {t('running.network.scan.installNmap')}
+            </Button>
+            {installProblem && <p role="alert" className="basis-full break-words text-xs text-destructive">{t('running.network.scan.installFailed')} {installProblem}</p>}
           </>
         ) : (
           <p>{tooLarge ? t('running.network.scan.tooLarge', { prefix: prefixOf(entry.cidr) }) : t('running.network.scan.nobody')}</p>

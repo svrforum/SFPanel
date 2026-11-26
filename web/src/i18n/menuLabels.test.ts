@@ -29,6 +29,7 @@ const KO: Record<string, string> = {
   'cluster.tasks.run.toTerminal': '이 서버 터미널', 'cluster.tasks.run.toServer': '이 서버 열기',
   'cluster.addAgent.waySsh': 'SSH로 설치', 'cluster.addAgent.wayToken': '가입 명령 복사(토큰)',
   'terminal.openHere': '여기서 터미널 열기',
+  'running.network.scan.installNmap': 'nmap 설치',
 }
 // A page's <h1> is its menu label.
 const H1: [string, string][] = [

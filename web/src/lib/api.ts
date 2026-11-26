@@ -1863,11 +1863,12 @@ class ApiClient {
     }
   }
 
-  installPackage(name: string) {
+  installPackage(name: string, node?: string) {
     return this.request('/packages/install', {
       method: 'POST',
       body: JSON.stringify({ name }),
       timeout: LONG_OP_TIMEOUT,
+      node,
     })
   }
 

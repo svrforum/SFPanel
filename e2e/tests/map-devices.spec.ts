@@ -101,8 +101,12 @@ interface Opts {
   cluster?: boolean
   /** No scan has been made yet. */
   unscanned?: boolean
-  /** nmap is on no node. */
+  /** nmap is on no node until it is installed there. */
   noTool?: boolean
+  /** The server the browser has chosen when the page first loads. */
+  current?: string
+  /** Every node refuses to install a package. */
+  installFails?: boolean
   /** How the scan the test starts ends. */
   ends?: 'done' | 'failed'
   /** Nodes older than the route. */
@@ -155,11 +159,16 @@ async function mock(page: Page, opts: Opts = {}) {
     left: 0,
     /** The node= of every read of the alert settings: '' for none. */
     alertReads: [] as string[],
+    /** Every package install asked for, by node. */
+    installs: [] as { node: string; body: unknown }[],
+    /** The nodes nmap was installed on. */
+    nmap: new Set<string>(),
   }
   await page.addInitScript(() => {
     sessionStorage.setItem('token', 'fixture-token')
     localStorage.setItem('sfpanel_language', 'en')
   })
+  if (opts.current) await page.addInitScript((id) => localStorage.setItem('sfpanel_current_node', id), opts.current)
   let turn = 0
   await page.route('**/api/v1/**', async (route) => {
     const request = route.request()
@@ -258,7 +267,7 @@ async function mock(page: Page, opts: Opts = {}) {
         }
         const address = AT[node]
         data = {
-          installed: !opts.noTool && (node === 'm-1' || node === 'm-2'),
+          installed: (node === 'm-1' || node === 'm-2') && (!opts.noTool || state.nmap.has(node)),
           networks: [{ cidr: NET, interface: 'eth0', address: ip(address), mac: mac(address), gateway: ip(opts.twoGateways && node === 'a-4' ? 17 : 1), scannable: true, reason: '' }],
           running: scanner ? state.running : null,
           last: scanner ? state.last : null,
@@ -270,6 +279,12 @@ async function mock(page: Page, opts: Opts = {}) {
           }),
         }
       }
+    }
+    else if (path === '/packages/install') {
+      state.installs.push({ node, body: request.postDataJSON() })
+      if (opts.installFails) return fail(500, 'APT_INSTALL_ERROR', 'Failed to install package: E: Unable to locate package nmap')
+      state.nmap.add(node)
+      data = { message: 'Package nmap installed successfully', output: '' }
     }
     else if (path === '/docker/compose' || path === '/docker/containers') return fail(503, 'DOCKER_UNAVAILABLE', 'Docker is not available on this node')
     else if (path === '/alerts/channels' || path === '/alerts/rules' || path === '/alerts/history') {
@@ -515,15 +530,25 @@ test('a network not scanned yet is listed with the nodes on it and a way to scan
   await expect(page.getByTestId('net-device')).toHaveCount(29, { timeout: 15_000 })
 })
 
-test('without nmap on any node the page says which node lacks it and leads to its packages', async ({ page }) => {
-  await mock(page, { unscanned: true, noTool: true })
+test('without nmap the page installs it, in place, on the node that lacks it', async ({ page }) => {
+  const state = await mock(page, { unscanned: true, noTool: true, current: 'a-1', slow: true })
   await page.goto('/map')
   const network = page.locator('[data-testid="net-network"]')
   await expect(network).toContainText('nmap is not installed on alpha-node.')
-  await expect(network.getByRole('button', { name: /^Scan/ })).toHaveCount(0)
-  // The packages screen of the node that lacks it: the address names the node.
-  await network.getByRole('link', { name: 'Install nmap in Packages' }).click()
-  await expect(page).toHaveURL(/\/packages\?node=m-1$/)
+  await network.getByRole('button', { name: 'Install nmap' }).click()
+  await expect.poll(() => state.installs).toEqual([{ node: 'm-1', body: { name: 'nmap' } }])
+  await expect(network.getByRole('button', { name: 'Scan', exact: true })).toBeVisible()
+})
+
+test('an nmap install that fails says why, and the install is still offered', async ({ page }) => {
+  const state = await mock(page, { unscanned: true, noTool: true, installFails: true })
+  await page.goto('/map')
+  const network = page.locator('[data-testid="net-network"]')
+  await network.getByRole('button', { name: 'Install nmap' }).click()
+  await expect(network.getByRole('alert')).toHaveText('nmap could not be installed. Failed to install package: E: Unable to locate package nmap')
+  expect(state.installs).toEqual([{ node: 'm-1', body: { name: 'nmap' } }])
+  await expect(network.getByRole('button', { name: 'Install nmap' })).toBeEnabled()
+  await expect(network.getByRole('button', { name: 'Scan', exact: true })).toHaveCount(0)
 })
 
 test('nodes older than the scan say so, and still show their interfaces and ports', async ({ page }) => {

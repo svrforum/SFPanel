@@ -48,9 +48,9 @@ function Network({ entry, model, scope, query, level, onClear }: {
         </div>
         <ScanControl
           entry={entry}
-          scope={scope}
           onStart={model.start}
           onCancel={model.cancel}
+          onInstall={model.installScanner}
           onSchedule={(nodeId, minutes, portsDaily) => model.setSchedule(entry, nodeId, minutes, portsDaily)}
         />
       </header>
