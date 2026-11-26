@@ -9,6 +9,7 @@ import (
 	"io"
 	"net"
 	"net/http"
+	"net/netip"
 	"os"
 	"path/filepath"
 	"strings"
@@ -53,6 +54,7 @@ type Host struct {
 	Root     string // "/" in production
 	Cmd      exec.Commander
 	Dial     func(ctx context.Context, network, addr string) (net.Conn, error)
+	Resolve  func(ctx context.Context, name string) ([]netip.Addr, error)
 	HTTP     *http.Client
 	KeyURLs  map[string]string // agent → the URL of its vendor's signing key
 	Platform func() platform.Info
@@ -66,6 +68,9 @@ func NewHost(cmd exec.Commander) *Host {
 		Root: "/",
 		Cmd:  cmd,
 		Dial: d.DialContext,
+		Resolve: func(ctx context.Context, name string) ([]netip.Addr, error) {
+			return net.DefaultResolver.LookupNetIP(ctx, "ip", name)
+		},
 		HTTP: &http.Client{Timeout: 30 * time.Second},
 		KeyURLs: map[string]string{
 			serveragents.Zabbix: serveragents.ZabbixKeyURL,

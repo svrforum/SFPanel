@@ -3,6 +3,8 @@ package featureserveragents
 import (
 	"context"
 	"errors"
+	"net"
+	"regexp"
 	"slices"
 	"strings"
 	"testing"
@@ -443,4 +445,135 @@ func TestAWazuhStillReloadingIsNotWaitedForEver(t *testing.T) {
 	if waited := f.now.Sub(fixtureNow); waited != 90*time.Second {
 		t.Errorf("waited %v, want the minute and 30 seconds more", waited)
 	}
+}
+
+func TestTwoSpellingsOfOneManagerDoNotReenroll(t *testing.T) {
+	for _, c := range []struct{ name, address, to string }{
+		{"an address, then its name", "198.51.100.5", "wazuh.example.net"},
+		{"a name, then its address", "wazuh.example.net", "198.51.100.5"},
+		{"two names of one host", "wazuh.example.net", "manager.example.net"},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			f := installedWazuhHost(t, "hold ok installed|4.14.10-1", ossecWith(t, c.address, "default"), enrolledKeys)
+			f.resolves("wazuh.example.net", "2001:db8::5", "198.51.100.5")
+			f.resolves("manager.example.net", "198.51.100.5")
+
+			f.mustSucceed(f.deploy(context.Background(), wazuhStep(c.to, "", "4.14.10")))
+
+			if got := f.read(clientKeysRel); got != enrolledKeys {
+				t.Errorf("client.keys = %q, want the key kept for the same manager", got)
+			}
+			if f.io.logged("re-enroll") {
+				t.Errorf("log %q, want no re-enroll", f.io.logs)
+			}
+			if !f.io.logged("share the address 198.51.100.5") {
+				t.Errorf("log %q, want it to say why they are one manager", f.io.logs)
+			}
+			if got := f.ossec(); !slices.Equal(got.Servers, []string{c.to}) || got.EnrollmentManager != c.to {
+				t.Errorf("ossec.conf = %+v, want the cluster's spelling %s written", got, c.to)
+			}
+			for _, l := range f.lookedUp() {
+				if l.left <= 0 || l.left > 2*time.Second {
+					t.Errorf("looked up %s with %v left, want at most 2s", l.name, l.left)
+				}
+			}
+		})
+	}
+}
+
+func TestTwoNamesOfDifferentManagersReenroll(t *testing.T) {
+	f := installedWazuhHost(t, "hold ok installed|4.14.10-1", ossecWith(t, "wazuh-a.example.net", "default"), enrolledKeys)
+	f.resolves("wazuh-a.example.net", "198.51.100.5")
+	f.resolves("wazuh-b.example.net", "198.51.100.6")
+
+	f.mustSucceed(f.deploy(context.Background(), wazuhStep("wazuh-b.example.net", "", "4.14.10")))
+
+	if got := f.read(clientKeysRel); got != "" {
+		t.Errorf("client.keys = %q, want it emptied for another manager", got)
+	}
+	if !f.io.logged("re-enroll: manager changed from wazuh-a.example.net to wazuh-b.example.net") {
+		t.Errorf("log %q, want the re-enroll", f.io.logs)
+	}
+}
+
+func TestAManagerNameThatNoLongerExistsIsAnotherManager(t *testing.T) {
+	f := installedWazuhHost(t, "hold ok installed|4.14.10-1", ossecWith(t, "wazuh-old.example.net", "default"), enrolledKeys)
+	f.nameErrs["wazuh-old.example.net"] = &net.DNSError{Err: "no such host", Name: "wazuh-old.example.net", IsNotFound: true}
+
+	f.mustSucceed(f.deploy(context.Background(), wazuhStep("198.51.100.6", "", "4.14.10")))
+
+	if !f.io.logged("re-enroll: manager changed from wazuh-old.example.net to 198.51.100.6") {
+		t.Errorf("log %q, want the re-enroll", f.io.logs)
+	}
+}
+
+func TestWhenOneManagerCannotBeToldFromAnotherNothingChanges(t *testing.T) {
+	for _, c := range []struct {
+		name, address, to string
+		err               error
+		why               string
+	}{
+		{"a lookup that fails", "198.51.100.5", "wazuh.example.net",
+			&net.DNSError{Err: "i/o timeout", Name: "wazuh.example.net", IsTimeout: true}, "i/o timeout"},
+		{"the cluster's manager does not exist", "198.51.100.5", "wazuh.example.net",
+			&net.DNSError{Err: "no such host", Name: "wazuh.example.net", IsNotFound: true}, "wazuh.example.net does not resolve"},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			conf := ossecWith(t, c.address, "default")
+			f := installedWazuhHost(t, "hold ok installed|4.14.10-1", conf, enrolledKeys)
+			f.nameErrs[c.to] = c.err
+
+			out := f.deploy(context.Background(), wazuhStep(c.to, "", "4.14.10"))
+
+			if out.Status != tasks.JobFailed {
+				t.Fatalf("outcome %+v, want failed", out)
+			}
+			if !strings.Contains(out.Summary, "whether "+c.address+" and "+c.to+" are one manager cannot be told") || !strings.Contains(out.Summary, c.why) {
+				t.Errorf("summary %q, want it to say why the managers cannot be told apart: %s", out.Summary, c.why)
+			}
+			if f.read(clientKeysRel) != enrolledKeys || f.read(ossecConfRel) != conf {
+				t.Error("client.keys or ossec.conf changed, want both left alone")
+			}
+			if f.cmd.ran("systemctl restart") {
+				t.Error("restarted, want nothing done")
+			}
+		})
+	}
+}
+
+func TestReenrollTurnsEnrollmentOn(t *testing.T) {
+	off := strings.Replace(ossecWith(t, "192.0.2.19", "default"), "<enabled>yes</enabled>", "<enabled>no</enabled>", 1)
+
+	t.Run("another manager", func(t *testing.T) {
+		f := installedWazuhHost(t, "hold ok installed|4.14.10-1", off, enrolledKeys)
+
+		f.mustSucceed(f.deploy(context.Background(), wazuhStep("198.51.100.5", "", "4.14.10")))
+
+		if got := enrollmentEnabled(t, f.read(ossecConfRel)); got != "yes" {
+			t.Errorf("<enrollment><enabled> = %q, want yes: its key is gone", got)
+		}
+		if !f.io.logged("enrollment was off in /var/ossec/etc/ossec.conf (<enabled>no</enabled>); it is turned on so the agent can enroll with 198.51.100.5") {
+			t.Errorf("log %q, want it to say enrollment was turned on", f.io.logs)
+		}
+	})
+	t.Run("the same manager", func(t *testing.T) {
+		f := installedWazuhHost(t, "hold ok installed|4.14.10-1", off, enrolledKeys)
+
+		f.mustSucceed(f.deploy(context.Background(), wazuhStep("192.0.2.19", "", "4.14.10")))
+
+		if f.read(ossecConfRel) != off {
+			t.Error("ossec.conf changed, want an agent keeping its key left with enrollment off")
+		}
+	})
+}
+
+// enrollmentEnabled is what <enabled> says in <client><enrollment>, read
+// apart from the code under test.
+func enrollmentEnabled(t *testing.T, conf string) string {
+	t.Helper()
+	m := regexp.MustCompile(`(?s)<client>.*?<enrollment>\s*<enabled>([^<]*)</enabled>`).FindStringSubmatch(conf)
+	if m == nil {
+		t.Fatalf("no <enrollment><enabled> in:\n%s", conf)
+	}
+	return m[1]
 }

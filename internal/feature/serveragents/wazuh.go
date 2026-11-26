@@ -4,7 +4,10 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"net"
+	"net/netip"
 	"os"
+	"slices"
 	"strings"
 	"time"
 
@@ -133,7 +136,32 @@ func (d *Deployer) deployWazuh(ctx context.Context, step tasks.AgentStep, io Job
 	if len(before.Servers) == 1 {
 		from = before.Servers[0]
 	}
-	reenroll := pointedAtManager(from) && !serveragents.SameHost(from, manager)
+	var reenroll bool
+	if pointedAtManager(from) && !serveragents.SameHost(from, manager) {
+		same, shared, err := d.sameManager(ctx, from, manager)
+		if ctx.Err() != nil {
+			return cancelled(changed, "writing "+ossecConfPath)
+		}
+		if err != nil {
+			return failed(changed, fmt.Sprintf("the agent's manager is %s and the cluster's %s, and whether %s and %s are one manager cannot be told: %s; %s and %s are not changed",
+				response.SanitizeOutput(from), manager, response.SanitizeOutput(from), manager, response.SanitizeOutput(err.Error()), ossecConfPath, clientKeysPath))
+		}
+		if same {
+			io.Logf("%s and %s share the address %s: they are one manager, and the agent keeps its key", response.SanitizeOutput(from), manager, shared)
+		}
+		reenroll = !same
+	}
+	if reenroll {
+		// An agent whose key is gone enrolls again only if enrollment is on.
+		on, was, err := serveragents.EnableOssecEnrollment(out)
+		if err != nil {
+			return failed(changed, ossecConfPath+" is not changed: "+response.SanitizeOutput(err.Error()))
+		}
+		if was != "" {
+			io.Logf("enrollment was off in %s (<enabled>%s</enabled>); it is turned on so the agent can enroll with %s", ossecConfPath, response.SanitizeOutput(was), manager)
+			out, edited = on, true
+		}
+	}
 	if pointedAtManager(from) && !reenroll {
 		if after, _ := serveragents.ReadOssecConf(out); after.Groups != before.Groups {
 			io.Logf("groups are %s now in %s; an agent takes its groups when it enrolls, so this one keeps its own until they change on the manager", response.SanitizeOutput(after.Groups), ossecConfPath)
@@ -241,6 +269,61 @@ func (d *Deployer) holdWazuh(io JobIO) error {
 		io.Logf("%s", msg)
 	}
 	return nil
+}
+
+// resolveTimeout bounds each lookup of a manager's name.
+const resolveTimeout = 2 * time.Second
+
+// sameManager reports whether two manager addresses spelled differently name
+// one manager: they share an address, the first one found in shared. A name
+// is looked up within resolveTimeout; an old manager's name that no longer
+// exists shares nothing. err is a lookup that failed otherwise, or the
+// cluster's manager's name not existing: then it cannot be told, and
+// nothing is to be done on a guess — wrongly re-enrolled, an agent loses a
+// key the manager will not hand out again under the same name; wrongly
+// kept, the change of manager is no longer seen once ossec.conf is
+// rewritten.
+func (h *Host) sameManager(ctx context.Context, old, cur string) (same bool, shared netip.Addr, err error) {
+	oldAddrs, err := h.managerAddrs(ctx, old, true)
+	if err != nil {
+		return false, netip.Addr{}, err
+	}
+	curAddrs, err := h.managerAddrs(ctx, cur, false)
+	if err != nil {
+		return false, netip.Addr{}, err
+	}
+	for _, a := range curAddrs {
+		if slices.Contains(oldAddrs, a) {
+			return true, a, nil
+		}
+	}
+	return false, netip.Addr{}, nil
+}
+
+// managerAddrs are the addresses a manager's address stands for: itself for
+// an IP address, else what the name resolves to. A name that does not exist
+// stands for none when gone is allowed, and is an error when not.
+func (h *Host) managerAddrs(ctx context.Context, host string, gone bool) ([]netip.Addr, error) {
+	if a, err := netip.ParseAddr(host); err == nil {
+		return []netip.Addr{a.Unmap()}, nil
+	}
+	ctx, cancel := context.WithTimeout(ctx, resolveTimeout)
+	defer cancel()
+	addrs, err := h.Resolve(ctx, host)
+	var dnsErr *net.DNSError
+	switch {
+	case errors.As(err, &dnsErr) && dnsErr.IsNotFound && gone:
+		return nil, nil
+	case errors.As(err, &dnsErr) && dnsErr.IsNotFound:
+		return nil, fmt.Errorf("%s does not resolve", host)
+	case err != nil:
+		return nil, err
+	}
+	out := make([]netip.Addr, 0, len(addrs))
+	for _, a := range addrs {
+		out = append(out, a.Unmap())
+	}
+	return out, nil
 }
 
 // pointedAtManager reports whether an ossec.conf server address names a

@@ -309,3 +309,33 @@ func TestEditFollowsTheFilesLayout(t *testing.T) {
 		}
 	}
 }
+
+func TestEnableOssecEnrollment(t *testing.T) {
+	on := ossecFixture(t, "ossec.conf")
+	off := bytes.Replace(on, []byte("<enabled>yes</enabled>"), []byte("<enabled> no </enabled>"), 1)
+	if bytes.Equal(off, on) {
+		t.Fatal("fixture has no <enabled>yes</enabled> to turn off")
+	}
+
+	out, was, err := EnableOssecEnrollment(off)
+	if err != nil || was != "no" {
+		t.Fatalf("EnableOssecEnrollment = was %q, %v; want was no", was, err)
+	}
+	if want := bytes.Replace(off, []byte("<enabled> no </enabled>"), []byte("<enabled> yes </enabled>"), 1); !bytes.Equal(out, want) {
+		t.Errorf("out differs from the file with only <enrollment>'s <enabled> said yes:\n%s", out)
+	}
+
+	for name, src := range map[string][]byte{
+		"already on":      on,
+		"no <enabled>":    bytes.Replace(on, []byte("<enabled>yes</enabled>"), nil, 1),
+		"no <enrollment>": []byte("<ossec_config>\n  <client>\n    <server><address>192.0.2.10</address></server>\n  </client>\n</ossec_config>\n"),
+	} {
+		out, was, err := EnableOssecEnrollment(src)
+		if err != nil || was != "" || !bytes.Equal(out, src) {
+			t.Errorf("%s: EnableOssecEnrollment = was %q, %v, changed %v; want it left as it is", name, was, err, !bytes.Equal(out, src))
+		}
+	}
+	if _, _, err := EnableOssecEnrollment([]byte("<ossec_config><client>")); !errors.Is(err, ErrOssecUnreadable) {
+		t.Errorf("unreadable: err = %v, want ErrOssecUnreadable", err)
+	}
+}

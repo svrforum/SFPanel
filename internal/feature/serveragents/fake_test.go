@@ -5,6 +5,7 @@ import (
 	"errors"
 	"net"
 	"net/http"
+	"net/netip"
 	"os"
 	"path/filepath"
 	"slices"
@@ -145,6 +146,17 @@ type hostFixture struct {
 	dials  map[string]error // "host:port" → the dial's error; nil connects
 	dialed []string
 	now    time.Time
+	// names are what each name resolves to, or the lookup's error; a name
+	// not here fails its lookup.
+	names    map[string][]netip.Addr
+	nameErrs map[string]error
+	// lookups are the names looked up, and how long each had left.
+	lookups []lookup
+}
+
+type lookup struct {
+	name string
+	left time.Duration // until the lookup's deadline; 0 for none
 }
 
 // fixtureNow is far from the real clock, so code that reads the real time
@@ -153,7 +165,8 @@ var fixtureNow = time.Date(2031, 3, 4, 10, 0, 0, 0, time.UTC)
 
 func newHostFixture(t *testing.T) (*hostFixture, *Host) {
 	t.Helper()
-	f := &hostFixture{t: t, root: t.TempDir(), cmd: newArgvCmd(), dials: map[string]error{}, now: fixtureNow}
+	f := &hostFixture{t: t, root: t.TempDir(), cmd: newArgvCmd(), dials: map[string]error{}, now: fixtureNow,
+		names: map[string][]netip.Addr{}, nameErrs: map[string]error{}}
 	h := &Host{
 		Root: f.root,
 		Cmd:  f.cmd,
@@ -167,6 +180,22 @@ func newHostFixture(t *testing.T) (*hostFixture, *Host) {
 			c, peer := net.Pipe()
 			t.Cleanup(func() { _ = peer.Close() })
 			return c, nil
+		},
+		Resolve: func(ctx context.Context, name string) ([]netip.Addr, error) {
+			f.mu.Lock()
+			defer f.mu.Unlock()
+			var left time.Duration
+			if deadline, ok := ctx.Deadline(); ok {
+				left = time.Until(deadline)
+			}
+			f.lookups = append(f.lookups, lookup{name: name, left: left})
+			if err := f.nameErrs[name]; err != nil {
+				return nil, err
+			}
+			if addrs, ok := f.names[name]; ok {
+				return addrs, nil
+			}
+			return nil, errors.New("no DNS in tests: " + name)
 		},
 		HTTP:     &http.Client{Transport: noNetwork{}},
 		KeyURLs:  map[string]string{},
@@ -202,6 +231,21 @@ func (f *hostFixture) chtime(rel string, at time.Time) {
 	if err := os.Chtimes(filepath.Join(f.root, rel), at, at); err != nil {
 		f.t.Fatal(err)
 	}
+}
+
+// resolves scripts what a name resolves to.
+func (f *hostFixture) resolves(name string, addrs ...string) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	for _, a := range addrs {
+		f.names[name] = append(f.names[name], netip.MustParseAddr(a))
+	}
+}
+
+func (f *hostFixture) lookedUp() []lookup {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return slices.Clone(f.lookups)
 }
 
 func (f *hostFixture) dialedAddrs() []string {

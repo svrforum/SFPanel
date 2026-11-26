@@ -106,6 +106,30 @@ func EditOssecConf(src []byte, manager, groups string) (out []byte, changed bool
 	return out, true, nil
 }
 
+// EnableOssecEnrollment turns enrollment on in the first <client> section of
+// an ossec.conf, for an agent that must enroll again: an <enabled> in its
+// <enrollment> that says anything but yes says yes. An <enrollment> with no
+// <enabled>, and a section with no <enrollment>, are on already and left as
+// they are. was is what <enabled> said before; when nothing changed, out is
+// src and was is "".
+func EnableOssecEnrollment(src []byte) (out []byte, was string, err error) {
+	client, err := ossecClient(src)
+	if err != nil {
+		return nil, "", err
+	}
+	en := client.child("enrollment")
+	if en == nil {
+		return src, "", nil
+	}
+	enabled := en.child("enabled")
+	if enabled == nil || enabled.value() == "yes" {
+		return src, "", nil
+	}
+	e := &xmlEditor{src: src}
+	e.setLeaf(enabled, "yes")
+	return e.apply(), enabled.value(), nil
+}
+
 // ossecClient finds the first <client> directly inside a top-level
 // <ossec_config>; a file may hold several <ossec_config> blocks.
 func ossecClient(src []byte) (*xmlNode, error) {
