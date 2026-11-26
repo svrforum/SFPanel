@@ -2615,6 +2615,7 @@
     "copyFailed": "클립보드에 복사하지 못했습니다",
     "copyBlocked": "브라우저가 자동 복사를 막았습니다. 복사를 눌러 주세요.",
     "openHere": "여기서 터미널 열기",
+    "dirNeedsTmux": "폴더를 열려면 tmux가 있어야 합니다",
     "rail": {
       "sessions": "세션",
       "newSession": "새 세션",

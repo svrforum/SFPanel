@@ -152,12 +152,23 @@ test('after that dialog is closed, New session opens as before', async ({ page }
 })
 
 // The temporary shell is not started in a folder, so without tmux there is no
-// dialog to put it in: the folder is dropped and the page is as it would be.
-test('without tmux the folder is dropped, not opened in the tmux dialog', async ({ page }) => {
+// dialog to put it in: the folder is dropped, and the operator who pressed
+// "Open a terminal here" is told why, once.
+test('without tmux the folder is dropped, not opened in the tmux dialog, and the page says why', async ({ page }) => {
   await mock(page, { tmux: false })
   await page.goto('/terminal?dir=%2Fsrv%2Fbeta')
   await expect(page.getByText(/Without tmux, sessions live in this browser only/)).toBeVisible()
+  await expect(page.getByText('Opening a folder needs tmux', { exact: true })).toBeVisible()
   await page.waitForTimeout(1000)
+  await expect(page.getByText('Opening a folder needs tmux', { exact: true })).toHaveCount(1)
   await expect(page.getByRole('dialog')).toHaveCount(0)
   await expect(page).toHaveURL(/\/terminal$/)
+})
+
+test('without tmux and without a folder asked for, nothing is said about folders', async ({ page }) => {
+  await mock(page, { tmux: false })
+  await page.goto('/terminal')
+  await expect(page.getByText(/Without tmux, sessions live in this browser only/)).toBeVisible()
+  await page.waitForTimeout(1000)
+  await expect(page.getByText('Opening a folder needs tmux', { exact: true })).toHaveCount(0)
 })

@@ -2628,6 +2628,7 @@
     "copyFailed": "Could not copy to clipboard",
     "copyBlocked": "The browser blocked the copy. Press Copy to copy it.",
     "openHere": "Open a terminal here",
+    "dirNeedsTmux": "Opening a folder needs tmux",
     "rail": {
       "sessions": "Sessions",
       "newSession": "New session",

@@ -256,13 +256,16 @@ export default function TerminalPage() {
   }, [searchParams, setSearchParams])
   // The folder opens the new-session dialog once tmux is known to be there.
   // The temporary shell does not start in a folder, so on the fallback the
-  // ask is dropped rather than kept for a later tmux.
+  // ask is dropped rather than kept for a later tmux, and said, once (by its
+  // id): "Open a terminal here" would otherwise seem to do nothing.
   useEffect(() => {
     if (pendingDir === null || tools === null) return
-    // eslint-disable-next-line react-hooks/set-state-in-effect
-    if (fallback) setPendingDir(null)
-    else setLauncherOpen(true)
-  }, [pendingDir, tools, fallback])
+    if (fallback) {
+      // eslint-disable-next-line react-hooks/set-state-in-effect
+      setPendingDir(null)
+      toast.info(t('terminal.dirNeedsTmux'), { id: 'terminal-dir-needs-tmux' })
+    } else setLauncherOpen(true)
+  }, [pendingDir, tools, fallback, t])
   const onReattach = useCallback((sessionId: string) => {
     setActive(`pty:${pty.reattach(sessionId)}`)
     setDrawerOpen(false)
