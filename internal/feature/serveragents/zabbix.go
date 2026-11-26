@@ -36,8 +36,10 @@ const (
 	ufwTimeout = 30 * time.Second
 )
 
-// zabbixHostname is a host name Zabbix accepts.
+// zabbixHostname is a host name Zabbix accepts, as zabbixHostnameRule says.
 var zabbixHostname = regexp.MustCompile(`^[A-Za-z0-9 ._-]{1,128}$`)
+
+const zabbixHostnameRule = "letters, digits, spaces, '.', '_' and '-', up to 128"
 
 // deployZabbix installs Zabbix Agent 2 when it is not there — from the
 // vendor's repository where the vendor builds for the release, else from the
@@ -115,15 +117,25 @@ func (d *Deployer) deployZabbix(ctx context.Context, step tasks.AgentStep, io Jo
 	if s.HostMetadata != "" {
 		edits = append(edits, serveragents.KeyValue{Key: "HostMetadata", Value: s.HostMetadata})
 	}
+	// A Hostname wins over HostnameItem, so the package's "Zabbix server"
+	// names the agent even beside one: left, every such server would
+	// register as one host.
+	vendorName := conf.Hostname == serveragents.ZabbixVendorHostname
 	switch {
-	case conf.Hostname != "" && conf.Hostname != serveragents.ZabbixVendorHostname:
+	case conf.Hostname != "" && !vendorName:
 		io.Logf("the agent's own name is kept: Hostname=%s", conf.Hostname)
-	case conf.HostnameItemSet:
+	case conf.Hostname == "" && conf.HostnameItemSet:
 		io.Logf("the agent's own name is kept: it takes it from HostnameItem")
 	case zabbixHostname.MatchString(step.NodeName):
+		if vendorName {
+			io.Logf("Hostname is the package's %q; it becomes this server's name, %s", serveragents.ZabbixVendorHostname, step.NodeName)
+		}
 		edits = append(edits, serveragents.KeyValue{Key: "Hostname", Value: step.NodeName})
+	case vendorName:
+		return failed(changed, fmt.Sprintf("Hostname is still the package's %q, and this server's name %q is not one Zabbix accepts (%s); set Hostname in %s or rename the server",
+			serveragents.ZabbixVendorHostname, step.NodeName, zabbixHostnameRule, zabbixConfPath))
 	default:
-		io.Logf("Hostname is left as it is: the server's name %q is not one Zabbix accepts (letters, digits, spaces, '.', '_' and '-', up to 128)", step.NodeName)
+		io.Logf("Hostname is left as it is: the server's name %q is not one Zabbix accepts (%s)", step.NodeName, zabbixHostnameRule)
 	}
 	out, edited, err := serveragents.EditZabbixConf(f.conf, edits)
 	if err != nil {

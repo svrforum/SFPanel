@@ -588,12 +588,18 @@ func TestASkipFoundAtDeployIsAFailure(t *testing.T) {
 }
 
 func TestTheServerNameIsWrittenOnlyWhereTheAgentHasNone(t *testing.T) {
+	withItem := func(conf string) string {
+		return strings.Replace(conf, "# HostnameItem=system.hostname", "HostnameItem=system.hostname", 1)
+	}
 	cases := []struct {
 		name, conf, nodeName, want string
 	}{
 		{"empty Hostname", zabbixConf(t, "192.0.2.10", "192.0.2.10", "", ""), "node-a", "node-a"},
-		{"named by HostnameItem", strings.Replace(zabbixConf(t, "192.0.2.10", "192.0.2.10", "", ""), "# HostnameItem=system.hostname", "HostnameItem=system.hostname", 1), "node-a", ""},
-		{"a name Zabbix refuses", testdata(t, "zabbix_agent2.conf"), "node/a", serveragents.ZabbixVendorHostname},
+		{"named by HostnameItem", withItem(zabbixConf(t, "192.0.2.10", "192.0.2.10", "", "")), "node-a", ""},
+		// A Hostname, even the package's, wins over HostnameItem: left as it
+		// is, every such server would be "Zabbix server".
+		{"the package's name beside HostnameItem", withItem(testdata(t, "zabbix_agent2.conf")), "node-a", "node-a"},
+		{"no name, and one Zabbix refuses", zabbixConf(t, "192.0.2.10", "192.0.2.10", "", ""), "node/a", ""},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
@@ -607,5 +613,24 @@ func TestTheServerNameIsWrittenOnlyWhereTheAgentHasNone(t *testing.T) {
 				t.Errorf("Hostname = %q, want %q", got, c.want)
 			}
 		})
+	}
+}
+
+func TestThePackagesNameIsNotKeptWhenTheServersIsRefused(t *testing.T) {
+	conf := testdata(t, "zabbix_agent2.conf")
+	f := installedZabbixHost(t, zabbixVendorVersion, conf)
+	step := zabbixStep("192.0.2.10", "192.0.2.10", "")
+	step.NodeName = "node/a"
+
+	out := f.deploy(context.Background(), step)
+
+	if out.Status != tasks.JobFailed {
+		t.Fatalf("outcome %+v, want failed", out)
+	}
+	if want := `Hostname is still the package's "Zabbix server", and this server's name "node/a" is not one Zabbix accepts`; !strings.Contains(out.Summary, want) {
+		t.Errorf("summary %q, want it to say %q", out.Summary, want)
+	}
+	if f.read(zabbixConfRel) != conf || f.cmd.ran("systemctl restart") {
+		t.Error("the config was changed or the agent restarted, want nothing done")
 	}
 }
