@@ -172,17 +172,16 @@ func (d *Deployer) deployWazuh(ctx context.Context, step tasks.AgentStep, io Job
 		io.Logf("%s already holds these values", ossecConfPath)
 	}
 
-	service := d.service(wazuhUnit)
-	restarted := changed || service != "active"
-	// A state file the agent wrote before the restart speaks for the agent
-	// that ran then, not the one restarted.
-	restartedAt := d.Now()
+	restarted := d.mustRestart(wazuhUnit, changed, io, d.wazuhConnection)
+	// A state file the agent wrote before the restart ended speaks for the
+	// agent that ran then — while it stopped, it could still write that it
+	// was connected to the manager it had — not the one restarted.
+	var restartedAt time.Time
 	if restarted {
 		if err := d.restart(wazuhUnit, io); err != nil {
 			return failed(changed, err.Error())
 		}
-	} else {
-		io.Logf("%s is active and nothing changed; it is not restarted", wazuhUnit)
+		restartedAt = d.Now()
 	}
 	changed = changed || restarted
 
@@ -255,6 +254,9 @@ func pointedAtManager(address string) bool {
 // agent before it was, so it reads as stale.
 func (h *Host) wazuhConnectionAfter(since time.Time) *serveragents.Connection {
 	c := h.wazuhConnection(h.service(wazuhUnit))
+	if c.Transitional {
+		return c
+	}
 	switch c.State {
 	case serveragents.ConnNotRunning, serveragents.ConnNever:
 		return c

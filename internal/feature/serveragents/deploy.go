@@ -119,10 +119,38 @@ func (d *Deployer) restart(unit string, io JobIO) error {
 	return nil
 }
 
+// mustRestart reports whether a deploy restarts unit: when it changed
+// anything, when the service is not active, or when the agent is not
+// connected now — a run that died between writing the config and the
+// restart leaves an agent that is active, already set, and still talking to
+// the server it had before. When nothing changed it logs which it is.
+func (d *Deployer) mustRestart(unit string, changed bool, io JobIO, connection func(service string) *serveragents.Connection) bool {
+	if changed {
+		return true
+	}
+	service := d.service(unit)
+	if service != "active" {
+		io.Logf("%s is %s; it is restarted", unit, service)
+		return true
+	}
+	if c := connection(service); c.State != serveragents.ConnConnected {
+		io.Logf("%s is active but not connected (%s); it is restarted", unit, describeConnection(c))
+		return true
+	}
+	io.Logf("%s is active, connected, and nothing changed; it is not restarted", unit)
+	return false
+}
+
+// transitionalGrace is how long past Wait an agent whose service is still
+// starting or reloading is waited for.
+const transitionalGrace = 30 * time.Second
+
 // waitConnected checks the agent every Poll until check says connected or
 // Wait has gone by, and returns the last answer. After a restart it waits a
 // Poll before the first check, and a connected answer counts only once the
-// agent has run settle. err is the context's, when it ended the wait.
+// agent has run settle. An agent whose service is starting or reloading
+// when Wait is up gets up to transitionalGrace more. err is the context's,
+// when it ended the wait.
 func (d *Deployer) waitConnected(ctx context.Context, io JobIO, restarted bool, settle time.Duration, check func(context.Context) *serveragents.Connection) (last *serveragents.Connection, ok bool, err error) {
 	start := d.Now()
 	if restarted {
@@ -141,7 +169,7 @@ func (d *Deployer) waitConnected(ctx context.Context, io JobIO, restarted bool, 
 		} else {
 			io.Logf("%s: %s", elapsed, describeConnection(c))
 		}
-		if elapsed >= d.Wait {
+		if elapsed >= d.Wait && (!c.Transitional || elapsed >= d.Wait+transitionalGrace) {
 			return c, false, nil
 		}
 		if err := d.Sleep(ctx, d.Poll); err != nil {

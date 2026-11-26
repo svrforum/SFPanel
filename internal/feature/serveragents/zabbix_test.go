@@ -421,6 +421,27 @@ func TestAnAgentThatKeepsBeingRefusedNeverConnects(t *testing.T) {
 	}
 }
 
+func TestAnActiveAgentThatIsNotConnectedIsRestarted(t *testing.T) {
+	// Values already set, service active — but its config could have been
+	// written by a run that died before the restart, and it still talks to
+	// the old server, or as here, the server refused it.
+	f := settledZabbixHost(t, "192.0.2.10")
+	f.write(zabbixLogRel, agentLog(t, "7.0.32-ubuntu-notfound"))
+
+	out := f.deploy(context.Background(), zabbixStep("192.0.2.10", "192.0.2.10", ""))
+
+	f.mustSucceed(out)
+	if !f.cmd.ran("systemctl restart zabbix-agent2") {
+		t.Fatalf("commands %q, want the agent restarted", f.cmd.lines())
+	}
+	if !f.io.logged("zabbix-agent2 is active but not connected (not_registered") {
+		t.Errorf("log %q, want it to say why it restarts", f.io.logs)
+	}
+	if !out.Changed || !strings.Contains(out.Summary, "already set; started") {
+		t.Errorf("outcome %+v, want changed and already set; started", out)
+	}
+}
+
 func TestAConnectionIsJudgedOnlyAfterTheSettleTime(t *testing.T) {
 	f := installedZabbixHost(t, zabbixDistroVersion, zabbixConf(t, "192.0.2.19", "192.0.2.19", "web-host", ""))
 	var dialledAt []time.Duration

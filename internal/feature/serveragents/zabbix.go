@@ -147,14 +147,14 @@ func (d *Deployer) deployZabbix(ctx context.Context, step tasks.AgentStep, io Jo
 
 	ufwChanged := d.openZabbixPort(s.Server, io)
 
-	service := d.service(zabbixUnit)
-	restarted := changed || service != "active"
+	written := serveragents.ReadZabbixConf(out)
+	restarted := d.mustRestart(zabbixUnit, changed, io, func(service string) *serveragents.Connection {
+		return d.zabbixConnection(ctx, service, written)
+	})
 	if restarted {
 		if err := d.restart(zabbixUnit, io); err != nil {
 			return failed(changed || ufwChanged, err.Error())
 		}
-	} else {
-		io.Logf("%s is active and nothing changed; it is not restarted", zabbixUnit)
 	}
 	changed = changed || ufwChanged || restarted
 
@@ -164,7 +164,6 @@ func (d *Deployer) deployZabbix(ctx context.Context, step tasks.AgentStep, io Jo
 	host, port := s.ActiveAddress()
 	target := net.JoinHostPort(host, strconv.Itoa(port))
 	io.Logf("waiting up to %s for the agent to reach %s", d.Wait, target)
-	written := serveragents.ReadZabbixConf(out)
 	c, ok, err := d.waitConnected(ctx, io, restarted, d.Settle, func(ctx context.Context) *serveragents.Connection {
 		return d.zabbixConnection(ctx, d.service(zabbixUnit), written)
 	})

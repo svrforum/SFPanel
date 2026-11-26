@@ -366,3 +366,81 @@ func TestAWazuhAptStoppedByACancelIsStillHeld(t *testing.T) {
 		t.Error("restarted, want nothing past the cancel")
 	}
 }
+
+func TestAnActiveWazuhThatIsNotConnectedIsRestarted(t *testing.T) {
+	f := installedWazuhHost(t, "hold ok installed|4.14.10-1", ossecWith(t, "198.51.100.5", "default"), enrolledKeys)
+	f.agentdState("disconnected", "2031-03-04 09:50:00", "2031-03-04 09:50:00")
+
+	out := f.deploy(context.Background(), wazuhStep("198.51.100.5", "", "4.14.10"))
+
+	f.mustSucceed(out)
+	if !f.cmd.ran("systemctl restart wazuh-agent") {
+		t.Fatalf("commands %q, want the agent restarted", f.cmd.lines())
+	}
+	if !f.io.logged("wazuh-agent is active but not connected (disconnected); it is restarted") {
+		t.Errorf("log %q, want it to say why it restarts", f.io.logs)
+	}
+	if got := f.read(clientKeysRel); got != enrolledKeys {
+		t.Errorf("client.keys = %q, want the key kept: the manager did not change", got)
+	}
+}
+
+func TestAStateFileTheStoppingAgentWroteDoesNotCount(t *testing.T) {
+	f := installedWazuhHost(t, "hold ok installed|4.14.10-1", testdata(t, "ossec.conf"), "")
+	// While it stops, the old agent writes that it is connected — to the
+	// manager it had — and the restart takes two seconds. The restarted
+	// agent never writes the file.
+	f.cmd.does("systemctl restart wazuh-agent", func() {
+		f.now = f.now.Add(time.Second)
+		f.agentdState("connected", "2031-03-04 10:00:01", "2031-03-04 10:00:01")
+		f.now = f.now.Add(time.Second)
+	})
+	f.onSleep = nil
+
+	out := f.deploy(context.Background(), wazuhStep("198.51.100.5", "", "4.14.10"))
+
+	if out.Status != tasks.JobFailed || !strings.HasPrefix(out.Summary, "not connected after 1m0s: stale") {
+		t.Fatalf("outcome %+v, want failed as stale: the only state file is the stopped agent's", out)
+	}
+}
+
+func TestAWazuhReloadingWhenTheWaitEndsIsWaitedFor(t *testing.T) {
+	f := installedWazuhHost(t, "hold ok installed|4.14.10-1", testdata(t, "ossec.conf"), "")
+	f.onSleep = func(n int) {
+		switch {
+		case n < 12:
+			f.agentdState("pending", "", "")
+		case n == 12:
+			// A minute after the restart, it reloads for its manager's
+			// shared config.
+			f.service("wazuh-agent", "reloading")
+		default:
+			f.service("wazuh-agent", "active")
+			f.agentdState("connected", "2031-03-04 10:01:05", "2031-03-04 10:01:05")
+		}
+	}
+
+	out := f.deploy(context.Background(), wazuhStep("198.51.100.5", "", "4.14.10"))
+
+	f.mustSucceed(out)
+	if !f.io.logged("1m0s: unknown (wazuh-agent is reloading)") {
+		t.Errorf("log %q, want the reload at the end of the wait logged", f.io.logs)
+	}
+	if waited := f.now.Sub(fixtureNow); waited != 65*time.Second {
+		t.Errorf("waited %v, want one more poll past the minute", waited)
+	}
+}
+
+func TestAWazuhStillReloadingIsNotWaitedForEver(t *testing.T) {
+	f := installedWazuhHost(t, "hold ok installed|4.14.10-1", testdata(t, "ossec.conf"), "")
+	f.onSleep = func(int) { f.service("wazuh-agent", "reloading") }
+
+	out := f.deploy(context.Background(), wazuhStep("198.51.100.5", "", "4.14.10"))
+
+	if out.Status != tasks.JobFailed || !strings.HasPrefix(out.Summary, "not connected after 1m0s: unknown (wazuh-agent is reloading)") {
+		t.Fatalf("outcome %+v, want failed while it reloads", out)
+	}
+	if waited := f.now.Sub(fixtureNow); waited != 90*time.Second {
+		t.Errorf("waited %v, want the minute and 30 seconds more", waited)
+	}
+}
