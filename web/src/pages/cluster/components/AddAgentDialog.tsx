@@ -48,9 +48,21 @@ export function AddAgentDialog({ open, onOpenChange, onJoined }: {
   /** The agent is in: the page reloads its list and tells the shell. */
   onJoined: () => void
 }) {
+  const content = useRef<HTMLDivElement>(null)
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="sm:max-w-2xl">
+      {/* Radix gives the opening focus to the first button and skips links,
+          which is the token's way: one Enter would make a token valid for a
+          day. The dialog takes the focus itself, so its title is read and
+          Tab reaches the first way. */}
+      <DialogContent
+        ref={content}
+        className="sm:max-w-2xl"
+        onOpenAutoFocus={(e) => {
+          e.preventDefault()
+          content.current?.focus()
+        }}
+      >
         {/* Inside the content, so it mounts on every opening: the choice
             again, and from there a fresh token, a fresh baseline and no name
             left over from the last time. */}

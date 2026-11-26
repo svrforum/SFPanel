@@ -251,6 +251,21 @@ test('opening the dialog makes no token until the token way is chosen', async ({
   expect(calls.filter((c) => c.path === '/cluster/token')).toHaveLength(1)
 })
 
+// Radix gives the opening focus to the first button and skips links, which
+// put it on the token's way: one Enter made a token valid for a day. The
+// dialog takes the focus itself, and Tab reaches the first way.
+test('the dialog opens with the focus on itself, so Enter makes no token', async ({ page }) => {
+  const calls = await mock(page)
+  const dialog = await openDialog(page, 'choose')
+  await page.keyboard.press('Enter')
+  await page.waitForTimeout(800)
+  expect(calls.filter((c) => c.path === '/cluster/token')).toHaveLength(0)
+  await expect(dialog.getByRole('button', { name: /Copy a join command \(token\)/ })).toBeVisible()
+  await expect(dialog).toBeFocused()
+  await page.keyboard.press('Tab')
+  await expect(dialog.getByRole('link', { name: /Install over SSH/ })).toBeFocused()
+})
+
 // A server the leader reaches over SSH needs no command pasted: the agent
 // install logs in and does it.
 test('leads to the agent install over SSH', async ({ page }) => {
