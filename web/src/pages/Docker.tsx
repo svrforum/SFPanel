@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { NavLink, Outlet, useOutletContext } from 'react-router-dom'
 import { Trash2 } from 'lucide-react'
@@ -31,6 +31,9 @@ export default function Docker() {
   const output = useSSEOutput()
   const [docker, setDocker] = useState<DockerStatus | null>(null)
   const [reads, setReads] = useState(0)
+  // The tabs, whose open one takes the focus when the output dialog closes
+  // over a card that went with the install (and its button with it).
+  const tabs = useRef<HTMLElement>(null)
 
   useEffect(() => {
     let current = true
@@ -54,7 +57,7 @@ export default function Docker() {
         </Button>
       </div>
 
-      <nav aria-label={t('docker.title')} className="grid grid-cols-3 gap-1 rounded-xl bg-secondary/30 p-1 sm:flex sm:flex-wrap">
+      <nav ref={tabs} aria-label={t('docker.title')} className="grid grid-cols-3 gap-1 rounded-xl bg-secondary/30 p-1 sm:flex sm:flex-wrap">
         {navTabs('/docker').map(({ to, icon: Icon, label }) => <NavLink key={to} to={href(to)} className={({ isActive }) => `flex min-h-11 items-center justify-center gap-2 rounded-lg px-2 text-sm ${isActive ? 'bg-card text-primary shadow-sm' : 'text-muted-foreground'}`}><Icon className="h-4 w-4 shrink-0" />{t(label)}</NavLink>)}
       </nav>
 
@@ -66,7 +69,7 @@ export default function Docker() {
       </div>
 
       <DockerPrune open={pruneOpen} onOpenChange={setPruneOpen} />
-      <OutputDialog state={output.state} onClose={output.closeOutput} />
+      <OutputDialog state={output.state} onClose={output.closeOutput} returnFocus={() => tabs.current?.querySelector<HTMLElement>('a[aria-current="page"]')} />
     </div>
   )
 }

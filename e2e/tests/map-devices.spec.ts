@@ -537,7 +537,13 @@ test('without nmap the page installs it, in place, on the node that lacks it', a
   await expect(network).toContainText('nmap is not installed on alpha-node.')
   await network.getByRole('button', { name: 'Install nmap' }).click()
   await expect.poll(() => state.installs).toEqual([{ node: 'm-1', body: { name: 'nmap' } }])
-  await expect(network.getByRole('button', { name: 'Scan', exact: true })).toBeVisible()
+  // The button pressed goes with the install: the focus moves to the scan it
+  // made possible, which says what happened.
+  const scan = network.getByRole('button', { name: 'Scan', exact: true })
+  await expect(scan).toBeVisible()
+  await expect(scan).toBeFocused()
+  await expect(scan).toHaveAccessibleDescription('nmap is installed on alpha-node.')
+  await expect(network.getByRole('status')).toHaveText('nmap is installed on alpha-node.')
 })
 
 test('an nmap install that fails says why, and the install is still offered', async ({ page }) => {

@@ -4801,6 +4801,7 @@
         "noTool": "nmap is not installed on {{node}}.",
         "installNmap": "Install nmap",
         "installFailed": "nmap could not be installed.",
+        "installed": "nmap is installed on {{node}}.",
         "tooLarge": "This network is too wide (/{{prefix}}) to scan. Up to /20 is scanned.",
         "nobody": "No server on this network is answering, so it cannot be scanned.",
         "from": "Scan from",

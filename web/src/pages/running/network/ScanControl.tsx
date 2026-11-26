@@ -1,4 +1,4 @@
-import { useEffect, useId, useState } from 'react'
+import { useEffect, useId, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { AlertTriangle, Download, Loader2, Radar, Square } from 'lucide-react'
 import { Button } from '@/components/ui/button'
@@ -128,6 +128,17 @@ export function ScanControl({ entry, onStart, onCancel, onInstall, onSchedule }:
   const [busy, setBusy] = useState(false)
   const [problem, setProblem] = useState<string | null>(null)
   const [installProblem, setInstallProblem] = useState<string | null>(null)
+  // The server nmap was just installed on. The button pressed went with the
+  // install, which left the focus on the page's body: it moves to the scan
+  // the install made possible, which says what happened.
+  const [installedOn, setInstalledOn] = useState<string | null>(null)
+  const focusScan = useRef(false)
+  const scanButton = useRef<HTMLButtonElement>(null)
+  useEffect(() => {
+    if (!focusScan.current) return
+    focusScan.current = false
+    scanButton.current?.focus()
+  })
 
   if (entry.running) {
     const run = entry.running
@@ -153,10 +164,15 @@ export function ScanControl({ entry, onStart, onCancel, onInstall, onSchedule }:
     const noTool = online.find((s) => s.scannable && !s.installed)
     const tooLarge = online.length > 0 && online.every((s) => !s.scannable)
     // Installed here, on the node that lacks it: once it has nmap, its next read offers the scan.
-    const install = async (nodeId: string) => {
+    const install = async (nodeId: string, nodeName: string) => {
       setBusy(true)
       setInstallProblem(null)
-      setInstallProblem(await onInstall(nodeId))
+      const failed = await onInstall(nodeId)
+      setInstallProblem(failed)
+      if (failed === null) {
+        setInstalledOn(nodeName)
+        focusScan.current = true
+      }
       setBusy(false)
     }
     return (
@@ -164,7 +180,7 @@ export function ScanControl({ entry, onStart, onCancel, onInstall, onSchedule }:
         {noTool ? (
           <>
             <p>{t('running.network.scan.noTool', { node: noTool.nodeName })}</p>
-            <Button variant="outline" size="sm" className="rounded-xl" disabled={busy} onClick={() => void install(noTool.nodeId)}>
+            <Button variant="outline" size="sm" className="rounded-xl" disabled={busy} onClick={() => void install(noTool.nodeId, noTool.nodeName)}>
               {busy ? <Loader2 className="animate-spin" aria-hidden="true" /> : <Download aria-hidden="true" />}
               {t('running.network.scan.installNmap')}
             </Button>
@@ -180,6 +196,7 @@ export function ScanControl({ entry, onStart, onCancel, onInstall, onSchedule }:
   const start = async () => {
     setBusy(true)
     setProblem(null)
+    setInstalledOn(null)
     const failed = await onStart(chosen.nodeId, chosen.network, ports)
     setProblem(failed)
     setBusy(false)
@@ -210,11 +227,12 @@ export function ScanControl({ entry, onStart, onCancel, onInstall, onSchedule }:
           />
           {t('running.network.scan.withPorts')}
         </label>
-        <Button size="sm" className="rounded-xl" onClick={() => void start()} disabled={busy}>
+        <Button ref={scanButton} size="sm" className="rounded-xl" onClick={() => void start()} disabled={busy} aria-describedby={installedOn ? `${id}-installed` : undefined}>
           <Radar aria-hidden="true" />
           {entry.segment ? t('running.network.scan.again') : t('running.network.scan.start')}
         </Button>
       </div>
+      {installedOn && <p id={`${id}-installed`} role="status" className="text-xs text-success">{t('running.network.scan.installed', { node: installedOn })}</p>}
       <p id={`${id}-hint`} className="text-xs text-muted-foreground">
         {t(ports ? 'running.network.scan.hintPorts' : 'running.network.scan.hintHosts', { node: chosen.nodeName })}
       </p>

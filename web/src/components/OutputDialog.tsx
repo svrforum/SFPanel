@@ -137,9 +137,19 @@ export function useSSEOutput(): SSEOutput {
   return { state, openOutput, appendOutput, finishOutput, closeOutput, runStream }
 }
 
-export function OutputDialog({ state, onClose }: { state: SSEOutputState; onClose: () => void }) {
+export function OutputDialog({ state, onClose, returnFocus }: {
+  state: SSEOutputState
+  onClose: () => void
+  /** Where the focus goes on closing when what opened the dialog is gone: an install card that went with the install. */
+  returnFocus?: () => HTMLElement | null | undefined
+}) {
   const { t } = useTranslation()
   const outputRef = useRef<HTMLDivElement>(null)
+  // The dialog opens from a page's own button, and Radix hands the focus back
+  // only to a DialogTrigger: closing it left the keyboard on the page's body.
+  // It goes back to what had it when the dialog opened, or, when that went
+  // with the command, to the page's returnFocus.
+  const openedFrom = useRef<HTMLElement | null>(null)
 
   // Auto-scroll output to bottom as lines stream in
   useEffect(() => {
@@ -158,7 +168,22 @@ export function OutputDialog({ state, onClose }: { state: SSEOutputState; onClos
       {/* No corner X while the command runs: it did nothing then, as the
           dialog stays until the stream ends (closing it would leave the
           command's output to land in the next dialog opened). */}
-      <DialogContent className="sm:max-w-2xl" showCloseButton={state.done}>
+      <DialogContent
+        className="sm:max-w-2xl"
+        showCloseButton={state.done}
+        onOpenAutoFocus={() => {
+          const active = document.activeElement
+          openedFrom.current = active instanceof HTMLElement && active !== document.body ? active : null
+        }}
+        onCloseAutoFocus={(e) => {
+          const from = openedFrom.current
+          openedFrom.current = null
+          const target = from?.isConnected ? from : returnFocus?.()
+          if (!target) return
+          e.preventDefault()
+          target.focus()
+        }}
+      >
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2">
             {!state.done && <Loader2 className="h-4 w-4 animate-spin" aria-hidden="true" />}

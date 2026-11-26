@@ -24,7 +24,7 @@ const nodes = [
  * request, installs those of every Docker install; /docker/compose answers
  * an empty list once an install ran.
  */
-async function mock(page: Page, opts: { lang?: 'ko' | 'en'; cluster?: boolean; statuses?: object[] } = {}) {
+async function mock(page: Page, opts: { lang?: 'ko' | 'en'; cluster?: boolean; statuses?: object[]; installFails?: boolean } = {}) {
   const lang = opts.lang ?? 'en'
   const statuses = opts.statuses ?? [{}]
   const requests: string[] = []
@@ -42,6 +42,10 @@ async function mock(page: Page, opts: { lang?: 'ko' | 'en'; cluster?: boolean; s
     requests.push(path + url.search)
     if (req.method() === 'POST' && path === '/packages/install-docker') {
       installs.push(path + url.search)
+      if (opts.installFails) {
+        await route.fulfill({ status: 500, json: { success: false, error: { code: 'INTERNAL_ERROR', message: 'fixture' } } })
+        return
+      }
       await route.fulfill({ status: 200, contentType: 'text/event-stream', body: 'data: Installing\n\ndata: [DONE]\n\n' })
       return
     }
@@ -115,4 +119,34 @@ test('the install runs on the server in the address, and the pages read again af
   await page.keyboard.press('Escape')
   await expect(page.getByRole('dialog')).toHaveCount(0)
   await expect(page.getByRole('heading', { name: 'Docker Status' })).toHaveCount(0)
+})
+
+// The card goes with the install, and with it the button the output dialog
+// would hand the focus back to: closing the dialog left the keyboard on the
+// page's body. The focus goes to the tab open under the card instead.
+test('after the install the focus comes back to the open tab', async ({ page }) => {
+  await mock(page, { statuses: [NOT_INSTALLED, NOT_INSTALLED, INSTALLED] })
+  await page.goto('/docker/stacks')
+  await page.getByRole('button', { name: 'Install Docker' }).click()
+  await expect(page.getByRole('dialog')).toContainText('Installing')
+  // Not by role: the open dialog hides the page from the accessibility tree.
+  await expect(page.locator('button', { hasText: 'Install Docker' })).toHaveCount(0)
+  await page.keyboard.press('Escape')
+  await expect(page.getByRole('dialog')).toHaveCount(0)
+  await expect(page.getByRole('navigation', { name: 'Docker' }).getByRole('link', { name: 'Stacks' })).toBeFocused()
+})
+
+// The output dialog opens from the page's own button, not a dialog trigger,
+// and Radix gives the focus back to a trigger only: closing it left the
+// keyboard on the page's body. An install that could not start keeps its
+// card, and the focus goes back to the button that opened the dialog.
+test('an install that could not start gives the focus back to its button', async ({ page }) => {
+  await mock(page, { statuses: [NOT_INSTALLED], installFails: true })
+  await page.goto('/docker/stacks')
+  await page.getByRole('button', { name: 'Install Docker' }).click()
+  await expect(page.getByRole('dialog')).toBeVisible()
+  await expect(page.getByRole('dialog').getByRole('button', { name: 'Close' }).last()).toBeEnabled()
+  await page.keyboard.press('Escape')
+  await expect(page.getByRole('dialog')).toHaveCount(0)
+  await expect(page.getByRole('button', { name: 'Install Docker' })).toBeFocused()
 })

@@ -4780,6 +4780,7 @@
         "noTool": "{{node}}에 nmap이 설치되어 있지 않습니다.",
         "installNmap": "nmap 설치",
         "installFailed": "nmap을 설치하지 못했습니다.",
+        "installed": "{{node}}에 nmap을 설치했습니다.",
         "tooLarge": "네트워크가 너무 넓어(/{{prefix}}) 스캔하지 않습니다. /20까지 스캔합니다.",
         "nobody": "이 네트워크에 있는 서버가 응답하지 않아 스캔할 수 없습니다.",
         "from": "스캔할 서버",
