@@ -184,7 +184,7 @@ describe('apiErrorFrom, on a Korean screen', () => {
     const api = await koreanApi()
     const fail = (code: string, details: Record<string, string>) =>
       api.apiErrorFrom(400, { success: false, error: { code, message: 'sent', details } }).message
-    expect(fail('SERVER_AGENT_NOT_CONFIGURED', { agent: 'zabbix' })).toBe('Zabbix 연결값을 먼저 에이전트 화면에서 저장하세요')
+    expect(fail('SERVER_AGENT_NOT_CONFIGURED', { agent: 'zabbix' })).toBe('Zabbix 연결값을 먼저 모니터링 에이전트 화면에서 저장하세요')
     expect(fail('SERVER_AGENT_SETTINGS_INVALID', { field: 'zabbix.server' })).toBe(`연결값이 올바르지 않습니다: ${ko.agents.settings.zabbixServer}`)
     const fields: Record<string, string> = {
       'zabbix.server_active': ko.agents.settings.zabbixActive,

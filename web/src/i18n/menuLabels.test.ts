@@ -33,7 +33,7 @@ const KO: Record<string, string> = {
   'terminal.openHere': '여기서 터미널 열기',
   'running.network.scan.installNmap': 'nmap 설치',
   'packages.elsewhere.title': '다른 화면에서 설치하는 것',
-  'layout.nav.agents': '에이전트',
+  'layout.nav.agents': '모니터링 에이전트',
 }
 // A page's <h1> is its menu label.
 const H1: [string, string][] = [

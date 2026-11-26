@@ -76,7 +76,7 @@
       "settings": "Settings",
       "system": "System",
       "tasks": "Group Tasks",
-      "agents": "Agents"
+      "agents": "Monitoring Agents"
     },
     "tabs": {
       "summary": "Summary",
@@ -1510,14 +1510,14 @@
         },
         "zabbixAgent": {
           "name": "Deploy the Zabbix agent",
-          "description": "Installs Zabbix agent 2 or takes the one already there, sets only the connection values from the Agents page (Server, ServerActive, HostMetadata), restarts it and checks that it really reaches the server.",
+          "description": "Installs Zabbix agent 2 or takes the one already there, sets only the connection values from the Monitoring Agents page (Server, ServerActive, HostMetadata), restarts it and checks that it really reaches the server.",
           "steps": {
             "0": "Zabbix agent 2"
           }
         },
         "wazuhAgent": {
           "name": "Deploy the Wazuh agent",
-          "description": "Installs the Wazuh agent at the version set and holds it, or takes the one already there, sets only the manager address and groups from the Agents page, restarts it and checks that it really connects. Only servers whose manager address changed enroll again.",
+          "description": "Installs the Wazuh agent at the version set and holds it, or takes the one already there, sets only the manager address and groups from the Monitoring Agents page, restarts it and checks that it really connects. Only servers whose manager address changed enroll again.",
           "steps": {
             "0": "Wazuh agent"
           }
@@ -1733,7 +1733,7 @@
           "file": "File",
           "stack": "Stack",
           "reboot": "Reboot",
-          "agent": "Agent deploy"
+          "agent": "Deploy a monitoring agent"
         },
         "step": {
           "name": "Name shown in the run",
@@ -1786,7 +1786,7 @@
         },
         "agent": {
           "name": "Agent",
-          "hint": "Connection values are set on the Agents page"
+          "hint": "Connection values are set on the Monitoring Agents page"
         },
         "durationInvalid": "Write a duration such as 90s, 10m or 1h30m.",
         "durationDefault": "Left empty: {{value}}",
@@ -4996,7 +4996,7 @@
     }
   },
   "agents": {
-    "title": "Agents",
+    "title": "Monitoring Agents",
     "subtitle": "Deploy the Zabbix and Wazuh agents to every server and see whether each really reaches its server.",
     "server": "Server",
     "serversTitle": "By server",
@@ -5069,7 +5069,7 @@
     "overviewError": "Could not reload the cluster's servers: {{error}}",
     "retry": "Retry",
     "errors": {
-      "notConfigured": "Save the {{agent}} connection values on the Agents page first",
+      "notConfigured": "Save the {{agent}} connection values on the Monitoring Agents page first",
       "settingsInvalid": "A connection value is not valid: {{field}}"
     }
   }

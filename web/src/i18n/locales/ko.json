@@ -76,7 +76,7 @@
       "settings": "설정",
       "system": "시스템",
       "tasks": "그룹 작업",
-      "agents": "에이전트"
+      "agents": "모니터링 에이전트"
     },
     "tabs": {
       "summary": "요약",
@@ -1505,14 +1505,14 @@
         },
         "zabbixAgent": {
           "name": "Zabbix 에이전트 배포",
-          "description": "Zabbix 에이전트 2를 설치하거나 이미 있는 것을 알아보고, 에이전트 화면의 연결값(Server·ServerActive·HostMetadata)만 맞춘 뒤 다시 시작하고 실제로 서버에 붙었는지 확인합니다.",
+          "description": "Zabbix 에이전트 2를 설치하거나 이미 있는 것을 알아보고, 모니터링 에이전트 화면의 연결값(Server·ServerActive·HostMetadata)만 맞춘 뒤 다시 시작하고 실제로 서버에 붙었는지 확인합니다.",
           "steps": {
             "0": "Zabbix 에이전트 2"
           }
         },
         "wazuhAgent": {
           "name": "Wazuh 에이전트 배포",
-          "description": "정한 버전의 Wazuh 에이전트를 설치해 고정(hold)하거나 이미 있는 것을 알아보고, 에이전트 화면의 매니저 주소·그룹만 맞춘 뒤 다시 시작하고 실제로 붙었는지 확인합니다. 매니저 주소가 바뀐 서버만 다시 등록합니다.",
+          "description": "정한 버전의 Wazuh 에이전트를 설치해 고정(hold)하거나 이미 있는 것을 알아보고, 모니터링 에이전트 화면의 매니저 주소·그룹만 맞춘 뒤 다시 시작하고 실제로 붙었는지 확인합니다. 매니저 주소가 바뀐 서버만 다시 등록합니다.",
           "steps": {
             "0": "Wazuh 에이전트"
           }
@@ -1725,7 +1725,7 @@
           "file": "파일",
           "stack": "스택",
           "reboot": "재부팅",
-          "agent": "에이전트 배포"
+          "agent": "모니터링 에이전트 배포"
         },
         "step": {
           "name": "실행 화면에 보일 이름",
@@ -1778,7 +1778,7 @@
         },
         "agent": {
           "name": "에이전트",
-          "hint": "연결값은 에이전트 화면에서 정합니다"
+          "hint": "연결값은 모니터링 에이전트 화면에서 정합니다"
         },
         "durationInvalid": "90s, 10m, 1h30m처럼 씁니다.",
         "durationDefault": "비워 두면 {{value}}",
@@ -4975,7 +4975,7 @@
     }
   },
   "agents": {
-    "title": "에이전트",
+    "title": "모니터링 에이전트",
     "subtitle": "Zabbix·Wazuh 에이전트를 모든 서버에 배포하고, 실제로 서버에 붙어 있는지 확인합니다.",
     "server": "서버",
     "serversTitle": "서버별 상태",
@@ -5048,7 +5048,7 @@
     "overviewError": "클러스터의 서버 목록을 다시 불러오지 못했습니다: {{error}}",
     "retry": "다시 시도",
     "errors": {
-      "notConfigured": "{{agent}} 연결값을 먼저 에이전트 화면에서 저장하세요",
+      "notConfigured": "{{agent}} 연결값을 먼저 모니터링 에이전트 화면에서 저장하세요",
       "settingsInvalid": "연결값이 올바르지 않습니다: {{field}}"
     }
   }

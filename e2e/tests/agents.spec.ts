@@ -168,7 +168,8 @@ const FIELDS = {
 test('an agent that runs but does not reach its server reads as not connected', async ({ page }) => {
   const { asked } = await mock(page)
   await page.goto('/agents')
-  await expect(page.getByRole('heading', { level: 1, name: '에이전트' })).toBeVisible()
+  // Monitoring agents, apart from SFPanel's own agent servers.
+  await expect(page.getByRole('heading', { level: 1, name: '모니터링 에이전트' })).toBeVisible()
 
   // Both of agent-1's services are active; neither agent is connected.
   const a1 = row(page, 'a-1')

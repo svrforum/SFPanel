@@ -1748,7 +1748,7 @@ test.describe('editor', () => {
     await expect(page.getByTestId('task-pane-setup')).toContainText('Check disk')
   })
 
-  test('an agent step picks its agent, and leads to the Agents page for the connection values', async ({ page }) => {
+  test('an agent step picks its agent, and leads to the Monitoring Agents page for the connection values', async ({ page }) => {
     const yaml = 'name: Agents\nsteps:\n  - agent:\n      name: wazuh\n'
     const model = { name: 'Agents', targets: {}, batch: 1, stop_on_failure: true, steps: [{ kind: 'agent', agent: { name: 'wazuh' } }] }
     const id = '4e5f607182930416'
@@ -1765,14 +1765,15 @@ test.describe('editor', () => {
     const editor = editorPane(page)
     await editor.getByLabel('Task name').fill('Agents')
     await editor.getByRole('button', { name: 'Add step' }).click()
-    await page.getByRole('menuitem', { name: 'Agent deploy' }).click()
+    // A monitoring agent, apart from the SFPanel agent the built-in "Agent install (SSH)" sets up.
+    await page.getByRole('menuitem', { name: 'Deploy a monitoring agent' }).click()
     const card = editor.getByTestId('task-step-0')
-    await expect(card.getByRole('heading')).toHaveText('Step 1 · Agent deploy')
+    await expect(card.getByRole('heading')).toHaveText('Step 1 · Deploy a monitoring agent')
     const agent = card.getByLabel('Agent', { exact: true })
     await expect(agent).toHaveValue('zabbix')
     await expect(agent.getByRole('option')).toHaveText(['Zabbix', 'Wazuh'])
-    await expect(agent).toHaveAccessibleDescription('Connection values are set on the Agents page')
-    await expect(card.getByRole('link', { name: 'Connection values are set on the Agents page' })).toHaveAttribute('href', '/agents')
+    await expect(agent).toHaveAccessibleDescription('Connection values are set on the Monitoring Agents page')
+    await expect(card.getByRole('link', { name: 'Connection values are set on the Monitoring Agents page' })).toHaveAttribute('href', '/agents')
     await agent.selectOption('wazuh')
 
     // The step goes to the format as the agent's name alone.
