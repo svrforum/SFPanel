@@ -2139,8 +2139,10 @@
         }
       },
       "fleet": {
-        "onMany": "여러 서버에서…",
-        "onManyFor": "{{name}}: 여러 서버에서…",
+        "updateOnMany": "여러 서버에서 업데이트…",
+        "installOnMany": "여러 서버에 설치…",
+        "installOnManyFor": "{{name}}: 여러 서버에 설치…",
+        "restartOnMany": "여러 서버에서 재시작…",
         "runSnippet": "여러 서버에서 실행",
         "runSnippetFor": "여러 서버에서 실행: {{text}}"
       }

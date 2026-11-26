@@ -178,7 +178,7 @@ export function SystemUpdatesCard({ tx }: { tx: AptTransactions }) {
             <Button asChild variant="outline" className="rounded-xl">
               <Link to={fleet('builtin/package-update')}>
                 <ListChecks aria-hidden="true" />
-                {t('cluster.tasks.fleet.onMany')}
+                {t('cluster.tasks.fleet.updateOnMany')}
               </Link>
             </Button>
           )}

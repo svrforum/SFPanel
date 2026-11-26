@@ -245,7 +245,7 @@ export default function Services() {
           <DropdownMenuItem asChild>
             <Link to={fleet('builtin/service-restart', { service: svc.name })}>
               <ListChecks className="h-4 w-4 mr-2" />
-              {t('cluster.tasks.fleet.onMany')}
+              {t('cluster.tasks.fleet.restartOnMany')}
             </Link>
           </DropdownMenuItem>
         )}

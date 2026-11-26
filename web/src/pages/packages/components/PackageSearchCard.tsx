@@ -205,8 +205,8 @@ export function PackageSearchCard({ output, tx }: { output: SSEOutput; tx: AptTr
                         <Button asChild size="sm" variant="outline" className="rounded-xl">
                           <Link
                             to={fleet('builtin/package-install', { packages: pkg.name })}
-                            aria-label={t('cluster.tasks.fleet.onManyFor', { name: pkg.name })}
-                            title={t('cluster.tasks.fleet.onMany')}
+                            aria-label={t('cluster.tasks.fleet.installOnManyFor', { name: pkg.name })}
+                            title={t('cluster.tasks.fleet.installOnMany')}
                           >
                             <ListChecks className="h-4 w-4" aria-hidden="true" />
                           </Link>
@@ -290,10 +290,10 @@ export function PackageSearchCard({ output, tx }: { output: SSEOutput; tx: AptTr
                             <Button asChild size="sm" variant="outline" className="rounded-xl">
                               <Link
                                 to={fleet('builtin/package-install', { packages: pkg.name })}
-                                aria-label={t('cluster.tasks.fleet.onManyFor', { name: pkg.name })}
+                                aria-label={t('cluster.tasks.fleet.installOnManyFor', { name: pkg.name })}
                               >
                                 <ListChecks aria-hidden="true" />
-                                {t('cluster.tasks.fleet.onMany')}
+                                {t('cluster.tasks.fleet.installOnMany')}
                               </Link>
                             </Button>
                           )}

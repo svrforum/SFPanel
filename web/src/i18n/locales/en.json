@@ -2152,8 +2152,10 @@
         }
       },
       "fleet": {
-        "onMany": "On several servers…",
-        "onManyFor": "{{name}}: on several servers…",
+        "updateOnMany": "Update on several servers…",
+        "installOnMany": "Install on several servers…",
+        "installOnManyFor": "{{name}}: install on several servers…",
+        "restartOnMany": "Restart on several servers…",
         "runSnippet": "Run on several servers",
         "runSnippetFor": "Run on several servers: {{text}}"
       }
