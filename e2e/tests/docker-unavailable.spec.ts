@@ -77,7 +77,7 @@ async function mock(page: Page, opts: { lang?: 'ko' | 'en'; cluster?: boolean; s
 test('a Korean panel says Docker is missing in Korean', async ({ page }) => {
   await mock(page, { lang: 'ko' })
   await page.goto('/docker/stacks')
-  await expect(page.getByText('이 노드에서는 Docker를 쓸 수 없습니다', { exact: false }).first()).toBeVisible()
+  await expect(page.getByText('이 서버에서는 Docker를 쓸 수 없습니다', { exact: false }).first()).toBeVisible()
   await expect(page.getByText('Docker is not available on this node')).toHaveCount(0)
 })
 

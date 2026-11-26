@@ -164,7 +164,7 @@ describe('apiErrorFrom, on a Korean screen', () => {
     const api = await koreanApi()
     const sent = 'LVM tools are not installed. Install lvm2: apt install lvm2'
     const err = refusal(api, 503, 'TOOL_NOT_INSTALLED', sent)
-    expect(err.message).toBe(`이 작업에 필요한 도구가 이 노드에 설치되어 있지 않습니다. (${sent})`)
+    expect(err.message).toBe(`이 작업에 필요한 도구가 이 서버에 설치되어 있지 않습니다. (${sent})`)
     expect(err.serverMessage).toBe(sent)
   })
 
@@ -173,7 +173,7 @@ describe('apiErrorFrom, on a Korean screen', () => {
     const api = await koreanApi()
     const sent = 'pvesh failed: ipcc_send_rec[1] failed: Connection refused'
     const err = refusal(api, 500, 'PVE_GUESTS_ERROR', sent)
-    expect(err.message).toBe(`Proxmox VE에서 이 노드의 가상 머신과 LXC 목록을 읽지 못했습니다. (${sent})`)
+    expect(err.message).toBe(`Proxmox VE에서 이 서버의 가상 머신과 LXC 목록을 읽지 못했습니다. (${sent})`)
   })
 
   // Worded by its code, the sentence would lose the one thing it says: the

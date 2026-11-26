@@ -3629,7 +3629,7 @@ test.describe('agent install', () => {
         await expect(p.getByTestId('install-credentials')).toContainText('1:05 뒤 지웁니다')
         await expect(server(page, 's2').getByRole('button', { name: '다시 확인' })).toBeVisible()
         await expect(server(page, 's2').getByRole('button', { name: '되돌리기' })).toBeVisible()
-        await expect(server(page, 's1').getByRole('button', { name: '노드 열기' })).toBeVisible()
+        await expect(server(page, 's1').getByRole('button', { name: '서버 열기' })).toBeVisible()
         await expect(server(page, 's2')).toContainText('3629')
       })
     })

@@ -314,7 +314,7 @@ describe('installReasonText', () => {
         { status: 'failed', reason: 'AGENT_INSTALL_UNREACHABLE', reason_details: { address: '100.64.0.31:22', tailscale: 'leader_none', managers: 'm2,m3' } },
         ko,
       ),
-    ).toBe('100.64.0.31:22은(는) Tailscale 주소인데 리더가 Tailscale에 없습니다. 노드 화면에서 Tailscale에 있는 매니저(m2, m3)로 리더십을 이전한 뒤 다시 설치하세요.')
+    ).toBe('100.64.0.31:22은(는) Tailscale 주소인데 리더가 Tailscale에 없습니다. 서버 목록에서 Tailscale에 있는 매니저(m2, m3)로 리더십을 이전한 뒤 다시 설치하세요.')
   })
 
   it("says a saved login's password goes only to private and tailnet servers, and to type the account for this one", async () => {
