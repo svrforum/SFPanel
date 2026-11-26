@@ -75,7 +75,8 @@
       "cluster": "클러스터",
       "settings": "설정",
       "system": "시스템",
-      "tasks": "그룹 작업"
+      "tasks": "그룹 작업",
+      "agents": "에이전트"
     },
     "tabs": {
       "summary": "요약",
@@ -4971,14 +4972,68 @@
     }
   },
   "agents": {
+    "title": "에이전트",
+    "subtitle": "Zabbix·Wazuh 에이전트를 모든 서버에 배포하고, 실제로 서버에 붙어 있는지 확인합니다.",
+    "server": "서버",
     "settings": {
+      "title": "연결값",
+      "shared": "클러스터 공통",
       "zabbixServer": "Zabbix 서버 (passive, 쉼표로 여러 개)",
       "zabbixActive": "Zabbix active 주소 (호스트[:포트])",
       "zabbixMetadata": "자동 등록 메타데이터",
       "wazuhManager": "Wazuh 매니저 주소",
       "wazuhGroups": "Wazuh 그룹 (비우면 default)",
-      "wazuhVersion": "Wazuh 에이전트 버전"
+      "wazuhVersion": "Wazuh 에이전트 버전",
+      "enrollNote": "그룹·메타데이터는 새로 등록하는 서버에만 적용됩니다 — 이미 등록된 서버의 그룹 변경은 서버 쪽(API) 작업에서 합니다.",
+      "versionNote": "이 버전으로 깔고 고정(hold)합니다. 매니저보다 새 버전은 깔지 않습니다.",
+      "save": "저장",
+      "saved": "저장했습니다"
     },
+    "actions": {
+      "deployZabbix": "Zabbix 배포",
+      "deployWazuh": "Wazuh 배포",
+      "reapplyZabbix": "Zabbix 연결값 다시 적용 ({{count}}대)",
+      "reapplyWazuh": "Wazuh 연결값 다시 적용 ({{count}}대)",
+      "needValues": "먼저 연결값을 저장하세요",
+      "needSelection": "배포할 서버를 고르세요"
+    },
+    "install": {
+      "none": "없음",
+      "running": "실행 중",
+      "stopped": "멈춤",
+      "legacy": "옛 에이전트(agentd) — 이 기능 밖",
+      "unmanaged": "패키지 밖 설치 — 건드리지 않음"
+    },
+    "source": {
+      "vendor": "벤더 저장소",
+      "distro": "배포판 패키지",
+      "other": "기타"
+    },
+    "held": "고정됨(hold)",
+    "match": {
+      "same": "중앙 값과 같음",
+      "different": "다름: {{value}}",
+      "noConfig": "설정 파일 없음",
+      "unset": "중앙 값 없음"
+    },
+    "connection": {
+      "connected": "연결됨",
+      "pending": "대기(pending)",
+      "disconnected": "끊김",
+      "never": "아직 연결한 적 없음",
+      "stale": "상태 파일이 오래됨",
+      "unreachable": "서버에 닿지 않음",
+      "not_registered": "닿지만 등록 안 됨(자동 등록 대기)",
+      "failing": "에이전트가 실패를 기록함",
+      "not_running": "실행 중 아님",
+      "no_server": "active 주소 없음",
+      "unknown": "알 수 없음"
+    },
+    "lastKeepalive": "마지막 keepalive {{time}}",
+    "offline": "오프라인",
+    "absent": "이 서버의 패널이 이 기능을 모르는 버전 — 업데이트하세요",
+    "readError": "읽지 못함: {{error}}",
+    "retry": "다시 시도",
     "errors": {
       "notConfigured": "{{agent}} 연결값을 먼저 에이전트 화면에서 저장하세요",
       "settingsInvalid": "연결값이 올바르지 않습니다: {{field}}"

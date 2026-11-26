@@ -1706,6 +1706,67 @@ export interface AgentInstallTailnet {
   peers: AgentInstallTailnetPeer[]
 }
 
+// ---- Server agents (/agents; internal/feature/serveragents) ----
+
+// Whether an agent reaches its server, judged on its own host. A service that
+// is active is not one of these: only connected is.
+export type AgentConnectionState =
+  | 'connected' | 'pending' | 'disconnected' | 'never' | 'stale' | 'unreachable'
+  | 'not_registered' | 'failing' | 'not_running' | 'no_server' | 'unknown'
+
+export interface AgentConnection {
+  state: AgentConnectionState
+  /** The dial error or the agent's log line behind the state. */
+  detail?: string
+  /** Wazuh's own state file, as it writes them. */
+  last_keepalive?: string
+  last_ack?: string
+}
+
+// GET /agents/status, one node's Zabbix agent 2. legacy is the old agent
+// (agentd), unmanaged one not installed from its package: both are left alone.
+export interface ZabbixAgentStatus {
+  state: 'none' | 'installed' | 'legacy' | 'unmanaged'
+  version?: string
+  source?: 'vendor' | 'distro' | 'other'
+  /** What systemctl is-active says. */
+  service?: string
+  config?: { server: string; server_active: string; hostname: string; host_metadata: string; duplicates?: string[] }
+  connection?: AgentConnection
+}
+
+export interface WazuhAgentStatus {
+  state: 'none' | 'installed' | 'unmanaged'
+  version?: string
+  held?: boolean
+  service?: string
+  config?: { servers: string[]; enrollment_manager: string; groups: string }
+  /** Why ossec.conf is there and could not be read. */
+  config_error?: string
+  connection?: AgentConnection
+}
+
+export interface AgentStatus {
+  os: { id: string; id_like?: string; version_id: string; codename: string; pretty: string }
+  zabbix: ZabbixAgentStatus
+  wazuh: WazuhAgentStatus
+  checked_at: string
+}
+
+// The cluster's connection values, PUT /agents/settings as a whole.
+export interface AgentSettingsInput {
+  zabbix: { server: string; server_active: string; host_metadata: string }
+  wazuh: { manager: string; groups: string; version: string }
+}
+
+// GET /agents/settings: saved is false until someone saves, when only the
+// default Wazuh version is set.
+export interface AgentSettingsView extends AgentSettingsInput {
+  updated_at?: string
+  updated_by?: string
+  saved: boolean
+}
+
 // Docker observability — container metrics, events, alert rule kinds
 export interface ContainerMetricPoint {
   ts: number // unix millis

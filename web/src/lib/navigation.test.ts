@@ -6,16 +6,16 @@ import { BOTTOM_NAV_ITEMS, NAV_ITEMS, TERMINAL_ROUTES, documentTitle, isTerminal
 const at = (tree: unknown, key: string): unknown =>
   key.split('.').reduce<unknown>((n, p) => (n && typeof n === 'object' ? (n as Record<string, unknown>)[p] : undefined), tree)
 
-const CLUSTER = ['/terminal', '/dashboard', '/docker', '/files', '/logs', '/services', '/network', '/firewall', '/disk', '/cluster/running', '/map', '/cluster/tasks', '/cluster', '/settings']
+const CLUSTER = ['/terminal', '/dashboard', '/docker', '/files', '/logs', '/services', '/network', '/firewall', '/disk', '/cluster/running', '/map', '/cluster/tasks', '/agents', '/cluster', '/settings']
 
 describe('the menu', () => {
-  it('lists 14 entries in a cluster and 12 on a single server, in sidebar order', () => {
+  it('lists 15 entries in a cluster and 12 on a single server, in sidebar order', () => {
     expect(navFor(true).map((e) => e.to)).toEqual(CLUSTER)
-    expect(navFor(false).map((e) => e.to)).toEqual(CLUSTER.filter((to) => to !== '/cluster/running' && to !== '/cluster/tasks'))
+    expect(navFor(false).map((e) => e.to)).toEqual(CLUSTER.filter((to) => to !== '/cluster/running' && to !== '/cluster/tasks' && to !== '/agents'))
   })
 
-  it('groups nine server entries, then four for all servers, then settings', () => {
-    expect(navFor(true).map((e) => e.group)).toEqual([...Array(9).fill('server'), 'fleet', 'fleet', 'fleet', 'fleet', 'tail'])
+  it('groups nine server entries, then five for all servers, then settings', () => {
+    expect(navFor(true).map((e) => e.group)).toEqual([...Array(9).fill('server'), 'fleet', 'fleet', 'fleet', 'fleet', 'fleet', 'tail'])
   })
 
   it('gives the map its devices and rack tabs, owned by the map', () => {
@@ -68,6 +68,13 @@ describe('the menu', () => {
     expect(pageTitleKey('/')).toBeNull()
   })
 
+  it('puts the agents page after group tasks, about every server, in a cluster only', () => {
+    const agents = NAV_ITEMS.find((e) => e.to === '/agents')
+    expect(agents).toMatchObject({ labelKey: 'layout.nav.agents', group: 'fleet', scope: 'fleet', clusterOnly: true })
+    expect(navOwner('/agents')?.entry.to).toBe('/agents')
+    expect(pageTitleKey('/agents')).toBe('layout.nav.agents')
+  })
+
   it('resolves every label key in ko and en', () => {
     const keys = NAV_ITEMS.flatMap((e) => [e.labelKey, ...(e.mobileLabelKey ? [e.mobileLabelKey] : []), ...(e.tabs ?? []).map((t) => t.labelKey)])
     for (const tree of [ko, en]) expect(keys.filter((key) => typeof at(tree, key) !== 'string')).toEqual([])
@@ -80,7 +87,7 @@ describe('moreMenuGroups', () => {
   it('groups what the bottom bar does not carry: the server pages, all servers, then settings', () => {
     expect(view(true)).toEqual([
       ['server', ['/files', '/services', '/network', '/firewall', '/disk']],
-      ['fleet', ['/cluster/running', '/map', '/cluster/tasks', '/cluster']],
+      ['fleet', ['/cluster/running', '/map', '/cluster/tasks', '/agents', '/cluster']],
       ['tail', ['/settings']],
     ])
     expect(view(false)).toEqual([

@@ -22,6 +22,7 @@ import {
   Network,
   Package,
   PieChart,
+  Radar,
   Router,
   Server,
   Settings,
@@ -148,6 +149,7 @@ export const NAV_ITEMS: NavEntry[] = [
     ],
   },
   { to: '/cluster/tasks', labelKey: 'layout.nav.tasks', icon: ListChecks, group: 'fleet', scope: 'fleet', clusterOnly: true },
+  { to: '/agents', labelKey: 'layout.nav.agents', icon: Radar, group: 'fleet', scope: 'fleet', clusterOnly: true },
   {
     to: '/cluster', labelKey: 'layout.nav.cluster', icon: Server, group: 'fleet', scope: 'fleet',
     tabs: [

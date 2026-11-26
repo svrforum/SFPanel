@@ -33,6 +33,7 @@ const KO: Record<string, string> = {
   'terminal.openHere': '여기서 터미널 열기',
   'running.network.scan.installNmap': 'nmap 설치',
   'packages.elsewhere.title': '다른 화면에서 설치하는 것',
+  'layout.nav.agents': '에이전트',
 }
 // A page's <h1> is its menu label.
 const H1: [string, string][] = [
@@ -41,7 +42,7 @@ const H1: [string, string][] = [
   ['appStore.title', 'layout.nav.appstore'], ['services.title', 'layout.nav.services'], ['network.title', 'layout.nav.networkVpn'],
   ['firewall.title', 'layout.nav.firewall'], ['docker.title', 'layout.nav.docker'], ['running.title', 'layout.nav.running'],
   ['cluster.title', 'layout.nav.cluster'], ['settings.title', 'layout.nav.settings'], ['map.title', 'layout.nav.map'],
-  ['tuning.title', 'layout.nav.tuning'],
+  ['tuning.title', 'layout.nav.tuning'], ['agents.title', 'layout.nav.agents'],
 ]
 
 describe('menu labels', () => {

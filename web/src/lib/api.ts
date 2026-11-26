@@ -94,6 +94,9 @@ import type {
   AgentInstallTailnet,
   AgentInstallLogin,
   AgentInstallLoginBody,
+  AgentStatus,
+  AgentSettingsInput,
+  AgentSettingsView,
 } from '@/types/api'
 import type { TFunction } from 'i18next'
 import { CODE_DEFAULTS, CODE_DETAIL_FORMATS, CODE_MESSAGES } from './codeMessages'
@@ -3013,6 +3016,24 @@ class ApiClient {
 
   private installRow(runId: string, key: string) {
     return `/cluster/agent-installs/${encodeURIComponent(runId)}/servers/${encodeURIComponent(key)}`
+  }
+
+  // ---- Server agents ----
+  // A node's own agents, read on that node: every node answers it, and one
+  // older than the route answers 404.
+  getAgentStatus(node?: string) {
+    return this.request<AgentStatus>('/agents/status', { node })
+  }
+
+  // The cluster's connection values: any manager answers from its replicated
+  // state, and passes a write on to the leader, so neither carries ?node=.
+  // A refused value is 400 SERVER_AGENT_SETTINGS_INVALID with details.field.
+  getAgentSettings() {
+    return this.request<AgentSettingsView>('/agents/settings', { local: true })
+  }
+
+  putAgentSettings(settings: AgentSettingsInput) {
+    return this.request<AgentSettingsView>('/agents/settings', { method: 'PUT', body: JSON.stringify(settings), local: true })
   }
 
   // The run's progress, from the manager this browser is attached to: built on

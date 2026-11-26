@@ -75,7 +75,8 @@
       "cluster": "Cluster",
       "settings": "Settings",
       "system": "System",
-      "tasks": "Group Tasks"
+      "tasks": "Group Tasks",
+      "agents": "Agents"
     },
     "tabs": {
       "summary": "Summary",
@@ -4992,14 +4993,68 @@
     }
   },
   "agents": {
+    "title": "Agents",
+    "subtitle": "Deploy the Zabbix and Wazuh agents to every server and see whether each really reaches its server.",
+    "server": "Server",
     "settings": {
+      "title": "Connection values",
+      "shared": "Cluster-wide",
       "zabbixServer": "Zabbix server (passive, comma-separated)",
       "zabbixActive": "Zabbix active address (host[:port])",
       "zabbixMetadata": "Auto-registration metadata",
       "wazuhManager": "Wazuh manager address",
       "wazuhGroups": "Wazuh groups (empty means default)",
-      "wazuhVersion": "Wazuh agent version"
+      "wazuhVersion": "Wazuh agent version",
+      "enrollNote": "Groups and metadata apply to newly enrolled servers only — change an enrolled server's group on the server side (API).",
+      "versionNote": "Installed at this version and held. Never newer than the manager.",
+      "save": "Save",
+      "saved": "Saved"
     },
+    "actions": {
+      "deployZabbix": "Deploy Zabbix",
+      "deployWazuh": "Deploy Wazuh",
+      "reapplyZabbix": "Re-apply Zabbix values ({{count}})",
+      "reapplyWazuh": "Re-apply Wazuh values ({{count}})",
+      "needValues": "Save the connection values first",
+      "needSelection": "Choose servers to deploy to"
+    },
+    "install": {
+      "none": "None",
+      "running": "Running",
+      "stopped": "Stopped",
+      "legacy": "Old agent (agentd) — not covered",
+      "unmanaged": "Not a package — left alone"
+    },
+    "source": {
+      "vendor": "Vendor repository",
+      "distro": "Distro package",
+      "other": "Other"
+    },
+    "held": "Held",
+    "match": {
+      "same": "Matches",
+      "different": "Differs: {{value}}",
+      "noConfig": "No config file",
+      "unset": "No central value"
+    },
+    "connection": {
+      "connected": "Connected",
+      "pending": "Pending",
+      "disconnected": "Disconnected",
+      "never": "Never connected",
+      "stale": "State file is stale",
+      "unreachable": "Does not reach its server",
+      "not_registered": "Reaches it but not registered (auto-registration pending)",
+      "failing": "The agent logs failures",
+      "not_running": "Not running",
+      "no_server": "No active address",
+      "unknown": "Unknown"
+    },
+    "lastKeepalive": "Last keepalive {{time}}",
+    "offline": "Offline",
+    "absent": "This server's panel predates this page — update it",
+    "readError": "Could not read: {{error}}",
+    "retry": "Retry",
     "errors": {
       "notConfigured": "Save the {{agent}} connection values on the Agents page first",
       "settingsInvalid": "A connection value is not valid: {{field}}"
