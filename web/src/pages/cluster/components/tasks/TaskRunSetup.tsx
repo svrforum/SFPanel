@@ -4,7 +4,7 @@ import { useTranslation } from 'react-i18next'
 import { AlertTriangle, Copy, Eye, Loader2, Pencil, Play, Trash2 } from 'lucide-react'
 import { api, type ApiError } from '@/lib/api'
 import { taskErrorMessage } from '@/lib/taskErrors'
-import { formatDate } from '@/lib/utils'
+import { cn, formatDate } from '@/lib/utils'
 import { NO_PREFILL, prefilledValues, type RunPrefill } from '@/lib/taskPrefill'
 import { Button } from '@/components/ui/button'
 import { Checkbox } from '@/components/ui/checkbox'
@@ -33,6 +33,14 @@ interface TaskRunSetupProps {
 }
 
 const RECENT_RUNS = 5
+
+/** The built-in that runs a command typed in: its command may be a script of several lines. */
+const COMMAND_TASK_ID = 'builtin/command'
+
+const TEXTAREA = cn(
+  'w-full min-h-24 rounded-md border border-input bg-transparent px-3 py-2 font-mono text-base md:text-[13px] shadow-xs outline-none',
+  'focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring disabled:opacity-50 dark:bg-input/30 aria-invalid:border-destructive',
+)
 
 const byName = (a: ClusterNode, b: ClusterNode) => a.name.localeCompare(b.name, undefined, { numeric: true })
 
@@ -342,6 +350,21 @@ function RunForm({ task, prefill }: { task: TaskView; prefill: RunPrefill }) {
             const field = `${id}-input-${input.name}`
             const problem = problemOf(input.name)
             const shown = problem && (problem.reason !== 'required' || attempted) ? problem : undefined
+            // The built-in's command, and a value an address gave with line
+            // breaks (a snippet of several lines), take a box that keeps
+            // them: a one-line field shows the lines run together, and sends
+            // them so once edited. Decided once, so deleting a line break
+            // does not swap the field under the cursor.
+            const lines = (task.id === COMMAND_TASK_ID && input.name === 'command') || /[\r\n]/.test(prefill.inputs[input.name] ?? '')
+            const fieldProps = {
+              id: field,
+              value: values[input.name] ?? '',
+              placeholder: input.default ? t('cluster.tasks.setup.defaultValue', { value: input.default }) : undefined,
+              'aria-invalid': shown ? true : undefined,
+              'aria-describedby': shown ? `${field}-note` : undefined,
+              disabled: busy,
+            }
+            const change = (value: string) => setValues((v) => ({ ...v, [input.name]: value }))
             return (
               <div key={input.name} data-testid={`task-input-${input.name}`} className="space-y-1.5">
                 <div className="flex flex-wrap items-center gap-1.5">
@@ -349,16 +372,11 @@ function RunForm({ task, prefill }: { task: TaskView; prefill: RunPrefill }) {
                   {input.required && <StatusPill tone="secondary">{t('cluster.tasks.setup.required')}</StatusPill>}
                   {input.raw && <StatusPill tone="warning">{t('cluster.tasks.setup.raw')}</StatusPill>}
                 </div>
-                <Input
-                  id={field}
-                  value={values[input.name] ?? ''}
-                  placeholder={input.default ? t('cluster.tasks.setup.defaultValue', { value: input.default }) : undefined}
-                  aria-invalid={shown ? true : undefined}
-                  aria-describedby={shown ? `${field}-note` : undefined}
-                  disabled={busy}
-                  onChange={(e) => setValues((v) => ({ ...v, [input.name]: e.target.value }))}
-                  className="font-mono"
-                />
+                {lines ? (
+                  <textarea {...fieldProps} spellCheck={false} onChange={(e) => change(e.target.value)} className={TEXTAREA} />
+                ) : (
+                  <Input {...fieldProps} onChange={(e) => change(e.target.value)} className="font-mono" />
+                )}
                 {shown && (
                   <p id={`${field}-note`} className="text-[12px] text-destructive">
                     {shown.reason === 'required' ? t('cluster.tasks.setup.inputRequired') : t('cluster.tasks.setup.inputTooLarge')}

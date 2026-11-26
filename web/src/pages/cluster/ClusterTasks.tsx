@@ -1,10 +1,10 @@
 import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { Link, useLocation, useMatch, useParams } from 'react-router-dom'
+import { Link, useLocation, useMatch, useNavigate, useParams } from 'react-router-dom'
 import { useTranslation } from 'react-i18next'
 import { Loader2, Server } from 'lucide-react'
 import { api } from '@/lib/api'
 import { taskErrorMessage } from '@/lib/taskErrors'
-import { parseRunPrefill } from '@/lib/taskPrefill'
+import { parseRunPrefill, withoutInputs, type RunPrefill } from '@/lib/taskPrefill'
 import { useVisibleInterval } from '@/hooks/useVisibleInterval'
 import { ListLoadState } from '@/components/ListLoadState'
 import type { ClusterStatus, RunRecord, TaskView } from '@/types/api'
@@ -26,6 +26,13 @@ const RUNS_POLL_MS = 10_000
 
 const sleep = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms))
 
+/** The values a run setup's history entry keeps once its address let go of them; null if it keeps none. */
+function keptInputs(state: unknown): Record<string, string> | null {
+  const inputs = (state as { runInputs?: unknown } | null)?.runInputs
+  if (!inputs || typeof inputs !== 'object') return null
+  return Object.fromEntries(Object.entries(inputs).filter((entry): entry is [string, string] => typeof entry[1] === 'string'))
+}
+
 // The cluster's Tasks tab. Every tasks/* route lands here and the URL picks
 // the right pane: nothing (tasks), a task's run setup (tasks/:taskId) or the
 // agent install's form (tasks/builtin%2Fagent-install), the
@@ -40,8 +47,27 @@ export default function ClusterTasks() {
   const isHistory = useMatch('/cluster/tasks/runs') !== null
   const isEdit = useMatch('/cluster/tasks/:taskId/edit') !== null
   // A task's run setup opened from another screen with servers and values.
-  const { search } = useLocation()
-  const prefill = useMemo(() => parseRunPrefill(search), [search])
+  // The values leave the address once read, by replace: a command may hold a
+  // password, and an address stays in the browser's history (synced with
+  // it, too) and reaches the panel's request log on a reload. The history
+  // entry keeps them in its state, where Back or a reload finds them again;
+  // the servers and anything else stay in the address.
+  const location = useLocation()
+  const navigate = useNavigate()
+  const fromAddress = useMemo(() => parseRunPrefill(location.search), [location.search])
+  const given = Object.keys(fromAddress.inputs).length > 0
+  const inputs = given ? fromAddress.inputs : (keptInputs(location.state) ?? {})
+  // By what it holds: the address letting go of the values is no new prefill.
+  const prefillKey = JSON.stringify({ nodes: fromAddress.nodes, inputs })
+  const prefill = useMemo(() => JSON.parse(prefillKey) as RunPrefill, [prefillKey])
+  useEffect(() => {
+    if (!given) return
+    const state = typeof location.state === 'object' && location.state !== null ? location.state : {}
+    navigate(
+      { pathname: location.pathname, search: withoutInputs(location.search), hash: location.hash },
+      { replace: true, state: { ...state, runInputs: fromAddress.inputs } },
+    )
+  }, [given, fromAddress, location, navigate])
 
   const [status, setStatus] = useState<ClusterStatus | null>(null)
   const [tasks, setTasks] = useState<TaskView[] | null>(null)

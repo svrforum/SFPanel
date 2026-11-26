@@ -649,6 +649,17 @@ test('in a cluster a shell snippet can run on several servers; a prompt cannot',
   await expect(other).toBeChecked()
 })
 
+// A snippet of several lines keeps them in the run setup's command, and the
+// command leaves the address once read: a snippet may hold a password.
+test('a snippet of several lines opens the run setup with its lines, and the address lets go of it', async ({ page }) => {
+  const body = 'cd /srv/app\ndocker compose pull'
+  const t = await openTerminal(page, SHELL.id, { prefs: { snippets: [{ kind: 'shell', body }] }, cluster: true })
+  await t.openTools()
+  await t.sheet.getByRole('link', { name: /^Run on several servers: / }).tap()
+  await expect(page.getByTestId('task-pane-setup').getByLabel('Command to run')).toHaveValue(body)
+  await expect(page).toHaveURL(/\/cluster\/tasks\/builtin%2Fcommand\?nodes=m-1$/)
+})
+
 test('a prompt snippet has no group run', async ({ page }) => {
   const t = await openTerminal(page, AGENT.id, { prefs: { snippets: [{ kind: 'agent', body: 'review the diff' }] }, cluster: true })
   // The page knows the server it shows, so a link would be drawn by now.

@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import type { TaskModel } from '@/types/api'
-import { NO_PREFILL, parseRunPrefill, prefilledValues, taskRunHref } from './taskPrefill'
+import { NO_PREFILL, parseRunPrefill, prefilledValues, taskRunHref, withoutInputs } from './taskPrefill'
 
 describe('parseRunPrefill', () => {
   it('reads servers and values from the address', () =>
@@ -36,4 +36,22 @@ describe('prefilledValues', () => {
 
   it('fills nothing for a task that asks for nothing', () =>
     expect(prefilledValues({} as unknown as TaskModel, { command: 'uptime' })).toEqual({}))
+})
+
+describe('withoutInputs', () => {
+  it('drops every value and keeps the rest as written', () => {
+    expect(withoutInputs('?nodes=a-1,m-2&input.command=echo%20s3cret&keep=1&input.x=')).toBe('?nodes=a-1,m-2&keep=1')
+    expect(parseRunPrefill(withoutInputs('?nodes=a-1&input.command=uptime'))).toEqual({ nodes: ['a-1'], inputs: {} })
+  })
+
+  it('drops a value whose name is escaped, as the address reads it', () =>
+    expect(withoutInputs('?input%2Ecommand=uptime&nodes=a-1')).toBe('?nodes=a-1'))
+
+  it('leaves no query when nothing else is there', () => {
+    expect(withoutInputs('?input.command=uptime')).toBe('')
+    expect(withoutInputs('')).toBe('')
+  })
+
+  it('keeps a part whose name cannot be read', () =>
+    expect(withoutInputs('?%E0%A4=1&input.a=b')).toBe('?%E0%A4=1'))
 })

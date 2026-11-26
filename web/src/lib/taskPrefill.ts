@@ -47,6 +47,25 @@ export function taskRunHref(taskId: string, prefill: { nodes?: string[]; inputs?
   return `/cluster/tasks/${encodeURIComponent(taskId)}${query ? `?${query}` : ''}`
 }
 
+/** A query part's key as URLSearchParams reads it; a malformed escape is left as written. */
+function keyOf(part: string): string {
+  const raw = part.split('=', 1)[0].replace(/\+/g, ' ')
+  try {
+    return decodeURIComponent(raw)
+  } catch {
+    return raw
+  }
+}
+
+/**
+ * The query without its input.<name> values, every other part kept as it was
+ * written (?nodes=a-1,m-2 stays unescaped); '' when nothing is left.
+ */
+export function withoutInputs(search: string): string {
+  const kept = search.replace(/^\?/, '').split('&').filter((part) => part !== '' && !keyOf(part).startsWith(INPUT_PREFIX))
+  return kept.length > 0 ? `?${kept.join('&')}` : ''
+}
+
 /** The values the task asks for, out of those an address gave: any other name is dropped. */
 export function prefilledValues(model: TaskModel, inputs: Record<string, string>): Record<string, string> {
   const values: Record<string, string> = {}

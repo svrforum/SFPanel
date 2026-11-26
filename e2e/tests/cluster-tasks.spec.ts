@@ -943,6 +943,62 @@ test.describe('prefilled from another screen', () => {
     await expect(setup(page).getByTestId('task-target-count')).toHaveText('2 nodes targeted')
     await expect(setup(page).getByLabel('Version')).toHaveValue('')
   })
+
+  // A snippet of several lines arrives as one value with line breaks. A
+  // one-line field shows the lines run together, and any edit sends them so.
+  test('a value of several lines keeps its line breaks on screen and after an edit', async ({ page }) => {
+    const { calls } = await mock(page, { taskDetails: TASK_DETAILS, nodesDelay: 800, replies: planFails })
+    const lines = 'apt-get update\napt-get -y upgrade'
+    await page.goto(`/cluster/tasks/${encodeURIComponent('builtin/command')}?nodes=a-1&input.command=${encodeURIComponent(lines)}`)
+    const field = setup(page).getByLabel('Command to run')
+    await expect(field).toHaveValue(lines)
+    await field.press('Control+End')
+    await field.pressSequentially(' -q')
+    await expect(field).toHaveValue(`${lines} -q`)
+    await setup(page).getByRole('button', { name: 'Preview' }).click()
+    await expect.poll(() => posts(calls, '/cluster/task-runs/plan').length).toBe(1)
+    expect((posts(calls, '/cluster/task-runs/plan')[0].body as { inputs: unknown }).inputs).toEqual({ command: `${lines} -q` })
+  })
+
+  // The command box takes lines whatever it holds; other values stay one line.
+  test("the built-in command's value is a box of lines, other values one line", async ({ page }) => {
+    await mock(page, { taskDetails: TASK_DETAILS })
+    await page.goto(`/cluster/tasks/${encodeURIComponent('builtin/command')}`)
+    await expect(setup(page).getByLabel('Command to run')).toHaveJSProperty('tagName', 'TEXTAREA')
+    await page.goto(`/cluster/tasks/${DEPLOY_ID}?input.version=1.2.3`)
+    await expect(setup(page).getByLabel('Version')).toHaveValue('1.2.3')
+    await expect(setup(page).getByLabel('Version')).toHaveJSProperty('tagName', 'INPUT')
+  })
+
+  // A command may carry a password: once read, the values leave the address
+  // (by replace, so no address in the history has them), and the servers and
+  // the rest stay. The history entry keeps the values in its state.
+  test('the values leave the address once read, the servers stay, and the form keeps them', async ({ page }) => {
+    const { calls } = await mock(page, { taskDetails: TASK_DETAILS, nodesDelay: 800, replies: planFails })
+    await page.addInitScript(() => {
+      const w = window as unknown as { __pushed: string[] }
+      w.__pushed = []
+      const push = history.pushState.bind(history)
+      history.pushState = (...args: Parameters<History['pushState']>) => {
+        push(...args)
+        w.__pushed.push(location.href)
+      }
+    })
+    await page.goto(`/cluster/tasks/${encodeURIComponent('builtin/command')}?nodes=a-1,m-2&input.command=${encodeURIComponent('echo s3cret')}&keep=1`)
+    await expect(setup(page).getByLabel('Command to run')).toHaveValue('echo s3cret')
+    await expect(page).toHaveURL(/\/cluster\/tasks\/builtin%2Fcommand\?nodes=a-1,m-2&keep=1$/)
+    // The address dropped the values; the form did not.
+    await expect(box(page, 'agent-01')).toBeChecked()
+    await expect(box(page, 'manager-2')).toBeChecked()
+    await setup(page).getByRole('button', { name: 'Preview' }).click()
+    await expect.poll(() => posts(calls, '/cluster/task-runs/plan').length).toBe(1)
+    expect((posts(calls, '/cluster/task-runs/plan')[0].body as { inputs: unknown }).inputs).toEqual({ command: 'echo s3cret' })
+    expect(await page.evaluate(() => (window as unknown as { __pushed: string[] }).__pushed)).toEqual([])
+    // The history entry keeps them: a reload fills the form again.
+    await page.reload()
+    await expect(setup(page).getByLabel('Command to run')).toHaveValue('echo s3cret')
+    await expect(page).toHaveURL(/\/cluster\/tasks\/builtin%2Fcommand\?nodes=a-1,m-2&keep=1$/)
+  })
 })
 
 // ------------------------------------------------------- a run's progress --
