@@ -231,6 +231,7 @@ jobs:
             tests/files-upload.spec.ts \
             tests/disk-tabs.spec.ts \
             tests/fleet-links.spec.ts \
+            tests/packages-actions.spec.ts \
             tests/terminal-input.spec.ts
       - name: Dump panel log on failure
         if: failure()

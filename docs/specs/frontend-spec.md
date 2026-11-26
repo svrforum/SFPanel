@@ -498,6 +498,7 @@ const DockerStacks = lazy(() => import('@/pages/docker/DockerStacks'))
   - **개발 도구 카드**: Node.js(버전 관리 다이얼로그 — 설치/전환/삭제, LTS). Claude/Codex/Gemini는 터미널 페이지의 도구·계정 패널에서 설치·관리(v0.73.0 AI 코딩 페이지 → v0.76.0 터미널로 통합)
   - 패키지 업데이트: 업데이트 확인, 전체/선택 업그레이드(SSE), 패키지 체크박스 선택
   - 패키지 검색/설치: 검색 결과에서 설치/제거 (설치 상태 표시)
+  - 맨 아래 '다른 화면에서 설치하는 것' 카드가 다른 화면에서 설치하는 도구와 그 화면으로 가는 링크를 보인다.
   - 작업 출력 다이얼로그: 설치/업그레이드/제거 진행 상황 실시간 표시
 - **사용 API**: `api.getDockerStatus()`, `api.installDocker()`(SSE), `api.checkUpdates()`, `api.upgradePackages()`(SSE), `api.installPackage()`, `api.removePackage()`, `api.searchPackages()`, `getNodeStatus/getNodeVersions/switchNodeVersion/uninstallNodeVersion`, `install-node`(fetch SSE)
 - **사용 컴포넌트**: Table, Dialog, Button, Input (shadcn/ui)

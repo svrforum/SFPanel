@@ -1,5 +1,6 @@
 import { useCallback, useState } from 'react'
 import { useTranslation } from 'react-i18next'
+import { Link } from 'react-router-dom'
 import { ArrowUpCircle, CheckCircle2, Download, KeyRound, Loader2 } from 'lucide-react'
 import { toast } from 'sonner'
 import type { AITools } from '@/types/api'
@@ -33,14 +34,15 @@ export interface ToolsSheetProps {
 
 /**
  * The 도구·계정 panel: which account the tools are probed for, tmux's state,
- * one card per CLI (version, update/install, login state, profiles), and at
+ * one card per CLI (version, update/install, login state, profiles), a link to
+ * the packages page where the Node.js version they run on is changed, and at
  * the bottom the emergency door to the PTY engine, with the server's timeout
  * for those shells left idle. Install and update stream into the shared
  * OutputDialog exactly as the packages page does.
  */
 export function ToolsSheet({ open, onOpenChange, tools, toolsError, account, onAccountChange, onChanged, onSessionsChanged, output, onOpenTemporaryShell }: ToolsSheetProps) {
   const { t } = useTranslation()
-  const { currentName } = useServerScope()
+  const { currentName, href } = useServerScope()
   const [busy, setBusy] = useState<CliTool | null>(null)
   // Before GET /ai/tools resolves the account may be '' — Radix throws on an
   // empty SelectItem value, so an empty account is never an item.
@@ -159,6 +161,9 @@ export function ToolsSheet({ open, onOpenChange, tools, toolsError, account, onA
               </div>
             )
           })}
+          <p className="text-[12px] text-muted-foreground">
+            {t('terminal.tools.nodeVersions')} <Link to={href('/packages')} className="text-primary hover:underline">{t('layout.nav.packages')}</Link>
+          </p>
 
           {/* The emergency door: a PTY shell as the panel account, outside
               tmux, for the day tmux is present but something around it is

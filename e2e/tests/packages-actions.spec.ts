@@ -99,3 +99,12 @@ test('a Node.js status that could not be read is not offered an install', async 
   await expect(page.getByText('v22.11.0')).toBeVisible()
   await expect(page.getByText('Could not check whether it is installed', { exact: false })).toHaveCount(0)
 })
+
+test('installs that live on other screens say where, with a way there', async ({ page }) => {
+  await open(page)
+  const card = page.getByRole('region', { name: 'Installed from other screens' })
+  await expect(card).toBeVisible()
+  expect(await card.getByRole('link').evaluateAll((a) => a.map((l) => l.getAttribute('href'))))
+    .toEqual(['/terminal', '/network/wireguard', '/network/tailscale', '/firewall/fail2ban', '/disk/overview', '/disk/network-shares', '/map'])
+  await expect(card.getByRole('link', { name: 'Network / VPN › WireGuard' })).toBeVisible()
+})

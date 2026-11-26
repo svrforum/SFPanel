@@ -2667,6 +2667,7 @@
       "title": "Tools & accounts",
       "description": "Install state, login and profiles of the tools that run as this account.",
       "tmuxOk": "tmux {{version}} · OK",
+      "nodeVersions": "The Node.js version the AI tools use is changed in",
       "temporaryShell": "Open a temporary shell without tmux",
       "temporaryShellHint": "Runs as the panel account and lives in this browser only.",
       "timeout": {
@@ -3660,6 +3661,10 @@
     "devTools": "Dev Tools",
     "devToolsDescription": "One-click Node.js install.",
     "devToolsAiLink": "Claude, Codex and Gemini CLI are installed under the terminal's Tools & accounts and opened as sessions",
+    "elsewhere": {
+      "title": "Installed from other screens",
+      "description": "These are installed and set up on the screen that uses them."
+    },
     "installNode": "Install Node.js",
     "installingNode": "Installing Node.js…",
     "nodeInstallSuccess": "Node.js installed",

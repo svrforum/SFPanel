@@ -2,6 +2,7 @@ import { useTranslation } from 'react-i18next'
 import { OutputDialog, useSSEOutput } from '@/components/OutputDialog'
 import { DockerStatusCard } from '@/pages/packages/components/DockerStatusCard'
 import { DevToolsCard } from '@/pages/packages/components/DevToolsCard'
+import { ElsewhereCard } from '@/pages/packages/components/ElsewhereCard'
 import { SystemUpdatesCard } from '@/pages/packages/components/SystemUpdatesCard'
 import { PackageSearchCard } from '@/pages/packages/components/PackageSearchCard'
 import { TransactionBanner } from '@/pages/packages/components/TransactionBanner'
@@ -31,6 +32,7 @@ export default function Packages() {
       <DevToolsCard output={output} />
       <SystemUpdatesCard tx={tx} />
       <PackageSearchCard output={output} tx={tx} />
+      <ElsewhereCard />
 
       <OutputDialog state={output.state} onClose={output.closeOutput} />
       <TransactionDialog state={tx.dialog} onClose={tx.close} onHide={tx.hide} />

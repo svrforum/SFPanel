@@ -145,3 +145,16 @@ test('a single server offers no group task', async ({ page }) => {
   await expect(page.getByRole('menuitem', { name: 'Restart' })).toBeVisible()
   await expect(page.getByRole('menuitem', { name: /several servers/ })).toHaveCount(0)
 })
+
+// The card of tools installed on other screens links them as the menu does:
+// a server's screen names the server shown, the network map names none.
+test("the tools installed elsewhere lead to the same server's screens", async ({ page }) => {
+  await mock(page)
+  await page.goto('/packages?node=agent-1')
+  const card = page.getByRole('region', { name: 'Installed from other screens' })
+  await expect(card.getByRole('link', { name: 'Network / VPN › WireGuard' })).toBeVisible()
+  expect(await card.getByRole('link').evaluateAll((a) => a.map((l) => l.getAttribute('href')))).toEqual([
+    '/terminal?node=agent-1', '/network/wireguard?node=agent-1', '/network/tailscale?node=agent-1', '/firewall/fail2ban?node=agent-1',
+    '/disk/overview?node=agent-1', '/disk/network-shares?node=agent-1', '/map',
+  ])
+})

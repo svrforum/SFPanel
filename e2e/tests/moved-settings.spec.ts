@@ -120,6 +120,18 @@ test('a value that could not be read is not offered as current', async ({ page }
   await expect(sheet.getByLabel('Temporary shell timeout')).toHaveValue('45')
 })
 
+test('the tools sheet leads to the Node.js version in packages', async ({ page }) => {
+  await mock(page); await page.goto('/terminal')
+  await page.getByRole('button', { name: 'Tools & accounts' }).first().click()
+  await expect(page.getByRole('dialog', { name: 'Tools & accounts' }).getByRole('link', { name: 'Packages', exact: true })).toHaveAttribute('href', '/packages')
+})
+
+test("on another server the tools sheet leads to that server's packages", async ({ page }) => {
+  await mock(page, { cluster: true, current: 'agent-1' }); await page.goto('/terminal?node=agent-1')
+  await page.getByRole('button', { name: 'Tools & accounts' }).first().click()
+  await expect(page.getByRole('dialog', { name: 'Tools & accounts' }).getByRole('link', { name: 'Packages', exact: true })).toHaveAttribute('href', '/packages?node=agent-1')
+})
+
 test("the file manager's upload menu holds the upload limit", async ({ page }) => {
   const m = await mock(page); await page.goto('/files?path=%2Fsrv')
   await page.getByRole('button', { name: 'Upload options' }).click()

@@ -30,6 +30,7 @@ const KO: Record<string, string> = {
   'cluster.addAgent.waySsh': 'SSH로 설치', 'cluster.addAgent.wayToken': '가입 명령 복사(토큰)',
   'terminal.openHere': '여기서 터미널 열기',
   'running.network.scan.installNmap': 'nmap 설치',
+  'packages.elsewhere.title': '다른 화면에서 설치하는 것',
 }
 // A page's <h1> is its menu label.
 const H1: [string, string][] = [
