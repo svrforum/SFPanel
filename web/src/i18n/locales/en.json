@@ -1635,6 +1635,9 @@
         "rerunChosen": "Choose nodes to rerun",
         "rerunChosenTitle": "Rerun on the nodes you choose",
         "rerunChosenDescription": "Each node runs again from its first step that did not succeed; a node that succeeded runs every step again. This run's inputs and confirmations are used again.",
+        "toTerminal": "This server's terminal",
+        "toServer": "Open this server",
+        "linkFor": "{{action}}: {{name}}",
         "reason": {
           "stoppedBy": "Stopped by {{user}}.",
           "stoppedByOperator": "Stopped by the operator.",

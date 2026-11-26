@@ -1627,6 +1627,9 @@
         "rerunChosen": "노드 골라 다시 실행",
         "rerunChosenTitle": "고른 노드에서 다시 실행",
         "rerunChosenDescription": "노드마다 성공하지 못한 첫 단계부터 다시 돕니다. 성공한 노드는 모든 단계를 다시 돕니다. 이 실행의 입력값과 확인을 그대로 씁니다.",
+        "toTerminal": "이 서버 터미널",
+        "toServer": "이 서버 열기",
+        "linkFor": "{{action}}: {{name}}",
         "reason": {
           "stoppedBy": "{{user}}이(가) 중지했습니다.",
           "stoppedByOperator": "운영자가 중지했습니다.",

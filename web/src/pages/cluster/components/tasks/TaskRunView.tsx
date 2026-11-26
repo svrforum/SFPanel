@@ -3,6 +3,7 @@ import { Link, useNavigate } from 'react-router-dom'
 import { useTranslation } from 'react-i18next'
 import { Loader2, OctagonX, RotateCcw, Square } from 'lucide-react'
 import { api } from '@/lib/api'
+import { hrefWithNode } from '@/lib/serverScope'
 import { taskErrorMessage } from '@/lib/taskErrors'
 import { formatDate } from '@/lib/utils'
 import { Button } from '@/components/ui/button'
@@ -101,6 +102,12 @@ export function TaskRunView({ runId, onStatus }: TaskRunViewProps) {
   }
 
   const chosenRecord = chosen ? state.nodes[chosen.node]?.steps?.[chosen.step] : undefined
+  // A node still in the cluster opens that server's terminal and dashboard,
+  // whichever server the shell shows. A node that left has nowhere to go, and
+  // an install's rows are servers being installed, not nodes.
+  const serverLinks = install
+    ? undefined
+    : (id: string) => (Object.hasOwn(names, id) ? { terminal: hrefWithNode('/terminal', id), open: hrefWithNode('/dashboard', id) } : null)
 
   return (
     <section data-testid="task-pane-run" className="rounded-2xl bg-card p-5 card-shadow space-y-4 min-w-0">
@@ -125,6 +132,7 @@ export function TaskRunView({ runId, onStatus }: TaskRunViewProps) {
             onChoose={(node, step) => setChosen({ node, step })}
             onChooseNode={(node) => setChosen({ node, step: focusStep(state.nodes[node]) })}
             rowsHeader={install ? t('cluster.tasks.install.run.server') : undefined}
+            serverLinks={serverLinks}
           />
         </div>
         {chosen && chosen.step < count && (

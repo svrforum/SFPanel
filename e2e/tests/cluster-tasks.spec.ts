@@ -1253,6 +1253,33 @@ test.describe('run progress', () => {
     await expect(matrix(page).getByRole('columnheader')).toHaveText(['Node', 'Update the web stack', 'Restart nginx'])
   })
 
+  // A row of a task run is a server in the cluster: it leads to that
+  // server's own screens, whichever server this page is showing.
+  test("a node row leads to that server's terminal and dashboard", async ({ page }) => {
+    await mock(page, { nodesDelay: 800, runDetails: { [RUN_ID]: runDetail(liveRun(), PENDING) }, streams: { [RUN_ID]: [UNDER_WAY] } })
+    await page.goto(`/cluster/tasks/runs/${RUN_ID}`)
+    const row = matrix(page).getByRole('rowheader').filter({ hasText: 'agent-01' })
+    await expect(row.getByRole('link', { name: "This server's terminal: agent-01" })).toHaveAttribute('href', '/terminal?node=a-1')
+    await expect(row.getByRole('link', { name: 'Open this server: agent-01' })).toHaveAttribute('href', '/dashboard?node=a-1')
+    await expect(row.getByRole('link', { name: 'Open this server: agent-01' })).toHaveAttribute('title', 'Open this server')
+    // Followed, the shell shows that server.
+    await row.getByRole('link', { name: 'Open this server: agent-01' }).click()
+    await expect(page).toHaveURL(/\/dashboard\?node=a-1$/)
+    await expect.poll(() => page.evaluate(() => localStorage.getItem('sfpanel_current_node'))).toBe('a-1')
+  })
+
+  test('a node no longer in the cluster has no links', async ({ page }) => {
+    // The run took a-1 and gone-1; the node list has no gone-1. The stream's
+    // snapshot sets the rows, so it names both too.
+    const run = liveRun({ nodes: ['a-1', 'gone-1'], waves: [['a-1', 'gone-1']] })
+    const records = { 'a-1': rec('running', [st('running', { job_id: 'j-a1-0' }), st('pending')]), 'gone-1': rec('pending') }
+    await mock(page, { nodesDelay: 800, runDetails: { [RUN_ID]: runDetail(run, records) }, streams: { [RUN_ID]: [sse(snapshot(run, records))] } })
+    await page.goto(`/cluster/tasks/runs/${RUN_ID}`)
+    await expect(matrix(page).getByRole('rowheader').filter({ hasText: 'agent-01' }).getByRole('link')).toHaveCount(2)
+    await expect(matrix(page).getByRole('rowheader').filter({ hasText: 'gone-1' })).toBeVisible()
+    await expect(matrix(page).getByRole('rowheader').filter({ hasText: 'gone-1' }).getByRole('link')).toHaveCount(0)
+  })
+
   test.describe('Korean', () => {
     test.use({ locale: 'ko-KR' })
 
@@ -1296,6 +1323,25 @@ test.describe('run progress', () => {
       const [o, c] = await Promise.all([output.boundingBox(), cards.last().boundingBox()])
       expect(o && c && o.y > c.y).toBe(true)
       expect(o && o.x >= 0 && o.x + o.width <= 412).toBe(true)
+    })
+
+    test("a node's card leads to that server's terminal and dashboard", async ({ page }) => {
+      await mock(page, {
+        nodesDelay: 800,
+        runDetails: { [RUN_ID]: runDetail(liveRun(), FIRST_BATCH) },
+        streams: { [RUN_ID]: [sse(snapshot(liveRun(), FIRST_BATCH))] },
+      })
+      await page.goto(`/cluster/tasks/runs/${RUN_ID}`)
+      const card = page.getByTestId('task-run-node-card').filter({ hasText: 'agent-01' })
+      const open = card.getByRole('link', { name: 'Open this server: agent-01' })
+      await expect(open).toBeVisible()
+      await expect(open).toHaveAttribute('href', '/dashboard?node=a-1')
+      await expect(card.getByRole('link', { name: "This server's terminal: agent-01" })).toBeVisible()
+      await expect(card.getByRole('link', { name: "This server's terminal: agent-01" })).toHaveAttribute('href', '/terminal?node=a-1')
+      // A finger's height, each.
+      for (const link of [open, card.getByRole('link', { name: "This server's terminal: agent-01" })]) {
+        expect((await link.boundingBox())?.height ?? 0).toBeGreaterThanOrEqual(40)
+      }
     })
   })
 })
@@ -3204,6 +3250,8 @@ test.describe('agent install', () => {
       await expect(p.getByRole('button', { name: 'Force stop' })).toHaveCount(0)
       await expect(matrix(page).getByRole('columnheader')).toHaveText(['Server', 'Connect', 'Pre-flight check', 'Install', 'Register', 'Connection check'])
       await expect(matrix(page).getByRole('rowheader')).toContainText(['web-04', '192.0.2.22'])
+      // Its rows are servers being installed, not nodes: nothing to lead to.
+      await expect(matrix(page).getByRole('link', { name: /This server's terminal/ })).toHaveCount(0)
 
       // The whole fingerprint and its key type, never shortened.
       const s1 = wait(page, 's1')
