@@ -82,6 +82,8 @@ func (d *Deployer) Deploy(ctx context.Context, step tasks.AgentStep, io JobIO) O
 	switch step.Name {
 	case serveragents.Zabbix:
 		return d.deployZabbix(ctx, step, io)
+	case serveragents.Wazuh:
+		return d.deployWazuh(ctx, step, io)
 	}
 	return failed(false, "deploying "+step.Name+" is not supported by this node")
 }

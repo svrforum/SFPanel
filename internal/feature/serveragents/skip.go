@@ -76,10 +76,7 @@ func (h *Host) skipWazuh(o serveragents.OS, s *serveragents.Settings) *Skip {
 	if f.state == serveragents.StateUnmanaged {
 		return skip(agent, WhyUnmanaged, "a Wazuh agent is here ("+ossecConfPath+") but not from the "+wazuhPackage+" package; it is left as it is", nil)
 	}
-	version := serveragents.DefaultWazuhVersion
-	if s != nil && s.Wazuh.Version != "" {
-		version = s.Wazuh.Version
-	}
+	version := wazuhVersion(s)
 	if f.pkg.Installed && serveragents.CompareVersions(serveragents.UpstreamVersion(f.pkg.Version), version) > 0 {
 		return skip(agent, WhyNewer, fmt.Sprintf("the Wazuh agent here, %s, is newer than %s, the version set for the cluster; it is left as it is", f.pkg.Version, version),
 			map[string]string{"installed": f.pkg.Version, "version": version})
