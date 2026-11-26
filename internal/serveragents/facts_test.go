@@ -112,17 +112,26 @@ func TestParseDpkg(t *testing.T) {
 		out  string
 		want Package
 	}{
-		{"install ok installed|1:7.0.22+dfsg-1\n", Package{Installed: true, Version: "1:7.0.22+dfsg-1"}},
-		{"hold ok installed|4.14.10-1\n", Package{Installed: true, Held: true, Version: "4.14.10-1"}},
-		{"install ok triggers-pending|4.14.10-1\n", Package{Installed: true, Version: "4.14.10-1"}},
-		{"deinstall ok config-files|4.14.10-1\n", Package{}},
-		{"install ok half-configured|4.14.10-1\n", Package{}},
-		{"unknown ok not-installed|\n", Package{}},
+		{"install ok installed|1:7.0.22+dfsg-1\n", Package{Installed: true, Version: "1:7.0.22+dfsg-1", State: "installed"}},
+		{"hold ok installed|4.14.10-1\n", Package{Installed: true, Held: true, Version: "4.14.10-1", State: "installed"}},
+		{"install ok triggers-pending|4.14.10-1\n", Package{Installed: true, Version: "4.14.10-1", State: "triggers-pending"}},
+		// Removed, its config files left: not there.
+		{"deinstall ok config-files|4.14.10-1\n", Package{State: "config-files"}},
+		// Part way in: not installed, but there, and possibly held.
+		{"install ok half-configured|4.14.10-1\n", Package{Version: "4.14.10-1", State: "half-configured"}},
+		{"hold ok unpacked|4.14.11-1\n", Package{Held: true, Version: "4.14.11-1", State: "unpacked"}},
+		{"install reinstreq half-installed|4.14.10-1\n", Package{Version: "4.14.10-1", State: "half-installed"}},
+		{"unknown ok not-installed|\n", Package{State: "not-installed"}},
 		{"dpkg-query: no packages found matching wazuh-agent\n", Package{}},
 		{"", Package{}},
 	} {
 		if got := ParseDpkg(tc.out); got != tc.want {
 			t.Errorf("ParseDpkg(%q) = %+v, want %+v", tc.out, got, tc.want)
+		}
+	}
+	for state, present := range map[string]bool{"": false, "not-installed": false, "config-files": false, "half-configured": true, "unpacked": true, "half-installed": true, "installed": true} {
+		if got := (Package{State: state}).Present(); got != present {
+			t.Errorf("Package{State: %q}.Present() = %v, want %v", state, got, present)
 		}
 	}
 	if DpkgFormat != `${Status}|${Version}\n` {

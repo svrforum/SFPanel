@@ -577,3 +577,81 @@ func enrollmentEnabled(t *testing.T, conf string) string {
 	}
 	return m[1]
 }
+
+func TestAHalfInstalledWazuhIsHeld(t *testing.T) {
+	f := freshWazuhHost(t)
+	f.io.onApt = func(aptCall) error {
+		// Its postinst failed: dpkg leaves it half-configured, not installed.
+		f.pkg("wazuh-agent", "install ok half-configured|4.14.10-1")
+		f.write(ossecConfRel, testdata(t, "ossec.conf"))
+		return errors.New("install failed with exit status 100")
+	}
+
+	out := f.deploy(context.Background(), wazuhStep("198.51.100.5", "", "4.14.10"))
+
+	if out.Status != tasks.JobFailed {
+		t.Fatalf("outcome %+v, want failed", out)
+	}
+	if !f.cmd.ran("apt-mark hold wazuh-agent") {
+		t.Errorf("commands %q, want the half-installed agent held: an upgrade of everything would take it past the manager", f.cmd.lines())
+	}
+}
+
+// dpkgLocked is what apt-mark says while another process holds dpkg's lock.
+const dpkgLocked = "E: Could not get lock /var/lib/dpkg/lock-frontend. It is held by process 4242 (apt-get)\nE: Unable to acquire the dpkg frontend lock (/var/lib/dpkg/lock-frontend), is another process using it?\n"
+
+func TestAHoldMetByTheDpkgLockIsTriedOnceMore(t *testing.T) {
+	t.Run("free the second time", func(t *testing.T) {
+		f := installedWazuhHost(t, "install ok installed|4.14.10-1", ossecWith(t, "198.51.100.5", "default"), enrolledKeys)
+		f.cmd.once("apt-mark hold wazuh-agent", dpkgLocked, errors.New("exit status 100"))
+		f.agentdState("connected", "2031-03-04 09:59:58", "2031-03-04 09:59:58")
+
+		out := f.deploy(context.Background(), wazuhStep("198.51.100.5", "", "4.14.10"))
+
+		f.mustSucceed(out)
+		var holds int
+		for _, l := range f.cmd.lines() {
+			if l == "apt-mark hold wazuh-agent" {
+				holds++
+			}
+		}
+		if holds != 2 || f.sleeps == 0 {
+			t.Errorf("apt-mark hold ran %d times after %d waits, want twice with a wait between", holds, f.sleeps)
+		}
+		if !f.io.logged("dpkg's lock is held by another process") {
+			t.Errorf("log %q, want it to say why it tries again", f.io.logs)
+		}
+	})
+	t.Run("still held", func(t *testing.T) {
+		f := installedWazuhHost(t, "install ok installed|4.14.10-1", ossecWith(t, "198.51.100.5", "default"), enrolledKeys)
+		f.cmd.on("apt-mark hold wazuh-agent", dpkgLocked, errors.New("exit status 100"))
+
+		out := f.deploy(context.Background(), wazuhStep("198.51.100.5", "", "4.14.10"))
+
+		if out.Status != tasks.JobFailed || !strings.Contains(out.Summary, "apt-mark hold wazuh-agent failed") || !strings.Contains(out.Summary, "Could not get lock") {
+			t.Fatalf("outcome %+v, want failed with apt-mark's words", out)
+		}
+		var holds int
+		for _, l := range f.cmd.lines() {
+			if l == "apt-mark hold wazuh-agent" {
+				holds++
+			}
+		}
+		if holds != 2 {
+			t.Errorf("apt-mark hold ran %d times, want twice: one retry", holds)
+		}
+	})
+	t.Run("another failure", func(t *testing.T) {
+		f := installedWazuhHost(t, "install ok installed|4.14.10-1", ossecWith(t, "198.51.100.5", "default"), enrolledKeys)
+		f.cmd.on("apt-mark hold wazuh-agent", "E: Can't select installed nor candidate version from package 'wazuh-agent'\n", errors.New("exit status 100"))
+
+		out := f.deploy(context.Background(), wazuhStep("198.51.100.5", "", "4.14.10"))
+
+		if out.Status != tasks.JobFailed {
+			t.Fatalf("outcome %+v, want failed", out)
+		}
+		if n := len(slices.DeleteFunc(f.cmd.lines(), func(l string) bool { return l != "apt-mark hold wazuh-agent" })); n != 1 {
+			t.Errorf("apt-mark hold ran %d times, want once: only the lock is waited out", n)
+		}
+	})
+}

@@ -109,12 +109,26 @@ func WazuhRepoLine(keyring string) string {
 	return "deb [signed-by=" + keyring + "] https://packages.wazuh.com/4.x/apt/ stable main"
 }
 
-// Package is what dpkg says about one package on a host. A package that is
-// not installed — never was, or was removed and left its config files — is
-// the zero value.
+// Package is what dpkg says about one package on a host. Installed is a
+// package that is configured and works; State is dpkg's word for where the
+// package stands — installed, half-configured, unpacked, config-files … —
+// or "" when dpkg knows nothing of it. Version and Held are read for a
+// package that is there (Present).
 type Package struct {
 	Installed, Held bool
 	Version         string
+	State           string
+}
+
+// Present reports a package that is there, whole or part way in or out: any
+// state but not-installed and config-files — removed, its config files
+// left — which are not there.
+func (p Package) Present() bool {
+	switch p.State {
+	case "", "not-installed", "config-files":
+		return false
+	}
+	return true
 }
 
 // DpkgFormat is the dpkg-query -f format ParseDpkg reads. The \n is dpkg's
@@ -122,7 +136,7 @@ type Package struct {
 const DpkgFormat = "${Status}|${Version}\\n"
 
 // ParseDpkg reads dpkg-query -W -f=DpkgFormat output. Anything else, such as
-// "no packages found", reads as not installed.
+// "no packages found", reads as the zero value.
 func ParseDpkg(out string) Package {
 	for _, line := range strings.Split(out, "\n") {
 		status, version, ok := strings.Cut(strings.TrimSpace(line), "|")
@@ -133,11 +147,17 @@ func ParseDpkg(out string) Package {
 		if len(f) != 3 {
 			continue
 		}
+		p := Package{State: f[2]}
+		if !p.Present() {
+			return p
+		}
+		p.Held, p.Version = f[0] == "hold", strings.TrimSpace(version)
 		switch f[2] {
 		// triggers-* is a configured package waiting on another's triggers.
 		case "installed", "triggers-pending", "triggers-awaited":
-			return Package{Installed: true, Held: f[0] == "hold", Version: strings.TrimSpace(version)}
+			p.Installed = true
 		}
+		return p
 	}
 	return Package{}
 }

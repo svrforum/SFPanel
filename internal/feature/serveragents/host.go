@@ -184,8 +184,8 @@ type zabbixFacts struct {
 
 // readZabbix reads the Zabbix agent's package and config file. Agent 2's
 // package makes it installed; without it, the old agent's package or config
-// file makes it legacy, and agent 2's config file or a loaded unit makes it
-// unmanaged.
+// file makes it legacy, and agent 2's config file — unless it is what a
+// removed agent 2 package left — or a loaded unit makes it unmanaged.
 func (h *Host) readZabbix() zabbixFacts {
 	f := zabbixFacts{agent2: h.dpkg(zabbixPackage)}
 	f.conf, f.hasConf = h.readFile(zabbixConfPath)
@@ -197,7 +197,7 @@ func (h *Host) readZabbix() zabbixFacts {
 		switch {
 		case f.legacy.Installed || h.exists(zabbixAgentdConfPath):
 			f.state = serveragents.StateLegacy
-		case f.hasConf || h.zabbixUnitLoaded():
+		case f.hasConf && !removedLeavingConfig(f.agent2) || h.zabbixUnitLoaded():
 			f.state = serveragents.StateUnmanaged
 		default:
 			f.state = serveragents.StateNone
@@ -214,15 +214,20 @@ type wazuhFacts struct {
 	hasConf bool // ossec.conf is there
 }
 
+// removedLeavingConfig reports a package apt removed and did not purge: its
+// config files are still on disk.
+func removedLeavingConfig(p serveragents.Package) bool { return p.State == "config-files" }
+
 // readWazuh reads the Wazuh agent's package and ossec.conf: the package
-// makes it installed, ossec.conf without it unmanaged.
+// makes it installed, ossec.conf without it — unless a removed package left
+// it — unmanaged.
 func (h *Host) readWazuh() wazuhFacts {
 	f := wazuhFacts{pkg: h.dpkg(wazuhPackage)}
 	f.conf, f.hasConf = h.readFile(ossecConfPath)
 	switch {
 	case f.pkg.Installed:
 		f.state = serveragents.StateInstalled
-	case f.hasConf:
+	case f.hasConf && !removedLeavingConfig(f.pkg):
 		f.state = serveragents.StateUnmanaged
 	default:
 		f.state = serveragents.StateNone

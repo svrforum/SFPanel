@@ -1,6 +1,7 @@
 package featureserveragents
 
 import (
+	"context"
 	"maps"
 	"slices"
 	"strings"
@@ -156,4 +157,32 @@ func TestSkipANonDebianHost(t *testing.T) {
 	if got := f.cmd.lines(); len(got) != 0 {
 		t.Errorf("ran %q, want nothing run on a host apt does not run on", got)
 	}
+}
+
+func TestAnAgentRemovedButNotPurgedIsNotThere(t *testing.T) {
+	// apt remove leaves the config files and dpkg's "config-files": the
+	// agent is gone, and a deploy installs it again over its own config.
+	f, h := newHostFixture(t)
+	f.system(osQuesting)
+	f.pkg("zabbix-agent2", "deinstall ok config-files|1:7.0.10+dfsg-2build1")
+	f.noPkg("zabbix-agent")
+	f.unit("not-found")
+	f.write("etc/zabbix/zabbix_agent2.conf", testdata(t, "zabbix_agent2.conf"))
+	f.cmd.on("apt-cache policy zabbix-agent2", "zabbix-agent2:\n  Installed: (none)\n  Candidate: 1:7.0.10+dfsg-2build1\n", nil)
+	f.pkg("wazuh-agent", "deinstall ok config-files|4.14.10-1")
+	f.write("var/ossec/etc/ossec.conf", ossecConf(t, "198.51.100.5"))
+
+	for _, agent := range serveragents.Names {
+		if s := h.Skip(agent, wazuhSettings("4.14.10")); s != nil {
+			t.Errorf("%s: skip = %+v, want none for an agent apt removed", agent, s)
+		}
+	}
+	st := h.Status(context.Background())
+	if st.Zabbix.State != serveragents.StateNone || st.Wazuh.State != serveragents.StateNone {
+		t.Errorf("states zabbix %q, wazuh %q; want none for both", st.Zabbix.State, st.Wazuh.State)
+	}
+
+	// Its config file beside a unit systemd still loads is someone's agent.
+	f.unit("loaded")
+	wantSkip(t, h.Skip(serveragents.Zabbix, wazuhSettings("4.14.10")), WhyUnmanaged, map[string]string{"agent": "zabbix", "why": "unmanaged"})
 }

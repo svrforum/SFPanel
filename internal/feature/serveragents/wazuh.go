@@ -86,9 +86,10 @@ func (d *Deployer) deployWazuh(ctx context.Context, step tasks.AgentStep, io Job
 		}
 		name := wazuhPackage + "=" + version + "-1"
 		if err := io.Apt(ctx, "install", []string{name}, true); err != nil {
-			// apt can have installed the agent before it failed or was
-			// stopped; what this deploy leaves installed is held all the same.
-			if p := d.dpkg(wazuhPackage); p.Installed && !p.Held {
+			// apt can have installed the agent, or part of it, before it
+			// failed or was stopped; what this deploy leaves there is held
+			// all the same.
+			if p := d.dpkg(wazuhPackage); p.Present() && !p.Held {
 				changed = true
 				if herr := d.holdWazuh(io); herr != nil {
 					io.Logf("%s", herr)
@@ -253,22 +254,46 @@ func (d *Deployer) deployWazuh(ctx context.Context, step tasks.AgentStep, io Job
 	return Outcome{Status: tasks.JobSucceeded, Changed: changed, Summary: summary.String()}
 }
 
+// aptMarkRetry is how long a hold met by dpkg's lock waits before it is
+// tried once more. The hold runs outside the package transaction, so an
+// apt another process started in between can hold the lock.
+const aptMarkRetry = 10 * time.Second
+
 // holdWazuh keeps wazuh-agent at the version installed, so that upgrading
-// every package does not take it past the manager.
+// every package does not take it past the manager. Like the restart, it does
+// not heed a cancel.
 func (d *Deployer) holdWazuh(io JobIO) error {
-	io.Logf("apt-mark hold %s", wazuhPackage)
-	out, err := d.Cmd.RunWithTimeout(aptMarkTimeout, "apt-mark", "hold", wazuhPackage)
-	if err != nil {
+	for retried := false; ; retried = true {
+		io.Logf("apt-mark hold %s", wazuhPackage)
+		out, err := d.Cmd.RunWithTimeout(aptMarkTimeout, "apt-mark", "hold", wazuhPackage)
+		if err == nil {
+			if msg := response.SanitizeOutput(out); msg != "" {
+				io.Logf("%s", msg)
+			}
+			return nil
+		}
+		if !retried && dpkgLockHeld(out) {
+			io.Logf("dpkg's lock is held by another process; apt-mark is tried again in %s", aptMarkRetry)
+			_ = d.Sleep(context.Background(), aptMarkRetry)
+			continue
+		}
 		detail := response.SanitizeOutput(out)
 		if detail == "" {
 			detail = response.SanitizeOutput(err.Error())
 		}
 		return fmt.Errorf("apt-mark hold %s failed: %s", wazuhPackage, detail)
 	}
-	if msg := response.SanitizeOutput(out); msg != "" {
-		io.Logf("%s", msg)
+}
+
+// dpkgLockHeld reports apt or dpkg saying another process holds dpkg's lock.
+func dpkgLockHeld(out string) bool {
+	lower := strings.ToLower(out)
+	for _, w := range []string{"could not get lock", "frontend lock", "status database is locked", "lock was locked by another process"} {
+		if strings.Contains(lower, w) {
+			return true
+		}
 	}
-	return nil
+	return false
 }
 
 // resolveTimeout bounds each lookup of a manager's name.
