@@ -31,3 +31,17 @@ it('English keeps node', () => {
 it('a sentence about the cluster registration and the machine is not "the server of the server"', () => {
   expect(leaves(ko).filter(([, v]) => /서버의 서버|서버 서버/.test(v)).map(([k]) => k)).toEqual([])
 })
+
+it('servers are counted in 대, as everywhere else', () => {
+  expect(leaves(ko).filter(([, v]) => /서버 \{\{count\}\}개|\{\{count\}\}개 서버/.test(v)).map(([k]) => k)).toEqual([])
+})
+
+it('the server the browser is attached to has one name', () => {
+  expect(at(ko, 'layout.cluster.localNode')).toBe(at(ko, 'layout.server.attached'))
+})
+
+it("the install form's name errors call the name by its field's label, not the server's name", () => {
+  const field = at(ko, 'cluster.tasks.install.field.name') as string
+  expect(at(ko, 'cluster.tasks.install.reason.nameInvalid')).toContain(field)
+  expect(at(ko, 'cluster.tasks.install.problem.name')).toContain(field)
+})
