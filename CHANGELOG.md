@@ -6,6 +6,31 @@ The format is loosely based on [Keep a Changelog](https://keepachangelog.com/), 
 
 ---
 
+## [0.98.0] – 2026-11-27
+
+Monitoring agents from the panel. Zabbix Agent 2 and the Wazuh agent are deployed to the cluster's servers, pointed at the servers you set once, and checked for a real connection — not just a running service.
+
+### Added
+
+- **Monitoring Agents** (`모니터링 에이전트`, under All servers, in a cluster). Set the Zabbix server, active-check address and autoregistration metadata, and the Wazuh manager, group and agent version, once for the whole cluster. A table shows every server: whether each agent is installed, its version and where it came from, the addresses its configuration points at, and whether it is really connected.
+  - Zabbix: the server shown can be reached on the active-check port, and the agent's own log says its checks are accepted — "host not found" reads as *not registered*, a refused connection as *unreachable*.
+  - Wazuh: the agent's own state file (`connected`, `pending`, `disconnected`) and its last keepalive.
+  - A service that runs but does not connect reads as not connected; a cell whose last read failed is dimmed and says when it was read.
+- **Deploy and re-apply.** Pick servers and deploy: each one installs what is missing (Zabbix 7.0 from the vendor's repository with a pinned signing key, or the distribution's package where the vendor has none; the Wazuh agent pinned to the set version and held), sets only the connection keys in the existing configuration (every other line kept, a backup left), restarts when something changed or the agent is not connected, and waits until it connects — up to 150 s while the Zabbix server has yet to register the host. An agent already installed by hand is recognised and left as it is apart from those keys. A Wazuh agent re-enrolls only when the manager really changed. Runs are group-task runs with their per-server logs; a server that cannot take a step is skipped with the reason.
+- **A group-task step `agent`** (`agent: { name: zabbix | wazuh }`) and the built-ins "Zabbix 에이전트 배포" and "Wazuh 에이전트 배포". The values come from the cluster's settings, filled in by the leader at each server's turn; a server whose panel predates the step is left out of the run.
+
+### Fixed
+
+- **On a Proxmox VE host, a Docker engine asked for at a pinned version slipped past the check that keeps Docker off the host.**
+
+### API
+
+- `GET /api/v1/agents/status` (per server, `?node=`), `GET`/`PUT /api/v1/agents/settings`. New codes `SERVER_AGENT_SETTINGS_INVALID`, `SERVER_AGENT_NOT_CONFIGURED`, `SERVER_AGENT_SKIPPED`. Skipped run steps carry `code` and `details`.
+
+### Upgrading
+
+- Every manager needs this version before a run with an agent step can start; agent-role servers on an older version are left out of such runs until they are updated.
+
 ## [0.97.0] – 2026-11-26
 
 Screens that lead to each other. The last of four steps that reorganise the menus: what you start on one server can be carried to several, a folder or a stack opens a terminal in place, a missing tool installs where you need it, and the Korean screens call a machine of the cluster a server.
