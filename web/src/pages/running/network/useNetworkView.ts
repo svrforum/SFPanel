@@ -223,6 +223,10 @@ export function useNetworkView(sections: BoardSection[], round: number): Network
     await readScan(t)
   }, [readScan])
 
+  // The one-request install, as the terminal's tmux install: the request is
+  // held open while apt runs, so a closed tab or a proxy's timeout can stop apt
+  // midway, and the Packages page's transaction banner does not see it. nmap
+  // is small; the streamed transaction is not worth that here.
   const installScanner = useCallback(async (nodeId: string) => {
     const t = targetOf.current.get(nodeId)
     if (!t) return null
