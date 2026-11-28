@@ -70,3 +70,34 @@ test('in a browser a clicked link opens in a new tab and the panel stays', async
   await expect.poll(() => opened.url()).toBe(LINK)
   expect(new URL(page.url()).pathname).toBe('/terminal')
 })
+
+// Claude Code's login prints a URL longer than a phone's screen is wide. It
+// breaks the URL into rows itself, with real line ends, and tmux redraws each
+// row on its own: the terminal never marks them as wrapped. The link opened
+// cut off at the edge of the screen. Every row but the last fills the screen.
+const LOGIN = 'https://example.com/oauth/authorize?code=true&client_id=00000000-0000-4000-8000-000000000000&response_type=code&redirect_uri=https%3A%2F%2Fexample.com%2Fcallback&scope=a+b+c&state=abc123'
+
+for (const row of ['first', 'last'] as const) {
+  test(`a link the program broke into rows opens whole, from its ${row} row`, async ({ page }) => {
+    await openTerminal(page)
+    const terminal = page.locator('[data-terminal-session="active"]')
+    const at = await terminal.evaluate((el, [url, row]) => new Promise<{ x: number; y: number; count: number }>(done => {
+      const term = (el as HTMLElement & { __termRef: { current: { cols: number; rows: number; write: (s: string, cb: () => void) => void } } }).__termRef.current
+      const parts: string[] = []
+      for (let i = 0; i < url.length; i += term.cols) parts.push(url.slice(i, i + term.cols))
+      // Text below the URL, as Claude Code prints, keeps the cursor — and the
+      // input xterm keeps at it, which takes a tap that lands near — off it.
+      term.write('\x1b[H\x1b[2J' + 'Browser did not open? Use the url below\r\n' + parts.join('\r\n') + '\r\n\r\n  Hold Shift while selecting\r\n\r\n', () => {
+        const r = el.querySelector('.xterm-screen')!.getBoundingClientRect()
+        const w = r.width / term.cols
+        const h = r.height / term.rows
+        const y = row === 'first' ? 1 : parts.length
+        done({ x: r.left + 1.5 * w, y: r.top + (y + 0.5) * h, count: parts.length })
+      })
+    }), [LOGIN, row] as const)
+    expect(at.count).toBeGreaterThan(2)
+    await page.evaluate(readFileSync(resolve(__dirname, '../../android/app/src/main/assets/panel.js'), 'utf8'))
+    await page.touchscreen.tap(at.x, at.y)
+    await expect.poll(() => openCalls(page)).toEqual([[LOGIN, '_blank', 'noopener,noreferrer']])
+  })
+}

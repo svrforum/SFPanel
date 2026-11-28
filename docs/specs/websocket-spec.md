@@ -337,7 +337,7 @@ container.ExecOptions{
 - xterm.js Terminal에 `cursorBlink: true`, `convertEol: true` 옵션.
 - `term.onData()` -- 키 입력을 WebSocket으로 전송.
 - `term.onResize()` -- 터미널 크기 변경 시 resize JSON 메시지 전송.
-- WebLinksAddon으로 URL 자동 하이라이트.
+- URL 자동 감지·클릭은 자체 링크 provider(`lib/terminalLinks.ts`): 화면이 줄바꿈한 행과, 프로그램(Claude Code 등)이 직접 줄을 끊은 긴 URL도 하나로 잇는다.
 - 자동 재연결은 없다.
 
 ---
@@ -420,7 +420,7 @@ container.ExecOptions{
 - 키 입력은 `TextEncoder.encode(data)`로 바이너리 전송한다.
 - 연결 직후 초기 resize 메시지를 전송하여 서버측 PTY 크기를 동기화한다.
 - 탭 관리: 복수 탭 지원, `localStorage`에 탭 목록 및 활성 탭 저장.
-- 폰트 크기 조절 (10~24px, 기본 14px), 검색(SearchAddon), WebLinksAddon 지원.
+- 폰트 크기 조절 (10~24px, 기본 14px), 검색(SearchAddon), 링크 감지(자체 provider, 끊어진 URL도 하나로).
 - 자동 재연결은 없다 (세션 영속성으로 수동 재접속 시 이전 출력 복원).
 
 ---

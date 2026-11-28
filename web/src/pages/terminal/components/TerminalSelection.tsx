@@ -2,6 +2,7 @@ import { useEffect, useLayoutEffect, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 import { useTranslation } from 'react-i18next'
 import { Button } from '@/components/ui/button'
+import { KNOB_TARGET, knobLeft } from './selectionKnob'
 
 // A point on screen, in viewport pixels.
 export interface Point {
@@ -20,14 +21,21 @@ export interface BarAnchor {
 
 export type HandleEnd = 'start' | 'end'
 
+// Where a handle hangs — under the edge of the selection it holds — and `aim`,
+// the middle of the cell at that end: what a drag of it moves.
+export interface HandleAt extends Point {
+  aim: Point
+}
+
 // The long-press selection's controls: two handles that hang below the ends of
-// the selection and drag it wider or narrower, and a bar to copy it, copy its
+// the selection and drag it wider or narrower — onHandleDrag is given the
+// point the dragged end has moved to, not the finger, and a bar to copy it, copy its
 // line, or open the whole output. Rendered into <body>, outside the terminal,
 // so their touches never reach the terminal's own touch handling. A tap
 // anywhere else, Escape or a resize dismisses them; the owner dismisses them
 // on scroll and on typing. The bar steps aside while a handle is dragged.
 export interface SelectionLayout {
-  handles: Record<HandleEnd, Point | null>
+  handles: Record<HandleEnd, HandleAt | null>
   bar: BarAnchor
 }
 
@@ -45,7 +53,12 @@ export function TerminalSelection({ measure, canCopyLine, onHandleDrag, onCopy, 
   const { t } = useTranslation()
   const rootRef = useRef<HTMLDivElement>(null)
   const barRef = useRef<HTMLDivElement>(null)
-  const [dragging, setDragging] = useState<HandleEnd | null>(null)
+  // The handle being dragged, and how far the end's cell lay from the finger
+  // when it took hold, kept for the whole drag: the end moves as far as the
+  // finger does, and taking hold does not move it — wherever on the knob the
+  // finger landed, and though a knob kept clear of the edge sits away from the
+  // end it holds.
+  const [dragging, setDragging] = useState<{ end: HandleEnd; grab: Point } | null>(null)
   const [pos, setPos] = useState<{ left: number; top: number } | null>(null)
 
   // Positions come from the terminal's layout, outside React; read them as
@@ -86,6 +99,10 @@ export function TerminalSelection({ measure, canCopyLine, onHandleDrag, onCopy, 
   const handle = (end: HandleEnd) => {
     const at = handles[end]
     if (!at) return null
+    // While dragged, the knob stays under the finger.
+    const grab = dragging?.end === end ? dragging.grab : null
+    const left = grab ? at.aim.x - grab.x - KNOB_TARGET / 2 : knobLeft(at.x, window.innerWidth)
+    const top = grab ? at.aim.y - grab.y - KNOB_TARGET / 2 : at.y - 4
     return (
       <div
         key={end}
@@ -93,16 +110,16 @@ export function TerminalSelection({ measure, canCopyLine, onHandleDrag, onCopy, 
         aria-label={t(end === 'start' ? 'terminal.copyBar.startHandle' : 'terminal.copyBar.endHandle')}
         data-selection-handle={end}
         // A 40px target around a 16px knob that hangs just below the text,
-        // kept on screen when the selection starts or ends at its edge.
-        style={{ position: 'fixed', left: Math.max(0, Math.min(at.x - 20, window.innerWidth - 40)), top: at.y - 4, width: 40, height: 40, touchAction: 'none' }}
+        // kept clear of the screen's edges (knobPlacement).
+        style={{ position: 'fixed', left, top, width: KNOB_TARGET, height: KNOB_TARGET, touchAction: 'none' }}
         className="z-50 flex justify-center"
         onPointerDown={(e) => {
           e.preventDefault()
           e.stopPropagation()
           e.currentTarget.setPointerCapture(e.pointerId)
-          setDragging(end)
+          setDragging({ end, grab: { x: at.aim.x - e.clientX, y: at.aim.y - e.clientY } })
         }}
-        onPointerMove={(e) => { if (dragging === end) onHandleDrag(end, { x: e.clientX, y: e.clientY }) }}
+        onPointerMove={(e) => { if (grab) onHandleDrag(end, { x: e.clientX + grab.x, y: e.clientY + grab.y }) }}
         onPointerUp={() => setDragging(null)}
         onPointerCancel={() => setDragging(null)}
       >

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { lineAt, rangeBetween, spanEnd, wordAt, type CellBuffer } from './terminalWord'
+import { lineAt, rangeBetween, selectedText, spanEnd, urlRunsOn, urlsAt, wordAt, type CellBuffer } from './terminalWord'
 
 // Rows of cells as xterm keeps them. A Hangul syllable takes two cells, the
 // second of width 0; cells past the text are unwritten (chars '').
@@ -107,5 +107,107 @@ describe('rangeBetween', () => {
 describe('spanEnd', () => {
   it('is the last cell of a span, on the row it wrapped to', () => {
     expect(spanEnd({ text: '', row: 0, col: 4, length: 17 }, 10)).toEqual({ row: 2, col: 0 })
+  })
+})
+
+// A URL a program broke into rows of its own: Claude Code lays out its text
+// and ends each row with a real line break, and tmux redraws every row on its
+// own, so the terminal never marks the rows as wrapped. Every row but the last
+// fills the screen to its last column.
+const LOGIN = 'https://example.com/oauth/authorize?code=true&client_id=00000000-0000-4000-8000-000000000000&response_type=code&redirect_uri=https%3A%2F%2Fexample.com%2Fcallback&scope=a+b+c&state=abc123'
+function broken(text: string, cols: number): Row[] {
+  const rows: Row[] = []
+  for (let i = 0; i < text.length; i += cols) rows.push({ text: text.slice(i, i + cols) })
+  return rows
+}
+
+describe('a URL broken into rows by the program', () => {
+  const cols = 47
+  const rows = [{ text: '  Browser did not open? Use the url below' }, ...broken(LOGIN, cols), { text: '  Hold Shift while selecting' }]
+  const b = buffer(cols, rows)
+  const urlRows = Math.ceil(LOGIN.length / cols)
+
+  it('is one word from any of its rows, spanned for select()', () => {
+    expect(wordAt(b, cols, 1, 0)).toEqual({ text: LOGIN, row: 1, col: 0, length: LOGIN.length })
+    expect(wordAt(b, cols, 3, 20)?.text).toBe(LOGIN)
+    expect(wordAt(b, cols, urlRows, 2)?.text).toBe(LOGIN)
+  })
+
+  it('is one line for the line copy', () => {
+    expect(lineAt(b, cols, 2)?.text).toBe(LOGIN)
+    expect(lineAt(b, cols, 0)?.text).toBe('Browser did not open? Use the url below')
+    expect(lineAt(b, cols, urlRows + 1)?.text).toBe('Hold Shift while selecting')
+  })
+
+  it('is one link on every row it covers, from its first cell to its last', () => {
+    const last = { row: urlRows, col: (LOGIN.length - 1) % cols }
+    for (const row of [1, 4, urlRows]) {
+      expect(urlsAt(b, cols, row)).toEqual([{ text: LOGIN, start: { row: 1, col: 0 }, end: last }])
+    }
+    expect(urlsAt(b, cols, 0)).toEqual([])
+  })
+
+  it('is joined in what a selection across it copies, and nothing else is', () => {
+    const selection = ['Browser did not open? Use the url below', ...broken(LOGIN, cols).map((r) => r.text), '  Hold Shift'].join('\n')
+    expect(selectedText(b, cols, 0, urlRows + 1, selection)).toBe(['Browser did not open? Use the url below', LOGIN, '  Hold Shift'].join('\n'))
+  })
+
+  it('leaves alone a selection text it cannot line up with the rows', () => {
+    expect(selectedText(b, cols, 1, 3, 'a column selection')).toBe('a column selection')
+  })
+
+  it('keeps a scheme that was itself broken across two rows', () => {
+    const split = 'see the page at https:/'
+    const w = buffer(split.length, [{ text: split }, { text: '/example.com/a' }])
+    expect(urlRunsOn(w, split.length, 0)).toBe(true)
+    expect(wordAt(w, split.length, 1, 3)?.text).toBe('https://example.com/a')
+  })
+})
+
+describe('urlRunsOn leaves rows apart', () => {
+  it('when the text that fills a row is not a URL', () => {
+    const b = buffer(10, [{ text: 'abcdefghij' }, { text: 'klm' }])
+    expect(urlRunsOn(b, 10, 0)).toBe(false)
+    expect(wordAt(b, 10, 0, 0)?.text).toBe('abcdefghij')
+  })
+
+  it('when the URL stops short of the last column', () => {
+    const b = buffer(20, [{ text: 'https://a.example/b' }, { text: 'next' }])
+    expect(urlRunsOn(b, 20, 0)).toBe(false)
+    expect(urlsAt(b, 20, 0).map((u) => u.text)).toEqual(['https://a.example/b'])
+  })
+
+  it('when the next row starts with a blank', () => {
+    const b = buffer(19, [{ text: 'https://a.example/b' }, { text: ' and more' }])
+    expect(urlRunsOn(b, 19, 0)).toBe(false)
+  })
+
+  it('when the next row starts with a box border', () => {
+    const b = buffer(19, [{ text: 'https://a.example/b' }, { text: '│ text' }])
+    expect(urlRunsOn(b, 19, 0)).toBe(false)
+    expect(urlsAt(b, 19, 0).map((u) => u.text)).toEqual(['https://a.example/b'])
+  })
+
+  it('when the run that fills a row began on it without a scheme, even under a URL', () => {
+    const b = buffer(19, [{ text: 'https://a.example/b' }, { text: ' see abcdefghijklmn' }, { text: 'pq' }])
+    expect(urlRunsOn(b, 19, 0)).toBe(false)
+    expect(urlRunsOn(b, 19, 1)).toBe(false)
+    expect(wordAt(b, 19, 2, 0)?.text).toBe('pq')
+  })
+
+  it('when the last row is the end of the buffer', () => {
+    const b = buffer(19, [{ text: 'https://a.example/b' }])
+    expect(urlRunsOn(b, 19, 0)).toBe(false)
+  })
+})
+
+describe('urlsAt', () => {
+  it('gives a row only the URLs that cover it', () => {
+    const b = buffer(20, [{ text: 'https://a.example/x ' }, { text: 'https://b.example/y', wrapped: true }])
+    expect(urlsAt(b, 20, 1).map((u) => u.text)).toEqual(['https://b.example/y'])
+  })
+
+  it('skips what looks like a URL but does not parse as one', () => {
+    expect(urlsAt(buffer(20, [{ text: 'go to http://:80 now' }]), 20, 0)).toEqual([])
   })
 })

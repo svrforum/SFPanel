@@ -161,12 +161,14 @@ async function handleCentre(page: Page, end: 'start' | 'end') {
   return { x: box.x + box.width / 2, y: box.y + box.height / 2 }
 }
 
-// A handle's knob hangs below the text, so the finger holding it sits a row
-// below the cell it aims at.
-async function belowCell(page: Page, row: number, col: number) {
-  const p = await cellPoint(page, row, col)
-  const q = await cellPoint(page, row + 1, col)
-  return { x: p.x, y: q.y }
+// Drag a handle so the end it holds moves from cell `from` to cell `to`: the
+// end moves as far as the finger does, wherever on the knob it took hold — a
+// knob kept clear of the screen's edge sits away from its end.
+async function moveHandle(page: Page, end: 'start' | 'end', from: [number, number], to: [number, number]) {
+  const knob = await handleCentre(page, end)
+  const a = await cellPoint(page, from[0], from[1])
+  const b = await cellPoint(page, to[0], to[1])
+  await dragTo(page, knob, { x: knob.x + b.x - a.x, y: knob.y + b.y - a.y })
 }
 
 test('a handle narrows a prompt to its path, and Copy takes what is selected', async ({ page, context }) => {
@@ -180,11 +182,72 @@ test('a handle narrows a prompt to its path, and Copy takes what is selected', a
   // The prompt's $ is not part of the path.
   expect(await selection(page)).toBe('user@host:/opt/stacks/SFPanel')
   // 'user@host:' is ten cells: the path starts at column 10.
-  await dragTo(page, await handleCentre(page, 'start'), await belowCell(page, 0, 10))
+  await moveHandle(page, 'start', [0, 0], [0, 10])
   expect(await selection(page)).toBe('/opt/stacks/SFPanel')
 
   await page.getByRole('toolbar', { name: 'Copy terminal text' }).getByRole('button', { name: 'Copy', exact: true }).click()
   expect(await page.evaluate(() => navigator.clipboard.readText())).toBe('/opt/stacks/SFPanel')
+})
+
+// A URL Claude Code broke into rows of its own, with real line ends, as its
+// login prints one: every row but the last fills the screen to its last column.
+const LOGIN = 'https://example.com/oauth/authorize?code=true&client_id=00000000-0000-4000-8000-000000000000&response_type=code&redirect_uri=https%3A%2F%2Fexample.com%2Fcallback&scope=a+b+c&state=abc123'
+async function brokenUrl(page: Page) {
+  const cols = await page.locator('[data-terminal-session="active"]').evaluate(el =>
+    (el as HTMLElement & { __termRef: { current: { cols: number } } }).__termRef.current.cols)
+  const parts: string[] = []
+  for (let i = 0; i < LOGIN.length; i += cols) parts.push(LOGIN.slice(i, i + cols))
+  await screen(page, 'Browser did not open? Use the url below\r\n' + parts.join('\r\n') + '\r\n  Hold Shift while selecting\r\n')
+  return { rows: parts.length, cols }
+}
+
+test('a long press on a URL the program broke into rows selects it whole, and Copy and Copy line take it whole', async ({ page, context }) => {
+  await context.grantPermissions(['clipboard-read', 'clipboard-write'])
+  await mock(page)
+  await openTerminal(page)
+  const { rows, cols } = await brokenUrl(page)
+  expect(rows).toBeGreaterThan(2)
+  const bar = page.getByRole('toolbar', { name: 'Copy terminal text' })
+
+  const middle = await cellPoint(page, 2, 5)
+  await touchPress(page, middle.x, middle.y)
+  await expect(bar).toBeVisible()
+  await bar.getByRole('button', { name: 'Copy', exact: true }).click()
+  expect(await page.evaluate(() => navigator.clipboard.readText())).toBe(LOGIN)
+
+  const first = await cellPoint(page, 1, 3)
+  await touchPress(page, first.x, first.y)
+  await bar.getByRole('button', { name: 'Copy line' }).click()
+  expect(await page.evaluate(() => navigator.clipboard.readText())).toBe(LOGIN)
+
+  // A selection that takes in the line above and the line below keeps their
+  // line ends, and only the URL's are gone.
+  await touchPress(page, first.x, first.y)
+  await moveHandle(page, 'start', [1, 0], [0, 0])
+  await moveHandle(page, 'end', [rows, (LOGIN.length - 1) % cols], [rows + 1, 11])
+  await bar.getByRole('button', { name: 'Copy', exact: true }).click()
+  expect(await page.evaluate(() => navigator.clipboard.readText())).toBe('Browser did not open? Use the url below\n' + LOGIN + '\n  Hold Shift')
+})
+
+// A drag that starts at the edge of a phone's screen is Android's back
+// gesture. The knob for an end in the last column sat there, and taking hold
+// of it left the page; it now stays clear, and taking hold does not move the end.
+test('a handle for an end in the last column stays clear of the edge, and taking hold of it keeps the end', async ({ page }) => {
+  await mock(page)
+  await openTerminal(page)
+  const cols = await page.locator('[data-terminal-session="active"]').evaluate(el =>
+    (el as HTMLElement & { __termRef: { current: { cols: number } } }).__termRef.current.cols)
+  const word = 'x'.repeat(cols - 4)
+  await screen(page, 'see ' + word + '\r\n')
+  const at = await cellPoint(page, 0, 10)
+  await touchPress(page, at.x, at.y)
+  expect(await selection(page)).toBe(word)
+  const box = (await page.locator('[data-selection-handle="end"]').boundingBox())!
+  const width = await page.evaluate(() => window.innerWidth)
+  expect(width - (box.x + box.width)).toBeGreaterThanOrEqual(28)
+  const knob = await handleCentre(page, 'end')
+  await dragTo(page, knob, { x: knob.x - 1, y: knob.y })
+  expect(await selection(page)).toBe(word)
 })
 
 test('the end handle widens the selection across words', async ({ page }) => {
@@ -194,7 +257,7 @@ test('the end handle widens the selection across words', async ({ page }) => {
   const at = await cellPoint(page, 0, 1)
   await touchPress(page, at.x, at.y)
   expect(await selection(page)).toBe('hello')
-  await dragTo(page, await handleCentre(page, 'end'), await belowCell(page, 0, 14))
+  await moveHandle(page, 'end', [0, 4], [0, 14])
   expect(await selection(page)).toBe('hello brave new')
 })
 

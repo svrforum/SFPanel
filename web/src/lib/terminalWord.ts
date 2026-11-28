@@ -1,4 +1,4 @@
-import type { IBuffer } from '@xterm/xterm'
+import type { IBuffer, Terminal } from '@xterm/xterm'
 
 // The subset of xterm's buffer these helpers read, so tests can hand them a
 // plain object instead of a live terminal.
@@ -15,15 +15,66 @@ export interface TextSpan {
 
 interface Cell { y: number; x: number; ch: string; w: number }
 
+// A character a URL can carry: RFC 3986's unreserved and reserved ones, and %.
+const URL_CHAR = /^[A-Za-z0-9\-._~:/?#[\]@!$&'()*+,;=%]$/
+const SCHEME = /https?:\/\//i
+// How many rows up a broken URL's start is looked for — far past any real one.
+const URL_ROWS = 64
+
+// urlRunsOn: row `row + 1` carries on a URL that row `row` runs into its last
+// column. A program that lays out its own text — Claude Code, any Ink-based
+// CLI — breaks a long URL with real line ends, and tmux redraws every row on
+// its own, so the terminal never marks those rows as wrapped; read row by row,
+// the URL stops at the edge of the screen. The rows are taken as one where the
+// characters running into the last column are a URL's (a scheme among them,
+// here or on the rows above that the same rule joins) and the next row starts
+// with a URL character in its first column. A URL that really does end in the
+// last column, with an unindented line under it that starts with a letter, is
+// joined to that line too: the terminal holds nothing that tells the two apart.
+export function urlRunsOn(buffer: CellBuffer, cols: number, row: number): boolean {
+  const next = buffer.getLine(row + 1)
+  if (!next || next.isWrapped || !URL_CHAR.test(next.getCell(0)?.getChars() ?? '')) return false
+  // What the next row adds, for a scheme the break itself split ("https:/" "/…").
+  let ahead = ''
+  for (let x = 0; x < cols; x++) {
+    const ch = next.getCell(x)?.getChars() ?? ''
+    if (!URL_CHAR.test(ch)) break
+    ahead += ch
+  }
+  let run = ''
+  for (let y = row; y >= 0 && row - y < URL_ROWS; y--) {
+    const line = buffer.getLine(y)
+    if (!line) return false
+    let x = cols - 1
+    let part = ''
+    for (; x >= 0; x--) {
+      const ch = line.getCell(x)?.getChars() ?? ''
+      if (!URL_CHAR.test(ch)) break
+      part = ch + part
+    }
+    if (part === '') return false
+    run = part + run
+    if (SCHEME.test(run + ahead)) return true
+    // The run began on this row, and no scheme began it.
+    if (x >= 0) return false
+  }
+  return false
+}
+
+// One row runs on into the next: the screen wrapped it, or a URL does.
+const runsOn = (buffer: CellBuffer, cols: number, row: number) =>
+  buffer.getLine(row + 1)?.isWrapped === true || urlRunsOn(buffer, cols, row)
+
 // The cells of the logical line containing `row`: the rows a long line was
-// wrapped across, in order. A row's unwritten tail is left out where the line
-// continues on the next row — a double-width character that did not fit in the
-// last column leaves one such cell, and it is not a space in the text.
+// wrapped across, or a URL broken over, in order. A row's unwritten tail is
+// left out where the line continues on the next row — a double-width character
+// that did not fit in the last column leaves one such cell, and it is not a
+// space in the text.
 function logicalCells(buffer: CellBuffer, cols: number, row: number): Cell[] {
   let first = row
-  while (first > 0 && buffer.getLine(first)?.isWrapped) first--
+  while (first > 0 && runsOn(buffer, cols, first - 1)) first--
   let last = row
-  while (last + 1 < buffer.length && buffer.getLine(last + 1)?.isWrapped) last++
+  while (last + 1 < buffer.length && runsOn(buffer, cols, last)) last++
   const cells: Cell[] = []
   for (let y = first; y <= last; y++) {
     const line = buffer.getLine(y)
@@ -121,4 +172,73 @@ export function rangeBetween(buffer: CellBuffer, cols: number, a: CellPos, b: Ce
   const startCol = first.col > 0 && widthAt(first) === 0 ? first.col - 1 : first.col
   const endCol = last.col + (widthAt(last) === 2 ? 2 : 1)
   return { row: first.row, col: startCol, length: last.row * cols + endCol - (first.row * cols + startCol) }
+}
+
+// xterm's web-links rule for where a URL in output starts and ends.
+const URL_MATCH = /(https?|HTTPS?):[/]{2}[^\s"'!*(){}|\\^<>`]*[^\s"':,.!?{}|\\^~[\]`()<>]/g
+
+// A match is a URL only if it parses as one and begins with its own scheme and
+// host, as xterm's web-links addon checks.
+function isUrl(text: string): boolean {
+  try {
+    const url = new URL(text)
+    const user = url.username ? `${url.username}${url.password ? `:${url.password}` : ''}@` : ''
+    return text.toLowerCase().startsWith(`${url.protocol}//${user}${url.host}`.toLowerCase())
+  } catch {
+    return false
+  }
+}
+
+// A URL in the buffer, from its first cell to its last, both inclusive.
+export interface UrlAt {
+  text: string
+  start: CellPos
+  end: CellPos
+}
+
+// urlsAt is every URL that covers `row`, whole across the rows the screen
+// wrapped it over or the program broke it into.
+export function urlsAt(buffer: CellBuffer, cols: number, row: number): UrlAt[] {
+  const cells = logicalCells(buffer, cols, row)
+  let text = ''
+  const owner: number[] = []
+  cells.forEach((cell, i) => {
+    const s = cell.ch || ' '
+    text += s
+    for (let k = 0; k < s.length; k++) owner.push(i)
+  })
+  const found: UrlAt[] = []
+  for (const m of text.matchAll(URL_MATCH)) {
+    if (!isUrl(m[0])) continue
+    const a = cells[owner[m.index]]
+    const b = cells[owner[m.index + m[0].length - 1]]
+    if (row < a.y || row > b.y) continue
+    found.push({ text: m[0], start: { row: a.y, col: a.x }, end: { row: b.y, col: b.x + b.w - 1 } })
+  }
+  return found
+}
+
+// selectedText is what a selection from row `startRow` to row `endRow` copies.
+// `text` is xterm's own reading of it, which ends each row with a line break
+// unless the next row is one the screen wrapped; a URL a program broke into
+// rows comes out with a break at every row. Those breaks are taken out, and
+// every other one stays where it was.
+export function selectedText(buffer: CellBuffer, cols: number, startRow: number, endRow: number, text: string): string {
+  const sep = text.includes('\r\n') ? '\r\n' : '\n'
+  const parts = text.split(sep)
+  const breaks: number[] = []
+  for (let y = startRow + 1; y <= endRow; y++) if (!buffer.getLine(y)?.isWrapped) breaks.push(y)
+  // Not xterm's usual reading (a column selection, say): leave it as it is.
+  if (breaks.length !== parts.length - 1) return text
+  let out = parts[0]
+  breaks.forEach((y, i) => { out += (urlRunsOn(buffer, cols, y - 1) ? '' : sep) + parts[i + 1] })
+  return out
+}
+
+// copyableSelection is what copying the terminal's selection puts on the
+// clipboard: xterm's text, with a URL the program broke into rows made whole.
+export function copyableSelection(term: Pick<Terminal, 'getSelection' | 'getSelectionPosition' | 'buffer' | 'cols'>): string {
+  const text = term.getSelection()
+  const at = term.getSelectionPosition()
+  return text && at ? selectedText(term.buffer.active, term.cols, at.start.y, at.end.y, text) : text
 }

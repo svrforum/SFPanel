@@ -47,7 +47,7 @@
 | React Router DOM | 7.18.2 | 클라이언트 사이드 라우팅 (SPA) |
 | uplot | 1.6.32 | 시스템 메트릭 시계열 차트 (CPU/메모리 24시간 히스토리) |
 | xterm.js | 6.0.0 (`@xterm/xterm`) | 웹 기반 터미널 에뮬레이터 |
-| xterm Addons | fit 0.11.0, search 0.16.0, web-links 0.12.0 | 터미널 자동 크기 조절, 검색, 링크 감지 |
+| xterm Addons | fit 0.11.0, search 0.16.0 | 터미널 자동 크기 조절, 검색 (링크 감지는 자체 provider) |
 | Monaco Editor | `@monaco-editor/react` 4.7.0 + monaco-editor 0.57.0 — `monaco-editor/editor` 슬림 임포트 (v0.49.0, 0.57에서 공식 진입점으로) | 파일 편집기 / Compose YAML 편집 (구문 강조, 자동 완성) |
 | i18next | 26.3.1 | 다국어 지원 프레임워크 |
 | react-i18next | 17.0.8 | React용 i18n 바인딩 |
@@ -135,7 +135,7 @@
   - 터미널 리사이즈 (PTY 동기화; **(v0.53.0)** 0×0 리사이즈 프레임 무시)
   - 폰트 크기 조절 (10~24px)
   - 터미널 내 텍스트 검색 (SearchAddon)
-  - 웹 링크 자동 감지 및 클릭 (WebLinksAddon), Unicode11 폭 처리 (CJK)
+  - 웹 링크 자동 감지 및 클릭 (자체 provider — 프로그램이 줄을 끊어 찍은 긴 URL도 하나로, 길게 눌러 선택·복사도 같은 규칙), Unicode11 폭 처리 (CJK)
   - xterm 내부 팔레트는 Tokyo Night 고정 — **(v0.53.0)** 페이지 chrome(탭바/툴바/검색바/모바일 바)만 라이트/다크 테마 추종. **(v0.76.0)** 탭바 자리는 세션 레일·헤더가 대신하고, 레일·헤더·패널 프레임은 xterm 팔레트와 같은 값의 `--console*` 토큰으로 칠한다. 클리어 버튼 (Ctrl-L 전송)
   - 터치 기기의 입력 영역 (`TerminalInput`): 한글 조합·받아쓰기가 되는 작성창과, 세션 종류별 키 한 줄 (수식키 잠금, 화살표 반복)
   - 첨부: 사진·파일을 세션의 노드에 올리고 경로를 넣는다 — 작성창의 첨부 버튼·이미지 붙여넣기, 데스크톱은 터미널에 이미지 붙여넣기·파일 끌어놓기 (`POST /ai/sessions/:id/upload`, 25 MiB, `<홈>/.sfpanel-ai/uploads/<세션>/`, 세션 삭제 시 정리)
@@ -144,7 +144,7 @@
   - 최대 20 동시 세션, WS keepalive (30초 ping / 70초 read deadline), 사용자별 세션 키 바인딩, HOME 동적 해석(비-root 유닛 지원)
   - 키보드 단축키 (Ctrl+F 검색)
   - WS 인증: 단발성 ws-ticket(`POST /auth/ws-ticket`) 우선, 레거시 `?token=` fallback
-- **관련 기술**: creack/pty, gorilla/websocket, xterm.js v6, xterm addons (Search/WebLinks/Unicode11)
+- **관련 기술**: creack/pty, gorilla/websocket, xterm.js v6, xterm addons (Search/Unicode11), 자체 링크 provider
 
 ### 4. 파일 관리자
 

@@ -2,7 +2,6 @@ import { useCallback, useEffect, useRef, useState, type RefObject } from 'react'
 import { useTranslation } from 'react-i18next'
 import { Terminal as XTerm } from '@xterm/xterm'
 import { FitAddon } from '@xterm/addon-fit'
-import { WebLinksAddon } from '@xterm/addon-web-links'
 import { SearchAddon } from '@xterm/addon-search'
 import { Unicode11Addon } from '@xterm/addon-unicode11'
 import '@xterm/xterm/css/xterm.css'
@@ -10,13 +9,13 @@ import { api } from '@/lib/api'
 import { attachXtermTouchScroll, scrollTerminalLines, type TmuxTouch } from '@/lib/xtermTouchScroll'
 import { openHistoryView, type HistoryView } from '@/lib/terminalHistory'
 import { attachLongPress } from '@/lib/longPress'
-import { openTerminalLink } from '@/lib/terminalLinks'
+import { terminalLinkProvider } from '@/lib/terminalLinks'
 import { SELECT_TEXT_EVENT } from '@/lib/terminalText'
 import { DEFAULT_FONT_SIZE, FONT_SIZE_EVENT, GRID_EVENT, attachPinch } from '@/lib/terminalFont'
 import { focusesUnasked } from '@/lib/terminalLayout'
 import { SEARCH_RESULTS_EVENT, searchOptions, type SearchDirection, type SearchOutcome } from '@/lib/terminalSearch'
 import { decodeOsc52 } from '@/lib/osc52'
-import { cellBefore, lineAt, rangeBetween, spanEnd, wordAt, type CellPos, type TextSpan } from '@/lib/terminalWord'
+import { cellBefore, copyableSelection, lineAt, rangeBetween, spanEnd, wordAt, type CellPos, type TextSpan } from '@/lib/terminalWord'
 import { TerminalSelection, type HandleEnd, type Point } from './TerminalSelection'
 import { TerminalContextMenu, type TerminalMenuAt } from './TerminalContextMenu'
 import { cn, copyText } from '@/lib/utils'
@@ -235,12 +234,13 @@ export function TerminalSession({
     }
   }
   useEffect(() => { if (!active) termRef.current?.clearSelection() }, [active])
-  // A handle's knob hangs below the text, so it aims at the row above the finger.
+  // `point` is where the dragged end has moved to (TerminalSelection keeps the
+  // finger's distance from it), not the finger under the knob.
   const dragHandle = useCallback((end: HandleEnd, point: Point) => {
     const term = termRef.current
     const grid = term && containerRef.current && gridOf(term, containerRef.current)
     if (!term || !grid) return
-    const p = cellAt(term, grid, point.x, point.y - grid.cellH, true)
+    const p = cellAt(term, grid, point.x, point.y, true)
     if (p) setSel((prev) => prev && (end === 'start' ? { ...prev, a: p } : { ...prev, b: p }))
   }, [])
   // Where the handles and the bar go, read from the terminal's layout.
@@ -254,8 +254,9 @@ export function TerminalSession({
     const last = { row: r.row + Math.floor(lastCell / term.cols), col: lastCell % term.cols }
     const onScreen = (row: number) => row >= buffer.viewportY && row < buffer.viewportY + term.rows
     const below = (row: number) => grid.top + (row - buffer.viewportY + 1) * grid.cellH
-    const left = onScreen(r.row) ? { x: grid.left + r.col * grid.cellW, y: below(r.row) } : null
-    const right = onScreen(last.row) ? { x: grid.left + (last.col + 1) * grid.cellW, y: below(last.row) } : null
+    const middle = (row: number, col: number) => ({ x: grid.left + (col + 0.5) * grid.cellW, y: below(row) - grid.cellH / 2 })
+    const left = onScreen(r.row) ? { x: grid.left + r.col * grid.cellW, y: below(r.row), aim: middle(r.row, r.col) } : null
+    const right = onScreen(last.row) ? { x: grid.left + (last.col + 1) * grid.cellW, y: below(last.row), aim: middle(last.row, last.col) } : null
     // Each handle keeps the end it holds: dragged past the other, it takes
     // that side rather than jumping away from the finger.
     const aFirst = cellBefore(sel.a, sel.b)
@@ -294,7 +295,7 @@ export function TerminalSession({
     const searchAddon = new SearchAddon()
     const unicode11Addon = new Unicode11Addon()
     term.loadAddon(fitAddon)
-    term.loadAddon(new WebLinksAddon(openTerminalLink))
+    term.registerLinkProvider(terminalLinkProvider(term))
     term.loadAddon(searchAddon)
     term.loadAddon(unicode11Addon)
     term.unicode.activeVersion = '11'
@@ -388,7 +389,7 @@ export function TerminalSession({
       if (key === 'f' && (e.metaKey || (e.ctrlKey && e.shiftKey))) return false
       if (e.type !== 'keydown' || !e.ctrlKey || !e.shiftKey) return true
       if (key === 'c') {
-        const selection = term.getSelection()
+        const selection = copyableSelection(term)
         if (!selection) return true
         void copyText(selection).then((ok) => {
           if (ok) term.clearSelection()
@@ -990,6 +991,15 @@ export function TerminalSession({
     const rightButtonEvents = ['mousedown', 'mouseup', 'mousemove'] as const
     rightButtonEvents.forEach((type) => container?.addEventListener(type, keepRightButton, true))
     container?.addEventListener('contextmenu', onContextMenu)
+    // The browser's own copy (⌘C, the Edit menu) takes the same text as the
+    // copy bar: xterm's handler, on the element inside, would write its own.
+    const onCopyEvent = (e: ClipboardEvent) => {
+      if (!term.hasSelection() || !e.clipboardData) return
+      e.clipboardData.setData('text/plain', copyableSelection(term))
+      e.preventDefault()
+      e.stopPropagation()
+    }
+    container?.addEventListener('copy', onCopyEvent, true)
 
     // Re-fit when the terminal gains focus (user tapped to type). This
     // self-corrects the size when the page loaded with the keyboard already up
@@ -1022,6 +1032,7 @@ export function TerminalSession({
       liveScroll.dispose()
       rightButtonEvents.forEach((type) => container?.removeEventListener(type, keepRightButton, true))
       container?.removeEventListener('contextmenu', onContextMenu)
+      container?.removeEventListener('copy', onCopyEvent, true)
       container?.removeEventListener('focusin', onFocusIn)
       wsCleanup?.()
       term.dispose()
@@ -1091,7 +1102,7 @@ export function TerminalSession({
   }
   const copyFromMenu = () => {
     const term = termRef.current
-    const text = term?.getSelection() ?? ''
+    const text = term ? copyableSelection(term) : ''
     if (!term || !text) return
     void copyText(text).then((ok) => {
       if (!ok) {
@@ -1163,7 +1174,7 @@ export function TerminalSession({
           measure={measureSelection}
           canCopyLine={sel.line !== null}
           onHandleDrag={dragHandle}
-          onCopy={() => { void copyAndDismiss(termRef.current?.getSelection() ?? '') }}
+          onCopy={() => { void copyAndDismiss(termRef.current ? copyableSelection(termRef.current) : '') }}
           onCopyLine={() => { if (sel.line) void copyAndDismiss(sel.line.text) }}
           onViewAll={() => { dismissSelection(); window.dispatchEvent(new Event(SELECT_TEXT_EVENT)) }}
           onDismiss={dismissSelection}

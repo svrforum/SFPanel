@@ -276,7 +276,6 @@ Includes runtime and build-time packages from the `web` workspace (over-inclusiv
 | `@xterm/addon-fit` | 0.11.0 | MIT |
 | `@xterm/addon-search` | 0.16.0 | MIT |
 | `@xterm/addon-unicode11` | 0.9.0 | MIT |
-| `@xterm/addon-web-links` | 0.12.0 | MIT |
 | `@xterm/xterm` | 6.0.0 | MIT |
 | `acorn` | 8.16.0 | MIT |
 | `ajv` | 6.15.0 | MIT |
