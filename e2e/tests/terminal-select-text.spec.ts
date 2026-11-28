@@ -369,6 +369,33 @@ test('in the Android app a long scroll is a scroll, and a long press still selec
   await expect(page.getByRole('toolbar', { name: 'Copy terminal text' })).toBeVisible()
 })
 
+// What the Android app runs on back, read from the app itself (MainActivity's
+// CLOSE_DIALOG): it sends Escape to what is open in the page and answers true,
+// or answers false and the app goes back a page.
+function appBack(): string {
+  const java = readFileSync(resolve(__dirname, '../../android/app/src/main/java/com/sfpanel/android/MainActivity.java'), 'utf8')
+  const decl = java.match(/CLOSE_DIALOG\s*=\s*((?:"(?:[^"\\]|\\.)*"\s*\+?\s*)+);/)
+  if (!decl) throw new Error('CLOSE_DIALOG is not in MainActivity.java')
+  const body = [...decl[1].matchAll(/"((?:[^"\\]|\\.)*)"/g)].map((m) => JSON.parse(`"${m[1]}"`) as string).join('')
+  return `(()=>{${body}})()`
+}
+
+// Back used to leave the terminal from under an open selection.
+test('in the Android app back closes the selection, and leaves the page only once nothing is open', async ({ page }) => {
+  await mock(page)
+  await openTerminal(page)
+  await screen(page, 'hello world\r\n')
+  await page.evaluate(readFileSync(resolve(__dirname, '../../android/app/src/main/assets/panel.js'), 'utf8'))
+  const at = await cellPoint(page, 0, 2)
+  await touchPress(page, at.x, at.y)
+  await expect(page.getByRole('toolbar', { name: 'Copy terminal text' })).toBeVisible()
+
+  expect(await page.evaluate(appBack())).toBe(true)
+  await expect(page.getByRole('toolbar')).toHaveCount(0)
+  expect(await selection(page)).toBe('')
+  expect(await page.evaluate(appBack())).toBe(false)
+})
+
 test('a temporary shell (no tmux) gives its own buffer, wrapped lines whole', async ({ page }) => {
   await mock(page, { tmux: false })
   await page.goto('/terminal')

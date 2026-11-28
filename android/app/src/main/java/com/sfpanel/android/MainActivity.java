@@ -1063,11 +1063,13 @@ public final class MainActivity extends Activity {
         if (web == null) { finish(); return; }
         // A dialog open in the page closes first, as back closes one anywhere
         // else on Android. It used to navigate the page away underneath it —
-        // from the terminal's text view straight off the terminal.
+        // from the terminal's text view straight off the terminal. The
+        // terminal's long-press selection closes on Escape too, so back closes
+        // it the same way.
         WebView target = web;
         evaluate(CLOSE_DIALOG, result -> { if (!"true".equals(result) && web == target) pageBack(); });
     }
-    private static final String CLOSE_DIALOG = "const d=document.querySelector('[role=dialog][data-state=open],[role=alertdialog][data-state=open]');"
+    private static final String CLOSE_DIALOG = "const d=document.querySelector('[role=dialog][data-state=open],[role=alertdialog][data-state=open],[data-terminal-selection]');"
             + "if(!d)return false;d.dispatchEvent(new KeyboardEvent('keydown',{key:'Escape',code:'Escape',bubbles:true,cancelable:true}));return true;";
     private void pageBack() { if (web.canGoBack()) web.goBack(); else confirmHome(); }
     // API 33+ uses OnBackInvokedDispatcher registered in onCreate; this is
