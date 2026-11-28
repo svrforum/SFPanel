@@ -6,6 +6,29 @@ The format is loosely based on [Keep a Changelog](https://keepachangelog.com/), 
 
 ---
 
+## [0.98.1] – 2026-11-28
+
+Links and copies in a phone's terminal, whole where a program broke them into rows.
+
+### Fixed
+
+- **A long URL that a program broke into rows opened and copied cut off.** Claude Code lays out its own text and ends each row with a real line break, and tmux redraws every row on its own, so the terminal never knew the rows went together: tapping the login URL opened only its first row, and a long press, Copy line and a copy across it stopped at the edge of the screen. A row that a URL fills to its last column now reads on into the next row when that row starts with URL characters in its first column. Tapping a link, a long press, Copy, Copy line and a desktop copy (Ctrl+Shift+C, ⌘C, the context menu) all follow it; other line breaks in a copy stay. A URL that happens to end in the very last column, above a line that starts unindented, is read on into that line — the terminal has nothing to tell the two apart by.
+- **A selection handle at the edge of a phone's screen sat in the strip where Android's back gesture starts**, so a drag of it could be taken for going back. The handles now keep at least 28 px from either side, and a drag moves the selection's end as far as the finger moves, so taking hold of a handle no longer moves the end.
+- A container's shell (Docker › container › Shell) finds links the same way.
+
+### Changed
+
+- The panel finds links in terminal output itself; `@xterm/addon-web-links` is no longer a dependency.
+
+### Android app 0.2.1
+
+- **Back closes a terminal selection** before it leaves the page, as it already did for a dialog. It works with panels from 0.78.5 on.
+
+### Upgrading
+
+- Update every node; the cluster update takes them one at a time.
+- The fixes above need no app update. Update the Android app to 0.2.1 for Back to close a selection (its own update check offers it).
+
 ## [0.98.0] – 2026-11-27
 
 Monitoring agents from the panel. Zabbix Agent 2 and the Wazuh agent are deployed to the cluster's servers, pointed at the servers you set once, and checked for a real connection — not just a running service.
